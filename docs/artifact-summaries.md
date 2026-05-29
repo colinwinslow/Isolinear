@@ -1,0 +1,37 @@
+# Artifact Summaries
+
+## `AGENTS.md`
+
+Operating rules for Codex and other coding agents. It explains the project identity, required startup behavior, safety rules, rendering rules, testing rules, and closeout report format.
+
+## `HANDOFF.md`
+
+Continuity file for agentic engineering sessions. It records current phase, architecture direction, open design details, and the next recommended work packet.
+
+## `codex/startup.md`
+
+The ritual a coding agent should run at the beginning of a session. It forces the agent to read the project contract before editing files.
+
+## `codex/closeout.md`
+
+The ritual a coding agent should run before ending a session. It forces tests, evals, drift checks, handoff updates, and an audit-friendly closeout summary.
+
+## ADRs
+
+Architecture Decision Records. These lock load-bearing decisions such as integration plus worker, dashboard card first, entity allowlisting, chart-spec-first rendering, schema contracts, validation, local-first model provider, and read-only sandbox security.
+
+## Specs
+
+Behavioral prose contracts. These describe what the product, integration, dashboard card, entity resolver, memory system, renderer, history normalizer, worker, validation layer, model provider, and security model must do.
+
+## BDDs
+
+Concrete Gherkin scenarios. These turn fuzzy requirements into testable examples for prompt-to-chart, allowlisting, clarification, memory, normalization, rendering, sandboxing, validation, and dashboard UI.
+
+## Schemas
+
+Machine-checkable JSON contracts used internally by the product. Users do not write these. They constrain model outputs, worker requests, render results, and validation results.
+
+## Evals
+
+BDD-derived evaluation outlines. These are not a complete eval runner yet, but they define the expected behavior for early agentic engineering test cases.

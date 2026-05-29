@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/render-result.schema.json",
+  "title": "RenderResult",
+  "type": "object",
+  "required": [
+    "request_id",
+    "status"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "success",
+        "failed"
+      ]
+    },
+    "image_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "image_mime_type": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "image_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "error": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "render_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "series_plotted": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "overlays_plotted": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "x_min": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "x_max": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "codegen_attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "default": {}
+    }
+  }
+}

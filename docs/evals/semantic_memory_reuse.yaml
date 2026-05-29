@@ -1,0 +1,10 @@
+id: semantic_memory_reuse
+summary: A saved aggregate alias should be reused without repeating the same clarification.
+fixtures:
+  entity_catalog: fixtures/entities/ambiguous_upstairs_temperature_catalog.json
+  semantic_memory: fixtures/memory/upstairs_temperature_alias.json
+prompt: Show upstairs temperature overnight
+expect:
+  planner_status: chart_spec_ready
+  uses_alias: upstairs_temperature
+  should_not_ask_clarification: true

@@ -1,0 +1,14 @@
+id: threshold_interval_inference
+summary: Continuous current or power sensors can be proposed as interval sources when the prompt asks for running periods.
+fixtures:
+  entity_catalog: fixtures/entities/current_sensor_catalog.json
+prompt: Mark when the dishwasher was running over the last day
+expect:
+  planner_status: clarification_needed
+  clarification_contains:
+    - threshold
+    - dishwasher
+    - running
+  candidate_entities:
+    - sensor.dishwasher_power
+  requires_user_confirmation: true

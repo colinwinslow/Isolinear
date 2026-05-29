@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/entity-catalog-item.schema.json",
+  "title": "EntityCatalogItem",
+  "type": "object",
+  "required": [
+    "entity_id",
+    "domain",
+    "visible_to_agent"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "entity_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9_]+\\.[a-zA-Z0-9_]+$"
+    },
+    "friendly_name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "domain": {
+      "type": "string"
+    },
+    "device_class": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "state_class": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "unit_of_measurement": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "area": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "device_name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "integration": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "current_state": {
+      "type": [
+        "string",
+        "number",
+        "boolean",
+        "null"
+      ]
+    },
+    "attributes": {
+      "type": "object",
+      "additionalProperties": true,
+      "default": {}
+    },
+    "visible_to_agent": {
+      "type": "boolean"
+    }
+  }
+}

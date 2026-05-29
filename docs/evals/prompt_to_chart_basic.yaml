@@ -1,0 +1,17 @@
+id: prompt_to_chart_basic
+summary: Basic prompt produces a chart spec and renderable chart for two approved temperature sensors.
+fixtures:
+  entity_catalog: fixtures/entities/basic_temperature_catalog.json
+  history: fixtures/history/basic_temperature_history.json
+prompt: Compare upstairs and downstairs temperatures over the last 24 hours
+expect:
+  planner_status: chart_spec_ready
+  chart_type: time_series
+  required_series:
+    - sensor.upstairs_temperature
+    - sensor.downstairs_temperature
+  time_range:
+    type: relative
+    duration: 24h
+  render_mode: safe
+  validation_status: pass

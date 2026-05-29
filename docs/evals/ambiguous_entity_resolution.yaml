@@ -1,0 +1,15 @@
+id: ambiguous_entity_resolution
+summary: Multiple upstairs temperature sensors should produce a clarification proposing an aggregate.
+fixtures:
+  entity_catalog: fixtures/entities/ambiguous_upstairs_temperature_catalog.json
+prompt: Compare upstairs temperature and downstairs temperature
+expect:
+  planner_status: clarification_needed
+  clarification_contains:
+    - average
+    - upstairs
+  candidate_entities:
+    - sensor.upstairs_hall_temperature
+    - sensor.primary_bedroom_temperature
+    - sensor.family_room_temperature
+  can_remember: true
