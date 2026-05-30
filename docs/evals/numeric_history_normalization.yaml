@@ -1,0 +1,27 @@
+id: numeric_history_normalization
+summary: Raw numeric Home Assistant state records normalize numeric strings and missing values into HistorySeries.
+fixtures:
+  history: fixtures/history/raw_numeric_temperature_history.json
+expect:
+  series_id: upstairs_temperature
+  source_entity_id: sensor.upstairs_temperature
+  unit: "\u00b0F"
+  values:
+    - 70.8
+    - 71.2
+    - null
+    - null
+    - 70.9
+  raw_states:
+    - "70.8"
+    - "71.2"
+    - unknown
+    - unavailable
+    - "70.9"
+  qualities:
+    - ok
+    - ok
+    - unknown
+    - unavailable
+    - ok
+  validation_status: pass

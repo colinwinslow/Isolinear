@@ -1,0 +1,14 @@
+id: binary_state_interval_extraction
+summary: Binary state history extracts active running intervals and feeds the shaded interval renderer.
+fixtures:
+  history: fixtures/history/dishwasher_binary_state_history.json
+  chart_spec: fixtures/chart_specs/temperature_with_dishwasher_overlay.json
+expect:
+  derived_interval_id: dishwasher_running
+  source_entity_id: binary_sensor.dishwasher
+  active_state: "on"
+  interval_count: 1
+  render_status: success
+  overlays_plotted:
+    - dishwasher_running
+  validation_status: pass

@@ -9,12 +9,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from Isolinear.fake_slice import (  # noqa: E402
+    extract_state_intervals,
     get_fake_approved_entity_catalog,
+    get_fake_dishwasher_state_history,
     get_fake_normalized_history,
+    get_fake_raw_numeric_history_records,
     invoke_fake_prompt_to_chart,
     invoke_trusted_renderer,
     invoke_validated_chart_plan,
     iso_timestamp,
+    normalize_numeric_history_records,
     validate_chart_job,
 )
 from Isolinear.contracts import (  # noqa: E402
@@ -36,7 +40,7 @@ class FakeVerticalSliceTests(unittest.TestCase):
         except ContractValidationError as exc:
             self.fail(str(exc))
 
-    def test_fake_catalog_contains_only_approved_temperature_entities(self):
+    def test_fake_catalog_contains_approved_temperature_and_binary_entities(self):
         catalog = get_fake_approved_entity_catalog()
 
         self.assertEqual(
@@ -44,12 +48,15 @@ class FakeVerticalSliceTests(unittest.TestCase):
             [
                 "sensor.upstairs_temperature",
                 "sensor.downstairs_temperature",
+                "binary_sensor.dishwasher",
             ],
         )
         self.assertTrue(all(item["visible_to_agent"] for item in catalog))
         self.assertEqual(catalog[0]["area"], "Hallway")
         self.assertEqual(catalog[1]["area"], "Living Room")
         self.assertEqual(catalog[0]["unit_of_measurement"], self.expected_unit)
+        self.assertEqual(catalog[2]["area"], "Kitchen")
+        self.assertEqual(catalog[2]["current_state"], "off")
         for item in catalog:
             self.assert_contract_valid("entity-catalog-item", item)
 
@@ -68,6 +75,71 @@ class FakeVerticalSliceTests(unittest.TestCase):
                 self.assertEqual(point["quality"], "ok")
                 self.assertIsInstance(point["value"], float)
             self.assert_contract_valid("history-series", series)
+
+    def test_raw_numeric_history_normalizes_strings_and_missing_states(self):
+        raw_records = get_fake_raw_numeric_history_records(now=self.now)
+        series = normalize_numeric_history_records(
+            raw_records=raw_records,
+            series_id="upstairs_temperature",
+            entity_id="sensor.upstairs_temperature",
+            label="Upstairs Temperature",
+            unit=self.expected_unit,
+        )
+
+        self.assertEqual(series["series_id"], "upstairs_temperature")
+        self.assertEqual(series["entity_id"], "sensor.upstairs_temperature")
+        self.assertEqual(series["kind"], "numeric")
+        self.assertEqual(series["unit"], self.expected_unit)
+        self.assertEqual(series["source_entity_ids"], ["sensor.upstairs_temperature"])
+        self.assertEqual(
+            [point["ts"] for point in series["points"]],
+            [record["last_changed"] for record in raw_records],
+        )
+        self.assertEqual(
+            [point["value"] for point in series["points"]],
+            [70.8, 71.2, None, None, 70.9],
+        )
+        self.assertEqual(
+            [point["raw_state"] for point in series["points"]],
+            ["70.8", "71.2", "unknown", "unavailable", "70.9"],
+        )
+        self.assertEqual(
+            [point["quality"] for point in series["points"]],
+            ["ok", "ok", "unknown", "unavailable", "ok"],
+        )
+        self.assertTrue(any("unknown" in warning for warning in series["warnings"]))
+        self.assertTrue(any("unavailable" in warning for warning in series["warnings"]))
+        self.assert_contract_valid("history-series", series)
+
+    def test_binary_state_history_extracts_active_interval(self):
+        history_series = get_fake_dishwasher_state_history(now=self.now)
+        derived_interval = extract_state_intervals(
+            history_series=history_series,
+            interval_id="dishwasher_running",
+            label="Dishwasher Running",
+            active_values=["on"],
+            range_end=self.now,
+        )
+
+        self.assertEqual(history_series["kind"], "binary_state")
+        self.assertEqual(
+            [point["value"] for point in history_series["points"]],
+            ["off", "on", "off"],
+        )
+        self.assertEqual(derived_interval["interval_id"], "dishwasher_running")
+        self.assertEqual(derived_interval["source_entity_id"], "binary_sensor.dishwasher")
+        self.assertEqual(len(derived_interval["intervals"]), 1)
+        self.assertEqual(
+            derived_interval["intervals"][0]["start"],
+            iso_timestamp(self.start + timedelta(hours=8)),
+        )
+        self.assertEqual(
+            derived_interval["intervals"][0]["end"],
+            iso_timestamp(self.start + timedelta(hours=10)),
+        )
+        self.assertEqual(derived_interval["intervals"][0]["state"], "on")
+        self.assert_contract_valid("history-series", history_series)
+        self.assert_contract_valid("derived-interval", derived_interval)
 
     def test_prompt_to_chart_slice_renders_png_and_passes_validation(self):
         output_root = REPO_ROOT / ".test-output"
@@ -227,6 +299,170 @@ class FakeVerticalSliceTests(unittest.TestCase):
             ["sensor.hidden_temperature"],
         )
         self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("render-result", render_result)
+        self.assert_contract_valid("validation-result", validation_result)
+
+    def test_validation_fails_when_expected_overlay_is_missing_from_render_metadata(self):
+        catalog = get_fake_approved_entity_catalog()
+        chart_spec = {
+            "chart_id": "temperature_with_dishwasher_overlay",
+            "chart_type": "time_series",
+            "title": "Temperature With Dishwasher Running",
+            "time_range": {"type": "relative", "duration": "24h"},
+            "series": [
+                {
+                    "series_id": "upstairs_temperature",
+                    "label": "Upstairs Temperature",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "binary_sensor.dishwasher",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "line",
+                    "transform": None,
+                    "unit": self.expected_unit,
+                }
+            ],
+            "overlays": [
+                {
+                    "overlay_id": "dishwasher_running",
+                    "label": "Dishwasher Running",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.upstairs_temperature",
+                        "attribute": None,
+                    },
+                    "render_as": "shaded_intervals",
+                    "active_values": ["on"],
+                }
+            ],
+            "x_axis": {"type": "time"},
+            "y_axis": {"label": self.expected_unit},
+            "notes": [],
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            image_path = Path(run_directory) / "overlay-missing.png"
+            image_path.write_bytes(b"\x89PNG\r\n\x1a\nfake")
+            render_result = {
+                "request_id": "overlay-missing",
+                "status": "success",
+                "image_id": "overlay-missing.png",
+                "image_mime_type": "image/png",
+                "image_path": str(image_path),
+                "error": None,
+                "render_metadata": {
+                    "title": "Temperature With Dishwasher Running",
+                    "series_plotted": ["upstairs_temperature"],
+                    "overlays_plotted": [],
+                    "x_min": iso_timestamp(self.start),
+                    "x_max": iso_timestamp(self.now),
+                    "warnings": [],
+                    "codegen_attempts": 0,
+                },
+            }
+
+            validation_result = validate_chart_job(
+                chart_spec=chart_spec,
+                render_result=render_result,
+                entity_catalog=catalog,
+                expected_start=self.start,
+                expected_end=self.now,
+            )
+
+        self.assertEqual(validation_result["status"], "fail")
+        overlay_check = next(
+            check for check in validation_result["checks"] if check["name"] == "rendered_overlays"
+        )
+        self.assertEqual(overlay_check["status"], "fail")
+        self.assertEqual(
+            overlay_check["details"]["missing_overlay_ids"],
+            ["dishwasher_running"],
+        )
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("render-result", render_result)
+        self.assert_contract_valid("validation-result", validation_result)
+
+    def test_safe_renderer_plots_shaded_interval_overlay(self):
+        chart_spec = {
+            "chart_id": "temperature_with_dishwasher_overlay",
+            "chart_type": "time_series",
+            "title": "Temperature With Dishwasher Running",
+            "time_range": {"type": "relative", "duration": "24h"},
+            "series": [
+                {
+                    "series_id": "upstairs_temperature",
+                    "label": "Upstairs Temperature",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.upstairs_temperature",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "line",
+                    "transform": None,
+                    "unit": self.expected_unit,
+                }
+            ],
+            "overlays": [
+                {
+                    "overlay_id": "dishwasher_running",
+                    "label": "Dishwasher Running",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.upstairs_temperature",
+                        "attribute": None,
+                    },
+                    "render_as": "shaded_intervals",
+                    "active_values": ["on"],
+                }
+            ],
+            "x_axis": {"type": "time"},
+            "y_axis": {"label": self.expected_unit},
+            "notes": [],
+        }
+        dishwasher_history = get_fake_dishwasher_state_history(now=self.now)
+        derived_interval = extract_state_intervals(
+            history_series=dishwasher_history,
+            interval_id="dishwasher_running",
+            label="Dishwasher Running",
+            active_values=["on"],
+            range_end=self.now,
+        )
+        render_request = {
+            "request_id": "fake-shaded-overlay",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": get_fake_normalized_history(now=self.now),
+            "derived_intervals": [derived_interval],
+            "output": {"format": "png", "width": 1000, "height": 600},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            validation_result = validate_chart_job(
+                chart_spec=chart_spec,
+                render_result=render_result,
+                entity_catalog=get_fake_approved_entity_catalog(),
+                expected_start=self.start,
+                expected_end=self.now,
+            )
+
+        self.assertEqual(render_result["status"], "success")
+        self.assertEqual(
+            render_result["render_metadata"]["overlays_plotted"],
+            ["dishwasher_running"],
+        )
+        self.assertEqual(validation_result["status"], "pass")
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("derived-interval", derived_interval)
+        self.assert_contract_valid("render-request", render_request)
         self.assert_contract_valid("render-result", render_result)
         self.assert_contract_valid("validation-result", validation_result)
 

@@ -1,0 +1,10 @@
+id: missing_overlay_validation
+summary: Render metadata validation fails when a chart spec expects an overlay that was not plotted.
+fixtures:
+  chart_spec: fixtures/chart_specs/temperature_with_dishwasher_overlay.json
+  render_result: fixtures/render_results/missing_overlay_metadata.json
+expect:
+  validation_status: fail
+  failed_check: rendered_overlays
+  missing_overlay:
+    - dishwasher_running

@@ -1,0 +1,12 @@
+id: shaded_interval_rendering
+summary: Trusted safe-mode renderer plots a shaded interval overlay and reports it in render metadata.
+fixtures:
+  chart_spec: fixtures/chart_specs/temperature_with_dishwasher_overlay.json
+  history: fixtures/history/basic_temperature_history.json
+  derived_intervals: fixtures/derived_intervals/dishwasher_running.json
+expect:
+  render_status: success
+  image_created: true
+  overlays_plotted:
+    - dishwasher_running
+  validation_status: pass

@@ -53,6 +53,21 @@ def get_fake_approved_entity_catalog() -> list[dict[str, Any]]:
             "attributes": {},
             "visible_to_agent": True,
         },
+        {
+            "entity_id": "binary_sensor.dishwasher",
+            "friendly_name": "Dishwasher",
+            "domain": "binary_sensor",
+            "device_class": "running",
+            "state_class": None,
+            "unit_of_measurement": None,
+            "area": "Kitchen",
+            "labels": ["dishwasher"],
+            "device_name": "Fake Dishwasher",
+            "integration": "fake_provider",
+            "current_state": "off",
+            "attributes": {},
+            "visible_to_agent": True,
+        },
     ]
 
 
@@ -111,6 +126,169 @@ def get_fake_normalized_history(now: datetime | None = None) -> list[dict[str, A
             values=[68.9, 69.5, 70.2, 70.0, 69.3],
         ),
     ]
+
+
+def get_fake_raw_numeric_history_records(now: datetime | None = None) -> list[dict[str, Any]]:
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    offsets = [-24, -18, -12, -6, 0]
+    states = ["70.8", "71.2", "unknown", "unavailable", "70.9"]
+
+    return [
+        {
+            "entity_id": "sensor.upstairs_temperature",
+            "state": states[index],
+            "last_changed": iso_timestamp(now + timedelta(hours=offset)),
+            "attributes": {
+                "unit_of_measurement": TEMPERATURE_UNIT,
+            },
+        }
+        for index, offset in enumerate(offsets)
+    ]
+
+
+def normalize_numeric_history_records(
+    *,
+    raw_records: list[dict[str, Any]],
+    series_id: str,
+    entity_id: str,
+    label: str,
+    unit: str | None,
+) -> dict[str, Any]:
+    points = []
+    warnings = []
+
+    for record in raw_records:
+        raw_state = record.get("state")
+        state_text = str(raw_state) if raw_state is not None else None
+
+        if state_text in {"unknown", "unavailable"}:
+            value = None
+            quality = state_text
+            warnings.append(
+                f"State '{state_text}' for {entity_id} normalized to missing value."
+            )
+        else:
+            try:
+                value = float(raw_state)
+            except (TypeError, ValueError):
+                value = None
+                quality = "invalid"
+                warnings.append(
+                    f"State '{state_text}' for {entity_id} is not a valid numeric value."
+                )
+            else:
+                quality = "ok"
+
+        points.append(
+            {
+                "ts": record["last_changed"],
+                "value": value,
+                "raw_state": raw_state,
+                "quality": quality,
+            }
+        )
+
+    return {
+        "series_id": series_id,
+        "entity_id": entity_id,
+        "label": label,
+        "kind": "numeric",
+        "unit": unit,
+        "points": points,
+        "source_entity_ids": [entity_id],
+        "warnings": warnings,
+    }
+
+
+def _new_state_point(timestamp: datetime, state: str) -> dict[str, Any]:
+    return {
+        "ts": iso_timestamp(timestamp),
+        "value": state,
+        "raw_state": state,
+        "quality": "ok",
+    }
+
+
+def get_fake_dishwasher_state_history(now: datetime | None = None) -> dict[str, Any]:
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    start = now - timedelta(hours=24)
+
+    return {
+        "series_id": "dishwasher_state",
+        "entity_id": "binary_sensor.dishwasher",
+        "label": "Dishwasher",
+        "kind": "binary_state",
+        "unit": None,
+        "points": [
+            _new_state_point(start, "off"),
+            _new_state_point(start + timedelta(hours=8), "on"),
+            _new_state_point(start + timedelta(hours=10), "off"),
+        ],
+        "source_entity_ids": ["binary_sensor.dishwasher"],
+        "warnings": [],
+    }
+
+
+def extract_state_intervals(
+    *,
+    history_series: dict[str, Any],
+    interval_id: str,
+    label: str,
+    active_values: list[str],
+    range_end: datetime,
+) -> dict[str, Any]:
+    active_value_set = {str(value) for value in active_values}
+    active_start = None
+    active_state = None
+    intervals = []
+
+    points = sorted(
+        history_series.get("points", []),
+        key=lambda point: datetime.fromisoformat(point["ts"]),
+    )
+
+    for point in points:
+        timestamp = datetime.fromisoformat(point["ts"])
+        state = str(point.get("value", point.get("raw_state")))
+
+        if state in active_value_set and active_start is None:
+            active_start = timestamp
+            active_state = state
+        elif state not in active_value_set and active_start is not None:
+            intervals.append(
+                {
+                    "start": iso_timestamp(active_start),
+                    "end": iso_timestamp(timestamp),
+                    "state": active_state,
+                    "reason": f"State was {active_state}.",
+                }
+            )
+            active_start = None
+            active_state = None
+
+    if active_start is not None:
+        intervals.append(
+            {
+                "start": iso_timestamp(active_start),
+                "end": iso_timestamp(range_end),
+                "state": active_state,
+                "reason": f"State was {active_state}.",
+            }
+        )
+
+    return {
+        "interval_id": interval_id,
+        "label": label,
+        "source_entity_id": history_series["entity_id"],
+        "source_attribute": None,
+        "rule": {"active_values": active_values},
+        "intervals": intervals,
+        "warnings": [],
+    }
 
 
 def create_deterministic_planner_result(
@@ -370,6 +548,7 @@ def _write_time_series_png(
     *,
     chart_spec: dict[str, Any],
     series_to_plot: list[dict[str, Any]],
+    overlays_to_plot: list[dict[str, Any]],
     image_path: Path,
     width: int,
     height: int,
@@ -402,9 +581,23 @@ def _write_time_series_png(
     axis_color = (80, 88, 100)
     grid_color = (224, 228, 235)
     title_color = (30, 36, 45)
+    overlay_color = (245, 232, 190)
     palette = [(32, 121, 199), (222, 112, 34)]
 
     canvas.draw_rect(28, 24, min(width - 28, 28 + (len(chart_spec["title"]) * 7)), 29, title_color)
+
+    for overlay in overlays_to_plot:
+        for interval in overlay["derived_interval"].get("intervals", []):
+            interval_start = datetime.fromisoformat(interval["start"])
+            interval_end = datetime.fromisoformat(interval["end"])
+            if interval_end < x_min or interval_start > x_max:
+                continue
+
+            clipped_start = max(interval_start, x_min)
+            clipped_end = min(interval_end, x_max)
+            x0 = plot_left + int(((clipped_start - x_min).total_seconds() / total_seconds) * plot_width)
+            x1 = plot_left + int(((clipped_end - x_min).total_seconds() / total_seconds) * plot_width)
+            canvas.draw_rect(x0, plot_top, max(x0 + 1, x1), height - plot_bottom, overlay_color)
 
     for grid_index in range(5):
         y = int(plot_top + ((plot_height / 4) * grid_index))
@@ -474,6 +667,11 @@ def invoke_trusted_renderer(
 
     history_map = _history_series_map(render_request["history_series"])
     series_to_plot = []
+    derived_interval_map = {
+        interval["interval_id"]: interval
+        for interval in render_request.get("derived_intervals", [])
+    }
+    overlays_to_plot = []
     warnings = []
 
     for series_spec in render_request["chart_spec"]["series"]:
@@ -482,6 +680,18 @@ def invoke_trusted_renderer(
             series_to_plot.append(history_map[series_id])
         else:
             warnings.append(f"Missing history for series '{series_id}'.")
+
+    for overlay_spec in render_request["chart_spec"].get("overlays", []):
+        overlay_id = overlay_spec["overlay_id"]
+        if overlay_spec["render_as"] == "shaded_intervals" and overlay_id in derived_interval_map:
+            overlays_to_plot.append(
+                {
+                    "overlay_id": overlay_id,
+                    "derived_interval": derived_interval_map[overlay_id],
+                }
+            )
+        else:
+            warnings.append(f"Missing derived intervals for overlay '{overlay_id}'.")
 
     if not series_to_plot:
         return _new_render_failure(
@@ -502,6 +712,7 @@ def invoke_trusted_renderer(
         extent_metadata = _write_time_series_png(
             chart_spec=render_request["chart_spec"],
             series_to_plot=series_to_plot,
+            overlays_to_plot=overlays_to_plot,
             image_path=image_path,
             width=width,
             height=height,
@@ -523,7 +734,7 @@ def invoke_trusted_renderer(
         "render_metadata": {
             "title": render_request["chart_spec"]["title"],
             "series_plotted": [series["series_id"] for series in series_to_plot],
-            "overlays_plotted": [],
+            "overlays_plotted": [overlay["overlay_id"] for overlay in overlays_to_plot],
             "x_min": extent_metadata["x_min"],
             "x_max": extent_metadata["x_max"],
             "warnings": warnings,
@@ -773,6 +984,32 @@ def validate_chart_job(
                 status="fail",
                 message="Render metadata is missing expected series.",
                 details={"missing_series_ids": missing_series_ids},
+            )
+        )
+
+    expected_overlay_ids = [overlay["overlay_id"] for overlay in chart_spec.get("overlays", [])]
+    plotted_overlay_ids = render_result.get("render_metadata", {}).get("overlays_plotted", [])
+    missing_overlay_ids = [
+        overlay_id
+        for overlay_id in expected_overlay_ids
+        if overlay_id not in plotted_overlay_ids
+    ]
+
+    if not missing_overlay_ids:
+        checks.append(
+            _new_check(
+                name="rendered_overlays",
+                status="pass",
+                message="Render metadata lists every expected overlay.",
+            )
+        )
+    else:
+        checks.append(
+            _new_check(
+                name="rendered_overlays",
+                status="fail",
+                message="Render metadata is missing expected overlays.",
+                details={"missing_overlay_ids": missing_overlay_ids},
             )
         )
 
