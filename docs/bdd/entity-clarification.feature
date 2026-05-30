@@ -21,3 +21,9 @@ Feature: Entity clarification
       | climate.main_floor           | Main Floor Climate | climate       |              |      |
     When the user prompts "Mark when the air conditioning was running"
     Then the system should ask which entity or rule represents air conditioning running
+
+  Scenario: Continuous power sensor proposes a threshold confirmation
+    Given "sensor.dishwasher_power" is visible to the agent
+    When the user prompts "Mark when the dishwasher was running over the last day"
+    Then the system should ask whether dishwasher running means "sensor.dishwasher_power > 5 W"
+    And the question should offer to use the answer once or remember it

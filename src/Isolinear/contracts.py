@@ -9,12 +9,14 @@ from typing import Any
 
 SCHEMA_NAMES = {
     "chart-spec": "chart-spec.schema.json",
+    "clarification-question": "clarification-question.schema.json",
     "derived-interval": "derived-interval.schema.json",
     "entity-catalog-item": "entity-catalog-item.schema.json",
     "history-series": "history-series.schema.json",
     "planner-result": "planner-result.schema.json",
     "render-request": "render-request.schema.json",
     "render-result": "render-result.schema.json",
+    "semantic-alias": "semantic-alias.schema.json",
     "validation-result": "validation-result.schema.json",
 }
 
@@ -48,6 +50,12 @@ def validate_fake_prompt_to_chart_contracts(
     validate_contract("planner-result", planner_result, repo_root=repo_root)
     if planner_result.get("chart_spec") is not None:
         validate_contract("chart-spec", planner_result["chart_spec"], repo_root=repo_root)
+    if planner_result.get("clarification_question") is not None:
+        validate_contract(
+            "clarification-question",
+            planner_result["clarification_question"],
+            repo_root=repo_root,
+        )
 
     render_request = result.get("render_request")
     if render_request is not None:
@@ -65,6 +73,9 @@ def validate_fake_prompt_to_chart_contracts(
     validation_result = result.get("validation_result")
     if validation_result is not None:
         validate_contract("validation-result", validation_result, repo_root=repo_root)
+
+    for alias in result.get("saved_semantic_aliases", []):
+        validate_contract("semantic-alias", alias, repo_root=repo_root)
 
 
 def _load_schema(contract_name: str, *, repo_root: Path | None) -> dict[str, Any]:

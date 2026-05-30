@@ -11,6 +11,7 @@ from Isolinear.contracts import ContractValidationError, validate_contract
 
 
 TEMPERATURE_UNIT = "\u00b0F"
+POWER_UNIT = "W"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
@@ -65,6 +66,21 @@ def get_fake_approved_entity_catalog() -> list[dict[str, Any]]:
             "device_name": "Fake Dishwasher",
             "integration": "fake_provider",
             "current_state": "off",
+            "attributes": {},
+            "visible_to_agent": True,
+        },
+        {
+            "entity_id": "sensor.dishwasher_power",
+            "friendly_name": "Dishwasher Power",
+            "domain": "sensor",
+            "device_class": "power",
+            "state_class": "measurement",
+            "unit_of_measurement": POWER_UNIT,
+            "area": "Kitchen",
+            "labels": ["dishwasher"],
+            "device_name": "Fake Dishwasher",
+            "integration": "fake_provider",
+            "current_state": 0.5,
             "attributes": {},
             "visible_to_agent": True,
         },
@@ -233,6 +249,29 @@ def get_fake_dishwasher_state_history(now: datetime | None = None) -> dict[str, 
     }
 
 
+def get_fake_dishwasher_power_history(now: datetime | None = None) -> dict[str, Any]:
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    start = now - timedelta(hours=24)
+    offsets = [0, 6, 8, 9, 10, 24]
+    values = [0.4, 0.6, 9.8, 42.0, 3.2, 0.5]
+
+    return {
+        "series_id": "dishwasher_power",
+        "entity_id": "sensor.dishwasher_power",
+        "label": "Dishwasher Power",
+        "kind": "numeric",
+        "unit": POWER_UNIT,
+        "points": [
+            _new_history_point(start + timedelta(hours=offset), values[index])
+            for index, offset in enumerate(offsets)
+        ],
+        "source_entity_ids": ["sensor.dishwasher_power"],
+        "warnings": [],
+    }
+
+
 def extract_state_intervals(
     *,
     history_series: dict[str, Any],
@@ -291,10 +330,143 @@ def extract_state_intervals(
     }
 
 
+def _threshold_matches(value: float, operator: str, threshold_value: float) -> bool:
+    if operator == ">":
+        return value > threshold_value
+    if operator == ">=":
+        return value >= threshold_value
+    if operator == "<":
+        return value < threshold_value
+    if operator == "<=":
+        return value <= threshold_value
+    if operator == "==":
+        return value == threshold_value
+    if operator == "!=":
+        return value != threshold_value
+    raise ValueError(f"Unsupported threshold operator: {operator}")
+
+
+def _format_threshold_rule(threshold: dict[str, Any]) -> str:
+    unit = threshold.get("unit")
+    unit_suffix = f" {unit}" if unit else ""
+    return f"value {threshold['operator']} {threshold['value']}{unit_suffix}"
+
+
+def extract_threshold_intervals(
+    *,
+    history_series: dict[str, Any],
+    interval_id: str,
+    label: str,
+    threshold: dict[str, Any],
+    range_end: datetime,
+) -> dict[str, Any]:
+    operator = threshold["operator"]
+    threshold_value = float(threshold["value"])
+    active_start = None
+    intervals = []
+    rule_text = _format_threshold_rule(threshold)
+
+    points = sorted(
+        history_series.get("points", []),
+        key=lambda point: datetime.fromisoformat(point["ts"]),
+    )
+
+    for point in points:
+        timestamp = datetime.fromisoformat(point["ts"])
+        value = point.get("value")
+        is_active = (
+            value is not None
+            and _threshold_matches(float(value), operator, threshold_value)
+        )
+
+        if is_active and active_start is None:
+            active_start = timestamp
+        elif not is_active and active_start is not None:
+            intervals.append(
+                {
+                    "start": iso_timestamp(active_start),
+                    "end": iso_timestamp(timestamp),
+                    "state": True,
+                    "reason": f"Threshold matched: {rule_text}.",
+                }
+            )
+            active_start = None
+
+    if active_start is not None:
+        intervals.append(
+            {
+                "start": iso_timestamp(active_start),
+                "end": iso_timestamp(range_end),
+                "state": True,
+                "reason": f"Threshold matched: {rule_text}.",
+            }
+        )
+
+    return {
+        "interval_id": interval_id,
+        "label": label,
+        "source_entity_id": history_series["entity_id"],
+        "source_attribute": None,
+        "rule": threshold,
+        "intervals": intervals,
+        "warnings": [],
+    }
+
+
 def create_deterministic_planner_result(
     prompt: str,
     entity_catalog: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    by_entity_id = {
+        item["entity_id"]: item
+        for item in entity_catalog
+        if item.get("visible_to_agent")
+    }
+    threshold_prompt = (
+        re.search(r"mark", prompt, re.IGNORECASE)
+        and re.search(r"dishwasher", prompt, re.IGNORECASE)
+        and re.search(r"running", prompt, re.IGNORECASE)
+        and re.search(r"(last\s+day|over\s+the\s+last\s+day|last\s+24\s+hours|24\s*hours)", prompt, re.IGNORECASE)
+    )
+
+    if threshold_prompt and "sensor.dishwasher_power" in by_entity_id:
+        return {
+            "status": "clarification_needed",
+            "chart_spec": None,
+            "clarification_question": {
+                "question_id": "confirm_dishwasher_power_threshold",
+                "message": (
+                    "Should dishwasher running be marked with a threshold where "
+                    "sensor.dishwasher_power is greater than 5 W?"
+                ),
+                "reason": (
+                    "The approved dishwasher power sensor is continuous, so the "
+                    "running interval needs a confirmed threshold before rendering."
+                ),
+                "options": [
+                    {
+                        "option_id": "use_dishwasher_power_gt_5w",
+                        "label": "Dishwasher power > 5 W",
+                        "value": {
+                            "type": "threshold_interval",
+                            "entity_id": "sensor.dishwasher_power",
+                            "operator": ">",
+                            "value": 5,
+                            "unit": POWER_UNIT,
+                        },
+                        "can_remember": True,
+                    }
+                ],
+                "allow_free_text": True,
+            },
+            "memory_proposals": [],
+            "reasoning_summary": (
+                "Proposed a threshold-derived interval for the approved dishwasher "
+                "power sensor and requested user confirmation."
+            ),
+            "warnings": ["threshold_confirmation_required"],
+        }
+
     supported_prompt = (
         re.search(r"compare", prompt, re.IGNORECASE)
         and re.search(r"upstairs", prompt, re.IGNORECASE)
@@ -316,11 +488,6 @@ def create_deterministic_planner_result(
             "warnings": ["unsupported_fake_prompt"],
         }
 
-    by_entity_id = {
-        item["entity_id"]: item
-        for item in entity_catalog
-        if item.get("visible_to_agent")
-    }
     required_entity_ids = [
         "sensor.upstairs_temperature",
         "sensor.downstairs_temperature",
@@ -1127,9 +1294,33 @@ def invoke_fake_prompt_to_chart(
     prompt: str,
     output_directory: Path,
     now: datetime | None = None,
+    semantic_aliases: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if now is None:
         now = datetime.now(timezone.utc)
+
+    semantic_aliases = [] if semantic_aliases is None else semantic_aliases
+    for alias in semantic_aliases:
+        natural_names = {name.lower() for name in alias.get("natural_names", [])}
+        meaning = alias.get("meaning", {})
+        if (
+            alias.get("enabled", True)
+            and "dishwasher running" in natural_names
+            and meaning.get("type") == "threshold_interval"
+            and re.search(r"dishwasher", prompt, re.IGNORECASE)
+            and re.search(r"running", prompt, re.IGNORECASE)
+        ):
+            result = invoke_threshold_confirmation_use_once(
+                prompt=prompt,
+                confirmation_value=meaning,
+                output_directory=output_directory,
+                now=now,
+            )
+            result["planner_result"]["reasoning_summary"] = (
+                "Reused saved semantic alias 'dishwasher_running' for the "
+                "dishwasher running threshold."
+            )
+            return result
 
     catalog = get_fake_approved_entity_catalog()
     history = get_fake_normalized_history(now=now)
@@ -1163,3 +1354,181 @@ def invoke_fake_prompt_to_chart(
         "render_result": render_result,
         "validation_result": validation_result,
     }
+
+
+def invoke_threshold_confirmation_use_once(
+    *,
+    prompt: str,
+    confirmation_value: dict[str, Any],
+    output_directory: Path,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    if confirmation_value.get("type") != "threshold_interval":
+        raise ValueError("confirmation_value must be a threshold_interval.")
+    if confirmation_value.get("entity_id") != "sensor.dishwasher_power":
+        raise ValueError("The fake use-once threshold path supports only sensor.dishwasher_power.")
+
+    catalog = get_fake_approved_entity_catalog()
+    history = get_fake_normalized_history(now=now)
+    threshold = {
+        "operator": confirmation_value["operator"],
+        "value": confirmation_value["value"],
+        "unit": confirmation_value.get("unit"),
+    }
+    power_history = get_fake_dishwasher_power_history(now=now)
+    derived_interval = extract_threshold_intervals(
+        history_series=power_history,
+        interval_id="dishwasher_running",
+        label="Dishwasher Running",
+        threshold=threshold,
+        range_end=now,
+    )
+    chart_spec = {
+        "chart_id": "temperature_with_threshold_dishwasher_overlay",
+        "chart_type": "time_series",
+        "title": "Temperature With Dishwasher Running",
+        "time_range": {"type": "relative", "duration": "24h"},
+        "series": [
+            {
+                "series_id": "upstairs_temperature",
+                "label": "Upstairs Temperature",
+                "source": {
+                    "type": "entity",
+                    "entity_id": "sensor.upstairs_temperature",
+                    "attribute": None,
+                },
+                "role": "primary",
+                "render_as": "line",
+                "transform": None,
+                "unit": TEMPERATURE_UNIT,
+            }
+        ],
+        "overlays": [
+            {
+                "overlay_id": "dishwasher_running",
+                "label": "Dishwasher Running",
+                "source": {
+                    "type": "entity",
+                    "entity_id": "sensor.dishwasher_power",
+                    "attribute": None,
+                },
+                "render_as": "shaded_intervals",
+                "threshold": threshold,
+            }
+        ],
+        "x_axis": {"type": "time"},
+        "y_axis": {"label": TEMPERATURE_UNIT},
+        "notes": ["Use-once threshold confirmation."],
+    }
+    planner_result = {
+        "status": "chart_spec_ready",
+        "chart_spec": chart_spec,
+        "clarification_question": None,
+        "memory_proposals": [],
+        "reasoning_summary": (
+            "Applied the user-confirmed dishwasher power threshold once without "
+            "saving semantic memory."
+        ),
+        "warnings": [],
+    }
+
+    plan_validation_result = validate_chart_plan(
+        chart_spec=chart_spec,
+        entity_catalog=catalog,
+    )
+    if plan_validation_result["status"] == "fail":
+        return {
+            "entity_catalog": catalog,
+            "history_series": history,
+            "derived_intervals": [derived_interval],
+            "planner_result": planner_result,
+            "render_request": None,
+            "render_result": None,
+            "validation_result": plan_validation_result,
+            "saved_semantic_aliases": [],
+        }
+
+    render_request = {
+        "request_id": "fake-threshold-use-once",
+        "render_mode": "safe",
+        "chart_spec": chart_spec,
+        "history_series": history,
+        "derived_intervals": [derived_interval],
+        "output": {"format": "png", "width": 1000, "height": 600},
+        "theme": {},
+        "codegen": None,
+    }
+    render_result = invoke_trusted_renderer(
+        render_request=render_request,
+        output_directory=output_directory,
+    )
+    validation_result = validate_chart_job(
+        chart_spec=chart_spec,
+        render_result=render_result,
+        entity_catalog=catalog,
+        expected_start=now - timedelta(hours=24),
+        expected_end=now,
+    )
+
+    return {
+        "entity_catalog": catalog,
+        "history_series": history,
+        "derived_intervals": [derived_interval],
+        "planner_result": planner_result,
+        "render_request": render_request,
+        "render_result": render_result,
+        "validation_result": validation_result,
+        "saved_semantic_aliases": [],
+    }
+
+
+def _alias_id_from_name(alias_name: str) -> str:
+    alias_id = re.sub(r"[^a-z0-9]+", "_", alias_name.lower()).strip("_")
+    if not alias_id:
+        raise ValueError("alias_name must contain at least one alphanumeric character.")
+    return alias_id
+
+
+def invoke_threshold_confirmation_use_and_remember(
+    *,
+    prompt: str,
+    confirmation_value: dict[str, Any],
+    alias_name: str,
+    output_directory: Path,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    result = invoke_threshold_confirmation_use_once(
+        prompt=prompt,
+        confirmation_value=confirmation_value,
+        output_directory=output_directory,
+        now=now,
+    )
+    alias = {
+        "alias_id": _alias_id_from_name(alias_name),
+        "natural_names": [alias_name],
+        "meaning": {
+            "type": "threshold_interval",
+            "entity_id": confirmation_value["entity_id"],
+            "operator": confirmation_value["operator"],
+            "value": confirmation_value["value"],
+            "unit": confirmation_value.get("unit"),
+        },
+        "source": "user_confirmed",
+        "created_from_prompt": prompt,
+        "created_at": iso_timestamp(now),
+        "last_used_at": iso_timestamp(now),
+        "enabled": True,
+    }
+
+    result["saved_semantic_aliases"] = [alias]
+    result["planner_result"]["reasoning_summary"] = (
+        "Applied the user-confirmed dishwasher power threshold and created a "
+        "semantic alias for future prompts."
+    )
+    return result

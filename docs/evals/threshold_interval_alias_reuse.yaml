@@ -1,0 +1,21 @@
+id: threshold_interval_alias_reuse
+summary: A saved dishwasher running threshold alias should be reused without asking the same clarification.
+fixtures:
+  prompt: Mark when the dishwasher was running over the last day
+  semantic_memory:
+    alias_id: dishwasher_running
+    natural_names:
+      - dishwasher running
+    meaning:
+      type: threshold_interval
+      entity_id: sensor.dishwasher_power
+      operator: ">"
+      value: 5
+      unit: W
+expect:
+  planner_status: chart_spec_ready
+  should_not_ask_clarification: true
+  chart_id: temperature_with_threshold_dishwasher_overlay
+  overlays_plotted:
+    - dishwasher_running
+  validation_status: pass

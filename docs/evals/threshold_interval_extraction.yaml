@@ -1,0 +1,17 @@
+id: threshold_interval_extraction
+summary: Confirmed numeric threshold rules extract running intervals and feed the shaded interval renderer.
+fixtures:
+  history: fixtures/history/dishwasher_power_history.json
+  chart_spec: fixtures/chart_specs/temperature_with_threshold_dishwasher_overlay.json
+expect:
+  derived_interval_id: dishwasher_running
+  source_entity_id: sensor.dishwasher_power
+  threshold:
+    operator: ">"
+    value: 5
+    unit: W
+  interval_count: 1
+  render_status: success
+  overlays_plotted:
+    - dishwasher_running
+  validation_status: pass

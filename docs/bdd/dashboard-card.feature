@@ -13,6 +13,12 @@ Feature: Dashboard card
     Then the card should send the clarification answer
     And the job should continue without saving semantic memory
 
+  Scenario: User accepts threshold clarification once
+    Given the system asks whether dishwasher running means "sensor.dishwasher_power > 5 W"
+    When the user chooses "Use once"
+    Then the job should continue with a shaded dishwasher-running overlay
+    And the job should not save semantic memory
+
   Scenario: User views chart result
     Given a chart job completes successfully
     When the card displays the result

@@ -1,0 +1,18 @@
+id: threshold_interval_use_once
+summary: Accepting a proposed dishwasher power threshold once continues to a rendered chart without saving semantic memory.
+fixtures:
+  prompt: Mark when the dishwasher was running over the last day
+  clarification_answer:
+    type: threshold_interval
+    entity_id: sensor.dishwasher_power
+    operator: ">"
+    value: 5
+    unit: W
+expect:
+  planner_status: chart_spec_ready
+  chart_id: temperature_with_threshold_dishwasher_overlay
+  derived_interval_id: dishwasher_running
+  overlays_plotted:
+    - dishwasher_running
+  validation_status: pass
+  saved_semantic_alias_count: 0

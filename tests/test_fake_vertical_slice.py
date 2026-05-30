@@ -9,12 +9,17 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from Isolinear.fake_slice import (  # noqa: E402
+    create_deterministic_planner_result,
     extract_state_intervals,
+    extract_threshold_intervals,
     get_fake_approved_entity_catalog,
+    get_fake_dishwasher_power_history,
     get_fake_dishwasher_state_history,
     get_fake_normalized_history,
     get_fake_raw_numeric_history_records,
     invoke_fake_prompt_to_chart,
+    invoke_threshold_confirmation_use_once,
+    invoke_threshold_confirmation_use_and_remember,
     invoke_trusted_renderer,
     invoke_validated_chart_plan,
     iso_timestamp,
@@ -40,7 +45,7 @@ class FakeVerticalSliceTests(unittest.TestCase):
         except ContractValidationError as exc:
             self.fail(str(exc))
 
-    def test_fake_catalog_contains_approved_temperature_and_binary_entities(self):
+    def test_fake_catalog_contains_approved_temperature_binary_and_power_entities(self):
         catalog = get_fake_approved_entity_catalog()
 
         self.assertEqual(
@@ -49,6 +54,7 @@ class FakeVerticalSliceTests(unittest.TestCase):
                 "sensor.upstairs_temperature",
                 "sensor.downstairs_temperature",
                 "binary_sensor.dishwasher",
+                "sensor.dishwasher_power",
             ],
         )
         self.assertTrue(all(item["visible_to_agent"] for item in catalog))
@@ -57,6 +63,9 @@ class FakeVerticalSliceTests(unittest.TestCase):
         self.assertEqual(catalog[0]["unit_of_measurement"], self.expected_unit)
         self.assertEqual(catalog[2]["area"], "Kitchen")
         self.assertEqual(catalog[2]["current_state"], "off")
+        self.assertEqual(catalog[3]["area"], "Kitchen")
+        self.assertEqual(catalog[3]["device_class"], "power")
+        self.assertEqual(catalog[3]["unit_of_measurement"], "W")
         for item in catalog:
             self.assert_contract_valid("entity-catalog-item", item)
 
@@ -141,6 +150,126 @@ class FakeVerticalSliceTests(unittest.TestCase):
         self.assert_contract_valid("history-series", history_series)
         self.assert_contract_valid("derived-interval", derived_interval)
 
+    def test_confirmed_threshold_rule_extracts_numeric_intervals(self):
+        history_series = get_fake_dishwasher_power_history(now=self.now)
+        derived_interval = extract_threshold_intervals(
+            history_series=history_series,
+            interval_id="dishwasher_running",
+            label="Dishwasher Running",
+            threshold={"operator": ">", "value": 5, "unit": "W"},
+            range_end=self.now,
+        )
+
+        self.assertEqual(history_series["series_id"], "dishwasher_power")
+        self.assertEqual(history_series["entity_id"], "sensor.dishwasher_power")
+        self.assertEqual(history_series["kind"], "numeric")
+        self.assertEqual(history_series["unit"], "W")
+        self.assertEqual(
+            [point["value"] for point in history_series["points"]],
+            [0.4, 0.6, 9.8, 42.0, 3.2, 0.5],
+        )
+        self.assertEqual(derived_interval["interval_id"], "dishwasher_running")
+        self.assertEqual(derived_interval["source_entity_id"], "sensor.dishwasher_power")
+        self.assertEqual(
+            derived_interval["rule"],
+            {"operator": ">", "value": 5, "unit": "W"},
+        )
+        self.assertEqual(len(derived_interval["intervals"]), 1)
+        self.assertEqual(
+            derived_interval["intervals"][0]["start"],
+            iso_timestamp(self.start + timedelta(hours=8)),
+        )
+        self.assertEqual(
+            derived_interval["intervals"][0]["end"],
+            iso_timestamp(self.start + timedelta(hours=10)),
+        )
+        self.assertEqual(derived_interval["intervals"][0]["state"], True)
+        self.assertIn("value > 5 W", derived_interval["intervals"][0]["reason"])
+        self.assert_contract_valid("history-series", history_series)
+        self.assert_contract_valid("derived-interval", derived_interval)
+
+    def test_threshold_interval_feeds_shaded_interval_renderer(self):
+        chart_spec = {
+            "chart_id": "temperature_with_threshold_dishwasher_overlay",
+            "chart_type": "time_series",
+            "title": "Temperature With Dishwasher Running",
+            "time_range": {"type": "relative", "duration": "24h"},
+            "series": [
+                {
+                    "series_id": "upstairs_temperature",
+                    "label": "Upstairs Temperature",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.upstairs_temperature",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "line",
+                    "transform": None,
+                    "unit": self.expected_unit,
+                }
+            ],
+            "overlays": [
+                {
+                    "overlay_id": "dishwasher_running",
+                    "label": "Dishwasher Running",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.dishwasher_power",
+                        "attribute": None,
+                    },
+                    "render_as": "shaded_intervals",
+                    "threshold": {"operator": ">", "value": 5, "unit": "W"},
+                }
+            ],
+            "x_axis": {"type": "time"},
+            "y_axis": {"label": self.expected_unit},
+            "notes": [],
+        }
+        power_history = get_fake_dishwasher_power_history(now=self.now)
+        derived_interval = extract_threshold_intervals(
+            history_series=power_history,
+            interval_id="dishwasher_running",
+            label="Dishwasher Running",
+            threshold={"operator": ">", "value": 5, "unit": "W"},
+            range_end=self.now,
+        )
+        render_request = {
+            "request_id": "fake-threshold-overlay",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": get_fake_normalized_history(now=self.now),
+            "derived_intervals": [derived_interval],
+            "output": {"format": "png", "width": 1000, "height": 600},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            validation_result = validate_chart_job(
+                chart_spec=chart_spec,
+                render_result=render_result,
+                entity_catalog=get_fake_approved_entity_catalog(),
+                expected_start=self.start,
+                expected_end=self.now,
+            )
+
+        self.assertEqual(render_result["status"], "success")
+        self.assertEqual(
+            render_result["render_metadata"]["overlays_plotted"],
+            ["dishwasher_running"],
+        )
+        self.assertEqual(validation_result["status"], "pass")
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("derived-interval", derived_interval)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
+        self.assert_contract_valid("validation-result", validation_result)
+
     def test_prompt_to_chart_slice_renders_png_and_passes_validation(self):
         output_root = REPO_ROOT / ".test-output"
         output_root.mkdir(exist_ok=True)
@@ -187,6 +316,201 @@ class FakeVerticalSliceTests(unittest.TestCase):
             for check in validation_result["checks"]:
                 self.assertEqual(check["status"], "pass")
             validate_fake_prompt_to_chart_contracts(result, repo_root=REPO_ROOT)
+
+    def test_planner_asks_to_confirm_threshold_for_dishwasher_running(self):
+        catalog = [
+            item
+            for item in get_fake_approved_entity_catalog()
+            if item["entity_id"] == "sensor.dishwasher_power"
+        ]
+        planner_result = create_deterministic_planner_result(
+            prompt="Mark when the dishwasher was running over the last day",
+            entity_catalog=catalog,
+        )
+
+        self.assertEqual(planner_result["status"], "clarification_needed")
+        self.assertIsNone(planner_result["chart_spec"])
+
+        question = planner_result["clarification_question"]
+        self.assertEqual(question["question_id"], "confirm_dishwasher_power_threshold")
+        self.assertIn("dishwasher", question["message"].lower())
+        self.assertIn("threshold", question["message"].lower())
+        self.assertIn("running", question["message"].lower())
+        self.assertTrue(question["allow_free_text"])
+        self.assertEqual(len(question["options"]), 1)
+        option = question["options"][0]
+        self.assertTrue(option["can_remember"])
+        self.assertEqual(option["value"]["type"], "threshold_interval")
+        self.assertEqual(option["value"]["entity_id"], "sensor.dishwasher_power")
+        self.assertEqual(option["value"]["operator"], ">")
+        self.assertEqual(option["value"]["value"], 5)
+        self.assertEqual(option["value"]["unit"], "W")
+
+        self.assert_contract_valid("planner-result", planner_result)
+        self.assert_contract_valid("clarification-question", question)
+
+    def test_use_once_threshold_confirmation_renders_chart_without_memory(self):
+        output_root = REPO_ROOT / ".test-output"
+        output_root.mkdir(exist_ok=True)
+        confirmation_value = {
+            "type": "threshold_interval",
+            "entity_id": "sensor.dishwasher_power",
+            "operator": ">",
+            "value": 5,
+            "unit": "W",
+        }
+
+        with tempfile.TemporaryDirectory(dir=output_root) as run_directory:
+            result = invoke_threshold_confirmation_use_once(
+                prompt="Mark when the dishwasher was running over the last day",
+                confirmation_value=confirmation_value,
+                output_directory=Path(run_directory),
+                now=self.now,
+            )
+
+        planner_result = result["planner_result"]
+        self.assertEqual(planner_result["status"], "chart_spec_ready")
+        self.assertEqual(planner_result["memory_proposals"], [])
+        self.assertEqual(
+            planner_result["chart_spec"]["chart_id"],
+            "temperature_with_threshold_dishwasher_overlay",
+        )
+        self.assertEqual(
+            planner_result["chart_spec"]["overlays"][0]["threshold"],
+            {"operator": ">", "value": 5, "unit": "W"},
+        )
+
+        self.assertEqual(len(result["derived_intervals"]), 1)
+        derived_interval = result["derived_intervals"][0]
+        self.assertEqual(derived_interval["interval_id"], "dishwasher_running")
+        self.assertEqual(derived_interval["source_entity_id"], "sensor.dishwasher_power")
+        self.assertEqual(derived_interval["rule"], {"operator": ">", "value": 5, "unit": "W"})
+        self.assertEqual(result["saved_semantic_aliases"], [])
+
+        render_request = result["render_request"]
+        self.assertEqual(render_request["derived_intervals"], [derived_interval])
+        render_result = result["render_result"]
+        self.assertEqual(render_result["status"], "success")
+        self.assertEqual(
+            render_result["render_metadata"]["overlays_plotted"],
+            ["dishwasher_running"],
+        )
+        validation_result = result["validation_result"]
+        self.assertEqual(validation_result["status"], "pass")
+
+        self.assert_contract_valid("planner-result", planner_result)
+        self.assert_contract_valid("chart-spec", planner_result["chart_spec"])
+        self.assert_contract_valid("history-series", result["history_series"][0])
+        self.assert_contract_valid("derived-interval", derived_interval)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
+        self.assert_contract_valid("validation-result", validation_result)
+
+    def test_use_and_remember_threshold_confirmation_saves_alias_and_renders_chart(self):
+        output_root = REPO_ROOT / ".test-output"
+        output_root.mkdir(exist_ok=True)
+        confirmation_value = {
+            "type": "threshold_interval",
+            "entity_id": "sensor.dishwasher_power",
+            "operator": ">",
+            "value": 5,
+            "unit": "W",
+        }
+
+        with tempfile.TemporaryDirectory(dir=output_root) as run_directory:
+            result = invoke_threshold_confirmation_use_and_remember(
+                prompt="Mark when the dishwasher was running over the last day",
+                confirmation_value=confirmation_value,
+                alias_name="dishwasher running",
+                output_directory=Path(run_directory),
+                now=self.now,
+            )
+
+        self.assertEqual(result["planner_result"]["status"], "chart_spec_ready")
+        self.assertEqual(result["render_result"]["status"], "success")
+        self.assertEqual(result["validation_result"]["status"], "pass")
+        self.assertEqual(len(result["saved_semantic_aliases"]), 1)
+
+        alias = result["saved_semantic_aliases"][0]
+        self.assertEqual(alias["alias_id"], "dishwasher_running")
+        self.assertEqual(alias["natural_names"], ["dishwasher running"])
+        self.assertEqual(
+            alias["meaning"],
+            {
+                "type": "threshold_interval",
+                "entity_id": "sensor.dishwasher_power",
+                "operator": ">",
+                "value": 5,
+                "unit": "W",
+            },
+        )
+        self.assertEqual(alias["source"], "user_confirmed")
+        self.assertEqual(
+            alias["created_from_prompt"],
+            "Mark when the dishwasher was running over the last day",
+        )
+        self.assertEqual(alias["created_at"], iso_timestamp(self.now))
+        self.assertEqual(alias["last_used_at"], iso_timestamp(self.now))
+        self.assertTrue(alias["enabled"])
+
+        self.assert_contract_valid("semantic-alias", alias)
+        self.assert_contract_valid("planner-result", result["planner_result"])
+        self.assert_contract_valid("chart-spec", result["planner_result"]["chart_spec"])
+        self.assert_contract_valid("render-request", result["render_request"])
+        self.assert_contract_valid("render-result", result["render_result"])
+        self.assert_contract_valid("validation-result", result["validation_result"])
+
+    def test_saved_threshold_alias_reuses_memory_without_clarification(self):
+        output_root = REPO_ROOT / ".test-output"
+        output_root.mkdir(exist_ok=True)
+        confirmation_value = {
+            "type": "threshold_interval",
+            "entity_id": "sensor.dishwasher_power",
+            "operator": ">",
+            "value": 5,
+            "unit": "W",
+        }
+
+        with tempfile.TemporaryDirectory(dir=output_root) as setup_directory:
+            saved_result = invoke_threshold_confirmation_use_and_remember(
+                prompt="Mark when the dishwasher was running over the last day",
+                confirmation_value=confirmation_value,
+                alias_name="dishwasher running",
+                output_directory=Path(setup_directory),
+                now=self.now,
+            )
+        saved_alias = saved_result["saved_semantic_aliases"][0]
+
+        with tempfile.TemporaryDirectory(dir=output_root) as run_directory:
+            result = invoke_fake_prompt_to_chart(
+                prompt="Mark when the dishwasher was running over the last day",
+                output_directory=Path(run_directory),
+                now=self.now,
+                semantic_aliases=[saved_alias],
+            )
+
+        planner_result = result["planner_result"]
+        self.assertEqual(planner_result["status"], "chart_spec_ready")
+        self.assertIsNone(planner_result["clarification_question"])
+        self.assertEqual(
+            planner_result["chart_spec"]["chart_id"],
+            "temperature_with_threshold_dishwasher_overlay",
+        )
+        self.assertEqual(
+            planner_result["chart_spec"]["overlays"][0]["threshold"],
+            {"operator": ">", "value": 5, "unit": "W"},
+        )
+        self.assertEqual(result["render_result"]["status"], "success")
+        self.assertEqual(
+            result["render_result"]["render_metadata"]["overlays_plotted"],
+            ["dishwasher_running"],
+        )
+        self.assertEqual(result["validation_result"]["status"], "pass")
+        self.assert_contract_valid("planner-result", planner_result)
+        self.assert_contract_valid("chart-spec", planner_result["chart_spec"])
+        self.assert_contract_valid("render-request", result["render_request"])
+        self.assert_contract_valid("render-result", result["render_result"])
+        self.assert_contract_valid("validation-result", result["validation_result"])
 
     def test_safe_renderer_rejects_unsupported_chart_spec(self):
         request = {
