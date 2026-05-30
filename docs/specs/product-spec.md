@@ -2,7 +2,7 @@
 
 ## Product name
 
-Home Assistant Dataviz Agent
+Isolinear
 
 ## Problem
 

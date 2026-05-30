@@ -2,7 +2,7 @@
 
 ## Project identity
 
-You are working on Home Assistant Dataviz Agent, a local-first Home Assistant visualization assistant. The product turns natural-language questions into validated charts using approved Home Assistant entity history.
+You are working on Isolinear, a local-first Home Assistant visualization assistant. The product turns natural-language questions into validated charts using approved Home Assistant entity history.
 
 ## Engineering workflow
 

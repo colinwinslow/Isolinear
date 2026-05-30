@@ -1,6 +1,6 @@
-# Home Assistant Dataviz Agent
+# Isolinear
 
-Home Assistant Dataviz Agent is a local-first visualization assistant for Home Assistant. A user asks a natural-language question about their home, the system resolves approved Home Assistant entities, retrieves and normalizes entity history, produces a visualization plan, renders a chart, validates the result, and displays the image in a dashboard card.
+Isolinear is a local-first visualization assistant for Home Assistant. A user asks a natural-language question about their home, the system resolves approved Home Assistant entities, retrieves and normalizes entity history, produces a visualization plan, renders a chart, validates the result, and displays the image in a dashboard card.
 
 This repository is intentionally seeded with ADRs, specs, BDD scenarios, schemas, and eval outlines before production code. The project follows an agentic engineering workflow: design decisions first, behavior contracts second, tests third, implementation fourth, evals last.
 

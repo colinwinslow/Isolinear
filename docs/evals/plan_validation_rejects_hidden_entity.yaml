@@ -1,0 +1,13 @@
+id: plan_validation_rejects_hidden_entity
+summary: Plan validation rejects a chart spec that references a non-allowlisted entity before rendering starts.
+fixtures:
+  entity_catalog: fixtures/entities/basic_temperature_catalog.json
+  chart_spec: fixtures/chart_specs/hidden_temperature.json
+expect:
+  validation_status: fail
+  failed_check: allowlisted_entities
+  missing_entity:
+    - sensor.hidden_temperature
+  render_request_created: false
+  render_result_created: false
+  image_created: false
