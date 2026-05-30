@@ -33,7 +33,7 @@ Add deterministic invalidation handling for saved semantic aliases referencing u
 
 ## Known unresolved design details
 
-- Exact Home Assistant integration storage mechanism for semantic memory.
+- Persistent semantic-memory store envelope, migrations, and repair UI details.
 - Exact dashboard card implementation technology.
 - Exact worker API transport and authentication.
 - Exact sandbox implementation details for Raspberry Pi compatibility.
@@ -109,3 +109,4 @@ Add deterministic invalidation handling for saved semantic aliases referencing u
 - Red run: `C:\Users\c.winslow\AppData\Local\Python\bin\python.exe tests\test_fake_vertical_slice.py`; `C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals\threshold_interval_alias_reuse.py` failed on unexpected `semantic_aliases` argument.
 - Tests run: `C:\Users\c.winslow\AppData\Local\Python\bin\python.exe tests\test_fake_vertical_slice.py`.
 - Evals run: `C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals\prompt_to_chart_basic.py`; `C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals\plan_validation_rejects_hidden_entity.py`; `C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals\missing_overlay_validation.py`; `C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals\shaded_interval_rendering.py`; `C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals\binary_state_interval_extraction.py`; `C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals\numeric_history_normalization.py`; `C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals\threshold_interval_extraction.py`; `C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals\threshold_interval_inference.py`; `C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals\threshold_interval_use_once.py`; `C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals\threshold_interval_use_and_remember.py`; `C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals\threshold_interval_alias_reuse.py`.
+- 2026-05-30: Added ADR 0009 selecting Home Assistant integration-owned versioned storage for semantic memory, with config entries/options reserved for setup and management flows rather than alias records.
