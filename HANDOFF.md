@@ -20,16 +20,16 @@ Isolinear lets a user ask natural-language questions about approved Home Assista
 
 ## Open implementation status
 
-Fake-provider vertical slice implemented as a local Python module with schema-backed contract validation, a pre-render plan validation gate, deterministic render metadata validation, trusted safe-mode rendering for shaded interval overlays, fake binary-state interval extraction, confirmed threshold-derived interval extraction, deterministic threshold clarification for continuous power sensors, use-once threshold confirmation handling, deterministic threshold semantic alias creation, and reuse of saved threshold aliases. No Home Assistant integration has been built yet.
+Fake-provider vertical slice implemented as a local Python module with schema-backed contract validation, a pre-render plan validation gate, deterministic render metadata validation, trusted safe-mode rendering for shaded interval overlays, fake binary-state interval extraction, confirmed threshold-derived interval extraction, deterministic threshold clarification for continuous power sensors, use-once threshold confirmation handling, deterministic threshold semantic alias creation, reuse of saved threshold aliases, and deterministic invalidation of saved threshold aliases that reference unavailable or non-allowlisted entities. No Home Assistant integration has been built yet.
 
 ## Next recommended packet
 
-Add deterministic invalidation handling for saved semantic aliases referencing unavailable or non-allowlisted entities:
+Backfill paired BDD evidence for existing eval-backed scenarios:
 
-1. Add BDD/eval coverage for a saved threshold alias whose source entity is no longer visible to the agent.
-2. Ensure the fake planner does not reuse aliases that reference missing or non-allowlisted entities.
-3. Return a clear clarification or cannot-resolve result instead of silently using stale memory.
-4. Keep the actual Home Assistant semantic-memory storage mechanism deferred.
+1. Inventory implemented scenarios that currently rely on eval scripts without paired `bdd/<feature>/*-bdd.md` and evidence files.
+2. Backfill paired BDD/evidence files using fresh eval/test runs.
+3. Capture raw commands, outputs, fixtures, timestamps, and observed results.
+4. Run BDD-evidence review for each backfilled scenario group.
 
 ## Known unresolved design details
 

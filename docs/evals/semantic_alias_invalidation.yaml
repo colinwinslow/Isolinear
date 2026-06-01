@@ -1,0 +1,33 @@
+id: semantic_alias_invalidation
+summary: Invalid saved semantic aliases should not be reused when their source entity is unavailable or no longer allowlisted.
+fixtures:
+  prompt: Mark when the dishwasher was running over the last day
+  unavailable_entity_alias:
+    alias_id: dishwasher_running
+    natural_names:
+      - dishwasher running
+    meaning:
+      type: threshold_interval
+      entity_id: sensor.retired_dishwasher_power
+      operator: ">"
+      value: 5
+      unit: W
+  hidden_entity_alias:
+    alias_id: dishwasher_running
+    natural_names:
+      - dishwasher running
+    meaning:
+      type: threshold_interval
+      entity_id: sensor.dishwasher_power
+      operator: ">"
+      value: 5
+      unit: W
+expect:
+  unavailable_entity:
+    planner_status: clarification_needed
+    invalid_reason: entity_unavailable
+    should_not_render: true
+  hidden_entity:
+    planner_status: cannot_resolve
+    invalid_reason: entity_not_allowlisted
+    should_not_render: true

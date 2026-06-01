@@ -467,6 +467,19 @@ def create_deterministic_planner_result(
             "warnings": ["threshold_confirmation_required"],
         }
 
+    if threshold_prompt:
+        return {
+            "status": "cannot_resolve",
+            "chart_spec": None,
+            "clarification_question": None,
+            "memory_proposals": [],
+            "reasoning_summary": (
+                "The fake planner could not find an approved dishwasher power "
+                "entity to derive the running interval."
+            ),
+            "warnings": ["missing_dishwasher_power_entity"],
+        }
+
     supported_prompt = (
         re.search(r"compare", prompt, re.IGNORECASE)
         and re.search(r"upstairs", prompt, re.IGNORECASE)
@@ -1295,38 +1308,46 @@ def invoke_fake_prompt_to_chart(
     output_directory: Path,
     now: datetime | None = None,
     semantic_aliases: list[dict[str, Any]] | None = None,
+    entity_catalog: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if now is None:
         now = datetime.now(timezone.utc)
 
+    catalog = get_fake_approved_entity_catalog() if entity_catalog is None else entity_catalog
+    history = get_fake_normalized_history(now=now)
     semantic_aliases = [] if semantic_aliases is None else semantic_aliases
+    invalid_semantic_aliases = []
     for alias in semantic_aliases:
-        natural_names = {name.lower() for name in alias.get("natural_names", [])}
-        meaning = alias.get("meaning", {})
-        if (
-            alias.get("enabled", True)
-            and "dishwasher running" in natural_names
-            and meaning.get("type") == "threshold_interval"
-            and re.search(r"dishwasher", prompt, re.IGNORECASE)
-            and re.search(r"running", prompt, re.IGNORECASE)
-        ):
+        if _matches_dishwasher_running_threshold_alias(alias=alias, prompt=prompt):
+            invalid_alias_entities = _invalid_semantic_alias_entities(
+                alias=alias,
+                entity_catalog=catalog,
+            )
+            if invalid_alias_entities:
+                invalid_semantic_aliases.extend(invalid_alias_entities)
+                continue
+
             result = invoke_threshold_confirmation_use_once(
                 prompt=prompt,
-                confirmation_value=meaning,
+                confirmation_value=alias["meaning"],
                 output_directory=output_directory,
                 now=now,
+                entity_catalog=catalog,
             )
             result["planner_result"]["reasoning_summary"] = (
                 "Reused saved semantic alias 'dishwasher_running' for the "
                 "dishwasher running threshold."
             )
+            result["invalid_semantic_aliases"] = invalid_semantic_aliases
             return result
 
-    catalog = get_fake_approved_entity_catalog()
-    history = get_fake_normalized_history(now=now)
     planner_result = create_deterministic_planner_result(
         prompt=prompt,
         entity_catalog=catalog,
+    )
+    _append_invalid_semantic_alias_warnings(
+        planner_result=planner_result,
+        invalid_semantic_aliases=invalid_semantic_aliases,
     )
 
     render_request = None
@@ -1353,6 +1374,7 @@ def invoke_fake_prompt_to_chart(
         "render_request": render_request,
         "render_result": render_result,
         "validation_result": validation_result,
+        "invalid_semantic_aliases": invalid_semantic_aliases,
     }
 
 
@@ -1362,6 +1384,7 @@ def invoke_threshold_confirmation_use_once(
     confirmation_value: dict[str, Any],
     output_directory: Path,
     now: datetime | None = None,
+    entity_catalog: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if now is None:
         now = datetime.now(timezone.utc)
@@ -1371,7 +1394,7 @@ def invoke_threshold_confirmation_use_once(
     if confirmation_value.get("entity_id") != "sensor.dishwasher_power":
         raise ValueError("The fake use-once threshold path supports only sensor.dishwasher_power.")
 
-    catalog = get_fake_approved_entity_catalog()
+    catalog = get_fake_approved_entity_catalog() if entity_catalog is None else entity_catalog
     history = get_fake_normalized_history(now=now)
     threshold = {
         "operator": confirmation_value["operator"],
@@ -1490,6 +1513,86 @@ def _alias_id_from_name(alias_name: str) -> str:
     if not alias_id:
         raise ValueError("alias_name must contain at least one alphanumeric character.")
     return alias_id
+
+
+def _semantic_alias_entity_ids(alias: dict[str, Any]) -> list[str]:
+    meaning = alias.get("meaning", {})
+    if meaning.get("type") == "aggregate":
+        return [
+            entity_id
+            for entity_id in meaning.get("entity_ids", [])
+            if isinstance(entity_id, str)
+        ]
+
+    entity_id = meaning.get("entity_id")
+    if isinstance(entity_id, str):
+        return [entity_id]
+    return []
+
+
+def _invalid_semantic_alias_entities(
+    *,
+    alias: dict[str, Any],
+    entity_catalog: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    by_entity_id = {item["entity_id"]: item for item in entity_catalog}
+    invalid_entities = []
+
+    for entity_id in _semantic_alias_entity_ids(alias):
+        entity = by_entity_id.get(entity_id)
+        if entity is None:
+            reason = "entity_unavailable"
+        elif not entity.get("visible_to_agent"):
+            reason = "entity_not_allowlisted"
+        else:
+            continue
+
+        invalid_entities.append(
+            {
+                "alias_id": alias.get("alias_id", ""),
+                "entity_id": entity_id,
+                "reason": reason,
+            }
+        )
+
+    return invalid_entities
+
+
+def _matches_dishwasher_running_threshold_alias(
+    *,
+    alias: dict[str, Any],
+    prompt: str,
+) -> bool:
+    natural_names = {name.lower() for name in alias.get("natural_names", [])}
+    meaning = alias.get("meaning", {})
+    return (
+        alias.get("enabled", True)
+        and "dishwasher running" in natural_names
+        and meaning.get("type") == "threshold_interval"
+        and re.search(r"dishwasher", prompt, re.IGNORECASE)
+        and re.search(r"running", prompt, re.IGNORECASE)
+    )
+
+
+def _append_invalid_semantic_alias_warnings(
+    *,
+    planner_result: dict[str, Any],
+    invalid_semantic_aliases: list[dict[str, str]],
+) -> None:
+    if not invalid_semantic_aliases:
+        return
+
+    planner_result["warnings"] = [
+        "semantic_alias_invalid",
+        *planner_result.get("warnings", []),
+    ]
+    alias_ids = ", ".join(
+        sorted({alias["alias_id"] for alias in invalid_semantic_aliases})
+    )
+    planner_result["reasoning_summary"] = (
+        f"Ignored invalid saved semantic alias(es): {alias_ids}. "
+        f"{planner_result.get('reasoning_summary') or ''}"
+    ).strip()
 
 
 def invoke_threshold_confirmation_use_and_remember(

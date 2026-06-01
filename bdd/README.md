@@ -62,7 +62,7 @@ Each `bdd/<feature>/README.md` lists:
 
 - `evals/threshold_interval_use_and_remember.py` — Alias creation
 - `evals/threshold_interval_alias_reuse.py` — Alias reuse
-- (TBD) `evals/semantic_alias_invalidation.py` — Invalidation
+- `evals/semantic_alias_invalidation.py` — Invalidation
 ```
 
 When a new scenario is implemented:

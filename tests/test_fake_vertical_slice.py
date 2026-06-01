@@ -512,6 +512,114 @@ class FakeVerticalSliceTests(unittest.TestCase):
         self.assert_contract_valid("render-result", result["render_result"])
         self.assert_contract_valid("validation-result", result["validation_result"])
 
+    def test_saved_threshold_alias_referencing_unavailable_entity_is_not_reused(self):
+        output_root = REPO_ROOT / ".test-output"
+        output_root.mkdir(exist_ok=True)
+        saved_alias = {
+            "alias_id": "dishwasher_running",
+            "natural_names": ["dishwasher running"],
+            "meaning": {
+                "type": "threshold_interval",
+                "entity_id": "sensor.retired_dishwasher_power",
+                "operator": ">",
+                "value": 5,
+                "unit": "W",
+            },
+            "source": "user_confirmed",
+            "created_from_prompt": "Mark when the dishwasher was running over the last day",
+            "created_at": iso_timestamp(self.now),
+            "last_used_at": iso_timestamp(self.now),
+            "enabled": True,
+        }
+
+        with tempfile.TemporaryDirectory(dir=output_root) as run_directory:
+            result = invoke_fake_prompt_to_chart(
+                prompt="Mark when the dishwasher was running over the last day",
+                output_directory=Path(run_directory),
+                now=self.now,
+                semantic_aliases=[saved_alias],
+            )
+
+        planner_result = result["planner_result"]
+        self.assertEqual(planner_result["status"], "clarification_needed")
+        self.assertEqual(
+            planner_result["clarification_question"]["question_id"],
+            "confirm_dishwasher_power_threshold",
+        )
+        self.assertIsNone(result["render_request"])
+        self.assertIsNone(result["render_result"])
+        self.assertIsNone(result["validation_result"])
+        self.assertEqual(
+            result["invalid_semantic_aliases"],
+            [
+                {
+                    "alias_id": "dishwasher_running",
+                    "entity_id": "sensor.retired_dishwasher_power",
+                    "reason": "entity_unavailable",
+                }
+            ],
+        )
+        self.assertIn("semantic_alias_invalid", planner_result["warnings"])
+
+        self.assert_contract_valid("semantic-alias", saved_alias)
+        validate_fake_prompt_to_chart_contracts(result, repo_root=REPO_ROOT)
+
+    def test_saved_threshold_alias_referencing_non_allowlisted_entity_is_not_reused(self):
+        output_root = REPO_ROOT / ".test-output"
+        output_root.mkdir(exist_ok=True)
+        catalog = []
+        for item in get_fake_approved_entity_catalog():
+            updated_item = dict(item)
+            if updated_item["entity_id"] == "sensor.dishwasher_power":
+                updated_item["visible_to_agent"] = False
+            catalog.append(updated_item)
+        saved_alias = {
+            "alias_id": "dishwasher_running",
+            "natural_names": ["dishwasher running"],
+            "meaning": {
+                "type": "threshold_interval",
+                "entity_id": "sensor.dishwasher_power",
+                "operator": ">",
+                "value": 5,
+                "unit": "W",
+            },
+            "source": "user_confirmed",
+            "created_from_prompt": "Mark when the dishwasher was running over the last day",
+            "created_at": iso_timestamp(self.now),
+            "last_used_at": iso_timestamp(self.now),
+            "enabled": True,
+        }
+
+        with tempfile.TemporaryDirectory(dir=output_root) as run_directory:
+            result = invoke_fake_prompt_to_chart(
+                prompt="Mark when the dishwasher was running over the last day",
+                output_directory=Path(run_directory),
+                now=self.now,
+                semantic_aliases=[saved_alias],
+                entity_catalog=catalog,
+            )
+
+        planner_result = result["planner_result"]
+        self.assertEqual(planner_result["status"], "cannot_resolve")
+        self.assertIsNone(planner_result["clarification_question"])
+        self.assertIsNone(result["render_request"])
+        self.assertIsNone(result["render_result"])
+        self.assertIsNone(result["validation_result"])
+        self.assertEqual(
+            result["invalid_semantic_aliases"],
+            [
+                {
+                    "alias_id": "dishwasher_running",
+                    "entity_id": "sensor.dishwasher_power",
+                    "reason": "entity_not_allowlisted",
+                }
+            ],
+        )
+        self.assertIn("semantic_alias_invalid", planner_result["warnings"])
+
+        self.assert_contract_valid("semantic-alias", saved_alias)
+        validate_fake_prompt_to_chart_contracts(result, repo_root=REPO_ROOT)
+
     def test_safe_renderer_rejects_unsupported_chart_spec(self):
         request = {
             "request_id": "fake-unsupported-chart",
