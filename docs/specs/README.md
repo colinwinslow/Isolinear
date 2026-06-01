@@ -1,0 +1,37 @@
+# Specs
+
+One spec per shippable feature: `docs/specs/<slug>.md`, paired with a BDD file
+at `bdd/<feature>/<slug>-bdd.md`. Scaffold both with `/spec <slug>` (see
+`codex/spec.md`).
+
+## What a spec is
+
+A spec defines the **contract surface** of a feature: the observable behavior,
+the public interface, the anchor artifact, the proof requirements. It is the
+thing implementation makes true. It is NOT a design doc or a tutorial.
+
+## Lifecycle
+
+- Specs are authored as `status: draft`.
+- A `draft` is promoted to `accepted` once the contract is agreed.
+- Accepted specs are **immutable**. Supersede by writing a new spec.
+
+## Spec / BDD split
+
+The spec lives here; its scenarios live in `bdd/<feature>/<slug>-bdd.md`. The
+spec links to the BDD; the BDD enumerates Given/When/Then scenarios; the
+implementing slice produces an evidence file proving each scenario was hit.
+
+## Current specs
+
+- `chart-spec-rendering-spec.md` — Chart spec rendering through trusted renderer
+- `dashboard-card-spec.md` — Custom dashboard card UX
+- `entity-resolution-spec.md` — Entity allowlist resolution and validation
+- `history-normalization-spec.md` — Numeric and binary state history normalization
+- `integration-spec.md` — Home Assistant custom integration interface
+- `model-provider-spec.md` — Ollama-compatible model provider contract
+- `product-spec.md` — Product-level feature set
+- `security-spec.md` — Sandbox security and safety constraints
+- `semantic-memory-spec.md` — Semantic alias storage and recall
+- `validation-spec.md` — Plan validation and chart spec safety
+- `worker-sandbox-spec.md` — Worker sandbox execution model
