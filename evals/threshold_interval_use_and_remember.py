@@ -3,6 +3,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from evidence import print_case
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -54,6 +56,25 @@ def main():
     validate_contract("render-result", result["render_result"], repo_root=REPO_ROOT)
     validate_contract("validation-result", result["validation_result"], repo_root=REPO_ROOT)
 
+    print_case(
+        "threshold_interval_use_and_remember",
+        given={
+            "prompt": "Mark when the dishwasher was running over the last day",
+            "confirmation_value": confirmation_value,
+            "alias_name": "dishwasher running",
+            "time_anchor": now.isoformat(timespec="seconds"),
+        },
+        when={
+            "operation": "invoke_threshold_confirmation_use_and_remember",
+        },
+        then={
+            "planner_status": result["planner_result"]["status"],
+            "validation_status": result["validation_result"]["status"],
+            "saved_semantic_aliases": result["saved_semantic_aliases"],
+            "render_status": result["render_result"]["status"],
+            "overlays_plotted": result["render_result"]["render_metadata"]["overlays_plotted"],
+        },
+    )
     print("PASS threshold_interval_use_and_remember")
 
 

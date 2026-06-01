@@ -3,6 +3,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from evidence import print_case
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -80,6 +82,26 @@ def main():
     assert_equal(result["render_result"], None, "Render result should not be created.")
     validate_contract("validation-result", validation_result, repo_root=REPO_ROOT)
 
+    print_case(
+        "plan_validation_rejects_hidden_entity",
+        given={
+            "chart_spec": chart_spec,
+            "visible_entity_ids": [
+                item["entity_id"] for item in catalog if item["visible_to_agent"]
+            ],
+        },
+        when={
+            "operation": "invoke_validated_chart_plan",
+            "request_id": "hidden-temperature",
+        },
+        then={
+            "validation_status": validation_result["status"],
+            "allowlist_check": allowlist_check,
+            "render_request": result["render_request"],
+            "render_result": result["render_result"],
+            "artifact_count": 0,
+        },
+    )
     print("PASS plan_validation_rejects_hidden_entity")
 
 

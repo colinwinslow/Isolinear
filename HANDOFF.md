@@ -20,16 +20,16 @@ Isolinear lets a user ask natural-language questions about approved Home Assista
 
 ## Open implementation status
 
-Fake-provider vertical slice implemented as a local Python module with schema-backed contract validation, a pre-render plan validation gate, deterministic render metadata validation, trusted safe-mode rendering for shaded interval overlays, fake binary-state interval extraction, confirmed threshold-derived interval extraction, deterministic threshold clarification for continuous power sensors, use-once threshold confirmation handling, deterministic threshold semantic alias creation, reuse of saved threshold aliases, and deterministic invalidation of saved threshold aliases that reference unavailable or non-allowlisted entities. No Home Assistant integration has been built yet.
+Fake-provider vertical slice implemented as a local Python module with schema-backed contract validation, a pre-render plan validation gate, deterministic render metadata validation, trusted safe-mode rendering for shaded interval overlays, fake binary-state interval extraction, confirmed threshold-derived interval extraction, deterministic threshold clarification for continuous power sensors, use-once threshold confirmation handling, deterministic threshold semantic alias creation, reuse of saved threshold aliases, and deterministic invalidation of saved threshold aliases that reference unavailable or non-allowlisted entities. Eval scripts now emit structured `CASE` evidence payloads, and implemented eval-backed scenario groups have paired markdown BDD/evidence files under `bdd/<feature>/`. No Home Assistant integration has been built yet.
 
 ## Next recommended packet
 
-Backfill paired BDD evidence for existing eval-backed scenarios:
+Persistent semantic-memory store envelope design:
 
-1. Inventory implemented scenarios that currently rely on eval scripts without paired `bdd/<feature>/*-bdd.md` and evidence files.
-2. Backfill paired BDD/evidence files using fresh eval/test runs.
-3. Capture raw commands, outputs, fixtures, timestamps, and observed results.
-4. Run BDD-evidence review for each backfilled scenario group.
+1. Read ADR-0009, `docs/specs/semantic-memory-spec.md`, `docs/schemas/semantic-alias.schema.json`, and paired semantic-memory BDD/evidence.
+2. Decide whether the persistent store envelope, migrations, and repair UI require a new ADR or spec update before implementation.
+3. Define the smallest anchor artifact and proof requirements.
+4. Add or update BDD/evidence scaffolding before any persistent-store code.
 
 ## Known unresolved design details
 

@@ -2,6 +2,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from evidence import print_case
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -58,6 +60,26 @@ def main():
 
     validate_contract("history-series", series, repo_root=REPO_ROOT)
 
+    print_case(
+        "numeric_history_normalization",
+        given={
+            "raw_records": raw_records,
+        },
+        when={
+            "operation": "normalize_numeric_history_records",
+            "series_id": "upstairs_temperature",
+            "entity_id": "sensor.upstairs_temperature",
+        },
+        then={
+            "series_id": series["series_id"],
+            "entity_id": series["entity_id"],
+            "unit": series["unit"],
+            "values": [point["value"] for point in series["points"]],
+            "raw_states": [point["raw_state"] for point in series["points"]],
+            "qualities": [point["quality"] for point in series["points"]],
+            "warnings": series["warnings"],
+        },
+    )
     print("PASS numeric_history_normalization")
 
 

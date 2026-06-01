@@ -3,6 +3,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from evidence import print_case
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -44,6 +46,33 @@ def main():
     assert_equal(result["validation_result"]["status"], "pass", "Validation status should match eval expectation.")
     validate_fake_prompt_to_chart_contracts(result, repo_root=REPO_ROOT)
 
+    print_case(
+        "prompt_to_chart_basic",
+        given={
+            "prompt": "Compare upstairs and downstairs temperatures over the last 24 hours",
+            "time_anchor": now.isoformat(timespec="seconds"),
+        },
+        when={
+            "operation": "invoke_fake_prompt_to_chart",
+        },
+        then={
+            "planner_status": planner_result["status"],
+            "chart_type": chart_spec["chart_type"],
+            "series_entity_ids": [
+                series["source"]["entity_id"] for series in chart_spec["series"]
+            ],
+            "time_range": chart_spec["time_range"],
+            "render_mode": result["render_request"]["render_mode"],
+            "render_status": result["render_result"]["status"],
+            "image_mime_type": result["render_result"]["image_mime_type"],
+            "series_plotted": result["render_result"]["render_metadata"]["series_plotted"],
+            "validation_status": result["validation_result"]["status"],
+            "validation_checks": [
+                {"name": check["name"], "status": check["status"]}
+                for check in result["validation_result"]["checks"]
+            ],
+        },
+    )
     print("PASS prompt_to_chart_basic")
 
 

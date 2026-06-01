@@ -14,6 +14,8 @@ Scenarios for plan validation, schema checking, overlay validation, and safety g
 - ADR: [docs/decisions/0005-schema-driven-contracts-and-history-normalization.md](../../docs/decisions/0005-schema-driven-contracts-and-history-normalization.md)
 - ADR: [docs/decisions/0006-validation-and-repair-loop.md](../../docs/decisions/0006-validation-and-repair-loop.md)
 - Source scenarios: [docs/bdd/validation-loop.feature](../../docs/bdd/validation-loop.feature)
+- Paired BDD: [validation-gates-bdd.md](validation-gates-bdd.md)
+- Evidence: [validation-gates-evidence.md](validation-gates-evidence.md)
 
 ## Validation
 
@@ -23,6 +25,6 @@ Evidence for these scenarios is produced by:
 - `evals/missing_overlay_validation.py` — Post-render overlay validation (all expected overlays rendered)
 - `tests/test_fake_vertical_slice.py` — Schema validation and deterministic failure paths
 
-## Note on evidence format
+## Evidence format
 
-Isolinear uses executable Python evals and unit tests rather than markdown evidence files. Each produces deterministic proof that the scenario was hit and the expected behavior occurred.
+Executable evals and unit tests provide deterministic behavior checks. Paired markdown evidence captures the raw commands, outputs, fixtures, and observed results for review.

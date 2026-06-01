@@ -14,14 +14,17 @@ Scenarios for entity resolution, allowlist enforcement, and user clarification w
 - Spec: [docs/specs/security-spec.md](../../docs/specs/security-spec.md)
 - Source scenarios: [docs/bdd/entity-allowlist.feature](../../docs/bdd/entity-allowlist.feature)
 - Source scenarios: [docs/bdd/entity-clarification.feature](../../docs/bdd/entity-clarification.feature)
+- Paired BDD: [threshold-clarification-bdd.md](threshold-clarification-bdd.md)
+- Evidence: [threshold-clarification-evidence.md](threshold-clarification-evidence.md)
 
 ## Validation
 
 Evidence for these scenarios is produced by:
 
 - `evals/plan_validation_rejects_hidden_entity.py` — Hidden-entity rejection validation
+- `evals/threshold_interval_inference.py` — Threshold clarification proposal
 - `tests/test_fake_vertical_slice.py` — Allowlist enforcement and validation gates
 
-## Note on evidence format
+## Evidence format
 
-Isolinear uses executable Python evals and unit tests rather than markdown evidence files. Each produces deterministic proof that the scenario was hit and the expected behavior occurred.
+Executable evals and unit tests provide deterministic behavior checks. Paired markdown evidence captures the raw commands, outputs, fixtures, and observed results for review.

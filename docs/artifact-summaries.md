@@ -26,7 +26,7 @@ Behavioral prose contracts. These describe what the product, integration, dashbo
 
 ## BDDs
 
-Concrete Gherkin scenarios. These turn fuzzy requirements into testable examples for prompt-to-chart, allowlisting, clarification, memory, normalization, rendering, sandboxing, validation, and dashboard UI.
+Concrete Gherkin scenarios plus paired markdown BDD/evidence files for implemented eval-backed slices. These turn fuzzy requirements into testable examples for prompt-to-chart, allowlisting, clarification, memory, normalization, rendering, sandboxing, validation, and dashboard UI.
 
 ## Schemas
 
@@ -34,4 +34,4 @@ Machine-checkable JSON contracts used internally by the product. Users do not wr
 
 ## Evals
 
-BDD-derived evaluation outlines. These are not a complete eval runner yet, but they define the expected behavior for early agentic engineering test cases.
+Executable Python checks derived from BDD scenarios. They emit deterministic `CASE` output so paired evidence can capture exact fixtures, triggers, observed results, and pass/fail markers.

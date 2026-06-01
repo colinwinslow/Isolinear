@@ -13,6 +13,8 @@ Scenarios for semantic alias creation, storage, reuse, and invalidation.
 - Spec: [docs/specs/semantic-memory-spec.md](../../docs/specs/semantic-memory-spec.md)
 - ADR: [docs/decisions/0009-semantic-memory-storage.md](../../docs/decisions/0009-semantic-memory-storage.md)
 - Source scenarios: [docs/bdd/semantic-memory.feature](../../docs/bdd/semantic-memory.feature)
+- Paired BDD: [threshold-alias-lifecycle-bdd.md](threshold-alias-lifecycle-bdd.md)
+- Evidence: [threshold-alias-lifecycle-evidence.md](threshold-alias-lifecycle-evidence.md)
 - Paired BDD: [semantic-alias-invalidation-bdd.md](semantic-alias-invalidation-bdd.md)
 - Evidence: [semantic-alias-invalidation-evidence.md](semantic-alias-invalidation-evidence.md)
 

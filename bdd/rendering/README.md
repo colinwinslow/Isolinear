@@ -15,6 +15,8 @@ Scenarios for chart rendering (trusted renderer), dashboard card display, and re
 - ADR: [docs/decisions/0004-chart-spec-first-rendering-with-codegen-option.md](../../docs/decisions/0004-chart-spec-first-rendering-with-codegen-option.md)
 - Source scenarios: [docs/bdd/chart-spec-rendering.feature](../../docs/bdd/chart-spec-rendering.feature)
 - Source scenarios: [docs/bdd/dashboard-card.feature](../../docs/bdd/dashboard-card.feature)
+- Paired BDD: [trusted-rendering-bdd.md](trusted-rendering-bdd.md)
+- Evidence: [trusted-rendering-evidence.md](trusted-rendering-evidence.md)
 
 ## Validation
 
@@ -24,6 +26,6 @@ Evidence for these scenarios is produced by:
 - `evals/shaded_interval_rendering.py` — Shaded interval band rendering and overlay IDs in metadata
 - `tests/test_fake_vertical_slice.py` — Renderer and metadata validation
 
-## Note on evidence format
+## Evidence format
 
-Isolinear uses executable Python evals and unit tests rather than markdown evidence files. Each produces deterministic proof that the scenario was hit and the expected behavior occurred.
+Executable evals and unit tests provide deterministic behavior checks. Paired markdown evidence captures the raw commands, outputs, fixtures, and observed results for review.

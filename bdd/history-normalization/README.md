@@ -13,6 +13,8 @@ Scenarios for normalizing Home Assistant history data (numeric strings, missing 
 - Spec: [docs/specs/history-normalization-spec.md](../../docs/specs/history-normalization-spec.md)
 - ADR: [docs/decisions/0005-schema-driven-contracts-and-history-normalization.md](../../docs/decisions/0005-schema-driven-contracts-and-history-normalization.md)
 - Source scenarios: [docs/bdd/history-normalization.feature](../../docs/bdd/history-normalization.feature)
+- Paired BDD: [history-normalization-bdd.md](history-normalization-bdd.md)
+- Evidence: [history-normalization-evidence.md](history-normalization-evidence.md)
 
 ## Validation
 
@@ -22,6 +24,6 @@ Evidence for these scenarios is produced by:
 - `evals/binary_state_interval_extraction.py` — Binary state history (on/off) normalization
 - `tests/test_fake_vertical_slice.py` — History series validation and quality checks
 
-## Note on evidence format
+## Evidence format
 
-Isolinear uses executable Python evals and unit tests rather than markdown evidence files. Each produces deterministic proof that the scenario was hit and the expected behavior occurred.
+Executable evals and unit tests provide deterministic behavior checks. Paired markdown evidence captures the raw commands, outputs, fixtures, and observed results for review.

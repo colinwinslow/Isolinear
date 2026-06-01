@@ -78,13 +78,13 @@ The architecture review pass (`codex/review-bdd-evidence.md`) checks:
 - Evidence is raw output (not summaries)
 - Evals pass and prove each scenario was hit
 
-## Future: Markdown BDD
+## Paired Markdown Evidence
 
-The kit template uses markdown Given/When/Then format (`bdd/<feature>/<slug>-bdd.md`). Isolinear currently uses Gherkin in `docs/bdd/`, which is equally valid. If you prefer markdown format:
+The kit template uses markdown Given/When/Then format (`bdd/<feature>/<slug>-bdd.md`). Isolinear keeps source Gherkin scenarios in `docs/bdd/` and now backfills paired markdown BDD/evidence files for implemented eval-backed slices:
 
 1. Create `bdd/<feature>/<slug>-bdd.md` with Given/When/Then scenarios.
 2. Create `bdd/<feature>/<slug>-evidence.md` with raw eval output or test logs.
 3. The feature folder `README.md` references both.
 
-For now, feature folders document the Gherkin scenarios and their evals.
+Feature folders document the Gherkin scenarios, paired markdown BDD/evidence files, and their evals.
 
