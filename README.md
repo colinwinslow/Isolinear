@@ -35,7 +35,7 @@ The system will:
 - `AGENTS.md` tells Codex and other coding agents how to work in this repo.
 - `HANDOFF.md` keeps continuity across agentic engineering sessions.
 - `codex/startup.md` and `codex/closeout.md` define session rituals.
-- `docs/adr/` records load-bearing architecture decisions.
+- `docs/decisions/` records load-bearing architecture decisions.
 - `docs/specs/` defines expected behavior in prose.
 - `docs/bdd/` defines concrete Gherkin scenarios.
 - `docs/schemas/` defines machine-checkable internal contracts.
