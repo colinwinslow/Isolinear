@@ -127,7 +127,7 @@ C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals/<eval>.py     # run
 ## What is out of scope (now)
 
 - Home Assistant custom integration implementation (deferred until MVP design phase closes)
-- Persistent semantic-memory store (envelope, migrations, repair UI)
+- Persistent semantic-memory storage-helper implementation, migrations, and repair UI beyond the completed envelope contract
 - Exact dashboard card implementation technology
 - Exact worker API transport and authentication
 - Exact sandbox implementation details for Raspberry Pi compatibility

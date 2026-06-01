@@ -17,6 +17,7 @@ SCHEMA_NAMES = {
     "render-request": "render-request.schema.json",
     "render-result": "render-result.schema.json",
     "semantic-alias": "semantic-alias.schema.json",
+    "semantic-memory-store": "semantic-memory-store.schema.json",
     "validation-result": "validation-result.schema.json",
 }
 

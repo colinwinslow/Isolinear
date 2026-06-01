@@ -1378,6 +1378,85 @@ def invoke_fake_prompt_to_chart(
     }
 
 
+def create_semantic_memory_store(
+    *,
+    aliases: list[dict[str, Any]],
+    config_entry_id: str = "fake-config-entry",
+    now: datetime | None = None,
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    store = {
+        "store_version": 1,
+        "config_entry_id": config_entry_id,
+        "created_at": iso_timestamp(now),
+        "updated_at": iso_timestamp(now),
+        "aliases": aliases,
+    }
+    validate_contract("semantic-memory-store", store, repo_root=repo_root)
+    _validate_semantic_memory_store_alias_ids(store)
+    return store
+
+
+def prepare_semantic_memory_for_planning(
+    *,
+    semantic_memory_store: dict[str, Any],
+    entity_catalog: list[dict[str, Any]],
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
+    try:
+        validate_contract("semantic-memory-store", semantic_memory_store, repo_root=repo_root)
+        _validate_semantic_memory_store_alias_ids(semantic_memory_store)
+    except ContractValidationError as exc:
+        return {
+            "valid_semantic_aliases": [],
+            "invalid_semantic_aliases": [],
+            "store_error": {
+                "code": "semantic_memory_store_invalid",
+                "message": str(exc),
+            },
+        }
+
+    valid_aliases = []
+    invalid_aliases = []
+    for alias in semantic_memory_store["aliases"]:
+        if not alias.get("enabled", True):
+            continue
+
+        invalid_entities = _invalid_semantic_alias_entities(
+            alias=alias,
+            entity_catalog=entity_catalog,
+        )
+        if invalid_entities:
+            invalid_aliases.extend(invalid_entities)
+            continue
+
+        valid_aliases.append(alias)
+
+    return {
+        "valid_semantic_aliases": valid_aliases,
+        "invalid_semantic_aliases": invalid_aliases,
+        "store_error": None,
+    }
+
+
+def _validate_semantic_memory_store_alias_ids(store: dict[str, Any]) -> None:
+    seen_alias_ids = set()
+    duplicate_alias_ids = set()
+
+    for alias in store["aliases"]:
+        alias_id = alias["alias_id"]
+        if alias_id in seen_alias_ids:
+            duplicate_alias_ids.add(alias_id)
+        seen_alias_ids.add(alias_id)
+
+    if duplicate_alias_ids:
+        duplicate_list = ", ".join(sorted(duplicate_alias_ids))
+        raise ContractValidationError(f"Duplicate semantic alias IDs: {duplicate_list}.")
+
+
 def invoke_threshold_confirmation_use_once(
     *,
     prompt: str,

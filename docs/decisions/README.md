@@ -35,3 +35,4 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0007 — `Local-first Ollama-compatible model provider`
 - 0008 — `Read-only MVP and sandbox security`
 - 0009 — `Semantic memory storage`
+- 0010 — `Semantic memory store envelope`

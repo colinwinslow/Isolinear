@@ -1,6 +1,7 @@
 import sys
 import tempfile
 import unittest
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -9,6 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from Isolinear.fake_slice import (  # noqa: E402
+    create_semantic_memory_store,
     create_deterministic_planner_result,
     extract_state_intervals,
     extract_threshold_intervals,
@@ -24,6 +26,7 @@ from Isolinear.fake_slice import (  # noqa: E402
     invoke_validated_chart_plan,
     iso_timestamp,
     normalize_numeric_history_records,
+    prepare_semantic_memory_for_planning,
     validate_chart_job,
 )
 from Isolinear.contracts import (  # noqa: E402
@@ -619,6 +622,187 @@ class FakeVerticalSliceTests(unittest.TestCase):
 
         self.assert_contract_valid("semantic-alias", saved_alias)
         validate_fake_prompt_to_chart_contracts(result, repo_root=REPO_ROOT)
+
+    def test_semantic_memory_store_filters_valid_aliases_and_computes_invalidity(self):
+        valid_alias = {
+            "alias_id": "dishwasher_running",
+            "natural_names": ["dishwasher running"],
+            "meaning": {
+                "type": "threshold_interval",
+                "entity_id": "sensor.dishwasher_power",
+                "operator": ">",
+                "value": 5,
+                "unit": "W",
+            },
+            "source": "user_confirmed",
+            "created_from_prompt": "Mark when the dishwasher was running over the last day",
+            "created_at": iso_timestamp(self.now),
+            "last_used_at": iso_timestamp(self.now),
+            "enabled": True,
+        }
+        unavailable_alias = {
+            "alias_id": "retired_dishwasher_running",
+            "natural_names": ["retired dishwasher running"],
+            "meaning": {
+                "type": "threshold_interval",
+                "entity_id": "sensor.retired_dishwasher_power",
+                "operator": ">",
+                "value": 5,
+                "unit": "W",
+            },
+            "source": "user_confirmed",
+            "created_from_prompt": "Mark when the dishwasher was running over the last day",
+            "created_at": iso_timestamp(self.now),
+            "last_used_at": iso_timestamp(self.now),
+            "enabled": True,
+        }
+        disabled_alias = {
+            "alias_id": "disabled_dishwasher_running",
+            "natural_names": ["disabled dishwasher running"],
+            "meaning": {
+                "type": "threshold_interval",
+                "entity_id": "sensor.retired_dishwasher_power",
+                "operator": ">",
+                "value": 5,
+                "unit": "W",
+            },
+            "source": "user_confirmed",
+            "created_from_prompt": "Mark when the dishwasher was running over the last day",
+            "created_at": iso_timestamp(self.now),
+            "last_used_at": iso_timestamp(self.now),
+            "enabled": False,
+        }
+        store = create_semantic_memory_store(
+            aliases=[valid_alias, unavailable_alias, disabled_alias],
+            now=self.now,
+            repo_root=REPO_ROOT,
+        )
+        original_store = deepcopy(store)
+
+        result = prepare_semantic_memory_for_planning(
+            semantic_memory_store=store,
+            entity_catalog=get_fake_approved_entity_catalog(),
+            repo_root=REPO_ROOT,
+        )
+
+        self.assertEqual(result["valid_semantic_aliases"], [valid_alias])
+        self.assertEqual(
+            result["invalid_semantic_aliases"],
+            [
+                {
+                    "alias_id": "retired_dishwasher_running",
+                    "entity_id": "sensor.retired_dishwasher_power",
+                    "reason": "entity_unavailable",
+                }
+            ],
+        )
+        self.assertIsNone(result["store_error"])
+        self.assertEqual(store, original_store)
+        self.assertNotIn("invalid_semantic_aliases", store)
+        for alias in store["aliases"]:
+            self.assertNotIn("invalid_reason", alias)
+
+        self.assert_contract_valid("semantic-memory-store", store)
+        self.assert_contract_valid("semantic-alias", valid_alias)
+        self.assert_contract_valid("semantic-alias", unavailable_alias)
+        self.assert_contract_valid("semantic-alias", disabled_alias)
+
+    def test_semantic_memory_store_unsupported_version_fails_closed(self):
+        valid_alias = {
+            "alias_id": "dishwasher_running",
+            "natural_names": ["dishwasher running"],
+            "meaning": {
+                "type": "threshold_interval",
+                "entity_id": "sensor.dishwasher_power",
+                "operator": ">",
+                "value": 5,
+                "unit": "W",
+            },
+            "source": "user_confirmed",
+            "created_from_prompt": "Mark when the dishwasher was running over the last day",
+            "created_at": iso_timestamp(self.now),
+            "last_used_at": iso_timestamp(self.now),
+            "enabled": True,
+        }
+        store = {
+            "store_version": 99,
+            "config_entry_id": "fake-config-entry",
+            "created_at": iso_timestamp(self.now),
+            "updated_at": iso_timestamp(self.now),
+            "aliases": [valid_alias],
+        }
+
+        result = prepare_semantic_memory_for_planning(
+            semantic_memory_store=store,
+            entity_catalog=get_fake_approved_entity_catalog(),
+            repo_root=REPO_ROOT,
+        )
+
+        self.assertEqual(result["valid_semantic_aliases"], [])
+        self.assertEqual(result["invalid_semantic_aliases"], [])
+        self.assertEqual(
+            result["store_error"]["code"],
+            "semantic_memory_store_invalid",
+        )
+        self.assertIn("$.store_version must equal 1.", result["store_error"]["message"])
+
+    def test_semantic_memory_store_duplicate_alias_ids_fail_closed(self):
+        valid_alias = {
+            "alias_id": "dishwasher_running",
+            "natural_names": ["dishwasher running"],
+            "meaning": {
+                "type": "threshold_interval",
+                "entity_id": "sensor.dishwasher_power",
+                "operator": ">",
+                "value": 5,
+                "unit": "W",
+            },
+            "source": "user_confirmed",
+            "created_from_prompt": "Mark when the dishwasher was running over the last day",
+            "created_at": iso_timestamp(self.now),
+            "last_used_at": iso_timestamp(self.now),
+            "enabled": True,
+        }
+        conflicting_alias = deepcopy(valid_alias)
+        conflicting_alias["natural_names"] = ["alternate dishwasher running"]
+        conflicting_alias["meaning"] = {
+            "type": "threshold_interval",
+            "entity_id": "sensor.retired_dishwasher_power",
+            "operator": ">",
+            "value": 5,
+            "unit": "W",
+        }
+        store = {
+            "store_version": 1,
+            "config_entry_id": "fake-config-entry",
+            "created_at": iso_timestamp(self.now),
+            "updated_at": iso_timestamp(self.now),
+            "aliases": [valid_alias, conflicting_alias],
+        }
+
+        result = prepare_semantic_memory_for_planning(
+            semantic_memory_store=store,
+            entity_catalog=get_fake_approved_entity_catalog(),
+            repo_root=REPO_ROOT,
+        )
+
+        self.assertEqual(result["valid_semantic_aliases"], [])
+        self.assertEqual(result["invalid_semantic_aliases"], [])
+        self.assertEqual(
+            result["store_error"]["code"],
+            "semantic_memory_store_invalid",
+        )
+        self.assertIn(
+            "Duplicate semantic alias IDs: dishwasher_running.",
+            result["store_error"]["message"],
+        )
+
+        with self.assertRaises(ContractValidationError):
+            create_semantic_memory_store(
+                aliases=[valid_alias, conflicting_alias],
+                now=self.now,
+                repo_root=REPO_ROOT,
+            )
 
     def test_safe_renderer_rejects_unsupported_chart_spec(self):
         request = {
