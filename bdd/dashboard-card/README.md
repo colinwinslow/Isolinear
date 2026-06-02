@@ -1,0 +1,53 @@
+# Dashboard Card BDD
+
+Scenarios for the Home Assistant dashboard card shell, prompt workflow, and
+integration boundary.
+
+## Scenarios
+
+- **Prompt progress** - User submits a prompt and sees planning progress.
+- **Custom card anchor** - Home Assistant loads `custom:isolinear-card` from a
+  dashboard resource and the card renders the idle prompt surface.
+- **Clarification answer** - User answers a clarification and the job continues.
+- **Threshold clarification** - User accepts a threshold-derived interval once.
+- **Chart result** - User sees a chart-dominant result view with entity
+  disclosure, aliases, validation status, and a compact bottom prompt composer
+  for a new request.
+- **Failure details** - User sees the failed stage and retry or revision action.
+- **Integration boundary** - Card gestures are sent through integration-owned
+  WebSocket commands, not direct worker, model, history, memory, or mutation
+  calls.
+
+## Related docs
+
+- Spec: [docs/specs/dashboard-card-spec.md](../../docs/specs/dashboard-card-spec.md)
+- ADR: [docs/decisions/0001-home-assistant-integration-plus-worker.md](../../docs/decisions/0001-home-assistant-integration-plus-worker.md)
+- ADR: [docs/decisions/0002-dashboard-card-first-ui.md](../../docs/decisions/0002-dashboard-card-first-ui.md)
+- ADR: [docs/decisions/0008-read-only-mvp-and-sandbox-security.md](../../docs/decisions/0008-read-only-mvp-and-sandbox-security.md)
+- ADR: [docs/decisions/0009-semantic-memory-storage.md](../../docs/decisions/0009-semantic-memory-storage.md)
+- ADR: [docs/decisions/0011-dashboard-card-implementation-technology.md](../../docs/decisions/0011-dashboard-card-implementation-technology.md)
+- Source scenarios: [docs/bdd/dashboard-card.feature](../../docs/bdd/dashboard-card.feature)
+- Paired BDD: [custom-card-anchor-bdd.md](custom-card-anchor-bdd.md)
+- Evidence scaffold: [custom-card-anchor-evidence.md](custom-card-anchor-evidence.md)
+
+## Validation
+
+The implementation slice should produce browser-testable evidence for:
+
+- Custom-element registration and `window.customCards` metadata.
+- Minimal valid and invalid card config handling.
+- Rendered fixture states for idle, planning, clarification, complete, and
+  failed jobs.
+- Layout evidence for prompt-first idle state and chart-first complete state
+  with a compact bottom prompt composer.
+- Recorded fake Home Assistant WebSocket calls for prompt submission and
+  clarification answers.
+- Static or runtime checks that the card does not use direct worker/model calls,
+  direct Home Assistant history calls, mutation service calls, semantic-memory
+  file access, or browser local storage for Isolinear state.
+
+## Evidence format
+
+The paired evidence file should contain raw test output, browser harness output,
+fixture snapshots, recorded WebSocket messages, and any static-check output
+needed to inspect the integration boundary.

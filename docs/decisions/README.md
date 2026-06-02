@@ -36,3 +36,4 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0008 — `Read-only MVP and sandbox security`
 - 0009 — `Semantic memory storage`
 - 0010 — `Semantic memory store envelope`
+- 0011 — `Dashboard card implementation technology`

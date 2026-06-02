@@ -11,6 +11,7 @@ bdd/
   semantic-memory/          # Semantic alias creation, reuse, invalidation
   validation/               # Plan validation, schema checks, overlay validation
   rendering/                # Chart rendering, dashboard display
+  dashboard-card/           # Home Assistant dashboard card shell and UI flow
   sandbox-codegen/          # Sandboxed code generation and safety
   history-normalization/    # Data normalization and quality
   README.md (this file)
