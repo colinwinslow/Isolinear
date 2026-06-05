@@ -28,11 +28,12 @@ integration boundary.
 - ADR: [docs/decisions/0011-dashboard-card-implementation-technology.md](../../docs/decisions/0011-dashboard-card-implementation-technology.md)
 - Source scenarios: [docs/bdd/dashboard-card.feature](../../docs/bdd/dashboard-card.feature)
 - Paired BDD: [custom-card-anchor-bdd.md](custom-card-anchor-bdd.md)
-- Evidence scaffold: [custom-card-anchor-evidence.md](custom-card-anchor-evidence.md)
+- Evidence: [custom-card-anchor-evidence.md](custom-card-anchor-evidence.md)
+- Eval: [evals/dashboard_card_anchor.py](../../evals/dashboard_card_anchor.py)
 
 ## Validation
 
-The implementation slice should produce browser-testable evidence for:
+The implementation slice produces browser-testable evidence for:
 
 - Custom-element registration and `window.customCards` metadata.
 - Minimal valid and invalid card config handling.
@@ -48,6 +49,6 @@ The implementation slice should produce browser-testable evidence for:
 
 ## Evidence format
 
-The paired evidence file should contain raw test output, browser harness output,
+The paired evidence file contains raw test output, browser harness output,
 fixture snapshots, recorded WebSocket messages, and any static-check output
 needed to inspect the integration boundary.

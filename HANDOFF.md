@@ -22,19 +22,29 @@ Isolinear lets a user ask natural-language questions about approved Home Assista
 
 Fake-provider vertical slice implemented as a local Python module with schema-backed contract validation, a pre-render plan validation gate, deterministic render metadata validation, trusted safe-mode rendering for shaded interval overlays, fake binary-state interval extraction, confirmed threshold-derived interval extraction, deterministic threshold clarification for continuous power sensors, use-once threshold confirmation handling, deterministic threshold semantic alias creation, reuse of saved threshold aliases, deterministic invalidation of saved threshold aliases that reference unavailable or non-allowlisted entities, and a versioned semantic-memory store envelope anchor that computes invalidity at use time while failing closed for unsupported versions or duplicate alias IDs. Eval scripts now emit structured `CASE` evidence payloads, and implemented eval-backed scenario groups have paired markdown BDD/evidence files under `bdd/<feature>/`.
 
-Dashboard card implementation technology is decided in ADR-0011: the MVP card is a TypeScript Lit custom element loaded as `custom:isolinear-card`, bundled as an ES module, and kept as a thin client over integration-owned Home Assistant WebSocket commands. The card must not directly call the worker, model provider, Home Assistant history APIs, semantic-memory storage, mutation services, or browser local storage for Isolinear state. The next card slice should build a browser-testable fake-Home-Assistant anchor before full integration plumbing.
+Dashboard card implementation technology is decided in ADR-0011: the MVP card is a TypeScript Lit custom element loaded as `custom:isolinear-card`, bundled as an ES module, and kept as a thin client over integration-owned Home Assistant WebSocket commands. The card must not directly call the worker, model provider, Home Assistant history APIs, semantic-memory storage, mutation services, or browser local storage for Isolinear state.
+
+Dashboard card anchor implementation is complete. The repo now has a
+Node-backed frontend anchor under `frontend/` with TypeScript Lit source, a
+checked-in Vite ES module bundle, fake Home Assistant harness, fixture job
+snapshots, Vitest adapter coverage, Python verifier/eval coverage, and raw
+BDD evidence proving idle, planning, clarification, complete, failed, and
+integration-boundary scenarios. Repo-local setup scripts create `.venv`, run
+pytest, resolve the Windows Node.js install, and run frontend install/build/test
+commands without depending on ambient PATH.
 
 No Home Assistant integration has been built yet.
 
 ## Next recommended packet
 
-Dashboard card anchor implementation:
+Worker API transport and authentication:
 
-1. Scaffold frontend card source and minimal build/test toolchain for `isolinear-card`.
-2. Build a browser-testable fake Home Assistant harness and fixture job snapshots.
-3. Render prompt-first idle state, active states, chart-first complete state, and failed state.
-4. Verify fake WebSocket adapter calls and the no direct worker/model/history/memory/mutation/local-storage boundary.
-5. Replace `bdd/dashboard-card/custom-card-anchor-evidence.md` with raw test output.
+1. Define the integration-owned WebSocket command schemas for prompt submission,
+   clarification answer, retry, snapshot retrieval, and subscription.
+2. Decide the worker transport/authentication envelope before production
+   integration code.
+3. Preserve the ADR-0011 boundary: the card remains a thin client over
+   Home Assistant integration commands.
 
 ## Known unresolved design details
 
@@ -43,7 +53,8 @@ Dashboard card anchor implementation:
 - Exact sandbox implementation details for Raspberry Pi compatibility.
 - Which chart primitives are included in the first trusted renderer release.
 - Exact Isolinear dashboard-card WebSocket command schemas.
-- Exact dashboard-card source/bundle paths and resource auto-registration behavior.
+- Exact dashboard resource auto-registration behavior once the integration
+  scaffold exists.
 
 ## Session log
 
