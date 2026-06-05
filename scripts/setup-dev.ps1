@@ -10,6 +10,8 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $VenvDir = Join-Path $RepoRoot ".venv"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 $Requirements = Join-Path $RepoRoot "requirements-dev.txt"
+$ResolveNodeScript = Join-Path $PSScriptRoot "lib\resolve-node.ps1"
+. $ResolveNodeScript
 
 function Invoke-Checked {
     param(
@@ -60,14 +62,31 @@ Invoke-Checked -FilePath $VenvPython -Arguments @("-m", "pip", "install", "--upg
 Write-Host "Installing Python dev dependencies"
 Invoke-Checked -FilePath $VenvPython -Arguments @("-m", "pip", "install", "-r", $Requirements)
 
-$Node = Get-Command node -ErrorAction SilentlyContinue
-$Npm = Get-Command npm -ErrorAction SilentlyContinue
+$FrontendPackage = Join-Path $RepoRoot "frontend\package.json"
+$Node = $null
+$Npm = $null
+try {
+    $Node = Resolve-NodeTool -ToolName node
+    $Npm = Resolve-NodeTool -ToolName npm
+} catch {
+    Write-Warning $_.Exception.Message
+}
+
 if ($Node -and $Npm) {
-    Write-Host "Node: $(& $Node.Source --version)"
-    Write-Host "npm: $(& $Npm.Source --version)"
-} else {
-    Write-Warning "Node.js LTS is not on PATH. Install Node.js LTS, reopen PowerShell, then verify with: node --version; npm --version"
+    $NodeDir = Split-Path -Parent $Node
+    if (($env:PATH -split ";") -notcontains $NodeDir) {
+        $env:PATH = "$NodeDir;$env:PATH"
+    }
+
+    Write-Host "Node: $(& $Node --version)"
+    Write-Host "npm: $(& $Npm --version)"
+
+    if (Test-Path -LiteralPath $FrontendPackage) {
+        Write-Host "Installing frontend dependencies"
+        Invoke-Checked -FilePath $Npm -Arguments @("--prefix", (Join-Path $RepoRoot "frontend"), "install")
+    }
 }
 
 Write-Host "Dev environment ready."
 Write-Host "Run tests with: .\scripts\test.ps1"
+Write-Host "Run frontend checks with: .\scripts\frontend.ps1 test"
