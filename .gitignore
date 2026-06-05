@@ -1,0 +1,6 @@
+.venv/
+node_modules/
+__pycache__/
+.pytest_cache/
+.test-output/frontend-server.out
+.test-output/frontend-server.err
