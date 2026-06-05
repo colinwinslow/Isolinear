@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Isolinear Card Harness</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #eef3f8;
+        color: #1d2633;
+        font-family: Arial, sans-serif;
+        display: grid;
+        grid-template-columns: minmax(280px, 720px);
+        justify-content: center;
+        align-content: start;
+        gap: 16px;
+        padding: 24px;
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      button {
+        border: 1px solid #c9d3df;
+        background: #ffffff;
+        color: #1d2633;
+        border-radius: 6px;
+        padding: 8px 10px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="controls" id="state-controls"></div>
+    <isolinear-card id="card"></isolinear-card>
+    <pre id="calls"></pre>
+    <script type="module">
+      import "../dist/isolinear-card.js";
+      import { createFakeHass, loadFixtureSnapshots } from "./fake-hass.js";
+
+      const snapshots = await loadFixtureSnapshots();
+      const hass = createFakeHass({ snapshots });
+      const card = document.querySelector("#card");
+      const calls = document.querySelector("#calls");
+      const controls = document.querySelector("#state-controls");
+
+      card.setConfig({
+        type: "custom:isolinear-card",
+        config_entry_id: "fake-config-entry",
+        title: "Isolinear",
+      });
+      card.hass = hass;
+
+      for (const [state, snapshot] of Object.entries(snapshots)) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = state;
+        button.addEventListener("click", () => {
+          hass.setIsolinearSnapshot(snapshot);
+          card.snapshot = snapshot;
+          calls.textContent = JSON.stringify(hass.isolinearCalls, null, 2);
+        });
+        controls.append(button);
+      }
+
+      card.addEventListener("isolinear-calls-changed", () => {
+        calls.textContent = JSON.stringify(hass.isolinearCalls, null, 2);
+      });
+    </script>
+  </body>
+</html>
