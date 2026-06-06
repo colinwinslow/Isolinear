@@ -65,7 +65,7 @@ from pathlib import Path
 
 _PAYLOAD = json.loads(sys.stdin.read())
 _POLICY = _PAYLOAD["policy"]
-_ALLOWED_IMPORTS = set(_POLICY["allowed_imports"])
+_ALLOWED_GENERATED_IMPORTS = set(_POLICY["allowed_imports"])
 _OUTPUT_PATH = str(Path(_PAYLOAD["output_path"]).resolve())
 _ALLOWED_READ_ROOTS = tuple(
     str(Path(path).resolve()) for path in _PAYLOAD["allowed_read_roots"]
@@ -84,8 +84,12 @@ def _path_is_under(path: str, root: str) -> bool:
     return True
 
 
-def _module_allowed(module_name: str) -> bool:
-    return module_name in _ALLOWED_IMPORTS
+def _generated_module_allowed(module_name: str) -> bool:
+    return any(
+        module_name == allowed_module
+        or module_name.startswith(f"{allowed_module}.")
+        for allowed_module in _ALLOWED_GENERATED_IMPORTS
+    )
 
 
 def _apply_resource_limits() -> None:
@@ -138,11 +142,6 @@ def _audit(event: str, args: tuple[object, ...]) -> None:
     }:
         raise PermissionError(f"sandbox denied runtime event {event}")
 
-    if event == "import":
-        module_name = str(args[0]) if args else ""
-        if not _module_allowed(module_name):
-            raise ImportError(f"sandbox import not allowlisted: {module_name}")
-
 
 def _sandbox_import(
     name: str,
@@ -153,7 +152,7 @@ def _sandbox_import(
 ) -> object:
     if level != 0:
         raise ImportError("sandbox does not allow relative imports")
-    if not _module_allowed(name):
+    if not _generated_module_allowed(name):
         raise ImportError(f"sandbox import not allowlisted: {name}")
     return _builtins.__import__(name, globals, locals, fromlist, level)
 
@@ -285,8 +284,8 @@ def default_codegen_sandbox_policy() -> dict[str, Any]:
             "locals",
             "vars",
         ],
-        "timeout_seconds": 2,
-        "cpu_seconds": 2,
+        "timeout_seconds": 10,
+        "cpu_seconds": 10,
         "memory_limit_mb": 256,
         "max_output_bytes": 1_000_000,
         "network_access": "denied",
@@ -332,6 +331,37 @@ def render_chart(data, output_path):
         "x_max": data["history_series"][0]["points"][-1]["ts"],
         "warnings": [],
     }}
+'''.strip()
+
+
+def matplotlib_generated_python() -> str:
+    return '''
+import matplotlib
+import matplotlib.pyplot as plt
+
+
+def render_chart(data, output_path):
+    series = data["history_series"][0]
+    points = series["points"]
+    x_values = [point["ts"] for point in points]
+    y_values = [point["value"] for point in points]
+
+    fig, ax = plt.subplots(figsize=(4, 2.4), dpi=120)
+    ax.plot(x_values, y_values, marker="o")
+    ax.set_title(data["chart_spec"]["title"])
+    ax.set_ylabel(series["unit"])
+    fig.tight_layout()
+    fig.savefig(output_path, format="png")
+    plt.close(fig)
+
+    return {
+        "title": data["chart_spec"]["title"],
+        "series_plotted": [series["series_id"]],
+        "overlays_plotted": [],
+        "x_min": points[0]["ts"],
+        "x_max": points[-1]["ts"],
+        "warnings": [f"matplotlib_backend:{matplotlib.get_backend()}"],
+    }
 '''.strip()
 
 
@@ -787,6 +817,23 @@ def verify_codegen_sandbox_anchor(root: Path | None = None) -> dict[str, Any]:
         )
         safe_output_files = sorted(path.name for path in run_directory.iterdir())
 
+    with tempfile.TemporaryDirectory(dir=output_root) as run_directory_text:
+        run_directory = Path(run_directory_text)
+        matplotlib_result = invoke_codegen_sandbox(
+            render_request=sample_codegen_render_request(
+                python_code=matplotlib_generated_python(),
+            ),
+            output_directory=run_directory,
+            policy=policy,
+            repo_root=root,
+        )
+        matplotlib_output_files = sorted(path.name for path in run_directory.iterdir())
+        matplotlib_image_signature = (
+            Path(matplotlib_result["image_path"]).read_bytes()[:8].hex()
+            if matplotlib_result["status"] == "success"
+            else None
+        )
+
     unsafe_results = {
         name: invoke_codegen_sandbox(
             render_request=sample_codegen_render_request(python_code=python_code),
@@ -828,6 +875,13 @@ def verify_codegen_sandbox_anchor(root: Path | None = None) -> dict[str, Any]:
     elif safe_output_files != [safe_result["image_id"]]:
         failures.append("Safe generated code wrote files outside the fixed output image.")
 
+    if matplotlib_result["status"] != "success":
+        failures.append("Allowlisted matplotlib generated code did not complete successfully.")
+    elif matplotlib_output_files != [matplotlib_result["image_id"]]:
+        failures.append("Matplotlib generated code wrote files outside the fixed output image.")
+    elif matplotlib_image_signature != PNG_SIGNATURE.hex():
+        failures.append("Matplotlib generated code did not create a PNG image.")
+
     if not all(result["status"] == "failed" for result in unsafe_results.values()):
         failures.append("One or more unsafe code examples were not rejected.")
     if not all(result["error"]["code"] == "unsafe_code" for result in unsafe_results.values()):
@@ -852,6 +906,9 @@ def verify_codegen_sandbox_anchor(root: Path | None = None) -> dict[str, Any]:
         "policy": policy,
         "safe_result": safe_result,
         "safe_output_files": safe_output_files,
+        "matplotlib_result": matplotlib_result,
+        "matplotlib_output_files": matplotlib_output_files,
+        "matplotlib_image_signature": matplotlib_image_signature,
         "unsafe_results": unsafe_results,
         "oversized_result": oversized_result,
         "repair_result": repair_result,

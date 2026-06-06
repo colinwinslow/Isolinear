@@ -34,7 +34,15 @@ supports them
 **And** the output image should be written only to the fixed output path
 **And** the render result should include metadata returned by the function
 
-### Scenario C - unsafe generated code is rejected before execution
+### Scenario C - allowlisted matplotlib pyplot renders with Agg backend
+
+**Given** generated Python imports `matplotlib.pyplot`
+**When** the worker runs codegen mode
+**Then** the code should render a PNG through the sandbox
+**And** the render metadata should report the `Agg` backend
+**And** the output image should be written only to the fixed output path
+
+### Scenario D - unsafe generated code is rejected before execution
 
 **Given** generated Python attempts to import a forbidden module such as
 `requests`
@@ -42,7 +50,7 @@ supports them
 **Then** the worker should reject the code as `unsafe_code`
 **And** the code should not execute
 
-### Scenario D - secret, filesystem, and network access fail closed
+### Scenario E - secret, filesystem, and network access fail closed
 
 **Given** generated Python attempts to read secrets, inspect environment
 variables, or open a local network socket
@@ -50,7 +58,7 @@ variables, or open a local network socket
 **Then** the worker should reject the code as `unsafe_code`
 **And** the code should not execute
 
-### Scenario E - oversized output fails after execution
+### Scenario F - oversized output fails after execution
 
 **Given** generated Python writes an output larger than the sandbox policy
 allows
@@ -59,7 +67,7 @@ allows
 **And** the render result should not expose the oversized image as a successful
 artifact
 
-### Scenario F - runtime error triggers capped repair loop
+### Scenario G - runtime error triggers capped repair loop
 
 **Given** generated Python raises a matplotlib/runtime exception
 **When** codegen repair is enabled with max attempts 2

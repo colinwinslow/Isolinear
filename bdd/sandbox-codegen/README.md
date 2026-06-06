@@ -9,6 +9,9 @@ Scenarios for sandboxed code generation, matplotlib rendering, and safety checks
   size limit, and Linux resource-limit requests for Raspberry Pi workers.
 - **Sandboxed codegen** — Generated Python runs only through
   `render_chart(data, output_path)` and writes only the fixed output image.
+- **Matplotlib smoke rendering** — Allowlisted generated code imports
+  `matplotlib.pyplot`, renders with the `Agg` backend, and still writes only the
+  fixed output image.
 - **Code safety checks** — Generated code is statically validated before
   execution and rejects forbidden imports, secret/file reads, environment
   inspection, and local-network access.

@@ -60,6 +60,25 @@ def main():
     )
 
     print_case(
+        "matplotlib_pyplot_renders_with_agg_backend",
+        given={
+            "allowed_imports": [
+                "matplotlib",
+                "matplotlib.pyplot",
+            ],
+            "backend": "Agg",
+        },
+        when={
+            "operation": "invoke_codegen_sandbox_with_matplotlib_pyplot",
+        },
+        then={
+            "matplotlib_result": result["matplotlib_result"],
+            "matplotlib_output_files": result["matplotlib_output_files"],
+            "matplotlib_image_signature": result["matplotlib_image_signature"],
+        },
+    )
+
+    print_case(
         "unsafe_code_rejected_before_execution",
         given={
             "unsafe_examples": list(result["unsafe_results"]),

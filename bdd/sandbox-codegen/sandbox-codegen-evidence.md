@@ -1,6 +1,6 @@
 # Sandbox Codegen Evidence
 
-Run timestamp: 2026-06-06T01:14:55+00:00
+Run timestamp: 2026-06-06T16:50:27+00:00
 
 BDD file:
 `bdd/sandbox-codegen/sandbox-codegen-bdd.md`
@@ -11,17 +11,18 @@ Overall result: PASS
 
 - Scenario A: sandbox policy is Raspberry Pi compatible -> `CASE codegen_policy_is_pi_compatible`
 - Scenario B: generated code renders through the fixed entry point -> `CASE fixed_entry_point_renders_fixed_output`
-- Scenario C: unsafe generated code is rejected before execution -> `CASE unsafe_code_rejected_before_execution`
-- Scenario D: secret, filesystem, and network access fail closed -> `CASE unsafe_code_rejected_before_execution`
-- Scenario E: oversized output fails after execution -> `CASE output_size_limit_is_enforced`
-- Scenario F: runtime error triggers capped repair loop -> `CASE runtime_error_uses_capped_repair_loop`
+- Scenario C: allowlisted matplotlib pyplot renders with Agg backend -> `CASE matplotlib_pyplot_renders_with_agg_backend`
+- Scenario D: unsafe generated code is rejected before execution -> `CASE unsafe_code_rejected_before_execution`
+- Scenario E: secret, filesystem, and network access fail closed -> `CASE unsafe_code_rejected_before_execution`
+- Scenario F: oversized output fails after execution -> `CASE output_size_limit_is_enforced`
+- Scenario G: runtime error triggers capped repair loop -> `CASE runtime_error_uses_capped_repair_loop`
 
-## Focused Unit Verification
+## Python Verification
 
 Raw command:
 
 ```powershell
-.\scripts\test.ps1 tests/test_codegen_sandbox_anchor.py
+.\scripts\test.ps1 tests/
 ```
 
 Raw output:
@@ -30,11 +31,14 @@ Raw output:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 7 items
+collected 43 items
 
-tests\test_codegen_sandbox_anchor.py .......                             [100%]
+tests\test_codegen_sandbox_anchor.py ........                            [ 18%]
+tests\test_dashboard_card_anchor.py .......                              [ 34%]
+tests\test_fake_vertical_slice.py .......................                [ 88%]
+tests\test_transport_auth_anchor.py .....                                [100%]
 
-============================= 7 passed in 11.55s ==============================
+============================= 43 passed in 24.65s ==============================
 ```
 
 ## Eval Verification
@@ -52,7 +56,7 @@ CASE codegen_policy_is_pi_compatible
 {
   "case_id": "codegen_policy_is_pi_compatible",
   "given": {
-    "run_timestamp": "2026-06-06T01:14:55+00:00",
+    "run_timestamp": "2026-06-06T16:50:27+00:00",
     "schema": "docs/schemas/codegen-sandbox-policy.schema.json"
   },
   "then": {
@@ -99,7 +103,7 @@ CASE codegen_policy_is_pi_compatible
       "memory": "resource_rlimit_as_when_available",
       "timeout": "subprocess_timeout"
     },
-    "timeout_seconds": 2
+    "timeout_seconds": 10
   },
   "when": {
     "operation": "validate_default_codegen_sandbox_policy"
@@ -142,6 +146,48 @@ CASE fixed_entry_point_renders_fixed_output
   }
 }
 PASS fixed_entry_point_renders_fixed_output
+CASE matplotlib_pyplot_renders_with_agg_backend
+{
+  "case_id": "matplotlib_pyplot_renders_with_agg_backend",
+  "given": {
+    "allowed_imports": [
+      "matplotlib",
+      "matplotlib.pyplot"
+    ],
+    "backend": "Agg"
+  },
+  "then": {
+    "matplotlib_image_signature": "89504e470d0a1a0a",
+    "matplotlib_output_files": [
+      "codegen-sandbox-anchor.png"
+    ],
+    "matplotlib_result": {
+      "error": null,
+      "image_id": "codegen-sandbox-anchor.png",
+      "image_mime_type": "image/png",
+      "image_path": "C:\\Users\\c.winslow\\OneDrive - Kagwerks\\Documents\\Repos\\Isolinear\\.test-output\\tmpox5rwte3\\codegen-sandbox-anchor.png",
+      "render_metadata": {
+        "codegen_attempts": 1,
+        "overlays_plotted": [],
+        "series_plotted": [
+          "upstairs_temperature"
+        ],
+        "title": "Sandboxed Temperature",
+        "warnings": [
+          "matplotlib_backend:Agg"
+        ],
+        "x_max": "2026-06-05T09:00:00Z",
+        "x_min": "2026-06-05T08:00:00Z"
+      },
+      "request_id": "codegen-sandbox-anchor",
+      "status": "success"
+    }
+  },
+  "when": {
+    "operation": "invoke_codegen_sandbox_with_matplotlib_pyplot"
+  }
+}
+PASS matplotlib_pyplot_renders_with_agg_backend
 CASE unsafe_code_rejected_before_execution
 {
   "case_id": "unsafe_code_rejected_before_execution",

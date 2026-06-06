@@ -17,6 +17,13 @@ Feature: Sandboxed code generation
     And the output image should be written only to the fixed output path
     And the render result should include metadata returned by the function
 
+  Scenario: Allowlisted matplotlib code renders with Agg backend
+    Given generated Python imports "matplotlib.pyplot"
+    When the worker runs codegen mode
+    Then the code should render a PNG through the sandbox
+    And the render metadata should report the "Agg" backend
+    And the output image should be written only to the fixed output path
+
   Scenario: Unsafe generated code is rejected before execution
     Given generated Python attempts to import "requests"
     When the worker performs static safety checks

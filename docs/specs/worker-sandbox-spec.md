@@ -31,10 +31,12 @@ The MVP worker sandbox strategy for generated Python is:
 6. Provide generated code only the normalized render data and the fixed
    `output_path`. The only allowed generated-code file write is opening that
    exact path for writing.
-7. Enforce timeout in the parent process. On Linux/Raspberry Pi, request CPU
-   and address-space limits through Python's standard `resource` module when
-   available; on development platforms without `resource`, timeout remains the
-   fail-closed guard and the result records that platform limitation.
+7. Enforce a bounded timeout in the parent process. The default policy uses a
+   10-second timeout so first-use matplotlib import/cache work can complete on
+   modest hardware. On Linux/Raspberry Pi, request CPU and address-space limits
+   through Python's standard `resource` module when available; on development
+   platforms without `resource`, timeout remains the fail-closed guard and the
+   result records that platform limitation.
 8. Enforce `max_output_bytes` after execution and fail as `output_too_large`
    if the file exceeds policy.
 

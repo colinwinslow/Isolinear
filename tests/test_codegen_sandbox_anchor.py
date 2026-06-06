@@ -13,6 +13,7 @@ from Isolinear.codegen_sandbox_anchor import (  # noqa: E402
     default_codegen_sandbox_policy,
     invoke_codegen_sandbox,
     invoke_codegen_with_repair,
+    matplotlib_generated_python,
     oversized_generated_python,
     sample_codegen_render_request,
     safe_generated_python,
@@ -62,6 +63,31 @@ class CodegenSandboxAnchorTests(unittest.TestCase):
         self.assertEqual(result["render_metadata"]["title"], "Sandboxed Temperature")
         self.assertEqual(result["render_metadata"]["series_plotted"], ["upstairs_temperature"])
         self.assertEqual(result["render_metadata"]["codegen_attempts"], 1)
+        validate_contract("render-result", result, repo_root=REPO_ROOT)
+
+    def test_allowlisted_matplotlib_pyplot_code_renders_png_in_sandbox(self):
+        render_request = sample_codegen_render_request(
+            python_code=matplotlib_generated_python(),
+        )
+
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT / ".test-output") as run_directory:
+            result = invoke_codegen_sandbox(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+                repo_root=REPO_ROOT,
+            )
+            output_files = sorted(path.name for path in Path(run_directory).iterdir())
+            image_path = Path(result["image_path"])
+            image_bytes = image_path.read_bytes()
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(output_files, ["codegen-sandbox-anchor.png"])
+        self.assertEqual(image_bytes[:8], PNG_SIGNATURE)
+        self.assertEqual(result["render_metadata"]["series_plotted"], ["upstairs_temperature"])
+        self.assertIn(
+            "matplotlib_backend:Agg",
+            result["render_metadata"]["warnings"],
+        )
         validate_contract("render-result", result, repo_root=REPO_ROOT)
 
     def test_unsafe_import_file_network_and_environment_paths_fail_before_execution(self):
