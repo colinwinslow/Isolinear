@@ -15,12 +15,23 @@ TEMPERATURE_UNIT = "\u00b0F"
 POWER_UNIT = "W"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 TRUSTED_RENDERER_PRIMITIVE_SCOPE = {
-    "chart_types": ["time_series"],
-    "series_kinds": ["numeric"],
-    "series_render_as": ["line"],
+    "chart_types": ["time_series", "timeline"],
+    "series_kinds": ["numeric", "binary_state", "categorical_state"],
+    "series_render_as": ["line", "step"],
     "series_source_types": ["entity"],
     "series_transforms": ["none"],
     "overlay_render_as": ["shaded_intervals"],
+    "time_series": {
+        "series_kinds": ["numeric"],
+        "series_render_as": ["line"],
+        "overlay_render_as": ["shaded_intervals"],
+    },
+    "timeline": {
+        "series_kinds": ["binary_state", "categorical_state"],
+        "series_render_as": ["step"],
+        "overlay_render_as": [],
+        "interval_source": "derived_intervals",
+    },
     "output_formats": ["png"],
     "fallback_to_codegen": False,
 }
@@ -658,6 +669,8 @@ def _unsupported_trusted_renderer_primitives(
             }
         )
 
+    chart_family_scope = TRUSTED_RENDERER_PRIMITIVE_SCOPE.get(chart_type, {})
+
     for series_index, series_spec in enumerate(chart_spec.get("series", [])):
         series_id = series_spec.get("series_id", f"series_{series_index}")
         source_type = series_spec.get("source", {}).get("type")
@@ -671,7 +684,7 @@ def _unsupported_trusted_renderer_primitives(
             )
 
         render_as = series_spec.get("render_as", "line")
-        if render_as not in TRUSTED_RENDERER_PRIMITIVE_SCOPE["series_render_as"]:
+        if render_as not in chart_family_scope.get("series_render_as", []):
             unsupported.append(
                 {
                     "path": f"$.chart_spec.series[{series_index}].render_as",
@@ -693,7 +706,7 @@ def _unsupported_trusted_renderer_primitives(
         history_series = history_map.get(series_id)
         if history_series is not None:
             history_kind = history_series.get("kind")
-            if history_kind not in TRUSTED_RENDERER_PRIMITIVE_SCOPE["series_kinds"]:
+            if history_kind not in chart_family_scope.get("series_kinds", []):
                 unsupported.append(
                     {
                         "path": f"$.history_series[{series_id}].kind",
@@ -704,7 +717,7 @@ def _unsupported_trusted_renderer_primitives(
 
     for overlay_index, overlay_spec in enumerate(chart_spec.get("overlays", [])):
         render_as = overlay_spec.get("render_as")
-        if render_as not in TRUSTED_RENDERER_PRIMITIVE_SCOPE["overlay_render_as"]:
+        if render_as not in chart_family_scope.get("overlay_render_as", []):
             unsupported.append(
                 {
                     "path": f"$.chart_spec.overlays[{overlay_index}].render_as",
@@ -942,6 +955,110 @@ def _write_time_series_png(
     }
 
 
+def _absolute_time_range_extent(chart_spec: dict[str, Any]) -> tuple[datetime, datetime] | None:
+    time_range = chart_spec.get("time_range", {})
+    if time_range.get("type") != "absolute":
+        return None
+
+    return (
+        datetime.fromisoformat(time_range["start"]),
+        datetime.fromisoformat(time_range["end"]),
+    )
+
+
+def _timeline_interval_extent(timeline_tracks: list[dict[str, Any]]) -> tuple[datetime, datetime]:
+    timestamps = []
+    for track in timeline_tracks:
+        for interval in track["derived_interval"].get("intervals", []):
+            timestamps.append(datetime.fromisoformat(interval["start"]))
+            timestamps.append(datetime.fromisoformat(interval["end"]))
+
+    if not timestamps:
+        raise ValueError("No derived intervals are available to render.")
+
+    return min(timestamps), max(timestamps)
+
+
+def _write_timeline_png(
+    *,
+    chart_spec: dict[str, Any],
+    timeline_tracks: list[dict[str, Any]],
+    image_path: Path,
+    width: int,
+    height: int,
+) -> dict[str, str]:
+    extent = _absolute_time_range_extent(chart_spec)
+    if extent is None:
+        extent = _timeline_interval_extent(timeline_tracks)
+
+    x_min, x_max = extent
+    if x_max <= x_min:
+        x_max = x_min + timedelta(seconds=1)
+
+    total_seconds = (x_max - x_min).total_seconds() or 1
+    plot_left = 92
+    plot_top = 72
+    plot_right = 36
+    plot_bottom = 54
+    plot_width = max(1, width - plot_left - plot_right)
+    plot_height = max(1, height - plot_top - plot_bottom)
+    track_count = max(1, len(timeline_tracks))
+    track_gap = 12
+    track_height = max(12, int((plot_height - (track_gap * (track_count - 1))) / track_count))
+
+    canvas = _Canvas(width, height, (255, 255, 255))
+    axis_color = (80, 88, 100)
+    grid_color = (224, 228, 235)
+    title_color = (30, 36, 45)
+    label_color = (76, 86, 99)
+    row_color = (241, 244, 248)
+    palette = [(32, 121, 199), (222, 112, 34), (72, 166, 116)]
+
+    canvas.draw_rect(28, 24, min(width - 28, 28 + (len(chart_spec["title"]) * 7)), 29, title_color)
+
+    for grid_index in range(5):
+        x = int(plot_left + ((plot_width / 4) * grid_index))
+        canvas.draw_line(x, plot_top, x, height - plot_bottom, grid_color)
+
+    canvas.draw_line(plot_left, plot_top, plot_left, height - plot_bottom, axis_color, thickness=2)
+    canvas.draw_line(
+        plot_left,
+        height - plot_bottom,
+        width - plot_right,
+        height - plot_bottom,
+        axis_color,
+        thickness=2,
+    )
+
+    for track_index, track in enumerate(timeline_tracks):
+        color = palette[track_index % len(palette)]
+        row_top = plot_top + (track_index * (track_height + track_gap))
+        row_bottom = min(height - plot_bottom - 1, row_top + track_height)
+        row_mid = int(row_top + ((row_bottom - row_top) / 2))
+
+        canvas.draw_rect(plot_left, row_top, width - plot_right, row_bottom, row_color)
+        canvas.draw_rect(28, row_mid - 3, plot_left - 16, row_mid + 2, label_color)
+
+        for interval in track["derived_interval"].get("intervals", []):
+            interval_start = datetime.fromisoformat(interval["start"])
+            interval_end = datetime.fromisoformat(interval["end"])
+            if interval_end < x_min or interval_start > x_max:
+                continue
+
+            clipped_start = max(interval_start, x_min)
+            clipped_end = min(interval_end, x_max)
+            x0 = plot_left + int(((clipped_start - x_min).total_seconds() / total_seconds) * plot_width)
+            x1 = plot_left + int(((clipped_end - x_min).total_seconds() / total_seconds) * plot_width)
+            canvas.draw_rect(x0, row_top + 4, max(x0 + 2, x1), row_bottom - 4, color)
+
+    _write_png(image_path, canvas)
+
+    return {
+        "x_min": iso_timestamp(x_min),
+        "x_max": iso_timestamp(x_max),
+    }
+
+
 def invoke_trusted_renderer(
     render_request: dict[str, Any],
     output_directory: Path,
@@ -985,39 +1102,91 @@ def invoke_trusted_renderer(
             },
         )
 
-    series_to_plot = []
     derived_interval_map = {
         interval["interval_id"]: interval
         for interval in render_request.get("derived_intervals", [])
     }
+    series_to_plot = []
     overlays_to_plot = []
+    timeline_tracks = []
     warnings = []
 
-    for series_spec in render_request["chart_spec"]["series"]:
-        series_id = series_spec["series_id"]
-        if series_id in history_map:
-            series_to_plot.append(history_map[series_id])
-        else:
-            warnings.append(f"Missing history for series '{series_id}'.")
+    chart_spec = render_request["chart_spec"]
+    chart_type = chart_spec["chart_type"]
 
-    for overlay_spec in render_request["chart_spec"].get("overlays", []):
-        overlay_id = overlay_spec["overlay_id"]
-        if overlay_spec["render_as"] == "shaded_intervals" and overlay_id in derived_interval_map:
-            overlays_to_plot.append(
-                {
-                    "overlay_id": overlay_id,
-                    "derived_interval": derived_interval_map[overlay_id],
-                }
+    if chart_type == "timeline":
+        source_mismatches = []
+        for series_spec in chart_spec["series"]:
+            series_id = series_spec["series_id"]
+            history_series = history_map.get(series_id)
+            derived_interval = derived_interval_map.get(series_id)
+            if history_series is None:
+                warnings.append(f"Missing history for timeline track '{series_id}'.")
+            if derived_interval is None:
+                warnings.append(f"Missing derived intervals for timeline track '{series_id}'.")
+            else:
+                expected_entity_id = series_spec.get("source", {}).get("entity_id")
+                actual_entity_id = derived_interval.get("source_entity_id")
+                if actual_entity_id != expected_entity_id:
+                    source_mismatches.append(
+                        {
+                            "series_id": series_id,
+                            "expected_entity_id": expected_entity_id,
+                            "actual_entity_id": actual_entity_id,
+                        }
+                    )
+                    continue
+            if history_series is not None and derived_interval is not None:
+                timeline_tracks.append(
+                    {
+                        "series_id": series_id,
+                        "series_spec": series_spec,
+                        "history_series": history_series,
+                        "derived_interval": derived_interval,
+                    }
+                )
+
+        if source_mismatches:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="derived_interval_source_mismatch",
+                message="Timeline derived intervals must match their chart series source entity.",
+                details={"source_mismatches": source_mismatches},
             )
-        else:
-            warnings.append(f"Missing derived intervals for overlay '{overlay_id}'.")
 
-    if not series_to_plot:
-        return _new_render_failure(
-            request_id=render_request["request_id"],
-            code="missing_history_series",
-            message="No matching history series were available for the chart spec.",
-        )
+        if not timeline_tracks:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_derived_intervals",
+                message="No matching derived intervals were available for the timeline chart spec.",
+                details={"warnings": warnings},
+            )
+    else:
+        for series_spec in chart_spec["series"]:
+            series_id = series_spec["series_id"]
+            if series_id in history_map:
+                series_to_plot.append(history_map[series_id])
+            else:
+                warnings.append(f"Missing history for series '{series_id}'.")
+
+        for overlay_spec in chart_spec.get("overlays", []):
+            overlay_id = overlay_spec["overlay_id"]
+            if overlay_spec["render_as"] == "shaded_intervals" and overlay_id in derived_interval_map:
+                overlays_to_plot.append(
+                    {
+                        "overlay_id": overlay_id,
+                        "derived_interval": derived_interval_map[overlay_id],
+                    }
+                )
+            else:
+                warnings.append(f"Missing derived intervals for overlay '{overlay_id}'.")
+
+        if not series_to_plot:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="No matching history series were available for the chart spec.",
+            )
 
     output_directory.mkdir(parents=True, exist_ok=True)
     image_id = f"{render_request['request_id']}.png"
@@ -1028,14 +1197,23 @@ def invoke_trusted_renderer(
     height = output.get("height", 600)
 
     try:
-        extent_metadata = _write_time_series_png(
-            chart_spec=render_request["chart_spec"],
-            series_to_plot=series_to_plot,
-            overlays_to_plot=overlays_to_plot,
-            image_path=image_path,
-            width=width,
-            height=height,
-        )
+        if chart_type == "timeline":
+            extent_metadata = _write_timeline_png(
+                chart_spec=chart_spec,
+                timeline_tracks=timeline_tracks,
+                image_path=image_path,
+                width=width,
+                height=height,
+            )
+        else:
+            extent_metadata = _write_time_series_png(
+                chart_spec=chart_spec,
+                series_to_plot=series_to_plot,
+                overlays_to_plot=overlays_to_plot,
+                image_path=image_path,
+                width=width,
+                height=height,
+            )
     except Exception as exc:  # pragma: no cover - defensive result shaping
         return _new_render_failure(
             request_id=render_request["request_id"],
@@ -1051,8 +1229,12 @@ def invoke_trusted_renderer(
         "image_path": str(image_path),
         "error": None,
         "render_metadata": {
-            "title": render_request["chart_spec"]["title"],
-            "series_plotted": [series["series_id"] for series in series_to_plot],
+            "title": chart_spec["title"],
+            "series_plotted": (
+                [track["series_id"] for track in timeline_tracks]
+                if chart_type == "timeline"
+                else [series["series_id"] for series in series_to_plot]
+            ),
             "overlays_plotted": [overlay["overlay_id"] for overlay in overlays_to_plot],
             "x_min": extent_metadata["x_min"],
             "x_max": extent_metadata["x_max"],

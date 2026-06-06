@@ -21,3 +21,11 @@ Feature: Chart spec rendering
     And derived intervals exist for the overlay
     When the worker renders in safe mode
     Then the render metadata should list the overlay as plotted
+
+  Scenario: Render a state interval timeline
+    Given a valid timeline chart spec with one binary-state track
+    And derived intervals exist for that track
+    When the worker renders in safe mode
+    Then it should create a PNG image
+    And the render metadata should list the timeline track as plotted
+    And the worker should not attempt codegen

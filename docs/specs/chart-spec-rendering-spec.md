@@ -58,7 +58,7 @@ mode; codegen remains an explicitly requested advanced path.
 After the first release, expand trusted rendering with focused slices for these
 chart families:
 
-- State interval timeline: binary or categorical state over time, such as
+- State interval timeline (selected first follow-up): binary or categorical state over time, such as
   doors, occupancy, appliance cycles, HVAC modes, or automation states.
 - Aggregate bar chart: one value per entity, area, device class, or time bucket,
   such as average temperature by room, runtime by appliance, or daily energy by
@@ -75,6 +75,28 @@ chart families:
 Each family needs its own BDD/eval slice before implementation. Support should
 enter the trusted renderer only when the required `ChartSpec`, normalized data,
 render metadata, and validation behavior are deterministic.
+
+## State interval timeline follow-up scope
+
+The first follow-up trusted renderer family is `state_interval_timeline`.
+
+This slice supports:
+
+- `chart_type: timeline`.
+- One or more binary or categorical state tracks rendered as `step`.
+- Entity-backed series sources only.
+- No series transform, or `transform.operation: none`.
+- One supplied `DerivedInterval` per rendered track, with
+  `DerivedInterval.interval_id` matching the chart `series_id` and
+  `DerivedInterval.source_entity_id` matching the chart series source entity.
+- Absolute chart time ranges for deterministic `x_min` and `x_max` metadata.
+- PNG output.
+
+This slice does not support timeline overlays, aggregate or alias sources,
+numeric timelines, marker overlays, SVG output, or codegen fallback. Unsupported
+but schema-valid timeline specs must fail closed with `unsupported_chart_spec`
+before writing output artifacts. Missing derived intervals fail before writing
+output artifacts.
 
 ## Floorplan heatmap deferral
 

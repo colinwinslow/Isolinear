@@ -13,6 +13,7 @@ Related artifacts:
 - ADR: `docs/decisions/0004-chart-spec-first-rendering-with-codegen-option.md`
 - Evals:
   - `evals/trusted_renderer_primitives.py`
+  - `evals/state_interval_timeline.py`
   - `evals/prompt_to_chart_basic.py`
   - `evals/shaded_interval_rendering.py`
 
@@ -42,6 +43,16 @@ Then it should return `unsupported_chart_spec`
 And render metadata should report zero codegen attempts
 And no image artifact should be created
 
+## Scenario: Render a state interval timeline
+
+Given a valid `timeline` chart spec with one approved binary-state track
+And a matching `DerivedInterval` exists for that track
+When the worker renders in safe mode
+Then it should create a PNG image
+And render metadata should list `dishwasher_state` as plotted
+And render metadata should report zero codegen attempts
+And deterministic validation should pass
+
 ## Proof Requirements
 
 The evidence must include:
@@ -49,7 +60,8 @@ The evidence must include:
 - A recent run timestamp.
 - The exact eval commands and raw eval outputs.
 - The exact unit-test command and raw test output.
-- The first trusted renderer primitive scope.
+- The trusted renderer primitive scope.
+- The selected follow-up renderer family and scope.
 - The chart spec and derived interval fixtures.
 - The observed render status, PNG MIME type, render metadata, plotted series or
   overlays, and validation checks.

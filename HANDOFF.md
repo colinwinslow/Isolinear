@@ -20,7 +20,7 @@ Isolinear lets a user ask natural-language questions about approved Home Assista
 
 ## Open implementation status
 
-Fake-provider vertical slice implemented as a local Python module with schema-backed contract validation, a pre-render plan validation gate, deterministic render metadata validation, trusted safe-mode rendering for shaded interval overlays, fake binary-state interval extraction, confirmed threshold-derived interval extraction, deterministic threshold clarification for continuous power sensors, use-once threshold confirmation handling, deterministic threshold semantic alias creation, reuse of saved threshold aliases, deterministic invalidation of saved threshold aliases that reference unavailable or non-allowlisted entities, and a versioned semantic-memory store envelope anchor that computes invalidity at use time while failing closed for unsupported versions or duplicate alias IDs. Eval scripts now emit structured `CASE` evidence payloads, and implemented eval-backed scenario groups have paired markdown BDD/evidence files under `bdd/<feature>/`.
+Fake-provider vertical slice implemented as a local Python module with schema-backed contract validation, a pre-render plan validation gate, deterministic render metadata validation, trusted safe-mode rendering for shaded interval overlays and state interval timelines, fake binary-state interval extraction, confirmed threshold-derived interval extraction, deterministic threshold clarification for continuous power sensors, use-once threshold confirmation handling, deterministic threshold semantic alias creation, reuse of saved threshold aliases, deterministic invalidation of saved threshold aliases that reference unavailable or non-allowlisted entities, and a versioned semantic-memory store envelope anchor that computes invalidity at use time while failing closed for unsupported versions or duplicate alias IDs. Eval scripts now emit structured `CASE` evidence payloads, and implemented eval-backed scenario groups have paired markdown BDD/evidence files under `bdd/<feature>/`.
 
 Dashboard card implementation technology is decided in ADR-0011: the MVP card is a TypeScript Lit custom element loaded as `custom:isolinear-card`, bundled as an ES module, and kept as a thin client over integration-owned Home Assistant WebSocket commands. The card must not directly call the worker, model provider, Home Assistant history APIs, semantic-memory storage, mutation services, or browser local storage for Isolinear state.
 
@@ -75,14 +75,29 @@ Floorplan heatmaps are deferred until post-MVP because Home Assistant floors
 and areas do not provide room geometry; they will require explicit
 user-provided geometry and area/entity mappings.
 
+Trusted renderer state interval timeline follow-up is anchored. The chart-spec
+rendering spec now selects `state_interval_timeline` as the first follow-up
+family and defines safe-mode `timeline` charts with binary/categorical `step`
+tracks, entity-backed sources, no transform except `none`, one matching
+`DerivedInterval` per track, absolute time-range metadata, PNG output, and no
+codegen fallback. The Python anchor uses chart-family-specific unsupported
+checks so `time_series` remains limited to numeric `line` series while
+`timeline` requires state-like history and matching derived intervals. Timeline
+rendering fails closed before artifact creation if the derived interval source
+entity does not match the chart series source. The BDD/evidence and
+`evals/state_interval_timeline.py` prove timeline rendering, deterministic
+metadata, validation, and zero codegen attempts.
+
 No Home Assistant integration has been built yet.
 
 ## Next recommended packet
 
-Trusted renderer follow-up family selection:
+Trusted renderer aggregate bar chart follow-up:
 
-1. Choose the next trusted renderer family from the recorded roadmap.
-2. Scaffold or extend the paired spec/BDD/evidence for that one family.
+1. Define the aggregate bar chart primitive contract in the chart-spec
+   rendering spec.
+2. Scaffold or extend the paired BDD/evidence and eval outline for aggregate
+   bar rendering.
 3. Add focused schema/anchor/eval coverage proving the new primitive renders
    from validated `ChartSpec` without falling into codegen mode.
 

@@ -851,8 +851,10 @@ class FakeVerticalSliceTests(unittest.TestCase):
 
     def test_safe_renderer_rejects_unsupported_first_release_primitives_without_codegen(self):
         scope = get_trusted_renderer_primitive_scope()
-        self.assertEqual(scope["chart_types"], ["time_series"])
-        self.assertEqual(scope["series_render_as"], ["line"])
+        self.assertEqual(scope["chart_types"], ["time_series", "timeline"])
+        self.assertEqual(scope["time_series"]["series_render_as"], ["line"])
+        self.assertEqual(scope["timeline"]["series_render_as"], ["step"])
+        self.assertEqual(scope["timeline"]["series_kinds"], ["binary_state", "categorical_state"])
         self.assertEqual(scope["overlay_render_as"], ["shaded_intervals"])
         self.assertFalse(scope["fallback_to_codegen"])
 
@@ -888,6 +890,11 @@ class FakeVerticalSliceTests(unittest.TestCase):
         area_chart["chart_id"] = "unsupported_area_series"
         area_chart["series"][0]["render_as"] = "area"
         unsupported_variants.append(("area-series", area_chart))
+
+        step_time_series_chart = deepcopy(base_chart_spec)
+        step_time_series_chart["chart_id"] = "unsupported_time_series_step"
+        step_time_series_chart["series"][0]["render_as"] = "step"
+        unsupported_variants.append(("time-series-step", step_time_series_chart))
 
         rolling_chart = deepcopy(base_chart_spec)
         rolling_chart["chart_id"] = "unsupported_rolling_transform"
@@ -925,6 +932,12 @@ class FakeVerticalSliceTests(unittest.TestCase):
             }
         ]
         unsupported_variants.append(("marker-overlay", marker_chart))
+
+        numeric_timeline_chart = deepcopy(base_chart_spec)
+        numeric_timeline_chart["chart_id"] = "unsupported_numeric_timeline"
+        numeric_timeline_chart["chart_type"] = "timeline"
+        numeric_timeline_chart["series"][0]["render_as"] = "line"
+        unsupported_variants.append(("numeric-timeline", numeric_timeline_chart))
 
         for variant_name, chart_spec in unsupported_variants:
             request = {
@@ -1194,6 +1207,163 @@ class FakeVerticalSliceTests(unittest.TestCase):
         self.assert_contract_valid("render-request", render_request)
         self.assert_contract_valid("render-result", render_result)
         self.assert_contract_valid("validation-result", validation_result)
+
+    def test_safe_renderer_plots_state_interval_timeline(self):
+        chart_spec = {
+            "chart_id": "dishwasher_state_timeline",
+            "chart_type": "timeline",
+            "title": "Dishwasher State Timeline",
+            "time_range": {
+                "type": "absolute",
+                "start": iso_timestamp(self.start),
+                "end": iso_timestamp(self.now),
+            },
+            "series": [
+                {
+                    "series_id": "dishwasher_state",
+                    "label": "Dishwasher Running",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "binary_sensor.dishwasher",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "step",
+                    "transform": None,
+                    "unit": None,
+                }
+            ],
+            "overlays": [],
+            "x_axis": {"type": "time"},
+            "y_axis": {"label": "state"},
+            "notes": ["Selected trusted renderer follow-up family fixture."],
+        }
+        dishwasher_history = get_fake_dishwasher_state_history(now=self.now)
+        derived_interval = extract_state_intervals(
+            history_series=dishwasher_history,
+            interval_id="dishwasher_state",
+            label="Dishwasher Running",
+            active_values=["on"],
+            range_end=self.now,
+        )
+        render_request = {
+            "request_id": "fake-state-timeline",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": [dishwasher_history],
+            "derived_intervals": [derived_interval],
+            "output": {"format": "png", "width": 1000, "height": 420},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            image_signature = Path(render_result["image_path"]).read_bytes()[:8]
+            output_files = sorted(path.name for path in Path(run_directory).iterdir())
+            validation_result = validate_chart_job(
+                chart_spec=chart_spec,
+                render_result=render_result,
+                entity_catalog=get_fake_approved_entity_catalog(),
+                expected_start=self.start,
+                expected_end=self.now,
+            )
+
+        self.assertEqual(render_result["status"], "success")
+        self.assertEqual(render_result["image_mime_type"], "image/png")
+        self.assertEqual(render_result["render_metadata"]["series_plotted"], ["dishwasher_state"])
+        self.assertEqual(render_result["render_metadata"]["overlays_plotted"], [])
+        self.assertEqual(render_result["render_metadata"]["codegen_attempts"], 0)
+        self.assertEqual(render_result["render_metadata"]["x_min"], iso_timestamp(self.start))
+        self.assertEqual(render_result["render_metadata"]["x_max"], iso_timestamp(self.now))
+        self.assertEqual(image_signature, b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(output_files, ["fake-state-timeline.png"])
+        self.assertEqual(validation_result["status"], "pass")
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("derived-interval", derived_interval)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
+        self.assert_contract_valid("validation-result", validation_result)
+
+    def test_safe_renderer_rejects_timeline_interval_source_mismatch_without_artifact(self):
+        chart_spec = {
+            "chart_id": "dishwasher_state_timeline_mismatch",
+            "chart_type": "timeline",
+            "title": "Dishwasher State Timeline",
+            "time_range": {
+                "type": "absolute",
+                "start": iso_timestamp(self.start),
+                "end": iso_timestamp(self.now),
+            },
+            "series": [
+                {
+                    "series_id": "dishwasher_state",
+                    "label": "Dishwasher Running",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "binary_sensor.dishwasher",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "step",
+                    "transform": None,
+                    "unit": None,
+                }
+            ],
+            "overlays": [],
+            "x_axis": {"type": "time"},
+            "y_axis": {"label": "state"},
+            "notes": [],
+        }
+        dishwasher_history = get_fake_dishwasher_state_history(now=self.now)
+        derived_interval = extract_state_intervals(
+            history_series=dishwasher_history,
+            interval_id="dishwasher_state",
+            label="Dishwasher Running",
+            active_values=["on"],
+            range_end=self.now,
+        )
+        derived_interval["source_entity_id"] = "sensor.dishwasher_power"
+        render_request = {
+            "request_id": "fake-state-timeline-mismatch",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": [dishwasher_history],
+            "derived_intervals": [derived_interval],
+            "output": {"format": "png", "width": 1000, "height": 420},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            output_files = sorted(path.name for path in Path(run_directory).iterdir())
+
+        self.assertEqual(render_result["status"], "failed")
+        self.assertEqual(render_result["error"]["code"], "derived_interval_source_mismatch")
+        self.assertEqual(render_result["render_metadata"]["codegen_attempts"], 0)
+        self.assertIsNone(render_result["image_path"])
+        self.assertEqual(output_files, [])
+        self.assertEqual(
+            render_result["error"]["details"]["source_mismatches"],
+            [
+                {
+                    "series_id": "dishwasher_state",
+                    "expected_entity_id": "binary_sensor.dishwasher",
+                    "actual_entity_id": "sensor.dishwasher_power",
+                }
+            ],
+        )
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("derived-interval", derived_interval)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
 
     def test_contract_validation_rejects_malformed_payload(self):
         malformed_catalog_item = {
