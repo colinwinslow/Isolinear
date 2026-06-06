@@ -7,6 +7,7 @@ export const ISOLINEAR_COMMANDS = {
   answerClarification: "isolinear/v1/clarification/answer",
   retryJob: "isolinear/v1/job/retry",
   getSnapshot: "isolinear/v1/job/snapshot",
+  subscribeJob: "isolinear/v1/job/subscribe",
 } as const;
 
 export function createIsolinearApi(hass: HomeAssistantLike, config: IsolinearCardConfig) {
@@ -61,6 +62,22 @@ export function createIsolinearApi(hass: HomeAssistantLike, config: IsolinearCar
     getSnapshot(jobId: string): Promise<IsolinearJobSnapshot> {
       return connection.sendMessagePromise({
         type: ISOLINEAR_COMMANDS.getSnapshot,
+        version: ISOLINEAR_WS_VERSION,
+        config_entry_id: config.config_entry_id,
+        job_id: jobId,
+      });
+    },
+
+    subscribeJob(
+      jobId: string,
+      callback: (snapshot: IsolinearJobSnapshot) => void,
+    ): Promise<() => void | Promise<void>> {
+      if (typeof connection.subscribeMessage !== "function") {
+        throw new Error("Isolinear job subscriptions require a Home Assistant subscription connection.");
+      }
+
+      return connection.subscribeMessage(callback, {
+        type: ISOLINEAR_COMMANDS.subscribeJob,
         version: ISOLINEAR_WS_VERSION,
         config_entry_id: config.config_entry_id,
         job_id: jobId,

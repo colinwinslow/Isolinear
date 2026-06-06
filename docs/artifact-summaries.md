@@ -18,19 +18,19 @@ The ritual a coding agent should run before ending a session. It forces tests, e
 
 ## ADRs
 
-Architecture Decision Records. These lock load-bearing decisions such as integration plus worker, dashboard card first, entity allowlisting, chart-spec-first rendering, schema contracts, validation, local-first model provider, and read-only sandbox security.
+Architecture Decision Records. These lock load-bearing decisions such as integration plus worker, dashboard card first, entity allowlisting, chart-spec-first rendering, schema contracts, validation, local-first model provider, read-only sandbox security, dashboard card technology, and worker transport/authentication.
 
 ## Specs
 
-Behavioral prose contracts. These describe what the product, integration, dashboard card, entity resolver, memory system, renderer, history normalizer, worker, validation layer, model provider, and security model must do.
+Behavioral prose contracts. These describe what the product, integration, integration API transport/authentication, dashboard card, entity resolver, memory system, renderer, history normalizer, worker, validation layer, model provider, and security model must do.
 
 ## BDDs
 
-Concrete Gherkin scenarios plus paired markdown BDD/evidence files for implemented eval-backed slices. These turn fuzzy requirements into testable examples for prompt-to-chart, allowlisting, clarification, memory, normalization, rendering, sandboxing, validation, and dashboard UI.
+Concrete Gherkin scenarios plus paired markdown BDD/evidence files for implemented eval-backed slices. These turn fuzzy requirements into testable examples for prompt-to-chart, allowlisting, clarification, memory, normalization, rendering, sandboxing, validation, dashboard UI, and integration transport/authentication.
 
 ## Schemas
 
-Machine-checkable JSON contracts used internally by the product. Users do not write these. They constrain model outputs, worker requests, render results, and validation results.
+Machine-checkable JSON contracts used internally by the product. Users do not write these. They constrain model outputs, integration commands and snapshots, worker transport requests, render requests/results, and validation results.
 
 ## Evals
 

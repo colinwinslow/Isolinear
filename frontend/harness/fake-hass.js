@@ -33,6 +33,14 @@ export function createFakeHass({ snapshots, initialState = "idle" }) {
         }
         throw new Error(`Unexpected Isolinear command: ${message.type}`);
       },
+      async subscribeMessage(callback, message) {
+        calls.push(message);
+        if (message.type !== "isolinear/v1/job/subscribe") {
+          throw new Error(`Unexpected Isolinear subscription: ${message.type}`);
+        }
+        callback(currentSnapshot);
+        return () => undefined;
+      },
     },
     get isolinearCalls() {
       return calls;

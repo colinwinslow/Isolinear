@@ -13,12 +13,15 @@ SCHEMA_NAMES = {
     "derived-interval": "derived-interval.schema.json",
     "entity-catalog-item": "entity-catalog-item.schema.json",
     "history-series": "history-series.schema.json",
+    "integration-job-snapshot": "integration-job-snapshot.schema.json",
+    "integration-ws-command": "integration-ws-command.schema.json",
     "planner-result": "planner-result.schema.json",
     "render-request": "render-request.schema.json",
     "render-result": "render-result.schema.json",
     "semantic-alias": "semantic-alias.schema.json",
     "semantic-memory-store": "semantic-memory-store.schema.json",
     "validation-result": "validation-result.schema.json",
+    "worker-transport-request": "worker-transport-request.schema.json",
 }
 
 

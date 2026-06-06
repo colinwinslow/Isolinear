@@ -28,6 +28,7 @@ implementing slice produces an evidence file proving each scenario was hit.
 - `dashboard-card-spec.md` — Custom dashboard card UX
 - `entity-resolution-spec.md` — Entity allowlist resolution and validation
 - `history-normalization-spec.md` — Numeric and binary state history normalization
+- `integration-api-transport-auth-spec.md` — Integration WebSocket API and worker transport authentication
 - `integration-spec.md` — Home Assistant custom integration interface
 - `model-provider-spec.md` — Ollama-compatible model provider contract
 - `product-spec.md` — Product-level feature set

@@ -33,26 +33,38 @@ integration-boundary scenarios. Repo-local setup scripts create `.venv`, run
 pytest, resolve the Windows Node.js install, and run frontend install/build/test
 commands without depending on ambient PATH.
 
+Worker API transport and authentication is designed and anchored in ADR-0012.
+The card-facing API is a versioned Home Assistant WebSocket command set under
+`isolinear/v1/` for job start, clarification answer, retry, snapshot retrieval,
+and subscription. The worker-facing render API is a versioned HTTP JSON
+envelope for `POST /v1/render` authenticated with an integration-owned bearer
+token that is never sent to the dashboard card or model provider. The repo has
+schemas, a Python verifier, tests, eval evidence, and frontend adapter coverage
+for the command/envelope contract, bad-auth and bad-version rejection, and token
+redaction.
+
 No Home Assistant integration has been built yet.
 
 ## Next recommended packet
 
-Worker API transport and authentication:
+Sandbox implementation for Raspberry Pi compatibility:
 
-1. Define the integration-owned WebSocket command schemas for prompt submission,
-   clarification answer, retry, snapshot retrieval, and subscription.
-2. Decide the worker transport/authentication envelope before production
-   integration code.
-3. Preserve the ADR-0011 boundary: the card remains a thin client over
-   Home Assistant integration commands.
+1. Define the concrete sandbox strategy for generated matplotlib code on modest
+   hardware, including timeout, filesystem, network, import, and resource
+   restrictions.
+2. Add a paired spec/BDD/evidence anchor that proves unsafe code is rejected and
+   safe code runs only through the fixed `render_chart(data, output_path)` entry
+   point.
+3. Preserve ADR-0008: generated code receives no Home Assistant token, secrets,
+   arbitrary filesystem access, local network access, or internet access.
 
 ## Known unresolved design details
 
 - Semantic-memory storage-helper implementation, migrations, and repair UI details beyond the envelope contract.
-- Exact worker API transport and authentication.
+- Worker token rotation UI, worker health/readiness endpoint, and long-running
+  progress streaming semantics.
 - Exact sandbox implementation details for Raspberry Pi compatibility.
 - Which chart primitives are included in the first trusted renderer release.
-- Exact Isolinear dashboard-card WebSocket command schemas.
 - Exact dashboard resource auto-registration behavior once the integration
   scaffold exists.
 

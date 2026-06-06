@@ -560,7 +560,8 @@ var Y = {
 	startJob: "isolinear/v1/job/start",
 	answerClarification: "isolinear/v1/clarification/answer",
 	retryJob: "isolinear/v1/job/retry",
-	getSnapshot: "isolinear/v1/job/snapshot"
+	getSnapshot: "isolinear/v1/job/snapshot",
+	subscribeJob: "isolinear/v1/job/subscribe"
 };
 function X(e, t) {
 	let n = e.connection;
@@ -598,6 +599,15 @@ function X(e, t) {
 		getSnapshot(e) {
 			return n.sendMessagePromise({
 				type: Y.getSnapshot,
+				version: 1,
+				config_entry_id: t.config_entry_id,
+				job_id: e
+			});
+		},
+		subscribeJob(e, r) {
+			if (typeof n.subscribeMessage != "function") throw Error("Isolinear job subscriptions require a Home Assistant subscription connection.");
+			return n.subscribeMessage(r, {
+				type: Y.subscribeJob,
 				version: 1,
 				config_entry_id: t.config_entry_id,
 				job_id: e

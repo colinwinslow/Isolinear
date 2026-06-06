@@ -2,6 +2,9 @@ export type IsolinearJobStatus =
   | "idle"
   | "planning"
   | "clarification_needed"
+  | "fetching_history"
+  | "rendering"
+  | "validating"
   | "complete"
   | "failed";
 
@@ -82,6 +85,10 @@ export interface IsolinearJobSnapshot {
 export interface HomeAssistantLike {
   connection?: {
     sendMessagePromise(message: Record<string, unknown>): Promise<IsolinearJobSnapshot>;
+    subscribeMessage?(
+      callback: (message: IsolinearJobSnapshot) => void,
+      message: Record<string, unknown>,
+    ): Promise<() => void | Promise<void>>;
   };
   isolinearSnapshot?: IsolinearJobSnapshot;
 }

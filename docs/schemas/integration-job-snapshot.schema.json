@@ -1,0 +1,301 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/integration-job-snapshot.schema.json",
+  "title": "IntegrationJobSnapshot",
+  "type": "object",
+  "required": [
+    "snapshot_id",
+    "job_id",
+    "status",
+    "prompt",
+    "state_label",
+    "validation",
+    "warnings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "job_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "enum": [
+        "idle",
+        "planning",
+        "clarification_needed",
+        "fetching_history",
+        "rendering",
+        "validating",
+        "complete",
+        "failed"
+      ]
+    },
+    "prompt": {
+      "type": "string"
+    },
+    "state_label": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "message": {
+      "type": "string"
+    },
+    "progress": {
+      "type": "object",
+      "required": [
+        "stage",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "stage": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "message": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    },
+    "clarification": {
+      "type": "object",
+      "required": [
+        "question_id",
+        "message",
+        "reason",
+        "options"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "question_id": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "message": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "reason": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "option_id",
+              "label",
+              "description",
+              "can_remember"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "option_id": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "label": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "description": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "can_remember": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    },
+    "chart": {
+      "type": "object",
+      "required": [
+        "title",
+        "image_url",
+        "time_range",
+        "series",
+        "overlays"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "image_url": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "time_range": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "series": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/chartItem"
+          }
+        },
+        "overlays": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/chartItem"
+          }
+        }
+      }
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/disclosureItem"
+      }
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "meaning"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "meaning": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "required": [
+        "stage",
+        "code",
+        "message"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "stage": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "code": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "message": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    },
+    "retry_allowed": {
+      "type": "boolean"
+    },
+    "validation": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "summary": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "status": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            }
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "chartItem": {
+      "type": "object",
+      "required": [
+        "label",
+        "entity_id"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "series_id": {
+          "type": "string"
+        },
+        "overlay_id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "entity_id": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    },
+    "disclosureItem": {
+      "type": "object",
+      "required": [
+        "entity_id",
+        "label"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "entity_id": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "label": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    }
+  }
+}
