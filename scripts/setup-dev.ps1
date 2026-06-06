@@ -13,6 +13,10 @@ $Requirements = Join-Path $RepoRoot "requirements-dev.txt"
 $ResolveNodeScript = Join-Path $PSScriptRoot "lib\resolve-node.ps1"
 . $ResolveNodeScript
 
+$MatplotlibConfigDir = Join-Path $RepoRoot ".test-output\matplotlib"
+New-Item -ItemType Directory -Force -Path $MatplotlibConfigDir | Out-Null
+$env:MPLCONFIGDIR = $MatplotlibConfigDir
+
 function Invoke-Checked {
     param(
         [string]$FilePath,

@@ -9,6 +9,10 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $VenvPython = Join-Path $RepoRoot ".venv\Scripts\python.exe"
+$MatplotlibConfigDir = Join-Path $RepoRoot ".test-output\matplotlib"
+
+New-Item -ItemType Directory -Force -Path $MatplotlibConfigDir | Out-Null
+$env:MPLCONFIGDIR = $MatplotlibConfigDir
 
 if (-not (Test-Path -LiteralPath $VenvPython)) {
     throw "Virtual environment not found. Run .\scripts\setup-dev.ps1 first."
