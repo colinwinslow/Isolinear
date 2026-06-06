@@ -219,7 +219,7 @@ def main():
             "derived_interval": derived_interval,
         },
         when={
-            "operation": "invoke_trusted_renderer_for_first_release_scope",
+            "operation": "invoke_trusted_renderer_for_trusted_primitive_scope",
             "render_mode": "safe",
         },
         then={

@@ -29,3 +29,11 @@ Feature: Chart spec rendering
     Then it should create a PNG image
     And the render metadata should list the timeline track as plotted
     And the worker should not attempt codegen
+
+  Scenario: Render an aggregate bar chart
+    Given a valid bar chart spec with one aggregate numeric series
+    And normalized numeric history exists for every aggregate source entity
+    When the worker renders in safe mode
+    Then it should create a PNG image
+    And the render metadata should list the aggregate series as plotted
+    And the worker should not attempt codegen

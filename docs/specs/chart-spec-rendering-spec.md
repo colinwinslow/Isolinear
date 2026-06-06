@@ -98,6 +98,29 @@ but schema-valid timeline specs must fail closed with `unsupported_chart_spec`
 before writing output artifacts. Missing derived intervals fail before writing
 output artifacts.
 
+## Aggregate bar chart follow-up scope
+
+The second follow-up trusted renderer family is `aggregate_bar_chart`.
+
+This slice supports:
+
+- `chart_type: bar`.
+- One or more aggregate series rendered as `bar`.
+- Aggregate series sources using `source.type: aggregate`.
+- Aggregate operations: `mean`, `min`, `max`, `sum`, and `count`.
+- One bar per source entity ID, computed from matching supplied numeric
+  `HistorySeries` records over the chart time range.
+- No series transform, or `transform.operation: none`.
+- No overlays.
+- PNG output.
+
+The first aggregate-bar slice does not support entity, alias, area, device
+class, or time-bucket bar sources; grouped or stacked bars; non-numeric history;
+bar overlays; SVG output; or codegen fallback. Unsupported but schema-valid bar
+specs must fail closed with `unsupported_chart_spec` before writing output
+artifacts. Missing aggregate source history or source history with no numeric
+points must fail before writing output artifacts.
+
 ## Floorplan heatmap deferral
 
 Floorplan-style views are useful but intentionally deferred until after the MVP.

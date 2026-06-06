@@ -849,12 +849,15 @@ class FakeVerticalSliceTests(unittest.TestCase):
         self.assert_contract_valid("chart-spec", request["chart_spec"])
         self.assert_contract_valid("render-result", render_result)
 
-    def test_safe_renderer_rejects_unsupported_first_release_primitives_without_codegen(self):
+    def test_safe_renderer_rejects_unsupported_trusted_primitives_without_codegen(self):
         scope = get_trusted_renderer_primitive_scope()
-        self.assertEqual(scope["chart_types"], ["time_series", "timeline"])
+        self.assertEqual(scope["chart_types"], ["time_series", "timeline", "bar"])
         self.assertEqual(scope["time_series"]["series_render_as"], ["line"])
         self.assertEqual(scope["timeline"]["series_render_as"], ["step"])
         self.assertEqual(scope["timeline"]["series_kinds"], ["binary_state", "categorical_state"])
+        self.assertEqual(scope["bar"]["series_render_as"], ["bar"])
+        self.assertEqual(scope["bar"]["series_source_types"], ["aggregate"])
+        self.assertEqual(scope["bar"]["aggregate_operations"], ["mean", "min", "max", "sum", "count"])
         self.assertEqual(scope["overlay_render_as"], ["shaded_intervals"])
         self.assertFalse(scope["fallback_to_codegen"])
 
@@ -1287,6 +1290,150 @@ class FakeVerticalSliceTests(unittest.TestCase):
         self.assert_contract_valid("render-request", render_request)
         self.assert_contract_valid("render-result", render_result)
         self.assert_contract_valid("validation-result", validation_result)
+
+    def test_safe_renderer_plots_aggregate_bar_chart(self):
+        chart_spec = {
+            "chart_id": "average_temperature_by_room",
+            "chart_type": "bar",
+            "title": "Average Temperature By Room",
+            "time_range": {
+                "type": "absolute",
+                "start": iso_timestamp(self.start),
+                "end": iso_timestamp(self.now),
+            },
+            "series": [
+                {
+                    "series_id": "average_temperature_by_room",
+                    "label": "Average Temperature",
+                    "source": {
+                        "type": "aggregate",
+                        "entity_ids": [
+                            "sensor.upstairs_temperature",
+                            "sensor.downstairs_temperature",
+                        ],
+                        "operation": "mean",
+                    },
+                    "role": "primary",
+                    "render_as": "bar",
+                    "transform": None,
+                    "unit": self.expected_unit,
+                }
+            ],
+            "overlays": [],
+            "x_axis": {"type": "category"},
+            "y_axis": {"label": self.expected_unit},
+            "notes": ["Selected trusted renderer follow-up family fixture."],
+        }
+        render_request = {
+            "request_id": "fake-aggregate-bar",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": get_fake_normalized_history(now=self.now),
+            "derived_intervals": [],
+            "output": {"format": "png", "width": 1000, "height": 520},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            image_signature = Path(render_result["image_path"]).read_bytes()[:8]
+            output_files = sorted(path.name for path in Path(run_directory).iterdir())
+            validation_result = validate_chart_job(
+                chart_spec=chart_spec,
+                render_result=render_result,
+                entity_catalog=get_fake_approved_entity_catalog(),
+                expected_start=self.start,
+                expected_end=self.now,
+            )
+
+        self.assertEqual(render_result["status"], "success")
+        self.assertEqual(render_result["image_mime_type"], "image/png")
+        self.assertEqual(render_result["render_metadata"]["series_plotted"], ["average_temperature_by_room"])
+        self.assertEqual(render_result["render_metadata"]["overlays_plotted"], [])
+        self.assertEqual(render_result["render_metadata"]["codegen_attempts"], 0)
+        self.assertEqual(render_result["render_metadata"]["x_min"], iso_timestamp(self.start))
+        self.assertEqual(render_result["render_metadata"]["x_max"], iso_timestamp(self.now))
+        self.assertEqual(image_signature, b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(output_files, ["fake-aggregate-bar.png"])
+        self.assertEqual(validation_result["status"], "pass")
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
+        self.assert_contract_valid("validation-result", validation_result)
+
+    def test_safe_renderer_rejects_aggregate_bar_missing_source_history_without_artifact(self):
+        chart_spec = {
+            "chart_id": "average_temperature_with_missing_source",
+            "chart_type": "bar",
+            "title": "Average Temperature With Missing Source",
+            "time_range": {
+                "type": "absolute",
+                "start": iso_timestamp(self.start),
+                "end": iso_timestamp(self.now),
+            },
+            "series": [
+                {
+                    "series_id": "average_temperature_by_room",
+                    "label": "Average Temperature",
+                    "source": {
+                        "type": "aggregate",
+                        "entity_ids": [
+                            "sensor.upstairs_temperature",
+                            "sensor.dishwasher_power",
+                        ],
+                        "operation": "mean",
+                    },
+                    "role": "primary",
+                    "render_as": "bar",
+                    "transform": None,
+                    "unit": self.expected_unit,
+                }
+            ],
+            "overlays": [],
+            "x_axis": {"type": "category"},
+            "y_axis": {"label": self.expected_unit},
+            "notes": [],
+        }
+        render_request = {
+            "request_id": "fake-aggregate-bar-missing-source",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": get_fake_normalized_history(now=self.now),
+            "derived_intervals": [],
+            "output": {"format": "png", "width": 1000, "height": 520},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            output_files = sorted(path.name for path in Path(run_directory).iterdir())
+
+        self.assertEqual(render_result["status"], "failed")
+        self.assertEqual(render_result["error"]["code"], "missing_history_series")
+        self.assertEqual(render_result["render_metadata"]["codegen_attempts"], 0)
+        self.assertIsNone(render_result["image_path"])
+        self.assertEqual(output_files, [])
+        self.assertEqual(
+            render_result["error"]["details"]["missing_aggregate_sources"],
+            [
+                {
+                    "series_id": "average_temperature_by_room",
+                    "entity_id": "sensor.dishwasher_power",
+                    "reason": "missing_history_series",
+                }
+            ],
+        )
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
 
     def test_safe_renderer_rejects_timeline_interval_source_mismatch_without_artifact(self):
         chart_spec = {

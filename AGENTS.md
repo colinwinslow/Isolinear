@@ -10,9 +10,9 @@ Isolinear runs as a Home Assistant custom integration (ADR-0001) paired with an 
 
 This project is developed **agentically**. The human provides direction and oversight; the agent does the implementation. Work is reviewed by reading commits, decision records (ADRs), specs, and the inspectable evidence that tests produce.
 
-## Session start: read this only
+## Session start
 
-On session start, run `/startup` (see `codex/startup.md`). The required read set is **`STATUS.md` only** — it is the single source for current phase, current bounded packet, and the rolling session log.
+On session start, run `/startup` (see `codex/startup.md`). The required read set is **`STATUS.md` + `HANDOFF.md`**. `STATUS.md` is the single source for the current bounded packet and rolling session log. `HANDOFF.md` carries the current project phase, architectural direction, implementation status, and unresolved design details.
 
 Do not load other docs unless the work requires them. The doc map below tells you when to load what.
 
@@ -91,7 +91,7 @@ Build the simplest concrete observable version of the thing **first**, before su
 
 | Command | Protocol file | Purpose |
 |---|---|---|
-| `/startup` | `codex/startup.md` | Drift-check + read STATUS + identify next bounded packet + confirm proof |
+| `/startup` | `codex/startup.md` | Drift-check + read STATUS/HANDOFF + identify next bounded packet + confirm proof |
 | `/closeout` | `codex/closeout.md` | Update STATUS rolling log + sync doc indexes + run review passes + commit |
 | `/adr <slug>` | `codex/adr.md` | Scaffold a new ADR with auto-numbering |
 | `/spec <slug>` | `codex/spec.md` | Scaffold a new spec + paired BDD |
@@ -113,7 +113,7 @@ C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals/<eval>.py     # run
 
 > **Note:** The Windows Store `python.exe` launcher appears first on PATH and fails. Use the full path above until PATH is adjusted, or alias the full path in your shell profile.
 
-**Current test posture:** All unit tests and evals passing (see HANDOFF.md for latest session log and `STATUS.md` for current verification status).
+**Current test posture:** All unit tests and evals passing (see `STATUS.md` for latest session log and current verification status, and `HANDOFF.md` for current implementation status).
 
 ## Commit norms
 

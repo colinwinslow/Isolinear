@@ -15,22 +15,35 @@ TEMPERATURE_UNIT = "\u00b0F"
 POWER_UNIT = "W"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 TRUSTED_RENDERER_PRIMITIVE_SCOPE = {
-    "chart_types": ["time_series", "timeline"],
+    "chart_types": ["time_series", "timeline", "bar"],
     "series_kinds": ["numeric", "binary_state", "categorical_state"],
-    "series_render_as": ["line", "step"],
-    "series_source_types": ["entity"],
+    "series_render_as": ["line", "step", "bar"],
+    "series_source_types": ["entity", "aggregate"],
     "series_transforms": ["none"],
     "overlay_render_as": ["shaded_intervals"],
     "time_series": {
         "series_kinds": ["numeric"],
         "series_render_as": ["line"],
+        "series_source_types": ["entity"],
+        "series_transforms": ["none"],
         "overlay_render_as": ["shaded_intervals"],
     },
     "timeline": {
         "series_kinds": ["binary_state", "categorical_state"],
         "series_render_as": ["step"],
+        "series_source_types": ["entity"],
+        "series_transforms": ["none"],
         "overlay_render_as": [],
         "interval_source": "derived_intervals",
+    },
+    "bar": {
+        "series_kinds": ["numeric"],
+        "series_render_as": ["bar"],
+        "series_source_types": ["aggregate"],
+        "series_transforms": ["none"],
+        "overlay_render_as": [],
+        "aggregate_operations": ["mean", "min", "max", "sum", "count"],
+        "bar_grouping": "entity",
     },
     "output_formats": ["png"],
     "fallback_to_codegen": False,
@@ -633,6 +646,14 @@ def _history_series_map(history_series: list[dict[str, Any]]) -> dict[str, dict[
     return {series["series_id"]: series for series in history_series}
 
 
+def _history_series_entity_map(history_series: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {
+        series["entity_id"]: series
+        for series in history_series
+        if series.get("entity_id") is not None
+    }
+
+
 def _transform_operation(transform: dict[str, Any] | None) -> str:
     if transform is None:
         return "none"
@@ -647,6 +668,7 @@ def _unsupported_trusted_renderer_primitives(
 ) -> list[dict[str, str]]:
     chart_spec = render_request["chart_spec"]
     output = render_request.get("output") or {}
+    history_entity_map = _history_series_entity_map(render_request["history_series"])
     unsupported = []
 
     output_format = output.get("format", "png")
@@ -655,7 +677,7 @@ def _unsupported_trusted_renderer_primitives(
             {
                 "path": "$.output.format",
                 "value": str(output_format),
-                "reason": "trusted_renderer_first_release_supports_png_only",
+                "reason": "trusted_renderer_supports_png_only",
             }
         )
 
@@ -674,7 +696,11 @@ def _unsupported_trusted_renderer_primitives(
     for series_index, series_spec in enumerate(chart_spec.get("series", [])):
         series_id = series_spec.get("series_id", f"series_{series_index}")
         source_type = series_spec.get("source", {}).get("type")
-        if source_type not in TRUSTED_RENDERER_PRIMITIVE_SCOPE["series_source_types"]:
+        allowed_source_types = chart_family_scope.get(
+            "series_source_types",
+            TRUSTED_RENDERER_PRIMITIVE_SCOPE["series_source_types"],
+        )
+        if source_type not in allowed_source_types:
             unsupported.append(
                 {
                     "path": f"$.chart_spec.series[{series_index}].source.type",
@@ -694,7 +720,11 @@ def _unsupported_trusted_renderer_primitives(
             )
 
         transform_operation = _transform_operation(series_spec.get("transform"))
-        if transform_operation not in TRUSTED_RENDERER_PRIMITIVE_SCOPE["series_transforms"]:
+        allowed_transforms = chart_family_scope.get(
+            "series_transforms",
+            TRUSTED_RENDERER_PRIMITIVE_SCOPE["series_transforms"],
+        )
+        if transform_operation not in allowed_transforms:
             unsupported.append(
                 {
                     "path": f"$.chart_spec.series[{series_index}].transform.operation",
@@ -703,17 +733,43 @@ def _unsupported_trusted_renderer_primitives(
                 }
             )
 
-        history_series = history_map.get(series_id)
-        if history_series is not None:
-            history_kind = history_series.get("kind")
-            if history_kind not in chart_family_scope.get("series_kinds", []):
+        if chart_type == "bar":
+            source = series_spec.get("source", {})
+            operation = source.get("operation")
+            if operation not in chart_family_scope.get("aggregate_operations", []):
                 unsupported.append(
                     {
-                        "path": f"$.history_series[{series_id}].kind",
-                        "value": str(history_kind),
-                        "reason": "unsupported_history_series_kind",
+                        "path": f"$.chart_spec.series[{series_index}].source.operation",
+                        "value": str(operation),
+                        "reason": "unsupported_aggregate_operation",
                     }
                 )
+
+            for entity_id in source.get("entity_ids", []):
+                history_series = history_entity_map.get(entity_id)
+                if history_series is None:
+                    continue
+                history_kind = history_series.get("kind")
+                if history_kind not in chart_family_scope.get("series_kinds", []):
+                    unsupported.append(
+                        {
+                            "path": f"$.history_series[{entity_id}].kind",
+                            "value": str(history_kind),
+                            "reason": "unsupported_history_series_kind",
+                        }
+                    )
+        else:
+            history_series = history_map.get(series_id)
+            if history_series is not None:
+                history_kind = history_series.get("kind")
+                if history_kind not in chart_family_scope.get("series_kinds", []):
+                    unsupported.append(
+                        {
+                            "path": f"$.history_series[{series_id}].kind",
+                            "value": str(history_kind),
+                            "reason": "unsupported_history_series_kind",
+                        }
+                    )
 
     for overlay_index, overlay_spec in enumerate(chart_spec.get("overlays", [])):
         render_as = overlay_spec.get("render_as")
@@ -1059,6 +1115,164 @@ def _write_timeline_png(
     }
 
 
+def _numeric_values_in_window(
+    history_series: dict[str, Any],
+    time_window: tuple[datetime, datetime] | None,
+) -> tuple[list[float], list[datetime]]:
+    values = []
+    timestamps = []
+
+    for point in history_series.get("points", []):
+        timestamp = datetime.fromisoformat(point["ts"])
+        if time_window is not None:
+            x_min, x_max = time_window
+            if timestamp < x_min or timestamp > x_max:
+                continue
+
+        value = point.get("value")
+        if value is None:
+            continue
+
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            continue
+
+        values.append(numeric_value)
+        timestamps.append(timestamp)
+
+    return values, timestamps
+
+
+def _aggregate_numeric_values(values: list[float], operation: str) -> float:
+    if operation == "mean":
+        return sum(values) / len(values)
+    if operation == "min":
+        return min(values)
+    if operation == "max":
+        return max(values)
+    if operation == "sum":
+        return sum(values)
+    if operation == "count":
+        return float(len(values))
+
+    raise ValueError(f"Unsupported aggregate operation: {operation}")
+
+
+def _aggregate_bar_extent(
+    chart_spec: dict[str, Any],
+    aggregate_bar_series: list[dict[str, Any]],
+) -> tuple[datetime, datetime]:
+    extent = _absolute_time_range_extent(chart_spec)
+    if extent is not None:
+        return extent
+
+    timestamps = []
+    for series in aggregate_bar_series:
+        for bar in series["bars"]:
+            timestamps.extend(bar["timestamps"])
+
+    if not timestamps:
+        raise ValueError("No numeric points are available to render aggregate bars.")
+
+    return min(timestamps), max(timestamps)
+
+
+def _write_bar_png(
+    *,
+    chart_spec: dict[str, Any],
+    aggregate_bar_series: list[dict[str, Any]],
+    image_path: Path,
+    width: int,
+    height: int,
+) -> dict[str, str]:
+    x_min, x_max = _aggregate_bar_extent(chart_spec, aggregate_bar_series)
+    if x_max <= x_min:
+        x_max = x_min + timedelta(seconds=1)
+
+    bars = []
+    for series in aggregate_bar_series:
+        for bar in series["bars"]:
+            bars.append(
+                {
+                    "series_id": series["series_id"],
+                    "entity_id": bar["entity_id"],
+                    "label": bar["label"],
+                    "value": bar["value"],
+                }
+            )
+
+    if not bars:
+        raise ValueError("No aggregate bars are available to render.")
+
+    raw_min = min(bar["value"] for bar in bars)
+    raw_max = max(bar["value"] for bar in bars)
+    value_min = min(0.0, raw_min)
+    value_max = max(0.0, raw_max)
+    if value_min == value_max:
+        value_min -= 1.0
+        value_max += 1.0
+    else:
+        padding = (value_max - value_min) * 0.12
+        value_min -= padding
+        value_max += padding
+
+    plot_left = 84
+    plot_top = 68
+    plot_right = 36
+    plot_bottom = 92
+    plot_width = max(1, width - plot_left - plot_right)
+    plot_height = max(1, height - plot_top - plot_bottom)
+    value_range = value_max - value_min
+
+    def project_y(value: float) -> int:
+        return plot_top + int(((value_max - value) / value_range) * plot_height)
+
+    canvas = _Canvas(width, height, (255, 255, 255))
+    axis_color = (80, 88, 100)
+    grid_color = (224, 228, 235)
+    title_color = (30, 36, 45)
+    label_color = (76, 86, 99)
+    palette = [(32, 121, 199), (222, 112, 34), (72, 166, 116), (142, 92, 180)]
+
+    canvas.draw_rect(28, 24, min(width - 28, 28 + (len(chart_spec["title"]) * 7)), 29, title_color)
+
+    for grid_index in range(5):
+        y = int(plot_top + ((plot_height / 4) * grid_index))
+        canvas.draw_line(plot_left, y, width - plot_right, y, grid_color)
+
+    zero_y = project_y(0.0)
+    canvas.draw_line(plot_left, plot_top, plot_left, height - plot_bottom, axis_color, thickness=2)
+    canvas.draw_line(plot_left, zero_y, width - plot_right, zero_y, axis_color, thickness=2)
+
+    slot_width = plot_width / max(1, len(bars))
+    bar_width = max(8, int(slot_width * 0.58))
+
+    for bar_index, bar in enumerate(bars):
+        color = palette[bar_index % len(palette)]
+        center_x = int(plot_left + (slot_width * bar_index) + (slot_width / 2))
+        left = center_x - (bar_width // 2)
+        right = center_x + (bar_width // 2)
+        value_y = project_y(bar["value"])
+        top = min(value_y, zero_y)
+        bottom = max(value_y, zero_y)
+        canvas.draw_rect(left, top, right, max(top + 2, bottom), color)
+        canvas.draw_rect(
+            max(plot_left, left),
+            height - plot_bottom + 18,
+            min(width - plot_right, right),
+            height - plot_bottom + 23,
+            label_color,
+        )
+
+    _write_png(image_path, canvas)
+
+    return {
+        "x_min": iso_timestamp(x_min),
+        "x_max": iso_timestamp(x_max),
+    }
+
+
 def invoke_trusted_renderer(
     render_request: dict[str, Any],
     output_directory: Path,
@@ -1095,7 +1309,7 @@ def invoke_trusted_renderer(
         return _new_render_failure(
             request_id=render_request["request_id"],
             code="unsupported_chart_spec",
-            message="The trusted renderer cannot render one or more requested primitives in its first release scope.",
+            message="The trusted renderer cannot render one or more requested primitives in its current trusted scope.",
             details={
                 "supported_scope": get_trusted_renderer_primitive_scope(),
                 "unsupported_primitives": unsupported_primitives,
@@ -1109,10 +1323,12 @@ def invoke_trusted_renderer(
     series_to_plot = []
     overlays_to_plot = []
     timeline_tracks = []
+    aggregate_bar_series = []
     warnings = []
 
     chart_spec = render_request["chart_spec"]
     chart_type = chart_spec["chart_type"]
+    history_entity_map = _history_series_entity_map(render_request["history_series"])
 
     if chart_type == "timeline":
         source_mismatches = []
@@ -1161,6 +1377,71 @@ def invoke_trusted_renderer(
                 message="No matching derived intervals were available for the timeline chart spec.",
                 details={"warnings": warnings},
             )
+    elif chart_type == "bar":
+        time_window = _absolute_time_range_extent(chart_spec)
+        missing_aggregate_sources = []
+
+        for series_spec in chart_spec["series"]:
+            source = series_spec["source"]
+            operation = source["operation"]
+            bars = []
+
+            for entity_id in source["entity_ids"]:
+                history_series = history_entity_map.get(entity_id)
+                if history_series is None:
+                    missing_aggregate_sources.append(
+                        {
+                            "series_id": series_spec["series_id"],
+                            "entity_id": entity_id,
+                            "reason": "missing_history_series",
+                        }
+                    )
+                    continue
+
+                values, timestamps = _numeric_values_in_window(history_series, time_window)
+                if not values:
+                    missing_aggregate_sources.append(
+                        {
+                            "series_id": series_spec["series_id"],
+                            "entity_id": entity_id,
+                            "reason": "no_numeric_points",
+                        }
+                    )
+                    continue
+
+                bars.append(
+                    {
+                        "entity_id": entity_id,
+                        "label": history_series.get("label", entity_id),
+                        "value": _aggregate_numeric_values(values, operation),
+                        "timestamps": timestamps,
+                    }
+                )
+
+            if bars:
+                aggregate_bar_series.append(
+                    {
+                        "series_id": series_spec["series_id"],
+                        "series_spec": series_spec,
+                        "operation": operation,
+                        "bars": bars,
+                    }
+                )
+
+        if missing_aggregate_sources:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="Aggregate bar charts require numeric history for every source entity.",
+                details={"missing_aggregate_sources": missing_aggregate_sources},
+            )
+
+        if not aggregate_bar_series:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="No aggregate source history was available for the bar chart spec.",
+            )
     else:
         for series_spec in chart_spec["series"]:
             series_id = series_spec["series_id"]
@@ -1205,6 +1486,14 @@ def invoke_trusted_renderer(
                 width=width,
                 height=height,
             )
+        elif chart_type == "bar":
+            extent_metadata = _write_bar_png(
+                chart_spec=chart_spec,
+                aggregate_bar_series=aggregate_bar_series,
+                image_path=image_path,
+                width=width,
+                height=height,
+            )
         else:
             extent_metadata = _write_time_series_png(
                 chart_spec=chart_spec,
@@ -1233,7 +1522,11 @@ def invoke_trusted_renderer(
             "series_plotted": (
                 [track["series_id"] for track in timeline_tracks]
                 if chart_type == "timeline"
-                else [series["series_id"] for series in series_to_plot]
+                else (
+                    [series["series_id"] for series in aggregate_bar_series]
+                    if chart_type == "bar"
+                    else [series["series_id"] for series in series_to_plot]
+                )
             ),
             "overlays_plotted": [overlay["overlay_id"] for overlay in overlays_to_plot],
             "x_min": extent_metadata["x_min"],
@@ -1396,11 +1689,7 @@ def validate_chart_job(
         for item in entity_catalog
         if item.get("visible_to_agent")
     }
-    referenced_entity_ids = [
-        series["source"]["entity_id"]
-        for series in chart_spec.get("series", [])
-        if series.get("source", {}).get("type") == "entity"
-    ]
+    referenced_entity_ids = _referenced_entity_ids(chart_spec)
     missing_entity_ids = [
         entity_id
         for entity_id in referenced_entity_ids

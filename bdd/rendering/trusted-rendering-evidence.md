@@ -1,6 +1,6 @@
 # Trusted Rendering Evidence
 
-Run timestamp: 2026-06-06 14:32:00 -07:00
+Run timestamp: 2026-06-06 15:02:34 -07:00
 
 BDD file:
 `bdd/rendering/trusted-rendering-bdd.md`
@@ -19,6 +19,11 @@ The trusted renderer supports:
 - `chart_type: timeline`
 - Binary or categorical state tracks rendered as `step`
 - Timeline tracks rendered from matching supplied `DerivedInterval` records
+- `chart_type: bar`
+- Aggregate numeric series rendered as `bar`
+- Aggregate bar sources using `source.type: aggregate`
+- One bar per aggregate source entity
+- Aggregate operations: `mean`, `min`, `max`, `sum`, and `count`
 - PNG output
 - No fallback into codegen mode from trusted rendering
 
@@ -118,6 +123,307 @@ CASE state_interval_timeline
 }
 PASS state_interval_timeline
 PASS state_interval_timeline
+```
+
+## Scenario: Render an aggregate bar chart
+
+Selected family: `aggregate_bar_chart`
+
+Raw eval command:
+
+```powershell
+.\.venv\Scripts\python.exe evals/aggregate_bar_chart.py
+```
+
+Raw eval output:
+
+```text
+CASE aggregate_bar_chart
+{
+  "case_id": "aggregate_bar_chart",
+  "given": {
+    "chart_spec": {
+      "chart_id": "average_temperature_by_room",
+      "chart_type": "bar",
+      "notes": [
+        "Selected trusted renderer follow-up family fixture."
+      ],
+      "overlays": [],
+      "series": [
+        {
+          "label": "Average Temperature",
+          "render_as": "bar",
+          "role": "primary",
+          "series_id": "average_temperature_by_room",
+          "source": {
+            "entity_ids": [
+              "sensor.upstairs_temperature",
+              "sensor.downstairs_temperature"
+            ],
+            "operation": "mean",
+            "type": "aggregate"
+          },
+          "transform": null,
+          "unit": "\u00b0F"
+        }
+      ],
+      "time_range": {
+        "end": "2026-05-29T15:00:00+00:00",
+        "start": "2026-05-28T15:00:00+00:00",
+        "type": "absolute"
+      },
+      "title": "Average Temperature By Room",
+      "x_axis": {
+        "type": "category"
+      },
+      "y_axis": {
+        "label": "\u00b0F"
+      }
+    },
+    "history_series": [
+      {
+        "entity_id": "sensor.upstairs_temperature",
+        "kind": "numeric",
+        "label": "Upstairs Temperature",
+        "points": [
+          {
+            "quality": "ok",
+            "raw_state": "70.8",
+            "ts": "2026-05-28T15:00:00+00:00",
+            "value": 70.8
+          },
+          {
+            "quality": "ok",
+            "raw_state": "71.4",
+            "ts": "2026-05-28T21:00:00+00:00",
+            "value": 71.4
+          },
+          {
+            "quality": "ok",
+            "raw_state": "72.0",
+            "ts": "2026-05-29T03:00:00+00:00",
+            "value": 72.0
+          },
+          {
+            "quality": "ok",
+            "raw_state": "71.6",
+            "ts": "2026-05-29T09:00:00+00:00",
+            "value": 71.6
+          },
+          {
+            "quality": "ok",
+            "raw_state": "70.9",
+            "ts": "2026-05-29T15:00:00+00:00",
+            "value": 70.9
+          }
+        ],
+        "series_id": "upstairs_temperature",
+        "source_entity_ids": [
+          "sensor.upstairs_temperature"
+        ],
+        "unit": "\u00b0F",
+        "warnings": []
+      },
+      {
+        "entity_id": "sensor.downstairs_temperature",
+        "kind": "numeric",
+        "label": "Downstairs Temperature",
+        "points": [
+          {
+            "quality": "ok",
+            "raw_state": "68.9",
+            "ts": "2026-05-28T15:00:00+00:00",
+            "value": 68.9
+          },
+          {
+            "quality": "ok",
+            "raw_state": "69.5",
+            "ts": "2026-05-28T21:00:00+00:00",
+            "value": 69.5
+          },
+          {
+            "quality": "ok",
+            "raw_state": "70.2",
+            "ts": "2026-05-29T03:00:00+00:00",
+            "value": 70.2
+          },
+          {
+            "quality": "ok",
+            "raw_state": "70.0",
+            "ts": "2026-05-29T09:00:00+00:00",
+            "value": 70.0
+          },
+          {
+            "quality": "ok",
+            "raw_state": "69.3",
+            "ts": "2026-05-29T15:00:00+00:00",
+            "value": 69.3
+          }
+        ],
+        "series_id": "downstairs_temperature",
+        "source_entity_ids": [
+          "sensor.downstairs_temperature"
+        ],
+        "unit": "\u00b0F",
+        "warnings": []
+      }
+    ],
+    "primitive_scope": {
+      "bar": {
+        "aggregate_operations": [
+          "mean",
+          "min",
+          "max",
+          "sum",
+          "count"
+        ],
+        "bar_grouping": "entity",
+        "overlay_render_as": [],
+        "series_kinds": [
+          "numeric"
+        ],
+        "series_render_as": [
+          "bar"
+        ],
+        "series_source_types": [
+          "aggregate"
+        ],
+        "series_transforms": [
+          "none"
+        ]
+      },
+      "chart_types": [
+        "time_series",
+        "timeline",
+        "bar"
+      ],
+      "fallback_to_codegen": false,
+      "output_formats": [
+        "png"
+      ],
+      "overlay_render_as": [
+        "shaded_intervals"
+      ],
+      "series_kinds": [
+        "numeric",
+        "binary_state",
+        "categorical_state"
+      ],
+      "series_render_as": [
+        "line",
+        "step",
+        "bar"
+      ],
+      "series_source_types": [
+        "entity",
+        "aggregate"
+      ],
+      "series_transforms": [
+        "none"
+      ],
+      "time_series": {
+        "overlay_render_as": [
+          "shaded_intervals"
+        ],
+        "series_kinds": [
+          "numeric"
+        ],
+        "series_render_as": [
+          "line"
+        ],
+        "series_source_types": [
+          "entity"
+        ],
+        "series_transforms": [
+          "none"
+        ]
+      },
+      "timeline": {
+        "interval_source": "derived_intervals",
+        "overlay_render_as": [],
+        "series_kinds": [
+          "binary_state",
+          "categorical_state"
+        ],
+        "series_render_as": [
+          "step"
+        ],
+        "series_source_types": [
+          "entity"
+        ],
+        "series_transforms": [
+          "none"
+        ]
+      }
+    },
+    "selected_family": "aggregate_bar_chart"
+  },
+  "then": {
+    "codegen_attempts": 0,
+    "image_mime_type": "image/png",
+    "output_files": [
+      "aggregate-bar-chart.png"
+    ],
+    "overlays_plotted": [],
+    "render_status": "success",
+    "series_plotted": [
+      "average_temperature_by_room"
+    ],
+    "validation_checks": [
+      {
+        "details": {},
+        "message": "Chart spec has required fields.",
+        "name": "chart_spec_shape",
+        "status": "pass"
+      },
+      {
+        "details": {},
+        "message": "All chart entities are allowlisted.",
+        "name": "allowlisted_entities",
+        "status": "pass"
+      },
+      {
+        "details": {},
+        "message": "Renderer completed successfully.",
+        "name": "render_status",
+        "status": "pass"
+      },
+      {
+        "details": {},
+        "message": "Rendered image exists and is non-empty.",
+        "name": "image_artifact",
+        "status": "pass"
+      },
+      {
+        "details": {},
+        "message": "Render metadata lists every expected series.",
+        "name": "rendered_series",
+        "status": "pass"
+      },
+      {
+        "details": {},
+        "message": "Render metadata lists every expected overlay.",
+        "name": "rendered_overlays",
+        "status": "pass"
+      },
+      {
+        "details": {},
+        "message": "Render metadata matches the expected time range.",
+        "name": "rendered_time_range",
+        "status": "pass"
+      }
+    ],
+    "validation_status": "pass",
+    "x_max": "2026-05-29T15:00:00+00:00",
+    "x_min": "2026-05-28T15:00:00+00:00"
+  },
+  "when": {
+    "operation": "invoke_trusted_renderer_for_aggregate_bar_chart",
+    "render_mode": "safe"
+  }
+}
+PASS aggregate_bar_chart
+PASS aggregate_bar_chart
 ```
 
 ## Scenario: Reject unsupported safe-mode primitive without codegen
@@ -254,9 +560,33 @@ CASE trusted_renderer_primitives
       }
     },
     "primitive_scope": {
+      "bar": {
+        "aggregate_operations": [
+          "mean",
+          "min",
+          "max",
+          "sum",
+          "count"
+        ],
+        "bar_grouping": "entity",
+        "overlay_render_as": [],
+        "series_kinds": [
+          "numeric"
+        ],
+        "series_render_as": [
+          "bar"
+        ],
+        "series_source_types": [
+          "aggregate"
+        ],
+        "series_transforms": [
+          "none"
+        ]
+      },
       "chart_types": [
         "time_series",
-        "timeline"
+        "timeline",
+        "bar"
       ],
       "fallback_to_codegen": false,
       "output_formats": [
@@ -272,10 +602,12 @@ CASE trusted_renderer_primitives
       ],
       "series_render_as": [
         "line",
-        "step"
+        "step",
+        "bar"
       ],
       "series_source_types": [
-        "entity"
+        "entity",
+        "aggregate"
       ],
       "series_transforms": [
         "none"
@@ -289,6 +621,12 @@ CASE trusted_renderer_primitives
         ],
         "series_render_as": [
           "line"
+        ],
+        "series_source_types": [
+          "entity"
+        ],
+        "series_transforms": [
+          "none"
         ]
       },
       "timeline": {
@@ -300,6 +638,12 @@ CASE trusted_renderer_primitives
         ],
         "series_render_as": [
           "step"
+        ],
+        "series_source_types": [
+          "entity"
+        ],
+        "series_transforms": [
+          "none"
         ]
       }
     },
@@ -372,9 +716,33 @@ CASE trusted_renderer_primitives
     "unsupported_error_code": "unsupported_chart_spec",
     "unsupported_error_details": {
       "supported_scope": {
+        "bar": {
+          "aggregate_operations": [
+            "mean",
+            "min",
+            "max",
+            "sum",
+            "count"
+          ],
+          "bar_grouping": "entity",
+          "overlay_render_as": [],
+          "series_kinds": [
+            "numeric"
+          ],
+          "series_render_as": [
+            "bar"
+          ],
+          "series_source_types": [
+            "aggregate"
+          ],
+          "series_transforms": [
+            "none"
+          ]
+        },
         "chart_types": [
           "time_series",
-          "timeline"
+          "timeline",
+          "bar"
         ],
         "fallback_to_codegen": false,
         "output_formats": [
@@ -390,10 +758,12 @@ CASE trusted_renderer_primitives
         ],
         "series_render_as": [
           "line",
-          "step"
+          "step",
+          "bar"
         ],
         "series_source_types": [
-          "entity"
+          "entity",
+          "aggregate"
         ],
         "series_transforms": [
           "none"
@@ -407,6 +777,12 @@ CASE trusted_renderer_primitives
           ],
           "series_render_as": [
             "line"
+          ],
+          "series_source_types": [
+            "entity"
+          ],
+          "series_transforms": [
+            "none"
           ]
         },
         "timeline": {
@@ -418,6 +794,12 @@ CASE trusted_renderer_primitives
           ],
           "series_render_as": [
             "step"
+          ],
+          "series_source_types": [
+            "entity"
+          ],
+          "series_transforms": [
+            "none"
           ]
         }
       },
@@ -432,7 +814,7 @@ CASE trusted_renderer_primitives
     "unsupported_render_status": "failed"
   },
   "when": {
-    "operation": "invoke_trusted_renderer_for_first_release_scope",
+    "operation": "invoke_trusted_renderer_for_trusted_primitive_scope",
     "render_mode": "safe"
   }
 }
@@ -664,12 +1046,12 @@ Raw unit-test output:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 48 items
+collected 50 items
 
 tests\test_codegen_sandbox_anchor.py ..........                          [ 20%]
-tests\test_dashboard_card_anchor.py .......                              [ 35%]
-tests\test_fake_vertical_slice.py ..........................             [ 89%]
+tests\test_dashboard_card_anchor.py .......                              [ 34%]
+tests\test_fake_vertical_slice.py ............................           [ 90%]
 tests\test_transport_auth_anchor.py .....                                [100%]
 
-============================= 48 passed in 48.50s =============================
+============================= 50 passed in 34.85s =============================
 ```

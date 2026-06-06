@@ -7,6 +7,7 @@ Scenarios for chart rendering (trusted renderer), dashboard card display, and re
 - **Chart spec rendering** — Trusted renderer converts valid chart specs to PNG with render metadata.
 - **Shaded interval rendering** — Trusted renderer draws interval overlays (e.g., "dishwasher running") as shaded bands.
 - **State interval timeline** — Trusted renderer draws binary/categorical state intervals as timeline tracks.
+- **Aggregate bar chart** — Trusted renderer draws one aggregate numeric value per source entity as bars.
 - **Dashboard card display** — Rendered chart is displayed in the Home Assistant dashboard card.
 
 ## Related docs
@@ -25,6 +26,7 @@ Evidence for these scenarios is produced by:
 
 - `evals/trusted_renderer_primitives.py` — Trusted renderer primitive scope and unsupported safe-mode rejection without codegen
 - `evals/state_interval_timeline.py` — Selected follow-up timeline family renders state interval tracks without codegen
+- `evals/aggregate_bar_chart.py` — Selected follow-up aggregate bar family renders numeric entity aggregates without codegen
 - `evals/prompt_to_chart_basic.py` — Full flow including trusted renderer (PNG output + metadata)
 - `evals/shaded_interval_rendering.py` — Shaded interval band rendering and overlay IDs in metadata
 - `tests/test_fake_vertical_slice.py` — Renderer and metadata validation

@@ -14,6 +14,7 @@ Related artifacts:
 - Evals:
   - `evals/trusted_renderer_primitives.py`
   - `evals/state_interval_timeline.py`
+  - `evals/aggregate_bar_chart.py`
   - `evals/prompt_to_chart_basic.py`
   - `evals/shaded_interval_rendering.py`
 
@@ -53,6 +54,16 @@ And render metadata should list `dishwasher_state` as plotted
 And render metadata should report zero codegen attempts
 And deterministic validation should pass
 
+## Scenario: Render an aggregate bar chart
+
+Given a valid `bar` chart spec with one aggregate numeric series
+And matching numeric history exists for every aggregate source entity
+When the worker renders in safe mode
+Then it should create a PNG image
+And render metadata should list `average_temperature_by_room` as plotted
+And render metadata should report zero codegen attempts
+And deterministic validation should pass
+
 ## Proof Requirements
 
 The evidence must include:
@@ -63,5 +74,6 @@ The evidence must include:
 - The trusted renderer primitive scope.
 - The selected follow-up renderer family and scope.
 - The chart spec and derived interval fixtures.
+- The aggregate chart spec and aggregate source history fixtures.
 - The observed render status, PNG MIME type, render metadata, plotted series or
   overlays, and validation checks.

@@ -1,0 +1,18 @@
+id: aggregate_bar_chart
+summary: Selected trusted renderer follow-up renders aggregate numeric entity values as a bar chart without codegen.
+fixtures:
+  chart_spec: in-code fixture from evals/aggregate_bar_chart.py
+  history: in-code upstairs/downstairs numeric history
+expect:
+  selected_family: aggregate_bar_chart
+  chart_type: bar
+  source_type: aggregate
+  series_render_as:
+    - bar
+  aggregate_operation: mean
+  render_status: success
+  image_created: true
+  series_plotted:
+    - average_temperature_by_room
+  validation_status: pass
+  codegen_attempts: 0
