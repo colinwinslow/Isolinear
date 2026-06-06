@@ -1,6 +1,6 @@
 # Sandbox Codegen Evidence
 
-Run timestamp: 2026-06-06T16:50:27+00:00
+Run timestamp: 2026-06-06T17:18:01+00:00
 
 BDD file:
 `bdd/sandbox-codegen/sandbox-codegen-bdd.md`
@@ -13,7 +13,7 @@ Overall result: PASS
 - Scenario B: generated code renders through the fixed entry point -> `CASE fixed_entry_point_renders_fixed_output`
 - Scenario C: allowlisted matplotlib pyplot renders with Agg backend -> `CASE matplotlib_pyplot_renders_with_agg_backend`
 - Scenario D: unsafe generated code is rejected before execution -> `CASE unsafe_code_rejected_before_execution`
-- Scenario E: secret, filesystem, and network access fail closed -> `CASE unsafe_code_rejected_before_execution`
+- Scenario E: secret, filesystem, and network access fail closed -> `CASE unsafe_code_rejected_before_execution` and `CASE allowlisted_matplotlib_read_denied_by_audit_hook`
 - Scenario F: oversized output fails after execution -> `CASE output_size_limit_is_enforced`
 - Scenario G: runtime error triggers capped repair loop -> `CASE runtime_error_uses_capped_repair_loop`
 
@@ -31,14 +31,14 @@ Raw output:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 43 items
+collected 45 items
 
-tests\test_codegen_sandbox_anchor.py ........                            [ 18%]
-tests\test_dashboard_card_anchor.py .......                              [ 34%]
+tests\test_codegen_sandbox_anchor.py ..........                          [ 22%]
+tests\test_dashboard_card_anchor.py .......                              [ 37%]
 tests\test_fake_vertical_slice.py .......................                [ 88%]
 tests\test_transport_auth_anchor.py .....                                [100%]
 
-============================= 43 passed in 24.65s ==============================
+============================= 45 passed in 34.09s ==============================
 ```
 
 ## Eval Verification
@@ -56,7 +56,7 @@ CASE codegen_policy_is_pi_compatible
 {
   "case_id": "codegen_policy_is_pi_compatible",
   "given": {
-    "run_timestamp": "2026-06-06T16:50:27+00:00",
+    "run_timestamp": "2026-06-06T17:18:01+00:00",
     "schema": "docs/schemas/codegen-sandbox-policy.schema.json"
   },
   "then": {
@@ -346,6 +346,52 @@ CASE unsafe_code_rejected_before_execution
   }
 }
 PASS unsafe_code_rejected_before_execution
+CASE allowlisted_matplotlib_read_denied_by_audit_hook
+{
+  "case_id": "allowlisted_matplotlib_read_denied_by_audit_hook",
+  "given": {
+    "allowed_imports": [
+      "matplotlib.pyplot"
+    ],
+    "read_policy": "worker_runtime_roots_only"
+  },
+  "then": {
+    "matplotlib_read_output_files": [],
+    "matplotlib_read_result": {
+      "error": {
+        "code": "runtime_error",
+        "details": {
+          "resource_status": {
+            "cpu": "not_available_on_platform",
+            "memory": "not_available_on_platform"
+          },
+          "stderr": "Could not save font_manager cache sandbox allows writes only to the fixed output path\n",
+          "stdout": "{\"error_message\": \"sandbox allows reads only from worker runtime roots\", \"resource_status\": {\"cpu\": \"not_available_on_platform\", \"memory\": \"not_available_on_platform\"}, \"status\": \"runtime_error\", \"traceback\": \"Traceback (most recent call last):\\n  File \\\"C:\\\\Users\\\\C12BA~1.WIN\\\\AppData\\\\Local\\\\Temp\\\\isolinear-codegen-sandbox-vg756j66\\\\sandbox_runner.py\\\", line 170, in <module>\\n    metadata = render_chart(_PAYLOAD[\\\"data\\\"], _OUTPUT_PATH)\\n  File \\\"<generated_chart>\\\", line 5, in render_chart\\n  File \\\"C:\\\\Users\\\\c.winslow\\\\OneDrive - Kagwerks\\\\Documents\\\\Repos\\\\Isolinear\\\\.venv\\\\Lib\\\\site-packages\\\\matplotlib\\\\pyplot.py\\\", line 2614, in imread\\n    return matplotlib.image.imread(fname, format)\\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^\\n  File \\\"C:\\\\Users\\\\c.winslow\\\\OneDrive - Kagwerks\\\\Documents\\\\Repos\\\\Isolinear\\\\.venv\\\\Lib\\\\site-packages\\\\matplotlib\\\\image.py\\\", line 1520, in imread\\n    with img_open(fname) as image:\\n         ~~~~~~~~^^^^^^^\\n  File \\\"C:\\\\Users\\\\c.winslow\\\\OneDrive - Kagwerks\\\\Documents\\\\Repos\\\\Isolinear\\\\.venv\\\\Lib\\\\site-packages\\\\PIL\\\\Image.py\\\", line 3635, in open\\n    fp = builtins.open(filename, \\\"rb\\\")\\n  File \\\"C:\\\\Users\\\\C12BA~1.WIN\\\\AppData\\\\Local\\\\Temp\\\\isolinear-codegen-sandbox-vg756j66\\\\sandbox_runner.py\\\", line 75, in _audit\\n    raise PermissionError(\\\"sandbox allows reads only from worker runtime roots\\\")\\nPermissionError: sandbox allows reads only from worker runtime roots\\n\"}\n",
+          "traceback": "Traceback (most recent call last):\n  File \"C:\\Users\\C12BA~1.WIN\\AppData\\Local\\Temp\\isolinear-codegen-sandbox-vg756j66\\sandbox_runner.py\", line 170, in <module>\n    metadata = render_chart(_PAYLOAD[\"data\"], _OUTPUT_PATH)\n  File \"<generated_chart>\", line 5, in render_chart\n  File \"C:\\Users\\c.winslow\\OneDrive - Kagwerks\\Documents\\Repos\\Isolinear\\.venv\\Lib\\site-packages\\matplotlib\\pyplot.py\", line 2614, in imread\n    return matplotlib.image.imread(fname, format)\n           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^\n  File \"C:\\Users\\c.winslow\\OneDrive - Kagwerks\\Documents\\Repos\\Isolinear\\.venv\\Lib\\site-packages\\matplotlib\\image.py\", line 1520, in imread\n    with img_open(fname) as image:\n         ~~~~~~~~^^^^^^^\n  File \"C:\\Users\\c.winslow\\OneDrive - Kagwerks\\Documents\\Repos\\Isolinear\\.venv\\Lib\\site-packages\\PIL\\Image.py\", line 3635, in open\n    fp = builtins.open(filename, \"rb\")\n  File \"C:\\Users\\C12BA~1.WIN\\AppData\\Local\\Temp\\isolinear-codegen-sandbox-vg756j66\\sandbox_runner.py\", line 75, in _audit\n    raise PermissionError(\"sandbox allows reads only from worker runtime roots\")\nPermissionError: sandbox allows reads only from worker runtime roots\n"
+        },
+        "message": "sandbox allows reads only from worker runtime roots"
+      },
+      "image_id": null,
+      "image_mime_type": null,
+      "image_path": null,
+      "render_metadata": {
+        "codegen_attempts": 1,
+        "overlays_plotted": [],
+        "series_plotted": [],
+        "title": null,
+        "warnings": [],
+        "x_max": null,
+        "x_min": null
+      },
+      "request_id": "codegen-sandbox-anchor",
+      "status": "failed"
+    }
+  },
+  "when": {
+    "operation": "invoke_codegen_sandbox_with_pyplot_imread"
+  }
+}
+PASS allowlisted_matplotlib_read_denied_by_audit_hook
 CASE output_size_limit_is_enforced
 {
   "case_id": "output_size_limit_is_enforced",

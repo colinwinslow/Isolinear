@@ -13,6 +13,7 @@ from Isolinear.codegen_sandbox_anchor import (  # noqa: E402
     default_codegen_sandbox_policy,
     invoke_codegen_sandbox,
     invoke_codegen_with_repair,
+    matplotlib_arbitrary_read_python,
     matplotlib_generated_python,
     oversized_generated_python,
     sample_codegen_render_request,
@@ -90,6 +91,30 @@ class CodegenSandboxAnchorTests(unittest.TestCase):
         )
         validate_contract("render-result", result, repo_root=REPO_ROOT)
 
+    def test_allowlisted_matplotlib_pyplot_cannot_read_arbitrary_files(self):
+        forbidden_path = (REPO_ROOT / "STATUS.md").resolve()
+        python_code = matplotlib_arbitrary_read_python(forbidden_path)
+
+        safety_result = static_safety_check(python_code)
+        self.assertTrue(safety_result["accepted"], safety_result["violations"])
+
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT / ".test-output") as run_directory:
+            result = invoke_codegen_sandbox(
+                render_request=sample_codegen_render_request(python_code=python_code),
+                output_directory=Path(run_directory),
+                repo_root=REPO_ROOT,
+            )
+            self.assertEqual(list(Path(run_directory).iterdir()), [])
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["error"]["code"], "runtime_error")
+        self.assertEqual(result["render_metadata"]["codegen_attempts"], 1)
+        self.assertIn(
+            "sandbox allows reads only from worker runtime roots",
+            result["error"]["message"],
+        )
+        validate_contract("render-result", result, repo_root=REPO_ROOT)
+
     def test_unsafe_import_file_network_and_environment_paths_fail_before_execution(self):
         for name, python_code in unsafe_generated_python_examples().items():
             with self.subTest(name=name):
@@ -125,6 +150,32 @@ def draw_chart(data, output_path):
             result["violations"][0]["code"],
             "missing_fixed_entry_point",
         )
+
+    def test_non_allowlisted_matplotlib_submodule_import_is_rejected(self):
+        python_code = """
+from matplotlib import backends
+
+
+def render_chart(data, output_path):
+    return {"warnings": [str(backends)]}
+""".strip()
+
+        safety_result = static_safety_check(python_code)
+        self.assertFalse(safety_result["accepted"])
+        self.assertEqual(safety_result["code"], "unsafe_code")
+        self.assertEqual(safety_result["violations"][0]["module"], "matplotlib.backends")
+
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT / ".test-output") as run_directory:
+            result = invoke_codegen_sandbox(
+                render_request=sample_codegen_render_request(python_code=python_code),
+                output_directory=Path(run_directory),
+                repo_root=REPO_ROOT,
+            )
+            self.assertEqual(list(Path(run_directory).iterdir()), [])
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["error"]["code"], "unsafe_code")
+        self.assertFalse(result["error"]["details"]["render_attempted"])
 
     def test_oversized_output_fails_after_sandbox_execution(self):
         policy = {**default_codegen_sandbox_policy(), "max_output_bytes": 1024}

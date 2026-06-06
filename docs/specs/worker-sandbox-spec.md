@@ -18,16 +18,20 @@ The MVP worker sandbox strategy for generated Python is:
 2. Run static AST safety checks before execution. Generated code must define
    exactly one `render_chart(data, output_path)` function. Top-level execution
    is limited to imports and function definitions.
-3. Allow only the configured import allowlist. The first codegen release allows
-   small standard-library helpers plus matplotlib modules that are expected to
-   be installed in the worker image. Imports such as `os`, `pathlib`, `socket`,
+3. Allow generated code to import only exact modules from the configured import
+   allowlist. The first codegen release allows small standard-library helpers
+   plus selected matplotlib entry points that are expected to be installed in
+   the worker image. Generated-code imports such as `os`, `pathlib`, `socket`,
    `subprocess`, `requests`, `urllib`, `http`, `ssl`, and `importlib` are
-   forbidden.
+   forbidden. Vetted runtime libraries may perform their normal transitive
+   imports while loading; those transitive imports do not widen the
+   generated-code allowlist or grant access to Home Assistant secrets.
 4. Execute generated code in an isolated Python subprocess using `-I`, a
    stripped environment, a temporary working directory, and no Home Assistant
    token or worker bearer token.
 5. Install a runtime audit hook in the child process. It denies socket,
-   subprocess, OS mutation, and filesystem events outside the sandbox policy.
+   subprocess, OS mutation, and filesystem events outside the sandbox policy,
+   including attempts routed through allowlisted runtime libraries.
 6. Provide generated code only the normalized render data and the fixed
    `output_path`. The only allowed generated-code file write is opening that
    exact path for writing.

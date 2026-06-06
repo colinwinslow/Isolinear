@@ -85,11 +85,7 @@ def _path_is_under(path: str, root: str) -> bool:
 
 
 def _generated_module_allowed(module_name: str) -> bool:
-    return any(
-        module_name == allowed_module
-        or module_name.startswith(f"{allowed_module}.")
-        for allowed_module in _ALLOWED_GENERATED_IMPORTS
-    )
+    return module_name in _ALLOWED_GENERATED_IMPORTS
 
 
 def _apply_resource_limits() -> None:
@@ -154,6 +150,11 @@ def _sandbox_import(
         raise ImportError("sandbox does not allow relative imports")
     if not _generated_module_allowed(name):
         raise ImportError(f"sandbox import not allowlisted: {name}")
+    fromlist = () if fromlist is None else fromlist
+    for item in fromlist:
+        imported_name = f"{name}.{item}"
+        if not _generated_module_allowed(imported_name):
+            raise ImportError(f"sandbox import not allowlisted: {imported_name}")
     return _builtins.__import__(name, globals, locals, fromlist, level)
 
 
@@ -362,6 +363,18 @@ def render_chart(data, output_path):
         "x_max": points[-1]["ts"],
         "warnings": [f"matplotlib_backend:{matplotlib.get_backend()}"],
     }
+'''.strip()
+
+
+def matplotlib_arbitrary_read_python(forbidden_path: Path | str) -> str:
+    resolved_path = str(Path(forbidden_path).resolve())
+    return f'''
+import matplotlib.pyplot as plt
+
+
+def render_chart(data, output_path):
+    plt.imread({resolved_path!r})
+    return {{"warnings": []}}
 '''.strip()
 
 
@@ -834,6 +847,18 @@ def verify_codegen_sandbox_anchor(root: Path | None = None) -> dict[str, Any]:
             else None
         )
 
+    with tempfile.TemporaryDirectory(dir=output_root) as run_directory_text:
+        run_directory = Path(run_directory_text)
+        matplotlib_read_result = invoke_codegen_sandbox(
+            render_request=sample_codegen_render_request(
+                python_code=matplotlib_arbitrary_read_python(root / "STATUS.md"),
+            ),
+            output_directory=run_directory,
+            policy=policy,
+            repo_root=root,
+        )
+        matplotlib_read_output_files = sorted(path.name for path in run_directory.iterdir())
+
     unsafe_results = {
         name: invoke_codegen_sandbox(
             render_request=sample_codegen_render_request(python_code=python_code),
@@ -882,6 +907,18 @@ def verify_codegen_sandbox_anchor(root: Path | None = None) -> dict[str, Any]:
     elif matplotlib_image_signature != PNG_SIGNATURE.hex():
         failures.append("Matplotlib generated code did not create a PNG image.")
 
+    if matplotlib_read_result["status"] != "failed":
+        failures.append("Allowlisted matplotlib file read attempt did not fail closed.")
+    elif matplotlib_read_result["error"]["code"] != "runtime_error":
+        failures.append("Allowlisted matplotlib file read failed with the wrong code.")
+    elif (
+        "sandbox allows reads only from worker runtime roots"
+        not in matplotlib_read_result["error"]["message"]
+    ):
+        failures.append("Allowlisted matplotlib file read did not hit the runtime audit hook.")
+    if matplotlib_read_output_files:
+        failures.append("Allowlisted matplotlib file read wrote an output artifact.")
+
     if not all(result["status"] == "failed" for result in unsafe_results.values()):
         failures.append("One or more unsafe code examples were not rejected.")
     if not all(result["error"]["code"] == "unsafe_code" for result in unsafe_results.values()):
@@ -909,6 +946,8 @@ def verify_codegen_sandbox_anchor(root: Path | None = None) -> dict[str, Any]:
         "matplotlib_result": matplotlib_result,
         "matplotlib_output_files": matplotlib_output_files,
         "matplotlib_image_signature": matplotlib_image_signature,
+        "matplotlib_read_result": matplotlib_read_result,
+        "matplotlib_read_output_files": matplotlib_read_output_files,
         "unsafe_results": unsafe_results,
         "oversized_result": oversized_result,
         "repair_result": repair_result,
@@ -960,7 +999,7 @@ def _validate_import(
     if isinstance(node, ast.Import):
         module_names = [alias.name for alias in node.names]
     else:
-        module_names = [node.module or ""]
+        module_names = _import_from_module_names(node)
 
     for module_name in module_names:
         if _module_forbidden(module_name, policy["forbidden_imports"]):
@@ -981,6 +1020,17 @@ def _validate_import(
                     "module": module_name,
                 }
             )
+
+
+def _import_from_module_names(node: ast.ImportFrom) -> list[str]:
+    module_name = node.module or ""
+    module_names = []
+    for alias in node.names:
+        if alias.name == "*":
+            module_names.append(f"{module_name}.*")
+        else:
+            module_names.append(f"{module_name}.{alias.name}")
+    return module_names
 
 
 def _validate_call(node: ast.Call, *, violations: list[dict[str, Any]]) -> None:

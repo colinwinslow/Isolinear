@@ -92,6 +92,23 @@ def main():
     )
 
     print_case(
+        "allowlisted_matplotlib_read_denied_by_audit_hook",
+        given={
+            "allowed_imports": [
+                "matplotlib.pyplot",
+            ],
+            "read_policy": result["policy"]["filesystem"]["read_policy"],
+        },
+        when={
+            "operation": "invoke_codegen_sandbox_with_pyplot_imread",
+        },
+        then={
+            "matplotlib_read_result": result["matplotlib_read_result"],
+            "matplotlib_read_output_files": result["matplotlib_read_output_files"],
+        },
+    )
+
+    print_case(
         "output_size_limit_is_enforced",
         given={
             "max_output_bytes": 1024,
