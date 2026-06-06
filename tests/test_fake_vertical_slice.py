@@ -19,6 +19,7 @@ from Isolinear.fake_slice import (  # noqa: E402
     get_fake_dishwasher_state_history,
     get_fake_normalized_history,
     get_fake_raw_numeric_history_records,
+    get_trusted_renderer_primitive_scope,
     invoke_fake_prompt_to_chart,
     invoke_threshold_confirmation_use_once,
     invoke_threshold_confirmation_use_and_remember,
@@ -847,6 +848,118 @@ class FakeVerticalSliceTests(unittest.TestCase):
         self.assert_contract_valid("render-request", request)
         self.assert_contract_valid("chart-spec", request["chart_spec"])
         self.assert_contract_valid("render-result", render_result)
+
+    def test_safe_renderer_rejects_unsupported_first_release_primitives_without_codegen(self):
+        scope = get_trusted_renderer_primitive_scope()
+        self.assertEqual(scope["chart_types"], ["time_series"])
+        self.assertEqual(scope["series_render_as"], ["line"])
+        self.assertEqual(scope["overlay_render_as"], ["shaded_intervals"])
+        self.assertFalse(scope["fallback_to_codegen"])
+
+        base_chart_spec = {
+            "chart_id": "unsupported_time_series_primitive",
+            "chart_type": "time_series",
+            "title": "Unsupported Time Series Primitive",
+            "time_range": {"type": "relative", "duration": "24h"},
+            "series": [
+                {
+                    "series_id": "upstairs_temperature",
+                    "label": "Upstairs Temperature",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.upstairs_temperature",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "line",
+                    "transform": None,
+                    "unit": self.expected_unit,
+                }
+            ],
+            "overlays": [],
+            "x_axis": {"type": "time"},
+            "y_axis": {"label": self.expected_unit},
+            "notes": [],
+        }
+
+        unsupported_variants = []
+
+        area_chart = deepcopy(base_chart_spec)
+        area_chart["chart_id"] = "unsupported_area_series"
+        area_chart["series"][0]["render_as"] = "area"
+        unsupported_variants.append(("area-series", area_chart))
+
+        rolling_chart = deepcopy(base_chart_spec)
+        rolling_chart["chart_id"] = "unsupported_rolling_transform"
+        rolling_chart["series"][0]["transform"] = {
+            "operation": "rolling_mean",
+            "window": "1h",
+        }
+        unsupported_variants.append(("rolling-transform", rolling_chart))
+
+        aggregate_chart = deepcopy(base_chart_spec)
+        aggregate_chart["chart_id"] = "unsupported_aggregate_source"
+        aggregate_chart["series"][0]["source"] = {
+            "type": "aggregate",
+            "entity_ids": [
+                "sensor.upstairs_temperature",
+                "sensor.downstairs_temperature",
+            ],
+            "operation": "mean",
+        }
+        unsupported_variants.append(("aggregate-source", aggregate_chart))
+
+        marker_chart = deepcopy(base_chart_spec)
+        marker_chart["chart_id"] = "unsupported_marker_overlay"
+        marker_chart["overlays"] = [
+            {
+                "overlay_id": "dishwasher_marker",
+                "label": "Dishwasher Marker",
+                "source": {
+                    "type": "entity",
+                    "entity_id": "binary_sensor.dishwasher",
+                    "attribute": None,
+                },
+                "render_as": "markers",
+                "active_values": ["on"],
+            }
+        ]
+        unsupported_variants.append(("marker-overlay", marker_chart))
+
+        for variant_name, chart_spec in unsupported_variants:
+            request = {
+                "request_id": f"fake-unsupported-{variant_name}",
+                "render_mode": "safe",
+                "chart_spec": chart_spec,
+                "history_series": get_fake_normalized_history(now=self.now),
+                "derived_intervals": [],
+                "output": {"format": "png", "width": 1000, "height": 600},
+                "theme": {},
+                "codegen": None,
+            }
+
+            with self.subTest(variant_name=variant_name):
+                with tempfile.TemporaryDirectory() as run_directory:
+                    render_result = invoke_trusted_renderer(
+                        render_request=request,
+                        output_directory=Path(run_directory),
+                    )
+                    self.assertEqual(list(Path(run_directory).iterdir()), [])
+
+                self.assertEqual(render_result["status"], "failed")
+                self.assertEqual(render_result["error"]["code"], "unsupported_chart_spec")
+                self.assertIn(
+                    "unsupported_primitives",
+                    render_result["error"]["details"],
+                )
+                self.assertEqual(
+                    render_result["render_metadata"]["codegen_attempts"],
+                    0,
+                )
+                self.assertIsNone(render_result["image_path"])
+                self.assert_contract_valid("render-request", request)
+                self.assert_contract_valid("chart-spec", request["chart_spec"])
+                self.assert_contract_valid("render-result", render_result)
 
     def test_validation_fails_for_non_allowlisted_entity(self):
         catalog = get_fake_approved_entity_catalog()

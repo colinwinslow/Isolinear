@@ -13,6 +13,7 @@ Feature: Chart spec rendering
     Given a valid chart spec that requires an unsupported chart primitive
     When the worker renders in safe mode
     Then the worker should return an "unsupported_chart_spec" error
+    And the worker should not attempt codegen
     And the dashboard card should show a useful explanation
 
   Scenario: Render shaded intervals

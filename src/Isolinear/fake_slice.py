@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import struct
 import zlib
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,20 @@ from Isolinear.contracts import ContractValidationError, validate_contract
 TEMPERATURE_UNIT = "\u00b0F"
 POWER_UNIT = "W"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+TRUSTED_RENDERER_PRIMITIVE_SCOPE = {
+    "chart_types": ["time_series"],
+    "series_kinds": ["numeric"],
+    "series_render_as": ["line"],
+    "series_source_types": ["entity"],
+    "series_transforms": ["none"],
+    "overlay_render_as": ["shaded_intervals"],
+    "output_formats": ["png"],
+    "fallback_to_codegen": False,
+}
+
+
+def get_trusted_renderer_primitive_scope() -> dict[str, Any]:
+    return deepcopy(TRUSTED_RENDERER_PRIMITIVE_SCOPE)
 
 
 def iso_timestamp(timestamp: datetime) -> str:
@@ -573,7 +588,13 @@ def create_deterministic_planner_result(
     }
 
 
-def _new_render_failure(request_id: str, code: str, message: str) -> dict[str, Any]:
+def _new_render_failure(
+    request_id: str,
+    code: str,
+    message: str,
+    *,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "request_id": request_id,
         "status": "failed",
@@ -583,7 +604,7 @@ def _new_render_failure(request_id: str, code: str, message: str) -> dict[str, A
         "error": {
             "code": code,
             "message": message,
-            "details": {},
+            "details": {} if details is None else details,
         },
         "render_metadata": {
             "title": None,
@@ -599,6 +620,100 @@ def _new_render_failure(request_id: str, code: str, message: str) -> dict[str, A
 
 def _history_series_map(history_series: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {series["series_id"]: series for series in history_series}
+
+
+def _transform_operation(transform: dict[str, Any] | None) -> str:
+    if transform is None:
+        return "none"
+
+    return str(transform.get("operation", "none"))
+
+
+def _unsupported_trusted_renderer_primitives(
+    *,
+    render_request: dict[str, Any],
+    history_map: dict[str, dict[str, Any]],
+) -> list[dict[str, str]]:
+    chart_spec = render_request["chart_spec"]
+    output = render_request.get("output") or {}
+    unsupported = []
+
+    output_format = output.get("format", "png")
+    if output_format not in TRUSTED_RENDERER_PRIMITIVE_SCOPE["output_formats"]:
+        unsupported.append(
+            {
+                "path": "$.output.format",
+                "value": str(output_format),
+                "reason": "trusted_renderer_first_release_supports_png_only",
+            }
+        )
+
+    chart_type = chart_spec.get("chart_type")
+    if chart_type not in TRUSTED_RENDERER_PRIMITIVE_SCOPE["chart_types"]:
+        unsupported.append(
+            {
+                "path": "$.chart_spec.chart_type",
+                "value": str(chart_type),
+                "reason": "unsupported_chart_type",
+            }
+        )
+
+    for series_index, series_spec in enumerate(chart_spec.get("series", [])):
+        series_id = series_spec.get("series_id", f"series_{series_index}")
+        source_type = series_spec.get("source", {}).get("type")
+        if source_type not in TRUSTED_RENDERER_PRIMITIVE_SCOPE["series_source_types"]:
+            unsupported.append(
+                {
+                    "path": f"$.chart_spec.series[{series_index}].source.type",
+                    "value": str(source_type),
+                    "reason": "unsupported_series_source",
+                }
+            )
+
+        render_as = series_spec.get("render_as", "line")
+        if render_as not in TRUSTED_RENDERER_PRIMITIVE_SCOPE["series_render_as"]:
+            unsupported.append(
+                {
+                    "path": f"$.chart_spec.series[{series_index}].render_as",
+                    "value": str(render_as),
+                    "reason": "unsupported_series_render_as",
+                }
+            )
+
+        transform_operation = _transform_operation(series_spec.get("transform"))
+        if transform_operation not in TRUSTED_RENDERER_PRIMITIVE_SCOPE["series_transforms"]:
+            unsupported.append(
+                {
+                    "path": f"$.chart_spec.series[{series_index}].transform.operation",
+                    "value": transform_operation,
+                    "reason": "unsupported_series_transform",
+                }
+            )
+
+        history_series = history_map.get(series_id)
+        if history_series is not None:
+            history_kind = history_series.get("kind")
+            if history_kind not in TRUSTED_RENDERER_PRIMITIVE_SCOPE["series_kinds"]:
+                unsupported.append(
+                    {
+                        "path": f"$.history_series[{series_id}].kind",
+                        "value": str(history_kind),
+                        "reason": "unsupported_history_series_kind",
+                    }
+                )
+
+    for overlay_index, overlay_spec in enumerate(chart_spec.get("overlays", [])):
+        render_as = overlay_spec.get("render_as")
+        if render_as not in TRUSTED_RENDERER_PRIMITIVE_SCOPE["overlay_render_as"]:
+            unsupported.append(
+                {
+                    "path": f"$.chart_spec.overlays[{overlay_index}].render_as",
+                    "value": str(render_as),
+                    "reason": "unsupported_overlay_render_as",
+                }
+            )
+
+    return unsupported
 
 
 def _numeric_extent(series_to_plot: list[dict[str, Any]]) -> dict[str, Any]:
@@ -831,6 +946,21 @@ def invoke_trusted_renderer(
     render_request: dict[str, Any],
     output_directory: Path,
 ) -> dict[str, Any]:
+    try:
+        validate_contract("render-request", render_request)
+        validate_contract("chart-spec", render_request["chart_spec"])
+        for series in render_request["history_series"]:
+            validate_contract("history-series", series)
+        for interval in render_request.get("derived_intervals", []):
+            validate_contract("derived-interval", interval)
+    except ContractValidationError as exc:
+        return _new_render_failure(
+            request_id=str(render_request.get("request_id", "invalid-render-request")),
+            code="invalid_request",
+            message="Render request failed schema validation.",
+            details={"error": str(exc)},
+        )
+
     if render_request["render_mode"] not in {"safe", "auto"}:
         return _new_render_failure(
             request_id=render_request["request_id"],
@@ -838,14 +968,23 @@ def invoke_trusted_renderer(
             message="The fake trusted renderer supports only safe or auto render mode.",
         )
 
-    if render_request["chart_spec"]["chart_type"] != "time_series":
+    history_map = _history_series_map(render_request["history_series"])
+    unsupported_primitives = _unsupported_trusted_renderer_primitives(
+        render_request=render_request,
+        history_map=history_map,
+    )
+
+    if unsupported_primitives:
         return _new_render_failure(
             request_id=render_request["request_id"],
             code="unsupported_chart_spec",
-            message="The trusted fake renderer supports only time_series charts.",
+            message="The trusted renderer cannot render one or more requested primitives in its first release scope.",
+            details={
+                "supported_scope": get_trusted_renderer_primitive_scope(),
+                "unsupported_primitives": unsupported_primitives,
+            },
         )
 
-    history_map = _history_series_map(render_request["history_series"])
     series_to_plot = []
     derived_interval_map = {
         interval["interval_id"]: interval

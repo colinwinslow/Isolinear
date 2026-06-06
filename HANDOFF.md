@@ -59,16 +59,32 @@ static checks rerun on every attempt. The dev environment now installs
 matplotlib through `requirements-dev.txt`; production worker packaging remains
 responsible for providing matplotlib in the isolated worker image.
 
+First trusted renderer release scope is anchored. The chart-spec rendering spec
+now defines the safe-mode trusted scope as `time_series` charts with numeric
+`line` series, entity-backed sources, no transform except `none`, optional
+`shaded_intervals` overlays from supplied `DerivedInterval` records, PNG output,
+and no fallback into codegen. The Python trusted-renderer anchor validates
+render contracts, fails unsupported schema-valid primitives with structured
+`unsupported_chart_spec` details before writing output artifacts, and reports
+zero codegen attempts. The renderer BDD/evidence and
+`evals/trusted_renderer_primitives.py` prove supported line/overlay rendering
+and unsupported primitive rejection. The spec records six follow-up trusted
+renderer families: state interval timeline, aggregate bar, calendar/hour
+heatmap, event markers, distribution/histogram, and scatter/correlation.
+Floorplan heatmaps are deferred until post-MVP because Home Assistant floors
+and areas do not provide room geometry; they will require explicit
+user-provided geometry and area/entity mappings.
+
 No Home Assistant integration has been built yet.
 
 ## Next recommended packet
 
-First trusted renderer release (chart primitives scope):
+Trusted renderer follow-up family selection:
 
-1. Decide and document the first trusted renderer primitive scope.
-2. Extend the trusted renderer anchor only for the chosen primitives.
-3. Add paired spec/BDD/evidence and eval coverage proving supported primitives
-   render from validated `ChartSpec` without falling into codegen mode.
+1. Choose the next trusted renderer family from the recorded roadmap.
+2. Scaffold or extend the paired spec/BDD/evidence for that one family.
+3. Add focused schema/anchor/eval coverage proving the new primitive renders
+   from validated `ChartSpec` without falling into codegen mode.
 
 ## Known unresolved design details
 
@@ -76,7 +92,8 @@ First trusted renderer release (chart primitives scope):
 - Worker token rotation UI, worker health/readiness endpoint, and long-running
   progress streaming semantics.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
-- Which chart primitives are included in the first trusted renderer release.
+- Exact primitive contract for each trusted renderer follow-up family.
+- Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
 - Exact dashboard resource auto-registration behavior once the integration
   scaffold exists.
 

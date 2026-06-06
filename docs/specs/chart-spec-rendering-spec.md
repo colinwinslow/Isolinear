@@ -31,6 +31,68 @@ The trusted renderer should support chart primitives such as:
 - Event markers.
 - Hourly or daily aggregations.
 
+## First trusted renderer release scope
+
+The first trusted renderer release intentionally supports a narrow, inspectable
+primitive set:
+
+- `chart_type: time_series`.
+- One or more numeric history series rendered as `line`.
+- No series transform, or `transform.operation: none`.
+- Entity-backed series sources only.
+- Optional overlays rendered as `shaded_intervals` from supplied
+  `DerivedInterval` records.
+- PNG output.
+
+The first release does not support `bar`, `histogram`, `scatter`, `timeline`,
+`multi_panel`, `step`, `area`, rolling/resampling transforms, aggregate or alias
+sources, marker overlays, band overlays, categorical state bands, event markers,
+or SVG output in trusted mode.
+
+Unsupported but schema-valid chart specs must fail closed with
+`unsupported_chart_spec` in safe mode. They must not silently fall into codegen
+mode; codegen remains an explicitly requested advanced path.
+
+## Trusted renderer roadmap
+
+After the first release, expand trusted rendering with focused slices for these
+chart families:
+
+- State interval timeline: binary or categorical state over time, such as
+  doors, occupancy, appliance cycles, HVAC modes, or automation states.
+- Aggregate bar chart: one value per entity, area, device class, or time bucket,
+  such as average temperature by room, runtime by appliance, or daily energy by
+  source.
+- Calendar/hour heatmap: values grouped by hour, day, or weekday for questions
+  like when HVAC, energy use, or occupancy most often occurs.
+- Event markers: point-in-time annotations over a time-series chart for state
+  changes, automation runs, threshold crossings, or user-confirmed events.
+- Distribution or histogram: value frequency over a selected period, such as
+  how often temperature, humidity, or power draw stayed inside a range.
+- Scatter or correlation chart: paired numeric values for relationships such as
+  outdoor temperature versus HVAC runtime or solar production versus load.
+
+Each family needs its own BDD/eval slice before implementation. Support should
+enter the trusted renderer only when the required `ChartSpec`, normalized data,
+render metadata, and validation behavior are deterministic.
+
+## Floorplan heatmap deferral
+
+Floorplan-style views are useful but intentionally deferred until after the MVP.
+Home Assistant provides floors and areas as logical organization, but it does
+not natively provide room geometry. A trusted floorplan renderer will therefore
+need an explicit user-provided geometry contract, such as:
+
+- A floorplan SVG or image.
+- Room or area IDs mapped to SVG paths, rectangles, or polygons.
+- Entity mappings for each area metric, such as temperature, occupancy, power,
+  or energy.
+- Deterministic color scales, legends, missing-data styling, and allowlist
+  validation for every referenced entity.
+
+The likely first floorplan slice is `floorplan_heatmap`: one floor, one metric,
+one value per mapped area, no Home Assistant mutation, and no codegen fallback.
+
 ## ChartSpec requirements
 
 A valid chart spec must identify:

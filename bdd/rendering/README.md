@@ -22,6 +22,7 @@ Scenarios for chart rendering (trusted renderer), dashboard card display, and re
 
 Evidence for these scenarios is produced by:
 
+- `evals/trusted_renderer_primitives.py` — First trusted renderer primitive scope and unsupported safe-mode rejection without codegen
 - `evals/prompt_to_chart_basic.py` — Full flow including trusted renderer (PNG output + metadata)
 - `evals/shaded_interval_rendering.py` — Shaded interval band rendering and overlay IDs in metadata
 - `tests/test_fake_vertical_slice.py` — Renderer and metadata validation

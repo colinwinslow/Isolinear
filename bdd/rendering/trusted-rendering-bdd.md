@@ -12,6 +12,7 @@ Related artifacts:
 - Spec: `docs/specs/chart-spec-rendering-spec.md`
 - ADR: `docs/decisions/0004-chart-spec-first-rendering-with-codegen-option.md`
 - Evals:
+  - `evals/trusted_renderer_primitives.py`
   - `evals/prompt_to_chart_basic.py`
   - `evals/shaded_interval_rendering.py`
 
@@ -32,6 +33,15 @@ When the worker renders in safe mode
 Then render metadata should list `dishwasher_running` as plotted
 And deterministic validation should pass
 
+## Scenario: Reject unsupported safe-mode primitive without codegen
+
+Given a valid chart spec that asks the trusted renderer for an unsupported
+primitive
+When the worker renders in safe mode
+Then it should return `unsupported_chart_spec`
+And render metadata should report zero codegen attempts
+And no image artifact should be created
+
 ## Proof Requirements
 
 The evidence must include:
@@ -39,6 +49,7 @@ The evidence must include:
 - A recent run timestamp.
 - The exact eval commands and raw eval outputs.
 - The exact unit-test command and raw test output.
+- The first trusted renderer primitive scope.
 - The chart spec and derived interval fixtures.
 - The observed render status, PNG MIME type, render metadata, plotted series or
   overlays, and validation checks.

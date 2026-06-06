@@ -1,0 +1,21 @@
+id: trusted_renderer_primitives
+summary: First trusted renderer release supports scoped line and shaded-interval primitives while rejecting unsupported safe-mode primitives without codegen.
+fixtures:
+  chart_spec: in-code fixtures from evals/trusted_renderer_primitives.py
+  history: in-code fake normalized history
+  derived_intervals: in-code dishwasher_running interval
+expect:
+  supported_scope:
+    chart_type: time_series
+    series_render_as:
+      - line
+    overlays_render_as:
+      - shaded_intervals
+    output_format: png
+    fallback_to_codegen: false
+  line_render_status: success
+  shaded_interval_render_status: success
+  unsupported_render_status: failed
+  unsupported_error_code: unsupported_chart_spec
+  unsupported_codegen_attempts: 0
+  unsupported_image_created: false
