@@ -43,27 +43,37 @@ schemas, a Python verifier, tests, eval evidence, and frontend adapter coverage
 for the command/envelope contract, bad-auth and bad-version rejection, and token
 redaction.
 
+Sandbox implementation for Raspberry Pi compatibility is anchored. The worker
+sandbox spec now defines the concrete codegen strategy: schema validation before
+execution, static AST safety checks, isolated Python subprocess execution with
+`-I`, stripped environment, fixed `render_chart(data, output_path)` entry point,
+runtime audit hook, fixed output-path writes, subprocess timeout, Linux
+`resource` CPU/address-space requests where available, and max output image
+size enforcement. The repo has a `CodegenSandboxPolicy` schema, Python anchor,
+focused tests, executable eval, and paired BDD/evidence proving safe fixed-entry
+execution, forbidden import/file/environment/network rejection before execution,
+oversized output failure, and capped repair-loop behavior with static checks
+rerun on every attempt. The current dev venv does not install matplotlib; the
+anchor is standard-library-only, while production worker packaging remains
+responsible for providing matplotlib in the isolated worker image.
+
 No Home Assistant integration has been built yet.
 
 ## Next recommended packet
 
-Sandbox implementation for Raspberry Pi compatibility:
+First trusted renderer release (chart primitives scope):
 
-1. Define the concrete sandbox strategy for generated matplotlib code on modest
-   hardware, including timeout, filesystem, network, import, and resource
-   restrictions.
-2. Add a paired spec/BDD/evidence anchor that proves unsafe code is rejected and
-   safe code runs only through the fixed `render_chart(data, output_path)` entry
-   point.
-3. Preserve ADR-0008: generated code receives no Home Assistant token, secrets,
-   arbitrary filesystem access, local network access, or internet access.
+1. Decide and document the first trusted renderer primitive scope.
+2. Extend the trusted renderer anchor only for the chosen primitives.
+3. Add paired spec/BDD/evidence and eval coverage proving supported primitives
+   render from validated `ChartSpec` without falling into codegen mode.
 
 ## Known unresolved design details
 
 - Semantic-memory storage-helper implementation, migrations, and repair UI details beyond the envelope contract.
 - Worker token rotation UI, worker health/readiness endpoint, and long-running
   progress streaming semantics.
-- Exact sandbox implementation details for Raspberry Pi compatibility.
+- Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Which chart primitives are included in the first trusted renderer release.
 - Exact dashboard resource auto-registration behavior once the integration
   scaffold exists.

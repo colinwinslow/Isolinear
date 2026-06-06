@@ -1,6 +1,14 @@
 Feature: Sandboxed code generation
   Advanced rendering can use generated matplotlib code only inside a constrained sandbox.
 
+  Scenario: Sandbox policy is compatible with Raspberry Pi worker hardware
+    Given codegen mode is enabled for the worker
+    When the worker loads the default sandbox policy
+    Then the policy should use an isolated Python subprocess
+    And the policy should require a noninteractive rendering backend
+    And the policy should enforce timeout, fixed output path, import allowlist, and output size limits
+    And Linux workers should request CPU and memory limits where the platform supports them
+
   Scenario: Generated code renders through fixed entry point
     Given a valid chart spec
     And generated Python defines "render_chart(data, output_path)"
@@ -14,6 +22,18 @@ Feature: Sandboxed code generation
     When the worker performs static safety checks
     Then the worker should reject the code as "unsafe_code"
     And the code should not execute
+
+  Scenario: Secret, filesystem, and network access fail closed
+    Given generated Python attempts to read secrets, inspect environment variables, or open a local network socket
+    When the worker performs sandbox safety checks
+    Then the worker should reject the code as "unsafe_code"
+    And the code should not execute
+
+  Scenario: Oversized output fails after execution
+    Given generated Python writes an output larger than the sandbox policy allows
+    When the worker runs codegen mode
+    Then the worker should return "output_too_large"
+    And the render result should not expose the oversized image as a successful artifact
 
   Scenario: Runtime error triggers capped repair loop
     Given generated Python raises a matplotlib exception

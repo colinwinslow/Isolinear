@@ -9,6 +9,7 @@ from typing import Any
 
 SCHEMA_NAMES = {
     "chart-spec": "chart-spec.schema.json",
+    "codegen-sandbox-policy": "codegen-sandbox-policy.schema.json",
     "clarification-question": "clarification-question.schema.json",
     "derived-interval": "derived-interval.schema.json",
     "entity-catalog-item": "entity-catalog-item.schema.json",
