@@ -51,10 +51,12 @@ runtime audit hook, fixed output-path writes, subprocess timeout, Linux
 `resource` CPU/address-space requests where available, and max output image
 size enforcement. The repo has a `CodegenSandboxPolicy` schema, Python anchor,
 focused tests, executable eval, and paired BDD/evidence proving safe fixed-entry
-execution, forbidden import/file/environment/network rejection before execution,
-oversized output failure, and capped repair-loop behavior with static checks
-rerun on every attempt. The current dev venv does not install matplotlib; the
-anchor is standard-library-only, while production worker packaging remains
+execution, exact generated-code import allowlisting, allowlisted matplotlib
+`Agg` rendering, forbidden import/file/environment/network rejection before
+execution, runtime audit denial for arbitrary reads routed through
+`pyplot.imread`, oversized output failure, and capped repair-loop behavior with
+static checks rerun on every attempt. The dev environment now installs
+matplotlib through `requirements-dev.txt`; production worker packaging remains
 responsible for providing matplotlib in the isolated worker image.
 
 No Home Assistant integration has been built yet.

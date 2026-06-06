@@ -45,10 +45,10 @@ The MVP worker sandbox strategy for generated Python is:
    if the file exceeds policy.
 
 This strategy does not require GPU support. Matplotlib must use a noninteractive
-backend such as `Agg`. The repo-local anchor is standard-library-only so it can
-run in the current development environment even when matplotlib is not
-installed; production worker packaging is responsible for providing matplotlib
-inside the isolated worker runtime.
+backend such as `Agg`. The repo-local development environment installs
+matplotlib so the anchor can prove the allowlisted rendering path and audit-hook
+denials against the real library; production worker packaging is responsible
+for providing matplotlib inside the isolated worker runtime.
 
 ## Worker API responsibilities
 

@@ -31,10 +31,11 @@ Feature: Sandboxed code generation
     And the code should not execute
 
   Scenario: Secret, filesystem, and network access fail closed
-    Given generated Python attempts to read secrets, inspect environment variables, or open a local network socket
-    When the worker performs sandbox safety checks
-    Then the worker should reject the code as "unsafe_code"
-    And the code should not execute
+    Given generated Python attempts to read secrets, inspect environment variables, open a local network socket, or route arbitrary file reads through an allowlisted rendering library
+    When the worker performs static sandbox checks or runtime audit checks
+    Then the worker should reject or deny the attempt with a structured failure
+    And the target resource should not be read
+    And the code should not produce a successful render artifact
 
   Scenario: Oversized output fails after execution
     Given generated Python writes an output larger than the sandbox policy allows
