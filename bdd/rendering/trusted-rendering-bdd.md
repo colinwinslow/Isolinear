@@ -16,6 +16,8 @@ Related artifacts:
   - `evals/state_interval_timeline.py`
   - `evals/aggregate_bar_chart.py`
   - `evals/calendar_hour_heatmap.py`
+  - `evals/event_markers.py`
+  - `evals/distribution_histogram.py`
   - `evals/prompt_to_chart_basic.py`
   - `evals/shaded_interval_rendering.py`
 
@@ -75,6 +77,26 @@ And render metadata should list `dishwasher_power_heatmap` as plotted
 And render metadata should report zero codegen attempts
 And deterministic validation should pass
 
+## Scenario: Render event markers over a time-series chart
+
+Given a valid `time_series` chart spec with one approved numeric entity series
+And a marker overlay references approved entity history with matching events
+When the worker renders in safe mode
+Then it should create a PNG image
+And render metadata should list `dishwasher_started` as a plotted overlay
+And render metadata should report zero codegen attempts
+And deterministic validation should pass
+
+## Scenario: Render a distribution histogram
+
+Given a valid `histogram` chart spec with one approved numeric entity series
+And normalized numeric history exists for that entity
+When the worker renders in safe mode
+Then it should create a PNG image
+And render metadata should list `dishwasher_power_distribution` as plotted
+And render metadata should report zero codegen attempts
+And deterministic validation should pass
+
 ## Proof Requirements
 
 The evidence must include:
@@ -87,5 +109,7 @@ The evidence must include:
 - The chart spec and derived interval fixtures.
 - The aggregate chart spec and aggregate source history fixtures.
 - The heatmap chart spec and numeric source history fixture.
+- The event marker chart spec and marker source history fixture.
+- The histogram chart spec and numeric source history fixture.
 - The observed render status, PNG MIME type, render metadata, plotted series or
   overlays, and validation checks.

@@ -107,6 +107,7 @@
               "step",
               "bar",
               "heatmap",
+              "histogram",
               "scatter",
               "area"
             ],

@@ -113,17 +113,32 @@ before artifact creation if source history is missing or has no numeric points
 in range. The BDD/evidence and `evals/calendar_hour_heatmap.py` prove rendering,
 metadata, validation, and zero codegen attempts.
 
+Trusted renderer event markers and distribution/histogram follow-up is anchored.
+The chart-spec rendering spec now defines safe-mode `markers` overlays on
+numeric `time_series` charts and safe-mode `histogram` charts with one numeric
+entity-backed series. Marker overlays are derived from matching validated
+`HistorySeries` records using state `active_values`, numeric threshold
+crossings, or event-kind points; histogram rendering computes deterministic
+fixed-count value bins from `x_axis.bin_count` with a default of 8 bins. The
+Python anchor adds marker and histogram primitive checks while preserving the
+existing time-series, timeline, bar, and heatmap constraints. Marker rendering
+fails closed before artifact creation if source history is missing or no marker
+events match; histogram rendering fails closed before artifact creation if
+source history is missing or no numeric points exist in range. The BDD/evidence
+and `evals/event_markers.py` plus `evals/distribution_histogram.py` prove
+rendering, metadata, validation, and zero codegen attempts.
+
 No Home Assistant integration has been built yet.
 
 ## Next recommended packet
 
-Trusted renderer event markers + distribution/histogram follow-up:
+Trusted renderer scatter/correlation follow-up:
 
-1. Define the event marker and distribution/histogram primitive contracts in
-   the chart-spec rendering spec.
-2. Scaffold or extend the paired BDD/evidence and eval outlines for marker and
-   histogram rendering.
-3. Add focused schema/anchor/eval coverage proving both new primitives render
+1. Define the scatter/correlation primitive contract in the chart-spec
+   rendering spec.
+2. Scaffold or extend the paired BDD/evidence and eval outline for scatter
+   rendering.
+3. Add focused schema/anchor/eval coverage proving paired numeric values render
    from validated `ChartSpec` without falling into codegen mode.
 
 ## Known unresolved design details
@@ -132,7 +147,8 @@ Trusted renderer event markers + distribution/histogram follow-up:
 - Worker token rotation UI, worker health/readiness endpoint, and long-running
   progress streaming semantics.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
-- Exact primitive contract for each trusted renderer follow-up family.
+- Exact primitive contract for the scatter/correlation trusted renderer
+  follow-up family.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
 - Exact dashboard resource auto-registration behavior once the integration
   scaffold exists.

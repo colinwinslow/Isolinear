@@ -45,3 +45,19 @@ Feature: Chart spec rendering
     Then it should create a PNG image
     And the render metadata should list the heatmap series as plotted
     And the worker should not attempt codegen
+
+  Scenario: Render event markers over a time-series chart
+    Given a valid time-series chart spec with a marker overlay
+    And normalized history exists for the numeric series and marker source
+    When the worker renders in safe mode
+    Then it should create a PNG image
+    And the render metadata should list the marker overlay as plotted
+    And the worker should not attempt codegen
+
+  Scenario: Render a distribution histogram
+    Given a valid histogram chart spec with one numeric entity series
+    And normalized numeric history exists for that entity
+    When the worker renders in safe mode
+    Then it should create a PNG image
+    And the render metadata should list the histogram series as plotted
+    And the worker should not attempt codegen

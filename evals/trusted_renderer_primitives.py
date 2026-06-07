@@ -122,6 +122,7 @@ def _render_request(
 def main():
     now = datetime(2026, 5, 29, 15, 0, 0, tzinfo=timezone.utc)
     start = now - timedelta(hours=24)
+    primitive_scope = get_trusted_renderer_primitive_scope()
     derived_interval = {
         "interval_id": "dishwasher_running",
         "label": "Dishwasher Running",
@@ -201,6 +202,21 @@ def main():
     )
     assert_true(line_image_signature == PNG_SIGNATURE, "Line render should create a PNG.")
     assert_true(overlay_image_signature == PNG_SIGNATURE, "Overlay render should create a PNG.")
+    assert_equal(
+        primitive_scope["chart_types"],
+        ["time_series", "timeline", "bar", "heatmap", "histogram"],
+        "Primitive scope should list all trusted chart types.",
+    )
+    assert_equal(
+        primitive_scope["time_series"]["overlay_render_as"],
+        ["shaded_intervals", "markers"],
+        "Time-series scope should include marker overlays.",
+    )
+    assert_equal(
+        primitive_scope["histogram"]["series_render_as"],
+        ["histogram"],
+        "Histogram scope should include histogram series.",
+    )
 
     for request in [line_request, overlay_request, unsupported_request]:
         validate_contract("render-request", request, repo_root=REPO_ROOT)
@@ -212,7 +228,7 @@ def main():
     print_case(
         "trusted_renderer_primitives",
         given={
-            "primitive_scope": get_trusted_renderer_primitive_scope(),
+            "primitive_scope": primitive_scope,
             "line_chart_spec": line_request["chart_spec"],
             "overlay_chart_spec": overlay_request["chart_spec"],
             "unsupported_chart_spec": unsupported_request["chart_spec"],

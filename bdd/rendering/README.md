@@ -9,6 +9,8 @@ Scenarios for chart rendering (trusted renderer), dashboard card display, and re
 - **State interval timeline** — Trusted renderer draws binary/categorical state intervals as timeline tracks.
 - **Aggregate bar chart** — Trusted renderer draws one aggregate numeric value per source entity as bars.
 - **Calendar hour heatmap** — Trusted renderer groups numeric entity history into weekday-by-hour cells.
+- **Event markers** — Trusted renderer draws point-in-time markers over a numeric time-series chart.
+- **Distribution histogram** — Trusted renderer bins numeric entity history into value-frequency bars.
 - **Dashboard card display** — Rendered chart is displayed in the Home Assistant dashboard card.
 
 ## Related docs
@@ -29,6 +31,8 @@ Evidence for these scenarios is produced by:
 - `evals/state_interval_timeline.py` — Selected follow-up timeline family renders state interval tracks without codegen
 - `evals/aggregate_bar_chart.py` — Selected follow-up aggregate bar family renders numeric entity aggregates without codegen
 - `evals/calendar_hour_heatmap.py` — Selected follow-up heatmap family renders weekday-by-hour numeric entity cells without codegen
+- `evals/event_markers.py` — Selected follow-up marker family renders event annotations without codegen
+- `evals/distribution_histogram.py` — Selected follow-up histogram family renders numeric value distributions without codegen
 - `evals/prompt_to_chart_basic.py` — Full flow including trusted renderer (PNG output + metadata)
 - `evals/shaded_interval_rendering.py` — Shaded interval band rendering and overlay IDs in metadata
 - `tests/test_fake_vertical_slice.py` — Renderer and metadata validation

@@ -15,18 +15,21 @@ TEMPERATURE_UNIT = "\u00b0F"
 POWER_UNIT = "W"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 TRUSTED_RENDERER_PRIMITIVE_SCOPE = {
-    "chart_types": ["time_series", "timeline", "bar", "heatmap"],
-    "series_kinds": ["numeric", "binary_state", "categorical_state"],
-    "series_render_as": ["line", "step", "bar", "heatmap"],
+    "chart_types": ["time_series", "timeline", "bar", "heatmap", "histogram"],
+    "series_kinds": ["numeric", "binary_state", "categorical_state", "event"],
+    "series_render_as": ["line", "step", "bar", "heatmap", "histogram"],
     "series_source_types": ["entity", "aggregate"],
     "series_transforms": ["none"],
-    "overlay_render_as": ["shaded_intervals"],
+    "overlay_render_as": ["shaded_intervals", "markers"],
     "time_series": {
         "series_kinds": ["numeric"],
         "series_render_as": ["line"],
         "series_source_types": ["entity"],
         "series_transforms": ["none"],
-        "overlay_render_as": ["shaded_intervals"],
+        "overlay_render_as": ["shaded_intervals", "markers"],
+        "marker_source_types": ["entity"],
+        "marker_source_kinds": ["binary_state", "categorical_state", "event"],
+        "marker_threshold_source_kinds": ["numeric"],
     },
     "timeline": {
         "series_kinds": ["binary_state", "categorical_state"],
@@ -54,6 +57,17 @@ TRUSTED_RENDERER_PRIMITIVE_SCOPE = {
         "x_group_by": ["hour"],
         "y_group_by": ["weekday"],
         "cell_aggregation": ["mean"],
+    },
+    "histogram": {
+        "series_kinds": ["numeric"],
+        "series_render_as": ["histogram"],
+        "series_source_types": ["entity"],
+        "series_transforms": ["none"],
+        "overlay_render_as": [],
+        "series_count": 1,
+        "bin_count_min": 4,
+        "bin_count_max": 64,
+        "default_bin_count": 8,
     },
     "output_formats": ["png"],
     "fallback_to_codegen": False,
@@ -703,16 +717,17 @@ def _unsupported_trusted_renderer_primitives(
 
     chart_family_scope = TRUSTED_RENDERER_PRIMITIVE_SCOPE.get(chart_type, {})
 
-    if chart_type == "heatmap":
+    if chart_type in {"heatmap", "histogram"}:
         if len(chart_spec.get("series", [])) != 1:
             unsupported.append(
                 {
                     "path": "$.chart_spec.series",
                     "value": str(len(chart_spec.get("series", []))),
-                    "reason": "unsupported_heatmap_series_count",
+                    "reason": f"unsupported_{chart_type}_series_count",
                 }
             )
 
+    if chart_type == "heatmap":
         x_group_by = chart_spec.get("x_axis", {}).get("group_by")
         if x_group_by not in chart_family_scope.get("x_group_by", []):
             unsupported.append(
@@ -730,6 +745,24 @@ def _unsupported_trusted_renderer_primitives(
                     "path": "$.chart_spec.y_axis.group_by",
                     "value": str(y_group_by),
                     "reason": "unsupported_heatmap_y_group_by",
+                }
+            )
+    elif chart_type == "histogram":
+        bin_count = chart_spec.get("x_axis", {}).get(
+            "bin_count",
+            chart_family_scope.get("default_bin_count"),
+        )
+        if (
+            not isinstance(bin_count, int)
+            or isinstance(bin_count, bool)
+            or bin_count < chart_family_scope.get("bin_count_min", 1)
+            or bin_count > chart_family_scope.get("bin_count_max", 1000)
+        ):
+            unsupported.append(
+                {
+                    "path": "$.chart_spec.x_axis.bin_count",
+                    "value": str(bin_count),
+                    "reason": "unsupported_histogram_bin_count",
                 }
             )
 
@@ -798,7 +831,7 @@ def _unsupported_trusted_renderer_primitives(
                             "reason": "unsupported_history_series_kind",
                         }
                     )
-        elif chart_type == "heatmap":
+        elif chart_type in {"heatmap", "histogram"}:
             entity_id = series_spec.get("source", {}).get("entity_id")
             history_series = history_entity_map.get(entity_id)
             if history_series is not None:
@@ -832,6 +865,70 @@ def _unsupported_trusted_renderer_primitives(
                     "path": f"$.chart_spec.overlays[{overlay_index}].render_as",
                     "value": str(render_as),
                     "reason": "unsupported_overlay_render_as",
+                }
+            )
+            continue
+
+        if render_as != "markers":
+            continue
+
+        source = overlay_spec.get("source", {})
+        source_type = source.get("type")
+        if source_type not in chart_family_scope.get("marker_source_types", []):
+            unsupported.append(
+                {
+                    "path": f"$.chart_spec.overlays[{overlay_index}].source.type",
+                    "value": str(source_type),
+                    "reason": "unsupported_marker_source",
+                }
+            )
+            continue
+
+        has_active_values = bool(overlay_spec.get("active_values"))
+        has_threshold = overlay_spec.get("threshold") is not None
+        if has_active_values and has_threshold:
+            unsupported.append(
+                {
+                    "path": f"$.chart_spec.overlays[{overlay_index}]",
+                    "value": "active_values,threshold",
+                    "reason": "ambiguous_marker_rule",
+                }
+            )
+            continue
+
+        entity_id = source.get("entity_id")
+        history_series = history_entity_map.get(entity_id)
+        history_kind = history_series.get("kind") if history_series is not None else None
+        if has_threshold:
+            if history_series is not None and history_kind not in chart_family_scope.get(
+                "marker_threshold_source_kinds",
+                [],
+            ):
+                unsupported.append(
+                    {
+                        "path": f"$.history_series[{entity_id}].kind",
+                        "value": str(history_kind),
+                        "reason": "unsupported_marker_threshold_history_kind",
+                    }
+                )
+        elif has_active_values:
+            if history_series is not None and history_kind not in chart_family_scope.get(
+                "marker_source_kinds",
+                [],
+            ):
+                unsupported.append(
+                    {
+                        "path": f"$.history_series[{entity_id}].kind",
+                        "value": str(history_kind),
+                        "reason": "unsupported_marker_history_kind",
+                    }
+                )
+        elif history_series is not None and history_kind != "event":
+            unsupported.append(
+                {
+                    "path": f"$.chart_spec.overlays[{overlay_index}]",
+                    "value": render_as,
+                    "reason": "missing_marker_rule",
                 }
             )
 
@@ -970,9 +1067,9 @@ def _write_time_series_png(
     width: int,
     height: int,
 ) -> dict[str, str]:
-    extent = _numeric_extent(series_to_plot)
-    value_min = float(extent["value_min"])
-    value_max = float(extent["value_max"])
+    numeric_extent = _numeric_extent(series_to_plot)
+    value_min = float(numeric_extent["value_min"])
+    value_max = float(numeric_extent["value_max"])
 
     if value_min == value_max:
         value_min -= 1
@@ -982,8 +1079,14 @@ def _write_time_series_png(
         value_min -= padding
         value_max += padding
 
-    x_min = extent["x_min"]
-    x_max = extent["x_max"]
+    absolute_extent = _absolute_time_range_extent(chart_spec)
+    if absolute_extent is None:
+        x_min = numeric_extent["x_min"]
+        x_max = numeric_extent["x_max"]
+    else:
+        x_min, x_max = absolute_extent
+    if x_max <= x_min:
+        x_max = x_min + timedelta(seconds=1)
     total_seconds = (x_max - x_min).total_seconds() or 1
 
     plot_left = 76
@@ -999,11 +1102,14 @@ def _write_time_series_png(
     grid_color = (224, 228, 235)
     title_color = (30, 36, 45)
     overlay_color = (245, 232, 190)
+    marker_color = (189, 75, 89)
     palette = [(32, 121, 199), (222, 112, 34)]
 
     canvas.draw_rect(28, 24, min(width - 28, 28 + (len(chart_spec["title"]) * 7)), 29, title_color)
 
     for overlay in overlays_to_plot:
+        if "derived_interval" not in overlay:
+            continue
         for interval in overlay["derived_interval"].get("intervals", []):
             interval_start = datetime.fromisoformat(interval["start"])
             interval_end = datetime.fromisoformat(interval["end"])
@@ -1030,6 +1136,16 @@ def _write_time_series_png(
         thickness=2,
     )
 
+    for overlay in overlays_to_plot:
+        for marker_event in overlay.get("marker_events", []):
+            marker_timestamp = marker_event["timestamp"]
+            if marker_timestamp < x_min or marker_timestamp > x_max:
+                continue
+
+            x = plot_left + int(((marker_timestamp - x_min).total_seconds() / total_seconds) * plot_width)
+            canvas.draw_line(x, plot_top, x, height - plot_bottom, marker_color, thickness=2)
+            canvas.draw_disc(x, plot_top + 12, 5, marker_color)
+
     for series_index, series in enumerate(series_to_plot):
         color = palette[series_index % len(palette)]
         projected_points: list[tuple[int, int]] = []
@@ -1039,6 +1155,9 @@ def _write_time_series_png(
                 continue
 
             timestamp = datetime.fromisoformat(point["ts"])
+            if timestamp < x_min or timestamp > x_max:
+                continue
+
             x = plot_left + int(((timestamp - x_min).total_seconds() / total_seconds) * plot_width)
             y = plot_top + int(((value_max - float(point["value"])) / value_range) * plot_height)
             projected_points.append((x, y))
@@ -1195,6 +1314,89 @@ def _numeric_values_in_window(
         timestamps.append(timestamp)
 
     return values, timestamps
+
+
+def _point_state_text(point: dict[str, Any]) -> str | None:
+    value = point.get("value")
+    if value is None:
+        value = point.get("raw_state")
+    if value is None:
+        return None
+    return str(value)
+
+
+def _marker_matches_point(
+    *,
+    point: dict[str, Any],
+    overlay_spec: dict[str, Any],
+    history_kind: str,
+) -> bool:
+    threshold = overlay_spec.get("threshold")
+    if threshold is not None:
+        value = point.get("value")
+        if value is None:
+            return False
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            return False
+        return _threshold_matches(
+            numeric_value,
+            threshold["operator"],
+            float(threshold["value"]),
+        )
+
+    active_values = overlay_spec.get("active_values") or []
+    if active_values:
+        state_text = _point_state_text(point)
+        return state_text in {str(value) for value in active_values}
+
+    return history_kind == "event"
+
+
+def _marker_events_from_history(
+    *,
+    history_series: dict[str, Any],
+    overlay_spec: dict[str, Any],
+    time_window: tuple[datetime, datetime] | None,
+) -> list[dict[str, Any]]:
+    history_kind = history_series.get("kind")
+    events = []
+    was_matching = False
+    points = sorted(
+        history_series.get("points", []),
+        key=lambda point: datetime.fromisoformat(point["ts"]),
+    )
+
+    for point in points:
+        timestamp = datetime.fromisoformat(point["ts"])
+        matches = _marker_matches_point(
+            point=point,
+            overlay_spec=overlay_spec,
+            history_kind=history_kind,
+        )
+        if not matches:
+            was_matching = False
+            continue
+
+        should_emit = history_kind == "event" or not was_matching
+        was_matching = True
+        if not should_emit:
+            continue
+
+        if time_window is not None:
+            x_min, x_max = time_window
+            if timestamp < x_min or timestamp > x_max:
+                continue
+
+        events.append(
+            {
+                "timestamp": timestamp,
+                "state": point.get("value", point.get("raw_state")),
+            }
+        )
+
+    return events
 
 
 def _aggregate_numeric_values(values: list[float], operation: str) -> float:
@@ -1471,6 +1673,150 @@ def _write_heatmap_png(
     }
 
 
+def _histogram_bin_count(chart_spec: dict[str, Any]) -> int:
+    return int(
+        chart_spec.get("x_axis", {}).get(
+            "bin_count",
+            TRUSTED_RENDERER_PRIMITIVE_SCOPE["histogram"]["default_bin_count"],
+        )
+    )
+
+
+def _histogram_bins_from_history(
+    history_series: dict[str, Any],
+    time_window: tuple[datetime, datetime] | None,
+    bin_count: int,
+) -> tuple[list[dict[str, Any]], list[datetime]]:
+    values, timestamps = _numeric_values_in_window(history_series, time_window)
+    if not values:
+        return [], timestamps
+
+    value_min = min(values)
+    value_max = max(values)
+    if value_min == value_max:
+        value_min -= 0.5
+        value_max += 0.5
+
+    value_range = value_max - value_min
+    bin_width = value_range / bin_count
+    bins = [
+        {
+            "low": value_min + (bin_width * index),
+            "high": value_min + (bin_width * (index + 1)),
+            "count": 0,
+        }
+        for index in range(bin_count)
+    ]
+
+    for value in values:
+        if value == value_max:
+            bin_index = bin_count - 1
+        else:
+            bin_index = int((value - value_min) / bin_width)
+        bins[max(0, min(bin_count - 1, bin_index))]["count"] += 1
+
+    return bins, timestamps
+
+
+def _histogram_extent(
+    chart_spec: dict[str, Any],
+    histogram_series: list[dict[str, Any]],
+) -> tuple[datetime, datetime]:
+    extent = _absolute_time_range_extent(chart_spec)
+    if extent is not None:
+        return extent
+
+    timestamps = []
+    for series in histogram_series:
+        timestamps.extend(series["timestamps"])
+
+    if not timestamps:
+        raise ValueError("No numeric points are available to render histogram bins.")
+
+    return min(timestamps), max(timestamps)
+
+
+def _write_histogram_png(
+    *,
+    chart_spec: dict[str, Any],
+    histogram_series: list[dict[str, Any]],
+    image_path: Path,
+    width: int,
+    height: int,
+) -> dict[str, str]:
+    x_min, x_max = _histogram_extent(chart_spec, histogram_series)
+    if x_max <= x_min:
+        x_max = x_min + timedelta(seconds=1)
+
+    bins = []
+    for series in histogram_series:
+        bins.extend(series["bins"])
+
+    if not bins:
+        raise ValueError("No histogram bins are available to render.")
+
+    max_count = max(bin_item["count"] for bin_item in bins)
+    if max_count <= 0:
+        raise ValueError("No histogram bin counts are available to render.")
+
+    plot_left = 84
+    plot_top = 68
+    plot_right = 36
+    plot_bottom = 82
+    plot_width = max(1, width - plot_left - plot_right)
+    plot_height = max(1, height - plot_top - plot_bottom)
+
+    canvas = _Canvas(width, height, (255, 255, 255))
+    axis_color = (80, 88, 100)
+    grid_color = (224, 228, 235)
+    title_color = (30, 36, 45)
+    label_color = (76, 86, 99)
+    bar_color = (44, 132, 116)
+
+    canvas.draw_rect(28, 24, min(width - 28, 28 + (len(chart_spec["title"]) * 7)), 29, title_color)
+
+    for grid_index in range(5):
+        y = int(plot_top + ((plot_height / 4) * grid_index))
+        canvas.draw_line(plot_left, y, width - plot_right, y, grid_color)
+
+    canvas.draw_line(plot_left, plot_top, plot_left, height - plot_bottom, axis_color, thickness=2)
+    canvas.draw_line(
+        plot_left,
+        height - plot_bottom,
+        width - plot_right,
+        height - plot_bottom,
+        axis_color,
+        thickness=2,
+    )
+
+    slot_width = plot_width / max(1, len(bins))
+    bar_width = max(8, int(slot_width * 0.82))
+    baseline = height - plot_bottom
+
+    for bin_index, bin_item in enumerate(bins):
+        center_x = int(plot_left + (slot_width * bin_index) + (slot_width / 2))
+        left = center_x - (bar_width // 2)
+        right = center_x + (bar_width // 2)
+        bar_height = int((bin_item["count"] / max_count) * plot_height)
+        top = baseline - max(2, bar_height)
+        canvas.draw_rect(left, top, right, baseline, bar_color)
+        if bin_index % max(1, int(len(bins) / 6)) == 0:
+            canvas.draw_rect(
+                max(plot_left, left),
+                baseline + 18,
+                min(width - plot_right, right),
+                baseline + 23,
+                label_color,
+            )
+
+    _write_png(image_path, canvas)
+
+    return {
+        "x_min": iso_timestamp(x_min),
+        "x_max": iso_timestamp(x_max),
+    }
+
+
 def invoke_trusted_renderer(
     render_request: dict[str, Any],
     output_directory: Path,
@@ -1523,6 +1869,7 @@ def invoke_trusted_renderer(
     timeline_tracks = []
     aggregate_bar_series = []
     heatmap_series = []
+    histogram_series = []
     warnings = []
 
     chart_spec = render_request["chart_spec"]
@@ -1696,7 +2043,68 @@ def invoke_trusted_renderer(
                 code="missing_history_series",
                 message="No heatmap source history was available for the chart spec.",
             )
+    elif chart_type == "histogram":
+        time_window = _absolute_time_range_extent(chart_spec)
+        missing_histogram_sources = []
+
+        for series_spec in chart_spec["series"]:
+            series_id = series_spec["series_id"]
+            source = series_spec["source"]
+            entity_id = source["entity_id"]
+            history_series = history_entity_map.get(entity_id)
+
+            if history_series is None:
+                missing_histogram_sources.append(
+                    {
+                        "series_id": series_id,
+                        "entity_id": entity_id,
+                        "reason": "missing_history_series",
+                    }
+                )
+                continue
+
+            bins, timestamps = _histogram_bins_from_history(
+                history_series,
+                time_window,
+                _histogram_bin_count(chart_spec),
+            )
+            if not bins:
+                missing_histogram_sources.append(
+                    {
+                        "series_id": series_id,
+                        "entity_id": entity_id,
+                        "reason": "no_numeric_points",
+                    }
+                )
+                continue
+
+            histogram_series.append(
+                {
+                    "series_id": series_id,
+                    "series_spec": series_spec,
+                    "history_series": history_series,
+                    "bins": bins,
+                    "timestamps": timestamps,
+                }
+            )
+
+        if missing_histogram_sources:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="Histograms require numeric history for every source entity.",
+                details={"missing_histogram_sources": missing_histogram_sources},
+            )
+
+        if not histogram_series:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="No histogram source history was available for the chart spec.",
+            )
     else:
+        time_window = _absolute_time_range_extent(chart_spec)
+        missing_marker_sources = []
         for series_spec in chart_spec["series"]:
             series_id = series_spec["series_id"]
             if series_id in history_map:
@@ -1713,6 +2121,42 @@ def invoke_trusted_renderer(
                         "derived_interval": derived_interval_map[overlay_id],
                     }
                 )
+            elif overlay_spec["render_as"] == "markers":
+                source = overlay_spec["source"]
+                entity_id = source["entity_id"]
+                history_series = history_entity_map.get(entity_id)
+                if history_series is None:
+                    missing_marker_sources.append(
+                        {
+                            "overlay_id": overlay_id,
+                            "entity_id": entity_id,
+                            "reason": "missing_history_series",
+                        }
+                    )
+                    continue
+
+                marker_events = _marker_events_from_history(
+                    history_series=history_series,
+                    overlay_spec=overlay_spec,
+                    time_window=time_window,
+                )
+                if not marker_events:
+                    missing_marker_sources.append(
+                        {
+                            "overlay_id": overlay_id,
+                            "entity_id": entity_id,
+                            "reason": "no_matching_marker_events",
+                        }
+                    )
+                    continue
+
+                overlays_to_plot.append(
+                    {
+                        "overlay_id": overlay_id,
+                        "history_series": history_series,
+                        "marker_events": marker_events,
+                    }
+                )
             else:
                 warnings.append(f"Missing derived intervals for overlay '{overlay_id}'.")
 
@@ -1721,6 +2165,14 @@ def invoke_trusted_renderer(
                 request_id=render_request["request_id"],
                 code="missing_history_series",
                 message="No matching history series were available for the chart spec.",
+            )
+
+        if missing_marker_sources:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_marker_events",
+                message="Marker overlays require matching source history and at least one marker event.",
+                details={"missing_marker_sources": missing_marker_sources},
             )
 
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -1752,6 +2204,14 @@ def invoke_trusted_renderer(
             extent_metadata = _write_heatmap_png(
                 chart_spec=chart_spec,
                 heatmap_series=heatmap_series,
+                image_path=image_path,
+                width=width,
+                height=height,
+            )
+        elif chart_type == "histogram":
+            extent_metadata = _write_histogram_png(
+                chart_spec=chart_spec,
+                histogram_series=histogram_series,
                 image_path=image_path,
                 width=width,
                 height=height,
@@ -1790,7 +2250,11 @@ def invoke_trusted_renderer(
                     else (
                         [series["series_id"] for series in heatmap_series]
                         if chart_type == "heatmap"
-                        else [series["series_id"] for series in series_to_plot]
+                        else (
+                            [series["series_id"] for series in histogram_series]
+                            if chart_type == "histogram"
+                            else [series["series_id"] for series in series_to_plot]
+                        )
                     )
                 )
             ),

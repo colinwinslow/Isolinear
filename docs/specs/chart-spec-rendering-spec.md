@@ -66,9 +66,9 @@ chart families:
 - Calendar/hour heatmap (selected third follow-up): values grouped by hour,
   day, or weekday for questions like when HVAC, energy use, or occupancy most
   often occurs.
-- Event markers: point-in-time annotations over a time-series chart for state
+- Event markers (selected fourth follow-up): point-in-time annotations over a time-series chart for state
   changes, automation runs, threshold crossings, or user-confirmed events.
-- Distribution or histogram: value frequency over a selected period, such as
+- Distribution or histogram (selected fourth follow-up): value frequency over a selected period, such as
   how often temperature, humidity, or power draw stayed inside a range.
 - Scatter or correlation chart: paired numeric values for relationships such as
   outdoor temperature versus HVAC runtime or solar production versus load.
@@ -146,6 +146,61 @@ Unsupported but schema-valid heatmap specs must fail closed with
 `unsupported_chart_spec` before writing output artifacts. Missing heatmap source
 history or heatmap history with no numeric points in range must fail before
 writing output artifacts.
+
+## Event marker follow-up scope
+
+The fourth follow-up trusted renderer family includes `event_markers`.
+
+This slice supports:
+
+- `chart_type: time_series`.
+- One or more numeric entity history series rendered as `line`.
+- Entity-backed series sources only.
+- No series transform, or `transform.operation: none`.
+- Overlay `render_as: markers`.
+- Marker overlay sources using `source.type: entity`.
+- Marker timestamps derived from supplied validated `HistorySeries` records:
+  - Binary or categorical state histories emit a marker when a point enters one
+    of `active_values`.
+  - Numeric histories emit a marker when a point first crosses the overlay
+    `threshold`.
+  - Event histories emit one marker per event point when no `active_values` or
+    `threshold` rule is supplied.
+- Absolute chart time ranges for deterministic `x_min` and `x_max` metadata.
+- PNG output.
+
+The first marker slice does not support marker overlays on non-time-series
+charts, alias or aggregate marker sources, simultaneous `active_values` and
+`threshold` marker rules, marker bands, marker labels in the rendered image,
+SVG output, or codegen fallback. Unsupported but schema-valid marker specs must
+fail closed with `unsupported_chart_spec` before writing output artifacts.
+Missing marker source history or marker history with no matching events in
+range must fail before writing output artifacts.
+
+## Distribution/histogram follow-up scope
+
+The fourth follow-up trusted renderer family includes `distribution_histogram`.
+
+This slice supports:
+
+- `chart_type: histogram`.
+- One numeric entity history series rendered as `histogram`.
+- Entity-backed series sources only.
+- No series transform, or `transform.operation: none`.
+- Fixed-count value bins from `x_axis.bin_count`; if omitted, the trusted
+  renderer uses a deterministic default of 8 bins.
+- Supported bin counts from 4 through 64.
+- Absolute chart time ranges for deterministic `x_min` and `x_max` metadata.
+- No overlays.
+- PNG output.
+
+The first histogram slice does not support multiple histogram series,
+aggregate or alias sources, non-numeric history, cumulative distributions,
+density normalization, stacked/grouped histograms, histogram overlays, SVG
+output, or codegen fallback. Unsupported but schema-valid histogram specs must
+fail closed with `unsupported_chart_spec` before writing output artifacts.
+Missing histogram source history or histogram history with no numeric points in
+range must fail before writing output artifacts.
 
 ## Floorplan heatmap deferral
 

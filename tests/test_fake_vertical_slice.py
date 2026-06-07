@@ -851,8 +851,12 @@ class FakeVerticalSliceTests(unittest.TestCase):
 
     def test_safe_renderer_rejects_unsupported_trusted_primitives_without_codegen(self):
         scope = get_trusted_renderer_primitive_scope()
-        self.assertEqual(scope["chart_types"], ["time_series", "timeline", "bar", "heatmap"])
+        self.assertEqual(scope["chart_types"], ["time_series", "timeline", "bar", "heatmap", "histogram"])
         self.assertEqual(scope["time_series"]["series_render_as"], ["line"])
+        self.assertEqual(scope["time_series"]["overlay_render_as"], ["shaded_intervals", "markers"])
+        self.assertEqual(scope["time_series"]["marker_source_types"], ["entity"])
+        self.assertEqual(scope["time_series"]["marker_source_kinds"], ["binary_state", "categorical_state", "event"])
+        self.assertEqual(scope["time_series"]["marker_threshold_source_kinds"], ["numeric"])
         self.assertEqual(scope["timeline"]["series_render_as"], ["step"])
         self.assertEqual(scope["timeline"]["series_kinds"], ["binary_state", "categorical_state"])
         self.assertEqual(scope["bar"]["series_render_as"], ["bar"])
@@ -863,7 +867,12 @@ class FakeVerticalSliceTests(unittest.TestCase):
         self.assertEqual(scope["heatmap"]["x_group_by"], ["hour"])
         self.assertEqual(scope["heatmap"]["y_group_by"], ["weekday"])
         self.assertEqual(scope["heatmap"]["cell_aggregation"], ["mean"])
-        self.assertEqual(scope["overlay_render_as"], ["shaded_intervals"])
+        self.assertEqual(scope["histogram"]["series_render_as"], ["histogram"])
+        self.assertEqual(scope["histogram"]["series_source_types"], ["entity"])
+        self.assertEqual(scope["histogram"]["bin_count_min"], 4)
+        self.assertEqual(scope["histogram"]["bin_count_max"], 64)
+        self.assertEqual(scope["histogram"]["default_bin_count"], 8)
+        self.assertEqual(scope["overlay_render_as"], ["shaded_intervals", "markers"])
         self.assertFalse(scope["fallback_to_codegen"])
 
         base_chart_spec = {
@@ -924,22 +933,21 @@ class FakeVerticalSliceTests(unittest.TestCase):
         }
         unsupported_variants.append(("aggregate-source", aggregate_chart))
 
-        marker_chart = deepcopy(base_chart_spec)
-        marker_chart["chart_id"] = "unsupported_marker_overlay"
-        marker_chart["overlays"] = [
+        band_chart = deepcopy(base_chart_spec)
+        band_chart["chart_id"] = "unsupported_band_overlay"
+        band_chart["overlays"] = [
             {
-                "overlay_id": "dishwasher_marker",
-                "label": "Dishwasher Marker",
+                "overlay_id": "comfort_band",
+                "label": "Comfort Band",
                 "source": {
                     "type": "entity",
-                    "entity_id": "binary_sensor.dishwasher",
+                    "entity_id": "sensor.upstairs_temperature",
                     "attribute": None,
                 },
-                "render_as": "markers",
-                "active_values": ["on"],
+                "render_as": "band",
             }
         ]
-        unsupported_variants.append(("marker-overlay", marker_chart))
+        unsupported_variants.append(("band-overlay", band_chart))
 
         numeric_timeline_chart = deepcopy(base_chart_spec)
         numeric_timeline_chart["chart_id"] = "unsupported_numeric_timeline"
@@ -954,6 +962,14 @@ class FakeVerticalSliceTests(unittest.TestCase):
         bad_heatmap_grouping_chart["x_axis"] = {"type": "time", "group_by": "day"}
         bad_heatmap_grouping_chart["y_axis"] = {"type": "time", "group_by": "weekday"}
         unsupported_variants.append(("heatmap-grouping", bad_heatmap_grouping_chart))
+
+        bad_histogram_bin_chart = deepcopy(base_chart_spec)
+        bad_histogram_bin_chart["chart_id"] = "unsupported_histogram_bin_count"
+        bad_histogram_bin_chart["chart_type"] = "histogram"
+        bad_histogram_bin_chart["series"][0]["render_as"] = "histogram"
+        bad_histogram_bin_chart["x_axis"] = {"type": "value", "bin_count": 2}
+        bad_histogram_bin_chart["y_axis"] = {"label": "count"}
+        unsupported_variants.append(("histogram-bin-count", bad_histogram_bin_chart))
 
         for variant_name, chart_spec in unsupported_variants:
             request = {
@@ -1449,6 +1465,161 @@ class FakeVerticalSliceTests(unittest.TestCase):
         self.assert_contract_valid("render-result", render_result)
         self.assert_contract_valid("validation-result", validation_result)
 
+    def test_safe_renderer_plots_event_markers(self):
+        chart_spec = {
+            "chart_id": "temperature_with_dishwasher_start_marker",
+            "chart_type": "time_series",
+            "title": "Temperature With Dishwasher Start Marker",
+            "time_range": {
+                "type": "absolute",
+                "start": iso_timestamp(self.start),
+                "end": iso_timestamp(self.now),
+            },
+            "series": [
+                {
+                    "series_id": "upstairs_temperature",
+                    "label": "Upstairs Temperature",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.upstairs_temperature",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "line",
+                    "transform": None,
+                    "unit": self.expected_unit,
+                }
+            ],
+            "overlays": [
+                {
+                    "overlay_id": "dishwasher_started",
+                    "label": "Dishwasher Started",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "binary_sensor.dishwasher",
+                        "attribute": None,
+                    },
+                    "render_as": "markers",
+                    "active_values": ["on"],
+                }
+            ],
+            "x_axis": {"type": "time"},
+            "y_axis": {"label": self.expected_unit},
+            "notes": ["Selected trusted renderer follow-up family fixture."],
+        }
+        render_request = {
+            "request_id": "fake-event-markers",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": get_fake_normalized_history(now=self.now)
+            + [get_fake_dishwasher_state_history(now=self.now)],
+            "derived_intervals": [],
+            "output": {"format": "png", "width": 1000, "height": 520},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            image_signature = Path(render_result["image_path"]).read_bytes()[:8]
+            output_files = sorted(path.name for path in Path(run_directory).iterdir())
+            validation_result = validate_chart_job(
+                chart_spec=chart_spec,
+                render_result=render_result,
+                entity_catalog=get_fake_approved_entity_catalog(),
+                expected_start=self.start,
+                expected_end=self.now,
+            )
+
+        self.assertEqual(render_result["status"], "success")
+        self.assertEqual(render_result["image_mime_type"], "image/png")
+        self.assertEqual(render_result["render_metadata"]["series_plotted"], ["upstairs_temperature"])
+        self.assertEqual(render_result["render_metadata"]["overlays_plotted"], ["dishwasher_started"])
+        self.assertEqual(render_result["render_metadata"]["codegen_attempts"], 0)
+        self.assertEqual(render_result["render_metadata"]["x_min"], iso_timestamp(self.start))
+        self.assertEqual(render_result["render_metadata"]["x_max"], iso_timestamp(self.now))
+        self.assertEqual(image_signature, b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(output_files, ["fake-event-markers.png"])
+        self.assertEqual(validation_result["status"], "pass")
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
+        self.assert_contract_valid("validation-result", validation_result)
+
+    def test_safe_renderer_plots_distribution_histogram(self):
+        chart_spec = {
+            "chart_id": "dishwasher_power_distribution",
+            "chart_type": "histogram",
+            "title": "Dishwasher Power Distribution",
+            "time_range": {
+                "type": "absolute",
+                "start": iso_timestamp(self.start),
+                "end": iso_timestamp(self.now),
+            },
+            "series": [
+                {
+                    "series_id": "dishwasher_power_distribution",
+                    "label": "Dishwasher Power",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.dishwasher_power",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "histogram",
+                    "transform": None,
+                    "unit": "W",
+                }
+            ],
+            "overlays": [],
+            "x_axis": {"type": "value", "bin_count": 6},
+            "y_axis": {"label": "count"},
+            "notes": ["Selected trusted renderer follow-up family fixture."],
+        }
+        render_request = {
+            "request_id": "fake-distribution-histogram",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": [get_fake_dishwasher_power_history(now=self.now)],
+            "derived_intervals": [],
+            "output": {"format": "png", "width": 1000, "height": 520},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            image_signature = Path(render_result["image_path"]).read_bytes()[:8]
+            output_files = sorted(path.name for path in Path(run_directory).iterdir())
+            validation_result = validate_chart_job(
+                chart_spec=chart_spec,
+                render_result=render_result,
+                entity_catalog=get_fake_approved_entity_catalog(),
+                expected_start=self.start,
+                expected_end=self.now,
+            )
+
+        self.assertEqual(render_result["status"], "success")
+        self.assertEqual(render_result["image_mime_type"], "image/png")
+        self.assertEqual(render_result["render_metadata"]["series_plotted"], ["dishwasher_power_distribution"])
+        self.assertEqual(render_result["render_metadata"]["overlays_plotted"], [])
+        self.assertEqual(render_result["render_metadata"]["codegen_attempts"], 0)
+        self.assertEqual(render_result["render_metadata"]["x_min"], iso_timestamp(self.start))
+        self.assertEqual(render_result["render_metadata"]["x_max"], iso_timestamp(self.now))
+        self.assertEqual(image_signature, b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(output_files, ["fake-distribution-histogram.png"])
+        self.assertEqual(validation_result["status"], "pass")
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
+        self.assert_contract_valid("validation-result", validation_result)
+
     def test_safe_renderer_rejects_heatmap_missing_source_history_without_artifact(self):
         chart_spec = {
             "chart_id": "dishwasher_power_by_weekday_hour_missing_source",
@@ -1507,6 +1678,153 @@ class FakeVerticalSliceTests(unittest.TestCase):
             [
                 {
                     "series_id": "dishwasher_power_heatmap",
+                    "entity_id": "sensor.dishwasher_power",
+                    "reason": "missing_history_series",
+                }
+            ],
+        )
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
+
+    def test_safe_renderer_rejects_marker_overlay_without_matching_events_before_artifact(self):
+        chart_spec = {
+            "chart_id": "temperature_with_missing_marker_events",
+            "chart_type": "time_series",
+            "title": "Temperature With Missing Marker Events",
+            "time_range": {
+                "type": "absolute",
+                "start": iso_timestamp(self.start),
+                "end": iso_timestamp(self.now),
+            },
+            "series": [
+                {
+                    "series_id": "upstairs_temperature",
+                    "label": "Upstairs Temperature",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.upstairs_temperature",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "line",
+                    "transform": None,
+                    "unit": self.expected_unit,
+                }
+            ],
+            "overlays": [
+                {
+                    "overlay_id": "dishwasher_started",
+                    "label": "Dishwasher Started",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "binary_sensor.dishwasher",
+                        "attribute": None,
+                    },
+                    "render_as": "markers",
+                    "active_values": ["running"],
+                }
+            ],
+            "x_axis": {"type": "time"},
+            "y_axis": {"label": self.expected_unit},
+            "notes": [],
+        }
+        render_request = {
+            "request_id": "fake-event-markers-no-events",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": get_fake_normalized_history(now=self.now)
+            + [get_fake_dishwasher_state_history(now=self.now)],
+            "derived_intervals": [],
+            "output": {"format": "png", "width": 1000, "height": 520},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            output_files = sorted(path.name for path in Path(run_directory).iterdir())
+
+        self.assertEqual(render_result["status"], "failed")
+        self.assertEqual(render_result["error"]["code"], "missing_marker_events")
+        self.assertEqual(render_result["render_metadata"]["codegen_attempts"], 0)
+        self.assertIsNone(render_result["image_path"])
+        self.assertEqual(output_files, [])
+        self.assertEqual(
+            render_result["error"]["details"]["missing_marker_sources"],
+            [
+                {
+                    "overlay_id": "dishwasher_started",
+                    "entity_id": "binary_sensor.dishwasher",
+                    "reason": "no_matching_marker_events",
+                }
+            ],
+        )
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
+
+    def test_safe_renderer_rejects_histogram_missing_source_history_without_artifact(self):
+        chart_spec = {
+            "chart_id": "dishwasher_power_distribution_missing_source",
+            "chart_type": "histogram",
+            "title": "Dishwasher Power Distribution Missing Source",
+            "time_range": {
+                "type": "absolute",
+                "start": iso_timestamp(self.start),
+                "end": iso_timestamp(self.now),
+            },
+            "series": [
+                {
+                    "series_id": "dishwasher_power_distribution",
+                    "label": "Dishwasher Power",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.dishwasher_power",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "histogram",
+                    "transform": None,
+                    "unit": "W",
+                }
+            ],
+            "overlays": [],
+            "x_axis": {"type": "value", "bin_count": 6},
+            "y_axis": {"label": "count"},
+            "notes": [],
+        }
+        render_request = {
+            "request_id": "fake-distribution-histogram-missing-source",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": get_fake_normalized_history(now=self.now),
+            "derived_intervals": [],
+            "output": {"format": "png", "width": 1000, "height": 520},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            output_files = sorted(path.name for path in Path(run_directory).iterdir())
+
+        self.assertEqual(render_result["status"], "failed")
+        self.assertEqual(render_result["error"]["code"], "missing_history_series")
+        self.assertEqual(render_result["render_metadata"]["codegen_attempts"], 0)
+        self.assertIsNone(render_result["image_path"])
+        self.assertEqual(output_files, [])
+        self.assertEqual(
+            render_result["error"]["details"]["missing_histogram_sources"],
+            [
+                {
+                    "series_id": "dishwasher_power_distribution",
                     "entity_id": "sensor.dishwasher_power",
                     "reason": "missing_history_series",
                 }
