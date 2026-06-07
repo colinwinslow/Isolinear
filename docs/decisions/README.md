@@ -37,4 +37,4 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0009 — `Semantic memory storage`
 - 0010 — `Semantic memory store envelope`
 - 0011 — `Dashboard card implementation technology`
-- 0012 — `Worker transport and authentication` (draft)
+- 0012 — `Worker transport and authentication`

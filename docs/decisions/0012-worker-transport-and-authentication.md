@@ -1,7 +1,7 @@
 ---
 id: 0012
 title: Worker transport and authentication
-status: draft
+status: accepted
 date: 2026-06-05
 supersedes: []
 superseded-by: null

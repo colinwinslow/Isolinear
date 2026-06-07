@@ -2,8 +2,12 @@
 
 ## Status
 
-Draft. Paired with
+Accepted. Paired with
 [docs/specs/integration-api-transport-auth-spec.md](../../docs/specs/integration-api-transport-auth-spec.md).
+
+Evidence file:
+
+- `bdd/dashboard-card/integration-api-transport-auth-evidence.md`
 
 ## Why This BDD Exists
 
@@ -56,6 +60,5 @@ endpoint, entity allowlist, raw history, generated code, or semantic-memory data
 
 ## Evidence
 
-The implementing slice produces an evidence file at
-`bdd/dashboard-card/integration-api-transport-auth-evidence.md` containing raw
-outputs from `evals/integration_api_transport_auth.py` for each scenario.
+The implementing slice produces raw outputs from
+`evals/integration_api_transport_auth.py` for each scenario.

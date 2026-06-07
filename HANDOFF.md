@@ -2,7 +2,9 @@
 
 ## Current project phase
 
-Seed phase. The repo is being prepared with ADRs, specs, BDD scenarios, schemas, eval outlines, and Codex working rules before production implementation.
+MVP design phase closed. The next packet begins the first production Home
+Assistant custom integration scaffold while preserving the existing
+schema-first, BDD-first workflow.
 
 ## Product summary
 
@@ -141,22 +143,37 @@ or history kinds, missing source history, and histories with no paired numeric
 points. The BDD/evidence and `evals/scatter_correlation.py` prove rendering,
 metadata, validation, and zero codegen attempts.
 
+MVP design readiness review is complete. The review artifact at
+`docs/mvp-design-readiness-review.md` records a READY verdict for the first
+Home Assistant custom integration scaffold. ADR-0012, the integration API
+transport/authentication spec, and the paired BDD are now accepted because the
+schema/test/eval/evidence anchor has landed. Eval-outline entries now exist for
+the already-executable codegen sandbox, dashboard card, and integration
+transport/authentication anchors.
+
 No Home Assistant integration has been built yet.
 
 ## Next recommended packet
 
-MVP design closeout/readiness review:
+Home Assistant integration scaffold anchor:
 
-1. Review ADR, spec, schema, BDD, eval, and evidence coverage for the MVP
-   design phase.
-2. Identify any remaining design gates before the first Home Assistant custom
-   integration scaffold.
-3. Update `STATUS.md` and `HANDOFF.md` with phase-close criteria and the first
-   production-integration packet.
+1. Write a paired integration-scaffold BDD/evidence scaffold before code.
+2. Create the smallest inspectable `custom_components/isolinear` package:
+   manifest, domain constants, and config/options data shape for model
+   endpoint, worker endpoint, render mode, and entity allowlist.
+3. Add schema-valid stubs for the `isolinear/v1/` WebSocket command boundary
+   that accept known command shapes and reject unknown or leaky commands before
+   orchestration exists.
+4. Prove the anchor with unit tests, a focused eval, and on-disk verification.
+5. Do not call the worker, model provider, Home Assistant history APIs,
+   semantic-memory storage helpers, or mutation services in the scaffold
+   packet.
 
 ## Known unresolved design details
 
 - Semantic-memory storage-helper implementation, migrations, and repair UI details beyond the envelope contract.
+- Aggregate-style ambiguous entity clarification and aggregate alias
+  creation/reuse executable evals beyond the existing threshold-backed proofs.
 - Worker token rotation UI, worker health/readiness endpoint, and long-running
   progress streaming semantics.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.

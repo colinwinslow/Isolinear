@@ -1,0 +1,24 @@
+id: dashboard_card_anchor
+summary: The TypeScript Lit dashboard card anchor renders job states and sends every user gesture through integration-owned WebSocket commands.
+executable_eval: evals/dashboard_card_anchor.py
+fixtures:
+  card_module: frontend/dist/isolinear-card.js
+  source_module: frontend/src/isolinear-card.ts
+  api_adapter: frontend/src/isolinear-api.ts
+  job_snapshots: frontend/fixtures/job-snapshots.json
+  fake_hass: frontend/harness/fake-hass.js
+expect:
+  custom_element: isolinear-card
+  dashboard_type: custom:isolinear-card
+  fixture_states:
+    - idle
+    - planning
+    - clarification_needed
+    - complete
+    - failed
+  prompt_first_idle_state: true
+  chart_first_complete_state: true
+  websocket_namespace: isolinear/v1/
+  browser_local_storage_for_isolinear_state: false
+  direct_worker_or_model_calls: false
+  mutation_service_calls: false

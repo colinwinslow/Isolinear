@@ -2,8 +2,12 @@
 
 ## Status
 
-Draft. Paired with
+Accepted. Paired with
 [docs/specs/worker-sandbox-spec.md](../../docs/specs/worker-sandbox-spec.md).
+
+Evidence file:
+
+- `bdd/sandbox-codegen/sandbox-codegen-evidence.md`
 
 ## Why This BDD Exists
 
@@ -80,6 +84,5 @@ artifact
 
 ## Evidence
 
-The implementing slice produces an evidence file at
-`bdd/sandbox-codegen/sandbox-codegen-evidence.md` containing raw outputs from
+The implementing slice produces raw outputs from
 `tests/test_codegen_sandbox_anchor.py` and `evals/codegen_sandbox.py`.

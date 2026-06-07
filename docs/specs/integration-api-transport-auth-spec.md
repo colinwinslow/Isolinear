@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 date: 2026-06-05
 depends-on-adrs:
   - 0001
@@ -12,7 +12,7 @@ depends-on-adrs:
 
 ## Status
 
-Draft. Defines the contract surface for the card-facing Home Assistant
+Accepted. Defines the contract surface for the card-facing Home Assistant
 WebSocket API and the worker-facing transport/authentication envelope per
 ADR-0012.
 

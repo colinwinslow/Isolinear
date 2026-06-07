@@ -1,0 +1,20 @@
+id: integration_api_transport_auth
+summary: Card-facing commands and worker-facing render transport are versioned, schema-backed, and keep worker credentials behind the integration boundary.
+executable_eval: evals/integration_api_transport_auth.py
+fixtures:
+  integration_commands: in-code sample IntegrationWsCommand messages
+  worker_transport: in-code sample WorkerTransportRequest envelope
+  render_request: in-code nested RenderRequest payload
+  invalid_requests: in-code missing-auth, wrong-auth, wrong-version, and secret-leak examples
+expect:
+  websocket_namespace: isolinear/v1/
+  websocket_command_version: 1
+  worker_method: POST
+  worker_path: /v1/render
+  worker_api_version: "1"
+  worker_auth_scheme: bearer
+  bad_auth_rejected_before_rendering: true
+  unsupported_version_rejected_before_rendering: true
+  home_assistant_token_rejected: true
+  evidence_redacts_worker_token: true
+  card_receives_worker_boundary_material: false

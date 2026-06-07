@@ -16,6 +16,12 @@ The ritual a coding agent should run at the beginning of a session. It forces th
 
 The ritual a coding agent should run before ending a session. It forces tests, evals, drift checks, handoff updates, and an audit-friendly closeout summary.
 
+## `docs/mvp-design-readiness-review.md`
+
+The MVP design closeout record. It audits ADR, spec, schema, BDD, eval,
+evidence, and anchor coverage; records the readiness verdict for production
+integration scaffolding; and names the first production integration packet.
+
 ## ADRs
 
 Architecture Decision Records. These lock load-bearing decisions such as integration plus worker, dashboard card first, entity allowlisting, chart-spec-first rendering, schema contracts, validation, local-first model provider, read-only sandbox security, dashboard card technology, and worker transport/authentication.
