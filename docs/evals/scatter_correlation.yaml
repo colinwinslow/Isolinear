@@ -1,0 +1,23 @@
+id: scatter_correlation
+summary: Selected trusted renderer follow-up renders paired numeric entity values as a deterministic scatter/correlation chart without codegen.
+fixtures:
+  chart_spec: in-code fixture from evals/scatter_correlation.py
+  history: in-code upstairs/downstairs numeric history with matching timestamps
+expect:
+  selected_family: scatter_correlation
+  chart_type: scatter
+  source_type: entity
+  series_render_as:
+    - scatter
+  series_count: 2
+  pair_join: exact_timestamp
+  axis_source: explicit_series_ids
+  history_kind:
+    - numeric
+  render_status: success
+  image_created: true
+  series_plotted:
+    - upstairs_temperature
+    - downstairs_temperature
+  validation_status: pass
+  codegen_attempts: 0

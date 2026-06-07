@@ -851,7 +851,7 @@ class FakeVerticalSliceTests(unittest.TestCase):
 
     def test_safe_renderer_rejects_unsupported_trusted_primitives_without_codegen(self):
         scope = get_trusted_renderer_primitive_scope()
-        self.assertEqual(scope["chart_types"], ["time_series", "timeline", "bar", "heatmap", "histogram"])
+        self.assertEqual(scope["chart_types"], ["time_series", "timeline", "bar", "heatmap", "histogram", "scatter"])
         self.assertEqual(scope["time_series"]["series_render_as"], ["line"])
         self.assertEqual(scope["time_series"]["overlay_render_as"], ["shaded_intervals", "markers"])
         self.assertEqual(scope["time_series"]["marker_source_types"], ["entity"])
@@ -872,6 +872,11 @@ class FakeVerticalSliceTests(unittest.TestCase):
         self.assertEqual(scope["histogram"]["bin_count_min"], 4)
         self.assertEqual(scope["histogram"]["bin_count_max"], 64)
         self.assertEqual(scope["histogram"]["default_bin_count"], 8)
+        self.assertEqual(scope["scatter"]["series_render_as"], ["scatter"])
+        self.assertEqual(scope["scatter"]["series_source_types"], ["entity"])
+        self.assertEqual(scope["scatter"]["series_count"], 2)
+        self.assertEqual(scope["scatter"]["pair_join"], "exact_timestamp")
+        self.assertEqual(scope["scatter"]["axis_source"], "explicit_series_ids")
         self.assertEqual(scope["overlay_render_as"], ["shaded_intervals", "markers"])
         self.assertFalse(scope["fallback_to_codegen"])
 
@@ -970,6 +975,37 @@ class FakeVerticalSliceTests(unittest.TestCase):
         bad_histogram_bin_chart["x_axis"] = {"type": "value", "bin_count": 2}
         bad_histogram_bin_chart["y_axis"] = {"label": "count"}
         unsupported_variants.append(("histogram-bin-count", bad_histogram_bin_chart))
+
+        bad_scatter_count_chart = deepcopy(base_chart_spec)
+        bad_scatter_count_chart["chart_id"] = "unsupported_scatter_series_count"
+        bad_scatter_count_chart["chart_type"] = "scatter"
+        bad_scatter_count_chart["series"][0]["render_as"] = "scatter"
+        bad_scatter_count_chart["x_axis"] = {"type": "value", "source_series_id": "upstairs_temperature"}
+        bad_scatter_count_chart["y_axis"] = {"type": "value", "source_series_id": "downstairs_temperature"}
+        unsupported_variants.append(("scatter-series-count", bad_scatter_count_chart))
+
+        bad_scatter_axis_chart = deepcopy(base_chart_spec)
+        bad_scatter_axis_chart["chart_id"] = "unsupported_scatter_axis_source"
+        bad_scatter_axis_chart["chart_type"] = "scatter"
+        bad_scatter_axis_chart["series"][0]["render_as"] = "scatter"
+        bad_scatter_axis_chart["series"].append(
+            {
+                "series_id": "downstairs_temperature",
+                "label": "Downstairs Temperature",
+                "source": {
+                    "type": "entity",
+                    "entity_id": "sensor.downstairs_temperature",
+                    "attribute": None,
+                },
+                "role": "comparison",
+                "render_as": "scatter",
+                "transform": None,
+                "unit": self.expected_unit,
+            }
+        )
+        bad_scatter_axis_chart["x_axis"] = {"type": "value", "source_series_id": "downstairs_temperature"}
+        bad_scatter_axis_chart["y_axis"] = {"type": "value", "source_series_id": "upstairs_temperature"}
+        unsupported_variants.append(("scatter-axis-source", bad_scatter_axis_chart))
 
         for variant_name, chart_spec in unsupported_variants:
             request = {
@@ -1619,6 +1655,256 @@ class FakeVerticalSliceTests(unittest.TestCase):
         self.assert_contract_valid("render-request", render_request)
         self.assert_contract_valid("render-result", render_result)
         self.assert_contract_valid("validation-result", validation_result)
+
+    def test_safe_renderer_plots_scatter_correlation_chart(self):
+        chart_spec = {
+            "chart_id": "temperature_scatter_correlation",
+            "chart_type": "scatter",
+            "title": "Upstairs Versus Downstairs Temperature",
+            "time_range": {
+                "type": "absolute",
+                "start": iso_timestamp(self.start),
+                "end": iso_timestamp(self.now),
+            },
+            "series": [
+                {
+                    "series_id": "upstairs_temperature",
+                    "label": "Upstairs Temperature",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.upstairs_temperature",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "scatter",
+                    "transform": None,
+                    "unit": self.expected_unit,
+                },
+                {
+                    "series_id": "downstairs_temperature",
+                    "label": "Downstairs Temperature",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.downstairs_temperature",
+                        "attribute": None,
+                    },
+                    "role": "comparison",
+                    "render_as": "scatter",
+                    "transform": None,
+                    "unit": self.expected_unit,
+                },
+            ],
+            "overlays": [],
+            "x_axis": {"type": "value", "source_series_id": "upstairs_temperature"},
+            "y_axis": {"type": "value", "source_series_id": "downstairs_temperature"},
+            "notes": ["Selected trusted renderer follow-up family fixture."],
+        }
+        render_request = {
+            "request_id": "fake-scatter-correlation",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": get_fake_normalized_history(now=self.now),
+            "derived_intervals": [],
+            "output": {"format": "png", "width": 1000, "height": 520},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            image_signature = Path(render_result["image_path"]).read_bytes()[:8]
+            output_files = sorted(path.name for path in Path(run_directory).iterdir())
+            validation_result = validate_chart_job(
+                chart_spec=chart_spec,
+                render_result=render_result,
+                entity_catalog=get_fake_approved_entity_catalog(),
+                expected_start=self.start,
+                expected_end=self.now,
+            )
+
+        self.assertEqual(render_result["status"], "success")
+        self.assertEqual(render_result["image_mime_type"], "image/png")
+        self.assertEqual(
+            render_result["render_metadata"]["series_plotted"],
+            ["upstairs_temperature", "downstairs_temperature"],
+        )
+        self.assertEqual(render_result["render_metadata"]["overlays_plotted"], [])
+        self.assertEqual(render_result["render_metadata"]["codegen_attempts"], 0)
+        self.assertEqual(render_result["render_metadata"]["x_min"], iso_timestamp(self.start))
+        self.assertEqual(render_result["render_metadata"]["x_max"], iso_timestamp(self.now))
+        self.assertEqual(image_signature, b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(output_files, ["fake-scatter-correlation.png"])
+        self.assertEqual(validation_result["status"], "pass")
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
+        self.assert_contract_valid("validation-result", validation_result)
+
+    def test_safe_renderer_rejects_scatter_without_paired_points_before_artifact(self):
+        chart_spec = {
+            "chart_id": "temperature_scatter_without_pairs",
+            "chart_type": "scatter",
+            "title": "Temperature Scatter Without Pairs",
+            "time_range": {
+                "type": "absolute",
+                "start": iso_timestamp(self.start),
+                "end": iso_timestamp(self.now),
+            },
+            "series": [
+                {
+                    "series_id": "upstairs_temperature",
+                    "label": "Upstairs Temperature",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.upstairs_temperature",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "scatter",
+                    "transform": None,
+                    "unit": self.expected_unit,
+                },
+                {
+                    "series_id": "downstairs_temperature",
+                    "label": "Downstairs Temperature",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.downstairs_temperature",
+                        "attribute": None,
+                    },
+                    "role": "comparison",
+                    "render_as": "scatter",
+                    "transform": None,
+                    "unit": self.expected_unit,
+                },
+            ],
+            "overlays": [],
+            "x_axis": {"type": "value", "source_series_id": "upstairs_temperature"},
+            "y_axis": {"type": "value", "source_series_id": "downstairs_temperature"},
+            "notes": [],
+        }
+        history_series = deepcopy(get_fake_normalized_history(now=self.now))
+        for point in history_series[1]["points"]:
+            shifted_timestamp = datetime.fromisoformat(point["ts"]) + timedelta(minutes=1)
+            point["ts"] = iso_timestamp(shifted_timestamp)
+        render_request = {
+            "request_id": "fake-scatter-correlation-no-pairs",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": history_series,
+            "derived_intervals": [],
+            "output": {"format": "png", "width": 1000, "height": 520},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            output_files = sorted(path.name for path in Path(run_directory).iterdir())
+
+        self.assertEqual(render_result["status"], "failed")
+        self.assertEqual(render_result["error"]["code"], "missing_history_series")
+        self.assertEqual(render_result["render_metadata"]["codegen_attempts"], 0)
+        self.assertIsNone(render_result["image_path"])
+        self.assertEqual(output_files, [])
+        self.assertEqual(
+            render_result["error"]["details"]["missing_scatter_sources"],
+            [
+                {
+                    "series_ids": ["upstairs_temperature", "downstairs_temperature"],
+                    "reason": "no_paired_numeric_points",
+                }
+            ],
+        )
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
+
+    def test_safe_renderer_rejects_scatter_missing_source_history_without_artifact(self):
+        chart_spec = {
+            "chart_id": "temperature_scatter_missing_source",
+            "chart_type": "scatter",
+            "title": "Temperature Scatter Missing Source",
+            "time_range": {
+                "type": "absolute",
+                "start": iso_timestamp(self.start),
+                "end": iso_timestamp(self.now),
+            },
+            "series": [
+                {
+                    "series_id": "upstairs_temperature",
+                    "label": "Upstairs Temperature",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.upstairs_temperature",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "scatter",
+                    "transform": None,
+                    "unit": self.expected_unit,
+                },
+                {
+                    "series_id": "downstairs_temperature",
+                    "label": "Downstairs Temperature",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.downstairs_temperature",
+                        "attribute": None,
+                    },
+                    "role": "comparison",
+                    "render_as": "scatter",
+                    "transform": None,
+                    "unit": self.expected_unit,
+                },
+            ],
+            "overlays": [],
+            "x_axis": {"type": "value", "source_series_id": "upstairs_temperature"},
+            "y_axis": {"type": "value", "source_series_id": "downstairs_temperature"},
+            "notes": [],
+        }
+        render_request = {
+            "request_id": "fake-scatter-correlation-missing-source",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": [get_fake_normalized_history(now=self.now)[0]],
+            "derived_intervals": [],
+            "output": {"format": "png", "width": 1000, "height": 520},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            output_files = sorted(path.name for path in Path(run_directory).iterdir())
+
+        self.assertEqual(render_result["status"], "failed")
+        self.assertEqual(render_result["error"]["code"], "missing_history_series")
+        self.assertEqual(render_result["render_metadata"]["codegen_attempts"], 0)
+        self.assertIsNone(render_result["image_path"])
+        self.assertEqual(output_files, [])
+        self.assertEqual(
+            render_result["error"]["details"]["missing_scatter_sources"],
+            [
+                {
+                    "series_id": "downstairs_temperature",
+                    "entity_id": "sensor.downstairs_temperature",
+                    "reason": "missing_history_series",
+                }
+            ],
+        )
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
 
     def test_safe_renderer_rejects_heatmap_missing_source_history_without_artifact(self):
         chart_spec = {

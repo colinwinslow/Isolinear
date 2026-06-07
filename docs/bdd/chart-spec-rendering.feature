@@ -61,3 +61,11 @@ Feature: Chart spec rendering
     Then it should create a PNG image
     And the render metadata should list the histogram series as plotted
     And the worker should not attempt codegen
+
+  Scenario: Render a scatter/correlation chart
+    Given a valid scatter chart spec with two numeric entity series
+    And normalized numeric history exists with paired timestamps for both entities
+    When the worker renders in safe mode
+    Then it should create a PNG image
+    And the render metadata should list both scatter series as plotted
+    And the worker should not attempt codegen

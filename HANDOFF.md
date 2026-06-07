@@ -128,18 +128,31 @@ source history is missing or no numeric points exist in range. The BDD/evidence
 and `evals/event_markers.py` plus `evals/distribution_histogram.py` prove
 rendering, metadata, validation, and zero codegen attempts.
 
+Trusted renderer scatter/correlation follow-up is anchored. The chart-spec
+rendering spec now defines safe-mode `scatter` charts with exactly two numeric
+entity-backed series rendered as paired values. Scatter specs must provide
+`x_axis.source_series_id` matching the first series and
+`y_axis.source_series_id` matching the second series. The Python anchor pairs
+numeric points only by exact matching timestamps inside the chart time range,
+emits deterministic absolute time-range metadata, writes PNG output, and never
+falls back into codegen. Scatter rendering fails closed before artifact creation
+for unsupported series counts, mismatched axis source IDs, unsupported sources
+or history kinds, missing source history, and histories with no paired numeric
+points. The BDD/evidence and `evals/scatter_correlation.py` prove rendering,
+metadata, validation, and zero codegen attempts.
+
 No Home Assistant integration has been built yet.
 
 ## Next recommended packet
 
-Trusted renderer scatter/correlation follow-up:
+MVP design closeout/readiness review:
 
-1. Define the scatter/correlation primitive contract in the chart-spec
-   rendering spec.
-2. Scaffold or extend the paired BDD/evidence and eval outline for scatter
-   rendering.
-3. Add focused schema/anchor/eval coverage proving paired numeric values render
-   from validated `ChartSpec` without falling into codegen mode.
+1. Review ADR, spec, schema, BDD, eval, and evidence coverage for the MVP
+   design phase.
+2. Identify any remaining design gates before the first Home Assistant custom
+   integration scaffold.
+3. Update `STATUS.md` and `HANDOFF.md` with phase-close criteria and the first
+   production-integration packet.
 
 ## Known unresolved design details
 
@@ -147,8 +160,6 @@ Trusted renderer scatter/correlation follow-up:
 - Worker token rotation UI, worker health/readiness endpoint, and long-running
   progress streaming semantics.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
-- Exact primitive contract for the scatter/correlation trusted renderer
-  follow-up family.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
 - Exact dashboard resource auto-registration behavior once the integration
   scaffold exists.

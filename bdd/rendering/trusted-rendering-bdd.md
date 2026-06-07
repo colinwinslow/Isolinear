@@ -18,6 +18,7 @@ Related artifacts:
   - `evals/calendar_hour_heatmap.py`
   - `evals/event_markers.py`
   - `evals/distribution_histogram.py`
+  - `evals/scatter_correlation.py`
   - `evals/prompt_to_chart_basic.py`
   - `evals/shaded_interval_rendering.py`
 
@@ -97,6 +98,16 @@ And render metadata should list `dishwasher_power_distribution` as plotted
 And render metadata should report zero codegen attempts
 And deterministic validation should pass
 
+## Scenario: Render a scatter/correlation chart
+
+Given a valid `scatter` chart spec with two approved numeric entity series
+And normalized numeric history exists with paired timestamps for both entities
+When the worker renders in safe mode
+Then it should create a PNG image
+And render metadata should list both scatter series as plotted
+And render metadata should report zero codegen attempts
+And deterministic validation should pass
+
 ## Proof Requirements
 
 The evidence must include:
@@ -111,5 +122,6 @@ The evidence must include:
 - The heatmap chart spec and numeric source history fixture.
 - The event marker chart spec and marker source history fixture.
 - The histogram chart spec and numeric source history fixture.
+- The scatter/correlation chart spec and paired numeric source history fixture.
 - The observed render status, PNG MIME type, render metadata, plotted series or
   overlays, and validation checks.

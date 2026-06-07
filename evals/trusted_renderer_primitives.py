@@ -204,7 +204,7 @@ def main():
     assert_true(overlay_image_signature == PNG_SIGNATURE, "Overlay render should create a PNG.")
     assert_equal(
         primitive_scope["chart_types"],
-        ["time_series", "timeline", "bar", "heatmap", "histogram"],
+        ["time_series", "timeline", "bar", "heatmap", "histogram", "scatter"],
         "Primitive scope should list all trusted chart types.",
     )
     assert_equal(
@@ -216,6 +216,16 @@ def main():
         primitive_scope["histogram"]["series_render_as"],
         ["histogram"],
         "Histogram scope should include histogram series.",
+    )
+    assert_equal(
+        primitive_scope["scatter"]["series_render_as"],
+        ["scatter"],
+        "Scatter scope should include scatter series.",
+    )
+    assert_equal(
+        primitive_scope["scatter"]["axis_source"],
+        "explicit_series_ids",
+        "Scatter scope should require explicit axis source series.",
     )
 
     for request in [line_request, overlay_request, unsupported_request]:

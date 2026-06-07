@@ -70,8 +70,9 @@ chart families:
   changes, automation runs, threshold crossings, or user-confirmed events.
 - Distribution or histogram (selected fourth follow-up): value frequency over a selected period, such as
   how often temperature, humidity, or power draw stayed inside a range.
-- Scatter or correlation chart: paired numeric values for relationships such as
-  outdoor temperature versus HVAC runtime or solar production versus load.
+- Scatter or correlation chart (selected fifth follow-up): paired numeric
+  values for relationships such as outdoor temperature versus HVAC runtime or
+  solar production versus load.
 
 Each family needs its own BDD/eval slice before implementation. Support should
 enter the trusted renderer only when the required `ChartSpec`, normalized data,
@@ -201,6 +202,32 @@ output, or codegen fallback. Unsupported but schema-valid histogram specs must
 fail closed with `unsupported_chart_spec` before writing output artifacts.
 Missing histogram source history or histogram history with no numeric points in
 range must fail before writing output artifacts.
+
+## Scatter/correlation follow-up scope
+
+The fifth follow-up trusted renderer family is `scatter_correlation`.
+
+This slice supports:
+
+- `chart_type: scatter`.
+- Exactly two numeric entity history series rendered as `scatter`.
+- Entity-backed series sources only.
+- No series transform, or `transform.operation: none`.
+- `x_axis.source_series_id` must match the first series ID, and
+  `y_axis.source_series_id` must match the second series ID.
+- Paired points joined by exact matching timestamps inside the chart time
+  range.
+- Absolute chart time ranges for deterministic `x_min` and `x_max` metadata.
+- No overlays.
+- PNG output.
+
+The first scatter/correlation slice does not support aggregate or alias
+sources, more than two series, non-numeric history, nearest-neighbor or
+resampled pairing, rendered correlation coefficients, regression bands,
+scatter overlays, SVG output, or codegen fallback. Unsupported but schema-valid
+scatter specs must fail closed with `unsupported_chart_spec` before writing
+output artifacts. Missing scatter source history or scatter histories with no
+paired numeric points in range must fail before writing output artifacts.
 
 ## Floorplan heatmap deferral
 

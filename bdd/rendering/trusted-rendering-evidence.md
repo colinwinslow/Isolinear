@@ -1,6 +1,6 @@
 # Trusted Rendering Evidence
 
-Run timestamp: 2026-06-06 21:42:36 -07:00
+Run timestamp: 2026-06-06 22:30:55 -07:00
 
 BDD file:
 `bdd/rendering/trusted-rendering-bdd.md`
@@ -33,6 +33,12 @@ The trusted renderer supports:
 - `chart_type: histogram`
 - One numeric entity history series rendered as `histogram`
 - Histogram bins use `x_axis.bin_count`, or deterministic default 8 bins
+- `chart_type: scatter`
+- Exactly two numeric entity history series rendered as `scatter`
+- Scatter `x_axis.source_series_id` and `y_axis.source_series_id` must match
+  the two series IDs
+- Scatter points are paired by exact matching timestamps inside the chart time
+  range
 - PNG output
 - No fallback into codegen mode from trusted rendering
 
@@ -247,6 +253,44 @@ Fixture summary:
 - `x_axis.bin_count: 6`
 - Numeric source history has six deterministic points in the requested range
 
+### Scenario: Render a scatter/correlation chart
+
+Selected family: `scatter_correlation`
+
+Raw eval command:
+
+```powershell
+.\.venv\Scripts\python.exe evals/scatter_correlation.py
+```
+
+Raw eval output:
+
+```text
+CASE scatter_correlation
+then.render_status: success
+then.image_mime_type: image/png
+then.series_plotted: ["upstairs_temperature", "downstairs_temperature"]
+then.overlays_plotted: []
+then.x_min: 2026-05-28T15:00:00+00:00
+then.x_max: 2026-05-29T15:00:00+00:00
+then.codegen_attempts: 0
+then.validation_status: pass
+then.output_files: ["scatter-correlation.png"]
+PASS scatter_correlation
+PASS scatter_correlation
+```
+
+Fixture summary:
+
+- `chart_type: scatter`
+- Series `upstairs_temperature` references `sensor.upstairs_temperature`
+- Series `downstairs_temperature` references `sensor.downstairs_temperature`
+- Both series use `render_as: scatter`
+- `x_axis.source_series_id: upstairs_temperature`
+- `y_axis.source_series_id: downstairs_temperature`
+- Numeric source histories have five exact matching timestamps in the
+  requested range
+
 ## Regression Eval Evidence
 
 Raw eval commands:
@@ -258,6 +302,7 @@ Raw eval commands:
 .\.venv\Scripts\python.exe evals/calendar_hour_heatmap.py
 .\.venv\Scripts\python.exe evals/shaded_interval_rendering.py
 .\.venv\Scripts\python.exe evals/prompt_to_chart_basic.py
+.\.venv\Scripts\python.exe evals/scatter_correlation.py
 ```
 
 Raw eval outputs:
@@ -275,25 +320,36 @@ PASS shaded_interval_rendering
 PASS shaded_interval_rendering
 PASS prompt_to_chart_basic
 PASS prompt_to_chart_basic
+PASS scatter_correlation
+PASS scatter_correlation
 ```
 
 Full eval sweep also passed:
 
 ```text
+PASS aggregate_bar_chart
 PASS binary_state_interval_extraction
+PASS calendar_hour_heatmap
 PASS codegen_sandbox
 PASS dashboard_card_anchor
+PASS distribution_histogram
+PASS event_markers
 PASS integration_api_transport_auth
 PASS missing_overlay_validation
 PASS numeric_history_normalization
 PASS plan_validation_rejects_hidden_entity
+PASS prompt_to_chart_basic
+PASS scatter_correlation
 PASS semantic_alias_invalidation
 PASS semantic_memory_store_envelope
+PASS shaded_interval_rendering
+PASS state_interval_timeline
 PASS threshold_interval_alias_reuse
 PASS threshold_interval_extraction
 PASS threshold_interval_inference
 PASS threshold_interval_use_and_remember
 PASS threshold_interval_use_once
+PASS trusted_renderer_primitives
 ```
 
 ## Unit Test Evidence
@@ -310,11 +366,11 @@ Raw focused unit-test output:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 34 items
+collected 37 items
 
-tests\test_fake_vertical_slice.py ..................................     [100%]
+tests\test_fake_vertical_slice.py .....................................  [100%]
 
-============================= 34 passed in 1.16s ==============================
+============================== 37 passed in 1.41s ==============================
 ```
 
 Full unit-test command:
@@ -329,12 +385,12 @@ Raw full unit-test output:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 56 items
+collected 59 items
 
-tests\test_codegen_sandbox_anchor.py ..........                          [ 17%]
-tests\test_dashboard_card_anchor.py .......                              [ 30%]
-tests\test_fake_vertical_slice.py ..................................     [ 91%]
+tests\test_codegen_sandbox_anchor.py ..........                          [ 16%]
+tests\test_dashboard_card_anchor.py .......                              [ 28%]
+tests\test_fake_vertical_slice.py .....................................  [ 91%]
 tests\test_transport_auth_anchor.py .....                                [100%]
 
-============================= 56 passed in 34.96s =============================
+============================= 59 passed in 35.74s ==============================
 ```

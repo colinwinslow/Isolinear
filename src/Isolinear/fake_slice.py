@@ -15,9 +15,9 @@ TEMPERATURE_UNIT = "\u00b0F"
 POWER_UNIT = "W"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 TRUSTED_RENDERER_PRIMITIVE_SCOPE = {
-    "chart_types": ["time_series", "timeline", "bar", "heatmap", "histogram"],
+    "chart_types": ["time_series", "timeline", "bar", "heatmap", "histogram", "scatter"],
     "series_kinds": ["numeric", "binary_state", "categorical_state", "event"],
-    "series_render_as": ["line", "step", "bar", "heatmap", "histogram"],
+    "series_render_as": ["line", "step", "bar", "heatmap", "histogram", "scatter"],
     "series_source_types": ["entity", "aggregate"],
     "series_transforms": ["none"],
     "overlay_render_as": ["shaded_intervals", "markers"],
@@ -68,6 +68,16 @@ TRUSTED_RENDERER_PRIMITIVE_SCOPE = {
         "bin_count_min": 4,
         "bin_count_max": 64,
         "default_bin_count": 8,
+    },
+    "scatter": {
+        "series_kinds": ["numeric"],
+        "series_render_as": ["scatter"],
+        "series_source_types": ["entity"],
+        "series_transforms": ["none"],
+        "overlay_render_as": [],
+        "series_count": 2,
+        "pair_join": "exact_timestamp",
+        "axis_source": "explicit_series_ids",
     },
     "output_formats": ["png"],
     "fallback_to_codegen": False,
@@ -717,8 +727,9 @@ def _unsupported_trusted_renderer_primitives(
 
     chart_family_scope = TRUSTED_RENDERER_PRIMITIVE_SCOPE.get(chart_type, {})
 
-    if chart_type in {"heatmap", "histogram"}:
-        if len(chart_spec.get("series", [])) != 1:
+    if chart_type in {"heatmap", "histogram", "scatter"}:
+        supported_series_count = chart_family_scope.get("series_count", 1)
+        if len(chart_spec.get("series", [])) != supported_series_count:
             unsupported.append(
                 {
                     "path": "$.chart_spec.series",
@@ -765,6 +776,30 @@ def _unsupported_trusted_renderer_primitives(
                     "reason": "unsupported_histogram_bin_count",
                 }
             )
+    elif chart_type == "scatter":
+        scatter_series_ids = [
+            series_spec.get("series_id")
+            for series_spec in chart_spec.get("series", [])
+        ]
+        if len(scatter_series_ids) == 2:
+            x_source_series_id = chart_spec.get("x_axis", {}).get("source_series_id")
+            y_source_series_id = chart_spec.get("y_axis", {}).get("source_series_id")
+            if x_source_series_id != scatter_series_ids[0]:
+                unsupported.append(
+                    {
+                        "path": "$.chart_spec.x_axis.source_series_id",
+                        "value": str(x_source_series_id),
+                        "reason": "unsupported_scatter_x_source_series",
+                    }
+                )
+            if y_source_series_id != scatter_series_ids[1]:
+                unsupported.append(
+                    {
+                        "path": "$.chart_spec.y_axis.source_series_id",
+                        "value": str(y_source_series_id),
+                        "reason": "unsupported_scatter_y_source_series",
+                    }
+                )
 
     for series_index, series_spec in enumerate(chart_spec.get("series", [])):
         series_id = series_spec.get("series_id", f"series_{series_index}")
@@ -831,7 +866,7 @@ def _unsupported_trusted_renderer_primitives(
                             "reason": "unsupported_history_series_kind",
                         }
                     )
-        elif chart_type in {"heatmap", "histogram"}:
+        elif chart_type in {"heatmap", "histogram", "scatter"}:
             entity_id = series_spec.get("source", {}).get("entity_id")
             history_series = history_entity_map.get(entity_id)
             if history_series is not None:
@@ -1817,6 +1852,172 @@ def _write_histogram_png(
     }
 
 
+def _numeric_values_by_timestamp(
+    history_series: dict[str, Any],
+    time_window: tuple[datetime, datetime] | None,
+) -> dict[datetime, float]:
+    values_by_timestamp = {}
+
+    for point in sorted(
+        history_series.get("points", []),
+        key=lambda item: datetime.fromisoformat(item["ts"]),
+    ):
+        timestamp = datetime.fromisoformat(point["ts"])
+        if time_window is not None:
+            x_min, x_max = time_window
+            if timestamp < x_min or timestamp > x_max:
+                continue
+
+        value = point.get("value")
+        if value is None:
+            continue
+
+        try:
+            values_by_timestamp[timestamp] = float(value)
+        except (TypeError, ValueError):
+            continue
+
+    return values_by_timestamp
+
+
+def _scatter_pairs_from_history(
+    *,
+    x_history_series: dict[str, Any],
+    y_history_series: dict[str, Any],
+    time_window: tuple[datetime, datetime] | None,
+) -> tuple[list[dict[str, Any]], list[datetime]]:
+    x_values = _numeric_values_by_timestamp(x_history_series, time_window)
+    y_values = _numeric_values_by_timestamp(y_history_series, time_window)
+    paired_timestamps = sorted(set(x_values) & set(y_values))
+
+    pairs = [
+        {
+            "timestamp": timestamp,
+            "x": x_values[timestamp],
+            "y": y_values[timestamp],
+        }
+        for timestamp in paired_timestamps
+    ]
+
+    return pairs, paired_timestamps
+
+
+def _scatter_extent(
+    chart_spec: dict[str, Any],
+    scatter_series: list[dict[str, Any]],
+) -> tuple[datetime, datetime]:
+    extent = _absolute_time_range_extent(chart_spec)
+    if extent is not None:
+        return extent
+
+    timestamps = []
+    for series in scatter_series:
+        timestamps.extend(series["timestamps"])
+
+    if not timestamps:
+        raise ValueError("No paired numeric points are available to render a scatter chart.")
+
+    return min(timestamps), max(timestamps)
+
+
+def _write_scatter_png(
+    *,
+    chart_spec: dict[str, Any],
+    scatter_series: list[dict[str, Any]],
+    image_path: Path,
+    width: int,
+    height: int,
+) -> dict[str, str]:
+    x_min, x_max = _scatter_extent(chart_spec, scatter_series)
+    if x_max <= x_min:
+        x_max = x_min + timedelta(seconds=1)
+
+    pairs = []
+    for series in scatter_series:
+        pairs.extend(series["pairs"])
+
+    if not pairs:
+        raise ValueError("No scatter points are available to render.")
+
+    x_values = [pair["x"] for pair in pairs]
+    y_values = [pair["y"] for pair in pairs]
+    value_x_min = min(x_values)
+    value_x_max = max(x_values)
+    value_y_min = min(y_values)
+    value_y_max = max(y_values)
+
+    if value_x_min == value_x_max:
+        value_x_min -= 1
+        value_x_max += 1
+    else:
+        x_padding = (value_x_max - value_x_min) * 0.12
+        value_x_min -= x_padding
+        value_x_max += x_padding
+
+    if value_y_min == value_y_max:
+        value_y_min -= 1
+        value_y_max += 1
+    else:
+        y_padding = (value_y_max - value_y_min) * 0.12
+        value_y_min -= y_padding
+        value_y_max += y_padding
+
+    plot_left = 84
+    plot_top = 68
+    plot_right = 48
+    plot_bottom = 82
+    plot_width = max(1, width - plot_left - plot_right)
+    plot_height = max(1, height - plot_top - plot_bottom)
+    x_value_range = value_x_max - value_x_min
+    y_value_range = value_y_max - value_y_min
+
+    canvas = _Canvas(width, height, (255, 255, 255))
+    axis_color = (80, 88, 100)
+    grid_color = (224, 228, 235)
+    title_color = (30, 36, 45)
+    label_color = (76, 86, 99)
+    point_color = (32, 121, 199)
+    accent_color = (222, 112, 34)
+
+    canvas.draw_rect(28, 24, min(width - 28, 28 + (len(chart_spec["title"]) * 7)), 29, title_color)
+
+    for grid_index in range(5):
+        y = int(plot_top + ((plot_height / 4) * grid_index))
+        x = int(plot_left + ((plot_width / 4) * grid_index))
+        canvas.draw_line(plot_left, y, width - plot_right, y, grid_color)
+        canvas.draw_line(x, plot_top, x, height - plot_bottom, grid_color)
+
+    canvas.draw_line(plot_left, plot_top, plot_left, height - plot_bottom, axis_color, thickness=2)
+    canvas.draw_line(
+        plot_left,
+        height - plot_bottom,
+        width - plot_right,
+        height - plot_bottom,
+        axis_color,
+        thickness=2,
+    )
+
+    for pair in pairs:
+        x = plot_left + int(((pair["x"] - value_x_min) / x_value_range) * plot_width)
+        y = plot_top + int(((value_y_max - pair["y"]) / y_value_range) * plot_height)
+        canvas.draw_disc(x, y, 5, point_color)
+        canvas.draw_disc(x, y, 2, accent_color)
+
+    legend_x = max(plot_left + 8, width - 340)
+    legend_y = 30
+    canvas.draw_rect(legend_x, legend_y, legend_x + 16, legend_y + 5, point_color)
+    canvas.draw_rect(legend_x + 24, legend_y - 2, legend_x + 190, legend_y + 3, label_color)
+    canvas.draw_rect(plot_left, height - 38, width - plot_right, height - 33, label_color)
+    canvas.draw_rect(26, plot_top, 31, height - plot_bottom, label_color)
+
+    _write_png(image_path, canvas)
+
+    return {
+        "x_min": iso_timestamp(x_min),
+        "x_max": iso_timestamp(x_max),
+    }
+
+
 def invoke_trusted_renderer(
     render_request: dict[str, Any],
     output_directory: Path,
@@ -1870,6 +2071,7 @@ def invoke_trusted_renderer(
     aggregate_bar_series = []
     heatmap_series = []
     histogram_series = []
+    scatter_series = []
     warnings = []
 
     chart_spec = render_request["chart_spec"]
@@ -2102,6 +2304,73 @@ def invoke_trusted_renderer(
                 code="missing_history_series",
                 message="No histogram source history was available for the chart spec.",
             )
+    elif chart_type == "scatter":
+        time_window = _absolute_time_range_extent(chart_spec)
+        missing_scatter_sources = []
+        scatter_histories = []
+
+        for series_spec in chart_spec["series"]:
+            series_id = series_spec["series_id"]
+            source = series_spec["source"]
+            entity_id = source["entity_id"]
+            history_series = history_entity_map.get(entity_id)
+
+            if history_series is None:
+                missing_scatter_sources.append(
+                    {
+                        "series_id": series_id,
+                        "entity_id": entity_id,
+                        "reason": "missing_history_series",
+                    }
+                )
+                continue
+
+            scatter_histories.append(
+                {
+                    "series_id": series_id,
+                    "series_spec": series_spec,
+                    "history_series": history_series,
+                }
+            )
+
+        if len(scatter_histories) == 2:
+            pairs, timestamps = _scatter_pairs_from_history(
+                x_history_series=scatter_histories[0]["history_series"],
+                y_history_series=scatter_histories[1]["history_series"],
+                time_window=time_window,
+            )
+            if not pairs:
+                missing_scatter_sources.append(
+                    {
+                        "series_ids": [series["series_id"] for series in scatter_histories],
+                        "reason": "no_paired_numeric_points",
+                    }
+                )
+            else:
+                scatter_series.append(
+                    {
+                        "series_ids": [series["series_id"] for series in scatter_histories],
+                        "series_specs": [series["series_spec"] for series in scatter_histories],
+                        "history_series": [series["history_series"] for series in scatter_histories],
+                        "pairs": pairs,
+                        "timestamps": timestamps,
+                    }
+                )
+
+        if missing_scatter_sources:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="Scatter charts require paired numeric history for both source entities.",
+                details={"missing_scatter_sources": missing_scatter_sources},
+            )
+
+        if not scatter_series:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="No paired scatter source history was available for the chart spec.",
+            )
     else:
         time_window = _absolute_time_range_extent(chart_spec)
         missing_marker_sources = []
@@ -2216,6 +2485,14 @@ def invoke_trusted_renderer(
                 width=width,
                 height=height,
             )
+        elif chart_type == "scatter":
+            extent_metadata = _write_scatter_png(
+                chart_spec=chart_spec,
+                scatter_series=scatter_series,
+                image_path=image_path,
+                width=width,
+                height=height,
+            )
         else:
             extent_metadata = _write_time_series_png(
                 chart_spec=chart_spec,
@@ -2232,6 +2509,23 @@ def invoke_trusted_renderer(
             message=str(exc),
         )
 
+    if chart_type == "timeline":
+        series_plotted = [track["series_id"] for track in timeline_tracks]
+    elif chart_type == "bar":
+        series_plotted = [series["series_id"] for series in aggregate_bar_series]
+    elif chart_type == "heatmap":
+        series_plotted = [series["series_id"] for series in heatmap_series]
+    elif chart_type == "histogram":
+        series_plotted = [series["series_id"] for series in histogram_series]
+    elif chart_type == "scatter":
+        series_plotted = [
+            series_id
+            for paired_series in scatter_series
+            for series_id in paired_series["series_ids"]
+        ]
+    else:
+        series_plotted = [series["series_id"] for series in series_to_plot]
+
     return {
         "request_id": render_request["request_id"],
         "status": "success",
@@ -2241,23 +2535,7 @@ def invoke_trusted_renderer(
         "error": None,
         "render_metadata": {
             "title": chart_spec["title"],
-            "series_plotted": (
-                [track["series_id"] for track in timeline_tracks]
-                if chart_type == "timeline"
-                else (
-                    [series["series_id"] for series in aggregate_bar_series]
-                    if chart_type == "bar"
-                    else (
-                        [series["series_id"] for series in heatmap_series]
-                        if chart_type == "heatmap"
-                        else (
-                            [series["series_id"] for series in histogram_series]
-                            if chart_type == "histogram"
-                            else [series["series_id"] for series in series_to_plot]
-                        )
-                    )
-                )
-            ),
+            "series_plotted": series_plotted,
             "overlays_plotted": [overlay["overlay_id"] for overlay in overlays_to_plot],
             "x_min": extent_metadata["x_min"],
             "x_max": extent_metadata["x_max"],
