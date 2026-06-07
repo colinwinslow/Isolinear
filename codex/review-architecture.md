@@ -9,6 +9,10 @@ Codex has no subagents. For an honest, un-anchored read, run this as a
 **standalone `codex exec` invocation** so the reviewer starts with fresh
 context instead of the rationalizations built up while implementing:
 
+Use a 10 minute timeout (`600000` ms) for the standalone review command. Recent
+architecture reviews with untracked scaffold files have repeatedly approached
+or exceeded shorter timeouts.
+
 ```bash
 git --no-pager diff main...HEAD > /tmp/review-diff.txt
 codex exec "You are an architecture reviewer. Read codex/review-architecture.md \

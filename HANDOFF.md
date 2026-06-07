@@ -2,9 +2,9 @@
 
 ## Current project phase
 
-MVP design phase closed. The next packet begins the first production Home
-Assistant custom integration scaffold while preserving the existing
-schema-first, BDD-first workflow.
+MVP design phase closed. The first production Home Assistant custom integration
+scaffold is anchored. The next packet should add the first config-flow/options
+anchor while preserving the existing schema-first, BDD-first workflow.
 
 ## Product summary
 
@@ -151,23 +151,35 @@ schema/test/eval/evidence anchor has landed. Eval-outline entries now exist for
 the already-executable codegen sandbox, dashboard card, and integration
 transport/authentication anchors.
 
-No Home Assistant integration has been built yet.
+Home Assistant integration scaffold anchor is complete. The repo now has a
+minimal `custom_components/isolinear` package with a Home Assistant
+`manifest.json`, domain constants, local-first config/options validation for
+model endpoint, worker endpoint, render mode, repair attempts, and entity
+allowlist, plus fail-closed `isolinear/v1/` WebSocket command-boundary stubs.
+The scaffold accepts schema-valid command shapes and returns schema-valid
+`IntegrationJobSnapshot` scaffold snapshots while rejecting unknown,
+wrong-version, leaky, mutating, credential-bearing endpoint, and secret-like
+configuration payloads before orchestration. It does not call the worker, model
+provider, Home Assistant history APIs, semantic-memory storage helpers, or Home
+Assistant mutation services. The paired spec/BDD/eval/evidence and
+`evals/home_assistant_integration_scaffold.py` prove the anchor. Standalone
+architecture reviews should use the updated 10 minute timeout guidance in
+`codex/review-architecture.md`.
 
 ## Next recommended packet
 
-Home Assistant integration scaffold anchor:
+Home Assistant config flow/options anchor:
 
-1. Write a paired integration-scaffold BDD/evidence scaffold before code.
-2. Create the smallest inspectable `custom_components/isolinear` package:
-   manifest, domain constants, and config/options data shape for model
-   endpoint, worker endpoint, render mode, and entity allowlist.
-3. Add schema-valid stubs for the `isolinear/v1/` WebSocket command boundary
-   that accept known command shapes and reject unknown or leaky commands before
-   orchestration exists.
-4. Prove the anchor with unit tests, a focused eval, and on-disk verification.
-5. Do not call the worker, model provider, Home Assistant history APIs,
-   semantic-memory storage helpers, or mutation services in the scaffold
-   packet.
+1. Write paired BDD/evidence before code for config-flow/options behavior.
+2. Add the smallest inspectable Home Assistant config-flow/options surface for
+   the scaffold package.
+3. Reuse the existing pure config/options validation helpers rather than
+   duplicating validation logic.
+4. Keep worker token generation/rotation, dashboard resource registration,
+   history access, model calls, semantic-memory persistence, and orchestration
+   out of this packet unless a new spec/ADR explicitly expands scope.
+5. Prove the anchor with unit tests, a focused eval, raw evidence, and on-disk
+   verification.
 
 ## Known unresolved design details
 

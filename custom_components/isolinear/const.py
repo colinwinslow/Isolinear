@@ -1,0 +1,39 @@
+"""Constants for the Isolinear Home Assistant integration scaffold."""
+
+from __future__ import annotations
+
+DOMAIN = "isolinear"
+NAME = "Isolinear"
+INTEGRATION_VERSION = "0.1.0"
+
+INTEGRATION_WS_VERSION = 1
+INTEGRATION_WS_NAMESPACE = "isolinear/v1"
+
+COMMAND_START_JOB = f"{INTEGRATION_WS_NAMESPACE}/job/start"
+COMMAND_ANSWER_CLARIFICATION = f"{INTEGRATION_WS_NAMESPACE}/clarification/answer"
+COMMAND_RETRY_JOB = f"{INTEGRATION_WS_NAMESPACE}/job/retry"
+COMMAND_GET_SNAPSHOT = f"{INTEGRATION_WS_NAMESPACE}/job/snapshot"
+COMMAND_SUBSCRIBE_JOB = f"{INTEGRATION_WS_NAMESPACE}/job/subscribe"
+
+INTEGRATION_COMMAND_TYPES = {
+    "start_job": COMMAND_START_JOB,
+    "answer_clarification": COMMAND_ANSWER_CLARIFICATION,
+    "retry_job": COMMAND_RETRY_JOB,
+    "get_snapshot": COMMAND_GET_SNAPSHOT,
+    "subscribe_job": COMMAND_SUBSCRIBE_JOB,
+}
+
+MODEL_PROVIDER_OLLAMA_COMPATIBLE = "ollama_compatible"
+SUPPORTED_MODEL_PROVIDER_TYPES = (MODEL_PROVIDER_OLLAMA_COMPATIBLE,)
+
+RENDER_MODE_SAFE = "safe"
+RENDER_MODE_CODEGEN = "codegen"
+RENDER_MODE_AUTO = "auto"
+SUPPORTED_RENDER_MODES = (
+    RENDER_MODE_SAFE,
+    RENDER_MODE_CODEGEN,
+    RENDER_MODE_AUTO,
+)
+
+DATA_CONFIG_ENTRIES = "config_entries"
+DATA_WEBSOCKET_COMMANDS = "websocket_commands"

@@ -41,3 +41,11 @@ Machine-checkable JSON contracts used internally by the product. Users do not wr
 ## Evals
 
 Executable Python checks derived from BDD scenarios. They emit deterministic `CASE` output so paired evidence can capture exact fixtures, triggers, observed results, and pass/fail markers.
+
+## `custom_components/isolinear/`
+
+First production Home Assistant custom integration scaffold. It currently
+contains the manifest, domain constants, local-first configuration/options data
+shape, and schema-aligned WebSocket command-boundary stubs for `isolinear/v1/`
+without worker, model-provider, history, semantic-memory, or mutation
+orchestration.

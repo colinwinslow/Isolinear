@@ -1,0 +1,25 @@
+id: home_assistant_integration_scaffold
+summary: The first Home Assistant custom integration scaffold exists, exposes local-first configuration shape, and fail-closed versioned command stubs.
+executable_eval: evals/home_assistant_integration_scaffold.py
+fixtures:
+  manifest: custom_components/isolinear/manifest.json
+  config_defaults: in-code Isolinear scaffold defaults
+  integration_commands: transport/auth sample IntegrationWsCommand messages
+  invalid_commands: in-code unknown, wrong-version, leaky, and mutating command examples
+expect:
+  domain: isolinear
+  websocket_namespace: isolinear/v1/
+  websocket_command_version: 1
+  known_commands_accepted: true
+  accepted_results_include_schema_valid_snapshot: true
+  credential_endpoint_urls_rejected: true
+  secret_like_allowed_config_values_rejected: true
+  unknown_commands_rejected_before_orchestration: true
+  unsupported_versions_rejected_before_orchestration: true
+  leaky_commands_rejected_before_orchestration: true
+  mutation_commands_rejected_before_orchestration: true
+  worker_called: false
+  model_provider_called: false
+  home_assistant_history_called: false
+  semantic_memory_called: false
+  home_assistant_mutation_called: false

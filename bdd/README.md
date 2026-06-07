@@ -12,6 +12,7 @@ bdd/
   validation/               # Plan validation, schema checks, overlay validation
   rendering/                # Chart rendering, dashboard display
   dashboard-card/           # Home Assistant dashboard card shell and UI flow
+  integration/              # Home Assistant custom integration scaffold and orchestration
   sandbox-codegen/          # Sandboxed code generation and safety
   history-normalization/    # Data normalization and quality
   README.md (this file)
@@ -27,6 +28,7 @@ Written in Gherkin (Given/When/Then) format, these define the contract of each f
 - `docs/bdd/prompt-to-chart.feature` — User prompt flow
 - `docs/bdd/entity-allowlist.feature` — Entity resolution and allowlist enforcement
 - `docs/bdd/semantic-memory.feature` — Alias creation and reuse
+- `docs/bdd/integration.feature` — Home Assistant integration scaffold
 
 These live in `docs/bdd/` and are referenced by the feature folders below.
 
