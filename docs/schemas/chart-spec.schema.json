@@ -19,6 +19,7 @@
       "enum": [
         "time_series",
         "bar",
+        "heatmap",
         "histogram",
         "scatter",
         "timeline",
@@ -105,6 +106,7 @@
               "line",
               "step",
               "bar",
+              "heatmap",
               "scatter",
               "area"
             ],

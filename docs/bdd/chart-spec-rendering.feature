@@ -37,3 +37,11 @@ Feature: Chart spec rendering
     Then it should create a PNG image
     And the render metadata should list the aggregate series as plotted
     And the worker should not attempt codegen
+
+  Scenario: Render a calendar hour heatmap
+    Given a valid heatmap chart spec with one numeric entity series
+    And normalized numeric history exists for that entity
+    When the worker renders in safe mode
+    Then it should create a PNG image
+    And the render metadata should list the heatmap series as plotted
+    And the worker should not attempt codegen

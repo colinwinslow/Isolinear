@@ -851,13 +851,18 @@ class FakeVerticalSliceTests(unittest.TestCase):
 
     def test_safe_renderer_rejects_unsupported_trusted_primitives_without_codegen(self):
         scope = get_trusted_renderer_primitive_scope()
-        self.assertEqual(scope["chart_types"], ["time_series", "timeline", "bar"])
+        self.assertEqual(scope["chart_types"], ["time_series", "timeline", "bar", "heatmap"])
         self.assertEqual(scope["time_series"]["series_render_as"], ["line"])
         self.assertEqual(scope["timeline"]["series_render_as"], ["step"])
         self.assertEqual(scope["timeline"]["series_kinds"], ["binary_state", "categorical_state"])
         self.assertEqual(scope["bar"]["series_render_as"], ["bar"])
         self.assertEqual(scope["bar"]["series_source_types"], ["aggregate"])
         self.assertEqual(scope["bar"]["aggregate_operations"], ["mean", "min", "max", "sum", "count"])
+        self.assertEqual(scope["heatmap"]["series_render_as"], ["heatmap"])
+        self.assertEqual(scope["heatmap"]["series_source_types"], ["entity"])
+        self.assertEqual(scope["heatmap"]["x_group_by"], ["hour"])
+        self.assertEqual(scope["heatmap"]["y_group_by"], ["weekday"])
+        self.assertEqual(scope["heatmap"]["cell_aggregation"], ["mean"])
         self.assertEqual(scope["overlay_render_as"], ["shaded_intervals"])
         self.assertFalse(scope["fallback_to_codegen"])
 
@@ -941,6 +946,14 @@ class FakeVerticalSliceTests(unittest.TestCase):
         numeric_timeline_chart["chart_type"] = "timeline"
         numeric_timeline_chart["series"][0]["render_as"] = "line"
         unsupported_variants.append(("numeric-timeline", numeric_timeline_chart))
+
+        bad_heatmap_grouping_chart = deepcopy(base_chart_spec)
+        bad_heatmap_grouping_chart["chart_id"] = "unsupported_heatmap_grouping"
+        bad_heatmap_grouping_chart["chart_type"] = "heatmap"
+        bad_heatmap_grouping_chart["series"][0]["render_as"] = "heatmap"
+        bad_heatmap_grouping_chart["x_axis"] = {"type": "time", "group_by": "day"}
+        bad_heatmap_grouping_chart["y_axis"] = {"type": "time", "group_by": "weekday"}
+        unsupported_variants.append(("heatmap-grouping", bad_heatmap_grouping_chart))
 
         for variant_name, chart_spec in unsupported_variants:
             request = {
@@ -1364,6 +1377,144 @@ class FakeVerticalSliceTests(unittest.TestCase):
         self.assert_contract_valid("render-request", render_request)
         self.assert_contract_valid("render-result", render_result)
         self.assert_contract_valid("validation-result", validation_result)
+
+    def test_safe_renderer_plots_calendar_hour_heatmap(self):
+        chart_spec = {
+            "chart_id": "dishwasher_power_by_weekday_hour",
+            "chart_type": "heatmap",
+            "title": "Dishwasher Power By Weekday Hour",
+            "time_range": {
+                "type": "absolute",
+                "start": iso_timestamp(self.start),
+                "end": iso_timestamp(self.now),
+            },
+            "series": [
+                {
+                    "series_id": "dishwasher_power_heatmap",
+                    "label": "Dishwasher Power",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.dishwasher_power",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "heatmap",
+                    "transform": None,
+                    "unit": "W",
+                }
+            ],
+            "overlays": [],
+            "x_axis": {"type": "time", "group_by": "hour"},
+            "y_axis": {"type": "time", "group_by": "weekday"},
+            "notes": ["Selected trusted renderer follow-up family fixture."],
+        }
+        render_request = {
+            "request_id": "fake-calendar-hour-heatmap",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": [get_fake_dishwasher_power_history(now=self.now)],
+            "derived_intervals": [],
+            "output": {"format": "png", "width": 1000, "height": 520},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            image_signature = Path(render_result["image_path"]).read_bytes()[:8]
+            output_files = sorted(path.name for path in Path(run_directory).iterdir())
+            validation_result = validate_chart_job(
+                chart_spec=chart_spec,
+                render_result=render_result,
+                entity_catalog=get_fake_approved_entity_catalog(),
+                expected_start=self.start,
+                expected_end=self.now,
+            )
+
+        self.assertEqual(render_result["status"], "success")
+        self.assertEqual(render_result["image_mime_type"], "image/png")
+        self.assertEqual(render_result["render_metadata"]["series_plotted"], ["dishwasher_power_heatmap"])
+        self.assertEqual(render_result["render_metadata"]["overlays_plotted"], [])
+        self.assertEqual(render_result["render_metadata"]["codegen_attempts"], 0)
+        self.assertEqual(render_result["render_metadata"]["x_min"], iso_timestamp(self.start))
+        self.assertEqual(render_result["render_metadata"]["x_max"], iso_timestamp(self.now))
+        self.assertEqual(image_signature, b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(output_files, ["fake-calendar-hour-heatmap.png"])
+        self.assertEqual(validation_result["status"], "pass")
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
+        self.assert_contract_valid("validation-result", validation_result)
+
+    def test_safe_renderer_rejects_heatmap_missing_source_history_without_artifact(self):
+        chart_spec = {
+            "chart_id": "dishwasher_power_by_weekday_hour_missing_source",
+            "chart_type": "heatmap",
+            "title": "Dishwasher Power By Weekday Hour Missing Source",
+            "time_range": {
+                "type": "absolute",
+                "start": iso_timestamp(self.start),
+                "end": iso_timestamp(self.now),
+            },
+            "series": [
+                {
+                    "series_id": "dishwasher_power_heatmap",
+                    "label": "Dishwasher Power",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.dishwasher_power",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "heatmap",
+                    "transform": None,
+                    "unit": "W",
+                }
+            ],
+            "overlays": [],
+            "x_axis": {"type": "time", "group_by": "hour"},
+            "y_axis": {"type": "time", "group_by": "weekday"},
+            "notes": [],
+        }
+        render_request = {
+            "request_id": "fake-calendar-hour-heatmap-missing-source",
+            "render_mode": "safe",
+            "chart_spec": chart_spec,
+            "history_series": get_fake_normalized_history(now=self.now),
+            "derived_intervals": [],
+            "output": {"format": "png", "width": 1000, "height": 520},
+            "theme": {},
+            "codegen": None,
+        }
+
+        with tempfile.TemporaryDirectory() as run_directory:
+            render_result = invoke_trusted_renderer(
+                render_request=render_request,
+                output_directory=Path(run_directory),
+            )
+            output_files = sorted(path.name for path in Path(run_directory).iterdir())
+
+        self.assertEqual(render_result["status"], "failed")
+        self.assertEqual(render_result["error"]["code"], "missing_history_series")
+        self.assertEqual(render_result["render_metadata"]["codegen_attempts"], 0)
+        self.assertIsNone(render_result["image_path"])
+        self.assertEqual(output_files, [])
+        self.assertEqual(
+            render_result["error"]["details"]["missing_heatmap_sources"],
+            [
+                {
+                    "series_id": "dishwasher_power_heatmap",
+                    "entity_id": "sensor.dishwasher_power",
+                    "reason": "missing_history_series",
+                }
+            ],
+        )
+        self.assert_contract_valid("chart-spec", chart_spec)
+        self.assert_contract_valid("render-request", render_request)
+        self.assert_contract_valid("render-result", render_result)
 
     def test_safe_renderer_rejects_aggregate_bar_missing_source_history_without_artifact(self):
         chart_spec = {

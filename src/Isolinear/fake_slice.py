@@ -15,9 +15,9 @@ TEMPERATURE_UNIT = "\u00b0F"
 POWER_UNIT = "W"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 TRUSTED_RENDERER_PRIMITIVE_SCOPE = {
-    "chart_types": ["time_series", "timeline", "bar"],
+    "chart_types": ["time_series", "timeline", "bar", "heatmap"],
     "series_kinds": ["numeric", "binary_state", "categorical_state"],
-    "series_render_as": ["line", "step", "bar"],
+    "series_render_as": ["line", "step", "bar", "heatmap"],
     "series_source_types": ["entity", "aggregate"],
     "series_transforms": ["none"],
     "overlay_render_as": ["shaded_intervals"],
@@ -44,6 +44,16 @@ TRUSTED_RENDERER_PRIMITIVE_SCOPE = {
         "overlay_render_as": [],
         "aggregate_operations": ["mean", "min", "max", "sum", "count"],
         "bar_grouping": "entity",
+    },
+    "heatmap": {
+        "series_kinds": ["numeric"],
+        "series_render_as": ["heatmap"],
+        "series_source_types": ["entity"],
+        "series_transforms": ["none"],
+        "overlay_render_as": [],
+        "x_group_by": ["hour"],
+        "y_group_by": ["weekday"],
+        "cell_aggregation": ["mean"],
     },
     "output_formats": ["png"],
     "fallback_to_codegen": False,
@@ -693,6 +703,36 @@ def _unsupported_trusted_renderer_primitives(
 
     chart_family_scope = TRUSTED_RENDERER_PRIMITIVE_SCOPE.get(chart_type, {})
 
+    if chart_type == "heatmap":
+        if len(chart_spec.get("series", [])) != 1:
+            unsupported.append(
+                {
+                    "path": "$.chart_spec.series",
+                    "value": str(len(chart_spec.get("series", []))),
+                    "reason": "unsupported_heatmap_series_count",
+                }
+            )
+
+        x_group_by = chart_spec.get("x_axis", {}).get("group_by")
+        if x_group_by not in chart_family_scope.get("x_group_by", []):
+            unsupported.append(
+                {
+                    "path": "$.chart_spec.x_axis.group_by",
+                    "value": str(x_group_by),
+                    "reason": "unsupported_heatmap_x_group_by",
+                }
+            )
+
+        y_group_by = chart_spec.get("y_axis", {}).get("group_by")
+        if y_group_by not in chart_family_scope.get("y_group_by", []):
+            unsupported.append(
+                {
+                    "path": "$.chart_spec.y_axis.group_by",
+                    "value": str(y_group_by),
+                    "reason": "unsupported_heatmap_y_group_by",
+                }
+            )
+
     for series_index, series_spec in enumerate(chart_spec.get("series", [])):
         series_id = series_spec.get("series_id", f"series_{series_index}")
         source_type = series_spec.get("source", {}).get("type")
@@ -749,6 +789,19 @@ def _unsupported_trusted_renderer_primitives(
                 history_series = history_entity_map.get(entity_id)
                 if history_series is None:
                     continue
+                history_kind = history_series.get("kind")
+                if history_kind not in chart_family_scope.get("series_kinds", []):
+                    unsupported.append(
+                        {
+                            "path": f"$.history_series[{entity_id}].kind",
+                            "value": str(history_kind),
+                            "reason": "unsupported_history_series_kind",
+                        }
+                    )
+        elif chart_type == "heatmap":
+            entity_id = series_spec.get("source", {}).get("entity_id")
+            history_series = history_entity_map.get(entity_id)
+            if history_series is not None:
                 history_kind = history_series.get("kind")
                 if history_kind not in chart_family_scope.get("series_kinds", []):
                     unsupported.append(
@@ -1273,6 +1326,151 @@ def _write_bar_png(
     }
 
 
+def _heatmap_cells_from_history(
+    history_series: dict[str, Any],
+    time_window: tuple[datetime, datetime] | None,
+) -> tuple[list[dict[str, Any]], list[datetime]]:
+    values, timestamps = _numeric_values_in_window(history_series, time_window)
+    buckets: dict[tuple[int, int], list[float]] = {}
+
+    for value, timestamp in zip(values, timestamps):
+        bucket_key = (timestamp.weekday(), timestamp.hour)
+        buckets.setdefault(bucket_key, []).append(value)
+
+    cells = [
+        {
+            "weekday": weekday,
+            "hour": hour,
+            "value": _aggregate_numeric_values(bucket_values, "mean"),
+            "count": len(bucket_values),
+        }
+        for (weekday, hour), bucket_values in sorted(buckets.items())
+    ]
+
+    return cells, timestamps
+
+
+def _heatmap_extent(
+    chart_spec: dict[str, Any],
+    heatmap_series: list[dict[str, Any]],
+) -> tuple[datetime, datetime]:
+    extent = _absolute_time_range_extent(chart_spec)
+    if extent is not None:
+        return extent
+
+    timestamps = []
+    for series in heatmap_series:
+        timestamps.extend(series["timestamps"])
+
+    if not timestamps:
+        raise ValueError("No numeric points are available to render heatmap cells.")
+
+    return min(timestamps), max(timestamps)
+
+
+def _write_heatmap_png(
+    *,
+    chart_spec: dict[str, Any],
+    heatmap_series: list[dict[str, Any]],
+    image_path: Path,
+    width: int,
+    height: int,
+) -> dict[str, str]:
+    x_min, x_max = _heatmap_extent(chart_spec, heatmap_series)
+    if x_max <= x_min:
+        x_max = x_min + timedelta(seconds=1)
+
+    cells = []
+    for series in heatmap_series:
+        for cell in series["cells"]:
+            cells.append(cell)
+
+    if not cells:
+        raise ValueError("No heatmap cells are available to render.")
+
+    value_min = min(cell["value"] for cell in cells)
+    value_max = max(cell["value"] for cell in cells)
+    value_range = value_max - value_min
+
+    plot_left = 92
+    plot_top = 72
+    plot_right = 36
+    plot_bottom = 56
+    plot_width = max(1, width - plot_left - plot_right)
+    plot_height = max(1, height - plot_top - plot_bottom)
+    column_count = 24
+    row_count = 7
+    cell_width = max(1, int(plot_width / column_count))
+    cell_height = max(1, int(plot_height / row_count))
+
+    canvas = _Canvas(width, height, (255, 255, 255))
+    axis_color = (80, 88, 100)
+    grid_color = (224, 228, 235)
+    title_color = (30, 36, 45)
+    label_color = (76, 86, 99)
+    empty_cell_color = (241, 244, 248)
+
+    canvas.draw_rect(28, 24, min(width - 28, 28 + (len(chart_spec["title"]) * 7)), 29, title_color)
+
+    for row_index in range(row_count):
+        top = plot_top + (row_index * cell_height)
+        bottom = plot_top + ((row_index + 1) * cell_height) - 2
+        canvas.draw_rect(28, top + (cell_height // 2) - 2, plot_left - 16, top + (cell_height // 2) + 2, label_color)
+        for column_index in range(column_count):
+            left = plot_left + (column_index * cell_width)
+            right = plot_left + ((column_index + 1) * cell_width) - 2
+            canvas.draw_rect(left, top, right, bottom, empty_cell_color)
+
+    for cell in cells:
+        row_index = int(cell["weekday"])
+        column_index = int(cell["hour"])
+        if row_index < 0 or row_index >= row_count or column_index < 0 or column_index >= column_count:
+            continue
+
+        if value_range == 0:
+            intensity = 0.68
+        else:
+            intensity = (float(cell["value"]) - value_min) / value_range
+
+        color = (
+            245 - int(135 * intensity),
+            247 - int(75 * intensity),
+            250 - int(175 * intensity),
+        )
+        left = plot_left + (column_index * cell_width)
+        top = plot_top + (row_index * cell_height)
+        right = plot_left + ((column_index + 1) * cell_width) - 2
+        bottom = plot_top + ((row_index + 1) * cell_height) - 2
+        canvas.draw_rect(left, top, right, bottom, color)
+
+    for column_index in range(0, column_count + 1, 6):
+        x = plot_left + (column_index * cell_width)
+        canvas.draw_line(x, plot_top, x, plot_top + (row_count * cell_height), grid_color)
+        if column_index < column_count:
+            canvas.draw_rect(x, height - plot_bottom + 18, x + 18, height - plot_bottom + 23, label_color)
+
+    for row_index in range(row_count + 1):
+        y = plot_top + (row_index * cell_height)
+        canvas.draw_line(plot_left, y, plot_left + (column_count * cell_width), y, grid_color)
+
+    canvas.draw_line(plot_left, plot_top, plot_left, plot_top + (row_count * cell_height), axis_color, thickness=2)
+    canvas.draw_line(
+        plot_left,
+        plot_top + (row_count * cell_height),
+        plot_left + (column_count * cell_width),
+        plot_top + (row_count * cell_height),
+        axis_color,
+        thickness=2,
+    )
+
+    _write_png(image_path, canvas)
+
+    return {
+        "x_min": iso_timestamp(x_min),
+        "x_max": iso_timestamp(x_max),
+    }
+
+
 def invoke_trusted_renderer(
     render_request: dict[str, Any],
     output_directory: Path,
@@ -1324,6 +1522,7 @@ def invoke_trusted_renderer(
     overlays_to_plot = []
     timeline_tracks = []
     aggregate_bar_series = []
+    heatmap_series = []
     warnings = []
 
     chart_spec = render_request["chart_spec"]
@@ -1442,6 +1641,61 @@ def invoke_trusted_renderer(
                 code="missing_history_series",
                 message="No aggregate source history was available for the bar chart spec.",
             )
+    elif chart_type == "heatmap":
+        time_window = _absolute_time_range_extent(chart_spec)
+        missing_heatmap_sources = []
+
+        for series_spec in chart_spec["series"]:
+            series_id = series_spec["series_id"]
+            source = series_spec["source"]
+            entity_id = source["entity_id"]
+            history_series = history_entity_map.get(entity_id)
+
+            if history_series is None:
+                missing_heatmap_sources.append(
+                    {
+                        "series_id": series_id,
+                        "entity_id": entity_id,
+                        "reason": "missing_history_series",
+                    }
+                )
+                continue
+
+            cells, timestamps = _heatmap_cells_from_history(history_series, time_window)
+            if not cells:
+                missing_heatmap_sources.append(
+                    {
+                        "series_id": series_id,
+                        "entity_id": entity_id,
+                        "reason": "no_numeric_points",
+                    }
+                )
+                continue
+
+            heatmap_series.append(
+                {
+                    "series_id": series_id,
+                    "series_spec": series_spec,
+                    "history_series": history_series,
+                    "cells": cells,
+                    "timestamps": timestamps,
+                }
+            )
+
+        if missing_heatmap_sources:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="Heatmaps require numeric history for every source entity.",
+                details={"missing_heatmap_sources": missing_heatmap_sources},
+            )
+
+        if not heatmap_series:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="No heatmap source history was available for the chart spec.",
+            )
     else:
         for series_spec in chart_spec["series"]:
             series_id = series_spec["series_id"]
@@ -1494,6 +1748,14 @@ def invoke_trusted_renderer(
                 width=width,
                 height=height,
             )
+        elif chart_type == "heatmap":
+            extent_metadata = _write_heatmap_png(
+                chart_spec=chart_spec,
+                heatmap_series=heatmap_series,
+                image_path=image_path,
+                width=width,
+                height=height,
+            )
         else:
             extent_metadata = _write_time_series_png(
                 chart_spec=chart_spec,
@@ -1525,7 +1787,11 @@ def invoke_trusted_renderer(
                 else (
                     [series["series_id"] for series in aggregate_bar_series]
                     if chart_type == "bar"
-                    else [series["series_id"] for series in series_to_plot]
+                    else (
+                        [series["series_id"] for series in heatmap_series]
+                        if chart_type == "heatmap"
+                        else [series["series_id"] for series in series_to_plot]
+                    )
                 )
             ),
             "overlays_plotted": [overlay["overlay_id"] for overlay in overlays_to_plot],

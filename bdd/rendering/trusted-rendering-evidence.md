@@ -1,6 +1,6 @@
 # Trusted Rendering Evidence
 
-Run timestamp: 2026-06-06 15:02:34 -07:00
+Run timestamp: 2026-06-06 21:00:08 -07:00
 
 BDD file:
 `bdd/rendering/trusted-rendering-bdd.md`
@@ -24,6 +24,10 @@ The trusted renderer supports:
 - Aggregate bar sources using `source.type: aggregate`
 - One bar per aggregate source entity
 - Aggregate operations: `mean`, `min`, `max`, `sum`, and `count`
+- `chart_type: heatmap`
+- One numeric entity history series rendered as `heatmap`
+- Heatmap `x_axis.group_by: hour` and `y_axis.group_by: weekday`
+- Heatmap cells use fixed `mean` aggregation
 - PNG output
 - No fallback into codegen mode from trusted rendering
 
@@ -426,12 +430,174 @@ PASS aggregate_bar_chart
 PASS aggregate_bar_chart
 ```
 
+## Scenario: Render a calendar hour heatmap
+
+Selected family: `calendar_hour_heatmap`
+
+Raw eval command:
+
+```powershell
+.\.venv\Scripts\python.exe evals/calendar_hour_heatmap.py
+```
+
+Raw eval output:
+
+```text
+CASE calendar_hour_heatmap
+{
+  "case_id": "calendar_hour_heatmap",
+  "given": {
+    "selected_family": "calendar_hour_heatmap",
+    "primitive_scope": {
+      "chart_types": [
+        "time_series",
+        "timeline",
+        "bar",
+        "heatmap"
+      ],
+      "heatmap": {
+        "cell_aggregation": [
+          "mean"
+        ],
+        "overlay_render_as": [],
+        "series_kinds": [
+          "numeric"
+        ],
+        "series_render_as": [
+          "heatmap"
+        ],
+        "series_source_types": [
+          "entity"
+        ],
+        "series_transforms": [
+          "none"
+        ],
+        "x_group_by": [
+          "hour"
+        ],
+        "y_group_by": [
+          "weekday"
+        ]
+      },
+      "fallback_to_codegen": false
+    },
+    "chart_spec": {
+      "chart_id": "dishwasher_power_by_weekday_hour",
+      "chart_type": "heatmap",
+      "notes": [
+        "Selected trusted renderer follow-up family fixture."
+      ],
+      "overlays": [],
+      "series": [
+        {
+          "label": "Dishwasher Power",
+          "render_as": "heatmap",
+          "role": "primary",
+          "series_id": "dishwasher_power_heatmap",
+          "source": {
+            "attribute": null,
+            "entity_id": "sensor.dishwasher_power",
+            "type": "entity"
+          },
+          "transform": null,
+          "unit": "W"
+        }
+      ],
+      "time_range": {
+        "end": "2026-05-29T15:00:00+00:00",
+        "start": "2026-05-28T15:00:00+00:00",
+        "type": "absolute"
+      },
+      "title": "Dishwasher Power By Weekday Hour",
+      "x_axis": {
+        "group_by": "hour",
+        "type": "time"
+      },
+      "y_axis": {
+        "group_by": "weekday",
+        "type": "time"
+      }
+    },
+    "history_series": {
+      "entity_id": "sensor.dishwasher_power",
+      "kind": "numeric",
+      "label": "Dishwasher Power",
+      "points": [
+        {
+          "quality": "ok",
+          "raw_state": "0.4",
+          "ts": "2026-05-28T15:00:00+00:00",
+          "value": 0.4
+        },
+        {
+          "quality": "ok",
+          "raw_state": "0.6",
+          "ts": "2026-05-28T21:00:00+00:00",
+          "value": 0.6
+        },
+        {
+          "quality": "ok",
+          "raw_state": "9.8",
+          "ts": "2026-05-28T23:00:00+00:00",
+          "value": 9.8
+        },
+        {
+          "quality": "ok",
+          "raw_state": "42.0",
+          "ts": "2026-05-29T00:00:00+00:00",
+          "value": 42.0
+        },
+        {
+          "quality": "ok",
+          "raw_state": "3.2",
+          "ts": "2026-05-29T01:00:00+00:00",
+          "value": 3.2
+        },
+        {
+          "quality": "ok",
+          "raw_state": "0.5",
+          "ts": "2026-05-29T15:00:00+00:00",
+          "value": 0.5
+        }
+      ],
+      "series_id": "dishwasher_power",
+      "source_entity_ids": [
+        "sensor.dishwasher_power"
+      ],
+      "unit": "W",
+      "warnings": []
+    }
+  },
+  "then": {
+    "codegen_attempts": 0,
+    "image_mime_type": "image/png",
+    "output_files": [
+      "calendar-hour-heatmap.png"
+    ],
+    "overlays_plotted": [],
+    "render_status": "success",
+    "series_plotted": [
+      "dishwasher_power_heatmap"
+    ],
+    "validation_status": "pass",
+    "x_max": "2026-05-29T15:00:00+00:00",
+    "x_min": "2026-05-28T15:00:00+00:00"
+  },
+  "when": {
+    "operation": "invoke_trusted_renderer_for_calendar_hour_heatmap",
+    "render_mode": "safe"
+  }
+}
+PASS calendar_hour_heatmap
+PASS calendar_hour_heatmap
+```
+
 ## Scenario: Reject unsupported safe-mode primitive without codegen
 
 Raw eval command:
 
 ```powershell
-C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals/trusted_renderer_primitives.py
+.\.venv\Scripts\python.exe evals/trusted_renderer_primitives.py
 ```
 
 Raw eval output:
@@ -827,7 +993,7 @@ PASS trusted_renderer_primitives
 Raw eval command:
 
 ```powershell
-C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals/prompt_to_chart_basic.py
+.\.venv\Scripts\python.exe evals/prompt_to_chart_basic.py
 ```
 
 Raw eval output:
@@ -903,7 +1069,7 @@ PASS prompt_to_chart_basic
 Raw eval command:
 
 ```powershell
-C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals/shaded_interval_rendering.py
+.\.venv\Scripts\python.exe evals/shaded_interval_rendering.py
 ```
 
 Raw eval output:
@@ -1046,12 +1212,12 @@ Raw unit-test output:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 50 items
+collected 52 items
 
-tests\test_codegen_sandbox_anchor.py ..........                          [ 20%]
-tests\test_dashboard_card_anchor.py .......                              [ 34%]
-tests\test_fake_vertical_slice.py ............................           [ 90%]
+tests\test_codegen_sandbox_anchor.py ..........                          [ 19%]
+tests\test_dashboard_card_anchor.py .......                              [ 32%]
+tests\test_fake_vertical_slice.py ..............................         [ 90%]
 tests\test_transport_auth_anchor.py .....                                [100%]
 
-============================= 50 passed in 34.85s =============================
+============================= 52 passed in 39.73s =============================
 ```

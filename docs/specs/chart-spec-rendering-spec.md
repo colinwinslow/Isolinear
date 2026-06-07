@@ -63,8 +63,9 @@ chart families:
 - Aggregate bar chart: one value per entity, area, device class, or time bucket,
   such as average temperature by room, runtime by appliance, or daily energy by
   source.
-- Calendar/hour heatmap: values grouped by hour, day, or weekday for questions
-  like when HVAC, energy use, or occupancy most often occurs.
+- Calendar/hour heatmap (selected third follow-up): values grouped by hour,
+  day, or weekday for questions like when HVAC, energy use, or occupancy most
+  often occurs.
 - Event markers: point-in-time annotations over a time-series chart for state
   changes, automation runs, threshold crossings, or user-confirmed events.
 - Distribution or histogram: value frequency over a selected period, such as
@@ -120,6 +121,31 @@ bar overlays; SVG output; or codegen fallback. Unsupported but schema-valid bar
 specs must fail closed with `unsupported_chart_spec` before writing output
 artifacts. Missing aggregate source history or source history with no numeric
 points must fail before writing output artifacts.
+
+## Calendar/hour heatmap follow-up scope
+
+The third follow-up trusted renderer family is `calendar_hour_heatmap`.
+
+This slice supports:
+
+- `chart_type: heatmap`.
+- One numeric entity history series rendered as `heatmap`.
+- Entity-backed series sources only.
+- No series transform, or `transform.operation: none`.
+- `x_axis.group_by: hour`.
+- `y_axis.group_by: weekday`.
+- Fixed `mean` aggregation per weekday/hour cell.
+- Absolute chart time ranges for deterministic `x_min` and `x_max` metadata.
+- No overlays.
+- PNG output.
+
+The first heatmap slice does not support aggregate or alias sources, multiple
+heatmap series, non-numeric history, day/date calendar rows, custom cell
+aggregation operations, heatmap overlays, SVG output, or codegen fallback.
+Unsupported but schema-valid heatmap specs must fail closed with
+`unsupported_chart_spec` before writing output artifacts. Missing heatmap source
+history or heatmap history with no numeric points in range must fail before
+writing output artifacts.
 
 ## Floorplan heatmap deferral
 

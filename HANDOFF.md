@@ -101,15 +101,27 @@ artifact creation if any aggregate source history is missing or has no numeric
 points. The BDD/evidence and `evals/aggregate_bar_chart.py` prove rendering,
 metadata, validation, and zero codegen attempts.
 
+Trusted renderer calendar/hour heatmap follow-up is anchored. The chart-spec
+rendering spec now defines the `calendar_hour_heatmap` family as safe-mode
+`heatmap` charts with one numeric entity-backed series rendered as weekday-by-hour
+mean cells from `x_axis.group_by: hour` and `y_axis.group_by: weekday`, no
+transform except `none`, no overlays, PNG output, and no codegen fallback. The
+Python anchor adds heatmap-family primitive checks for source type, render
+primitive, series count, and supported grouping while preserving the existing
+time-series, timeline, and bar constraints. Heatmap rendering fails closed
+before artifact creation if source history is missing or has no numeric points
+in range. The BDD/evidence and `evals/calendar_hour_heatmap.py` prove rendering,
+metadata, validation, and zero codegen attempts.
+
 No Home Assistant integration has been built yet.
 
 ## Next recommended packet
 
-Trusted renderer calendar/hour heatmap follow-up:
+Trusted renderer event markers follow-up:
 
-1. Define the calendar/hour heatmap primitive contract in the chart-spec
+1. Define the event marker primitive contract in the chart-spec
    rendering spec.
-2. Scaffold or extend the paired BDD/evidence and eval outline for heatmap
+2. Scaffold or extend the paired BDD/evidence and eval outline for marker
    rendering.
 3. Add focused schema/anchor/eval coverage proving the new primitive renders
    from validated `ChartSpec` without falling into codegen mode.
