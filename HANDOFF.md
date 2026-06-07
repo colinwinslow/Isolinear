@@ -117,13 +117,13 @@ No Home Assistant integration has been built yet.
 
 ## Next recommended packet
 
-Trusted renderer event markers follow-up:
+Trusted renderer event markers + distribution/histogram follow-up:
 
-1. Define the event marker primitive contract in the chart-spec
-   rendering spec.
-2. Scaffold or extend the paired BDD/evidence and eval outline for marker
-   rendering.
-3. Add focused schema/anchor/eval coverage proving the new primitive renders
+1. Define the event marker and distribution/histogram primitive contracts in
+   the chart-spec rendering spec.
+2. Scaffold or extend the paired BDD/evidence and eval outlines for marker and
+   histogram rendering.
+3. Add focused schema/anchor/eval coverage proving both new primitives render
    from validated `ChartSpec` without falling into codegen mode.
 
 ## Known unresolved design details

@@ -4,7 +4,7 @@
 
 **Last updated:** 2026-06-06 (trusted renderer calendar/hour heatmap follow-up)
 **Phase:** `Seed phase — Design-heavy MVP planning before production integration`  
-**Next bounded packet:** `Trusted renderer event markers follow-up`
+**Next bounded packet:** `Trusted renderer event markers + distribution/histogram follow-up`
 **Current readiness:** `READY-FOR-NEXT-PACKET`
 
 ## Recent sessions (rolling, last 5)
@@ -34,8 +34,7 @@
 
 > Things worth doing that don't gate the current packet. Pull from here when the active packet closes.
 
-- (a) Trusted renderer follow-up families: event markers,
-  distribution/histogram, and scatter/correlation
+- (a) Trusted renderer follow-up family: scatter/correlation
 - (b) Post-MVP floorplan heatmap renderer requiring explicit user-provided room
   geometry and area/entity mappings
 - (c) Home Assistant custom integration scaffolding once MVP design phase closes
