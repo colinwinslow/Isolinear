@@ -205,6 +205,65 @@ def store_validated_job_snapshot(job: dict[str, Any], snapshot: dict[str, Any]) 
     }
 
 
+def append_validated_job_snapshot(
+    job: dict[str, Any],
+    *,
+    status: str,
+    state_label: str,
+    message: str,
+    progress_stage: str,
+    progress_message: str,
+    validation_status: str,
+    validation_summary: str,
+    warnings: list[str],
+    validation_checks: list[dict[str, str]] | None = None,
+    entities: list[dict[str, str]] | None = None,
+    clarification: dict[str, Any] | None = None,
+    failure: dict[str, str] | None = None,
+    retry_allowed: bool | None = None,
+) -> dict[str, Any]:
+    """Append one schema-valid snapshot to an existing in-memory job."""
+    snapshot_number = job["next_snapshot_number"]
+    snapshot: dict[str, Any] = {
+        "snapshot_id": f"{job['job_id']}-snapshot-{snapshot_number:03d}",
+        "job_id": job["job_id"],
+        "status": status,
+        "prompt": job["prompt"],
+        "state_label": state_label,
+        "message": message,
+        "progress": {
+            "stage": progress_stage,
+            "message": progress_message,
+        },
+        "validation": {
+            "status": validation_status,
+            "summary": validation_summary,
+            "checks": validation_checks
+            or [
+                {
+                    "name": "integration_job_state_scaffold",
+                    "status": "pass",
+                }
+            ],
+        },
+        "warnings": list(warnings),
+    }
+    if entities is not None:
+        snapshot["entities"] = deepcopy(entities)
+    if clarification is not None:
+        snapshot["clarification"] = deepcopy(clarification)
+    if failure is not None:
+        snapshot["failure"] = deepcopy(failure)
+    if retry_allowed is not None:
+        snapshot["retry_allowed"] = retry_allowed
+
+    result = store_validated_job_snapshot(job, snapshot)
+    if not result["accepted"]:
+        raise JobStateSnapshotValidationError(result)
+    job["next_snapshot_number"] = snapshot_number + 1
+    return result["snapshot"]
+
+
 def validate_job_snapshot_contract(snapshot: Any) -> dict[str, Any]:
     """Validate an IntegrationJobSnapshot against the repo JSON Schema."""
     try:
@@ -259,39 +318,27 @@ def _append_snapshot(
     validation_summary: str,
     warnings: list[str],
 ) -> dict[str, Any]:
-    snapshot_number = job["next_snapshot_number"]
-    snapshot = {
-        "snapshot_id": f"{job['job_id']}-snapshot-{snapshot_number:03d}",
-        "job_id": job["job_id"],
-        "status": "planning",
-        "prompt": job["prompt"],
-        "state_label": state_label,
-        "message": message,
-        "progress": {
-            "stage": progress_stage,
-            "message": progress_message,
-        },
-        "validation": {
-            "status": "not_run",
-            "summary": validation_summary,
-            "checks": [
-                {
-                    "name": "integration_job_state_scaffold",
-                    "status": "pass",
-                },
-                {
-                    "name": "orchestration",
-                    "status": "not_implemented",
-                },
-            ],
-        },
-        "warnings": list(warnings),
-    }
-    result = store_validated_job_snapshot(job, snapshot)
-    if not result["accepted"]:
-        raise JobStateSnapshotValidationError(result)
-    job["next_snapshot_number"] = snapshot_number + 1
-    return result["snapshot"]
+    return append_validated_job_snapshot(
+        job,
+        status="planning",
+        state_label=state_label,
+        message=message,
+        progress_stage=progress_stage,
+        progress_message=progress_message,
+        validation_status="not_run",
+        validation_summary=validation_summary,
+        validation_checks=[
+            {
+                "name": "integration_job_state_scaffold",
+                "status": "pass",
+            },
+            {
+                "name": "orchestration",
+                "status": "not_implemented",
+            },
+        ],
+        warnings=warnings,
+    )
 
 
 def _record_subscription(

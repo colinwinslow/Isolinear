@@ -11,6 +11,10 @@ from .const import (
     INTEGRATION_COMMAND_TYPES,
     INTEGRATION_WS_VERSION,
 )
+from .job_orchestration import (
+    handle_job_orchestration_start_ws_command,
+    has_enabled_job_orchestration,
+)
 from .job_state import handle_job_state_ws_command
 
 
@@ -189,7 +193,13 @@ def handle_registered_ws_command(
     if not scope["accepted"]:
         return _registered_rejection(scope["code"], config_entry_id=command["config_entry_id"])
 
-    job_result = handle_job_state_ws_command(hass, command, message_id=message_id)
+    if (
+        command["type"] == INTEGRATION_COMMAND_TYPES["start_job"]
+        and has_enabled_job_orchestration(hass, command["config_entry_id"])
+    ):
+        job_result = handle_job_orchestration_start_ws_command(hass, command)
+    else:
+        job_result = handle_job_state_ws_command(hass, command, message_id=message_id)
     if not job_result["accepted"]:
         return _registered_rejection(
             job_result["code"],
@@ -209,6 +219,9 @@ def handle_registered_ws_command(
             "code": job_result["code"],
             "job_id": job_result["job_id"],
             "subscription": job_result.get("subscription"),
+        },
+        "job_orchestration": {
+            "run": job_result.get("run"),
         },
         "orchestration": job_result["orchestration"],
     }

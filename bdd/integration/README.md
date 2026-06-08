@@ -28,6 +28,11 @@ custom integration implementation slices.
   integration owns a config-entry-scoped approved history store that reads fake
   Home Assistant history only after the approved catalog gate passes and stores
   schema-valid `HistorySeries` records.
+- **Home Assistant job orchestration scaffold anchor** - the integration owns a
+  config-entry-scoped `job/start` scaffold that composes job state, the approved
+  entity catalog, and approved fake history while preserving model, worker,
+  rendering, mutation, memory, token, artifact, durable-storage, and real
+  orchestration boundaries.
 
 ## Validation
 
@@ -52,3 +57,7 @@ custom integration implementation slices.
   catalog enforcement, schema-valid history retrieval, per-config-entry
   isolation, malformed-history rejection, stale-store clearing, and
   non-orchestration proof.
+- `evals/home_assistant_job_orchestration_scaffold.py` - deterministic
+  `job/start` state transitions, approved catalog/history composition,
+  catalog-gate failure, missing approved history failure, per-config-entry
+  isolation, schema-valid snapshots, and bounded side-effect proof.
