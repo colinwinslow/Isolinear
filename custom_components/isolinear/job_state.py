@@ -219,6 +219,7 @@ def append_validated_job_snapshot(
     validation_checks: list[dict[str, str]] | None = None,
     entities: list[dict[str, str]] | None = None,
     clarification: dict[str, Any] | None = None,
+    chart: dict[str, Any] | None = None,
     failure: dict[str, str] | None = None,
     retry_allowed: bool | None = None,
 ) -> dict[str, Any]:
@@ -252,6 +253,8 @@ def append_validated_job_snapshot(
         snapshot["entities"] = deepcopy(entities)
     if clarification is not None:
         snapshot["clarification"] = deepcopy(clarification)
+    if chart is not None:
+        snapshot["chart"] = deepcopy(chart)
     if failure is not None:
         snapshot["failure"] = deepcopy(failure)
     if retry_allowed is not None:

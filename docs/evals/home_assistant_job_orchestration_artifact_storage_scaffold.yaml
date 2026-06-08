@@ -1,0 +1,38 @@
+id: home_assistant_job_orchestration_artifact_storage_scaffold
+summary: The Home Assistant integration owns a config-entry-scoped artifact storage scaffold that records one placeholder chart artifact metadata envelope for a scaffold-ready job without model, worker, rendering, mutation, memory, token, real artifact file, durable storage, retry, automatic progress task, worker streaming, or production orchestration calls.
+executable_eval: evals/home_assistant_job_orchestration_artifact_storage_scaffold.py
+fixtures:
+  integration_job_orchestration_module: custom_components/isolinear/job_orchestration.py
+  integration_job_state_module: custom_components/isolinear/job_state.py
+  integration_websocket_module: custom_components/isolinear/websocket_api.py
+  integration_setup: custom_components/isolinear/__init__.py
+  artifact_metadata_schema: docs/schemas/integration-artifact-metadata.schema.json
+  fake_hass: in-code fake Home Assistant config entries, job state, WebSocket registry, start commands, and snapshot commands
+expect:
+  snapshot_command_routed_to_orchestration: true
+  scaffold_ready_job_artifact_accepted: true
+  deterministic_artifact_id: true
+  artifact_backed_complete_snapshot_returned: true
+  repeated_snapshot_reuses_artifact: true
+  unknown_job_rejected_before_artifact_storage: true
+  cross_config_entry_job_rejected_before_artifact_storage: true
+  per_config_entry_isolation: true
+  returned_snapshots_schema_valid: true
+  artifact_metadata_schema_valid: true
+  artifact_metadata_bookkeeping_written: true
+  job_state_scaffold_written: true
+  job_orchestration_scaffold_written: true
+  websocket_command_registered: true
+  worker_called: false
+  model_provider_called: false
+  approved_home_assistant_history_read_during_artifact_storage: false
+  semantic_memory_called: false
+  home_assistant_service_or_state_mutation_called: false
+  token_generated: false
+  chart_artifact_written: false
+  chart_rendering_called: false
+  durable_storage_written: false
+  retry_behavior_called: false
+  automatic_progress_task_called: false
+  worker_streaming_called: false
+  job_orchestration_called: false

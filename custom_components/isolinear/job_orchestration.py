@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+import json
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from .const import DOMAIN, INTEGRATION_COMMAND_TYPES
@@ -12,6 +14,8 @@ from .entity_catalog import DATA_ENTITY_CATALOG
 from .history_retrieval import retrieve_approved_history
 from .job_state import (
     DATA_JOB_STATE,
+    JobStateSnapshotValidationError,
+    _validate_json_schema,
     append_validated_job_snapshot,
     handle_job_state_ws_command,
     validate_job_snapshot_contract,
@@ -21,8 +25,16 @@ from .job_state import (
 DATA_JOB_ORCHESTRATION = "job_orchestration"
 DATA_JOB_ORCHESTRATION_SETUP = "job_orchestration_setup"
 DATA_JOB_ORCHESTRATION_TIME_RANGE = "job_orchestration_default_time_range"
+ARTIFACT_METADATA_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-artifact-metadata.schema.json"
+)
 
 ENTITY_ID_IN_PROMPT = re.compile(r"\b[a-z0-9_]+\.[a-z0-9_]+\b")
+ARTIFACT_SOURCE_PROGRESS_STAGES = {
+    "job_orchestration_scaffold_ready",
+    "job_orchestration_clarification_continuation_ready",
+    "job_orchestration_retry_continuation_ready",
+}
 
 NO_JOB_ORCHESTRATION_CALLS = {
     "worker_called": False,
@@ -71,6 +83,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         store.setdefault("progress_events", {})
         store.setdefault("progress_event_order", [])
         store.setdefault("latest_progress_event", None)
+        store.setdefault("next_artifact_number", 1)
+        store.setdefault("artifact_metadata", {})
+        store.setdefault("artifact_order", [])
+        store.setdefault("latest_artifact", None)
+        store.setdefault("artifact_by_job_id", {})
         return store
 
     store = {
@@ -83,6 +100,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         "progress_events": {},
         "progress_event_order": [],
         "latest_progress_event": None,
+        "next_artifact_number": 1,
+        "artifact_metadata": {},
+        "artifact_order": [],
+        "latest_artifact": None,
+        "artifact_by_job_id": {},
     }
     entry_data[DATA_JOB_ORCHESTRATION] = store
     return store
@@ -682,6 +704,77 @@ def handle_job_orchestration_subscribe_ws_command(
     )
 
 
+def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, Any]) -> dict[str, Any]:
+    """Return the latest snapshot, creating scaffold artifact metadata when ready."""
+    if command["type"] != INTEGRATION_COMMAND_TYPES["get_snapshot"]:
+        return _orchestration_rejection("unsupported_job_orchestration_command")
+
+    entry_id = command["config_entry_id"]
+    entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})
+    if entry_data.get("entry") is None:
+        return _orchestration_rejection("unknown_config_entry")
+
+    store = ensure_job_orchestration_store(hass, entry_id)
+    job = _job_for_command(hass, entry_id, command)
+    if job is None:
+        return _orchestration_rejection("unknown_job", job_id=command.get("job_id"))
+
+    latest_snapshot = job.get("latest_snapshot")
+    validation = validate_job_snapshot_contract(latest_snapshot)
+    if not validation["accepted"]:
+        result = _orchestration_rejection("invalid_integration_job_snapshot", job_id=command.get("job_id"))
+        result["validation"] = validation
+        return result
+
+    existing_artifact = _artifact_for_job(store, job["job_id"])
+    if existing_artifact is not None and _is_artifact_complete_snapshot(latest_snapshot, existing_artifact):
+        return _accepted_artifact_snapshot(
+            "job_orchestration_artifact_snapshot_returned",
+            command,
+            latest_snapshot,
+            artifact=existing_artifact,
+            artifact_metadata_written=False,
+            job_state_written=False,
+            job_orchestration_written=False,
+        )
+
+    if not _is_artifact_source_snapshot(latest_snapshot):
+        snapshot_result = handle_job_state_ws_command(hass, command)
+        if not snapshot_result["accepted"]:
+            return snapshot_result
+        return _accepted_artifact_snapshot(
+            "job_orchestration_snapshot_returned_without_artifact",
+            command,
+            snapshot_result["snapshot"],
+            artifact=None,
+            artifact_metadata_written=False,
+            job_state_written=False,
+            job_orchestration_written=False,
+        )
+
+    artifact_result = _record_artifact_metadata(store, job=job, source_snapshot=latest_snapshot)
+    if not artifact_result["accepted"]:
+        result = _orchestration_rejection(
+            artifact_result["code"],
+            job_id=command.get("job_id"),
+            orchestration=job_orchestration_side_effects(),
+        )
+        result["validation"] = artifact_result.get("validation")
+        return result
+
+    artifact = artifact_result["artifact"]
+    complete_snapshot = _append_artifact_complete_snapshot(job, artifact)
+    return _accepted_artifact_snapshot(
+        "job_orchestration_artifact_storage_recorded",
+        command,
+        complete_snapshot,
+        artifact=artifact,
+        artifact_metadata_written=True,
+        job_state_written=True,
+        job_orchestration_written=True,
+    )
+
+
 def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -> dict[str, Any]:
     """Deterministically select scaffold entity IDs from prompt text and catalog labels."""
     explicit_entity_ids = _unique(ENTITY_ID_IN_PROMPT.findall(prompt.lower()))
@@ -729,6 +822,7 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
     """Return an evidence-friendly orchestration store summary."""
     latest_run = store.get("latest_run")
     latest_progress_event = store.get("latest_progress_event")
+    latest_artifact = store.get("latest_artifact")
     return {
         "entry_id": store.get("entry_id"),
         "run_count": len(store.get("run_order", [])),
@@ -745,6 +839,13 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
         "latest_progress_snapshot_id": (
             latest_progress_event.get("snapshot_id") if isinstance(latest_progress_event, dict) else None
         ),
+        "artifact_count": len(store.get("artifact_order", [])),
+        "artifact_ids": list(store.get("artifact_order", [])),
+        "latest_artifact_id": latest_artifact.get("artifact_id") if isinstance(latest_artifact, dict) else None,
+        "latest_artifact_job_id": latest_artifact.get("job_id") if isinstance(latest_artifact, dict) else None,
+        "latest_artifact_source_snapshot_id": (
+            latest_artifact.get("source_snapshot_id") if isinstance(latest_artifact, dict) else None
+        ),
     }
 
 
@@ -758,6 +859,7 @@ def job_orchestration_side_effects(
     retry_behavior_called: bool = False,
     subscription_bookkeeping_written: bool = False,
     subscription_progress_streaming_called: bool = False,
+    artifact_metadata_bookkeeping_written: bool = False,
     websocket_command_registered: bool = False,
 ) -> dict[str, bool]:
     """Return side-effect accounting for the job orchestration scaffold."""
@@ -771,6 +873,7 @@ def job_orchestration_side_effects(
         "job_state_scaffold_written": job_state_written,
         "job_orchestration_scaffold_written": job_orchestration_written,
         "subscription_bookkeeping_written": subscription_bookkeeping_written,
+        "artifact_metadata_bookkeeping_written": artifact_metadata_bookkeeping_written,
         "websocket_command_registered": websocket_command_registered,
     }
 
@@ -988,6 +1091,88 @@ def _record_progress_event(
     return deepcopy(event)
 
 
+def _record_artifact_metadata(
+    store: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    artifact_number = store["next_artifact_number"]
+    artifact_id = f"{store['entry_id']}-artifact-{artifact_number:03d}"
+    chart = _chart_metadata_for_artifact(
+        artifact_id=artifact_id,
+        job=job,
+        source_snapshot=source_snapshot,
+    )
+    artifact = {
+        "artifact_id": artifact_id,
+        "config_entry_id": store["entry_id"],
+        "job_id": job["job_id"],
+        "source_snapshot_id": source_snapshot["snapshot_id"],
+        "artifact_kind": "chart_image",
+        "status": "placeholder",
+        **chart,
+        "render_metadata": {
+            "renderer": "artifact_storage_scaffold",
+            "render_attempted": False,
+            "worker_called": False,
+            "chart_rendering_called": False,
+        },
+        "validation": {
+            "status": "pass",
+            "summary": "Placeholder artifact metadata validates before storage.",
+            "checks": [
+                {"name": "integration_job_snapshot", "status": "pass"},
+                {"name": "artifact_metadata_schema", "status": "pass"},
+                {"name": "worker", "status": "not_called"},
+                {"name": "chart_rendering", "status": "not_called"},
+            ],
+        },
+        "warnings": [
+            "artifact_storage_scaffold",
+            "placeholder_chart_artifact",
+            "chart_rendering_not_started",
+        ],
+    }
+    validation = validate_artifact_metadata_contract(artifact)
+    if not validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_artifact_metadata",
+            "validation": validation,
+        }
+
+    store["next_artifact_number"] = artifact_number + 1
+    store["artifact_metadata"][artifact_id] = deepcopy(artifact)
+    store["artifact_order"].append(artifact_id)
+    store["artifact_by_job_id"][job["job_id"]] = artifact_id
+    store["latest_artifact"] = deepcopy(artifact)
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "artifact": deepcopy(artifact),
+        "validation": validation,
+    }
+
+
+def validate_artifact_metadata_contract(artifact: Any) -> dict[str, Any]:
+    """Validate IntegrationArtifactMetadata against the repo JSON Schema."""
+    try:
+        schema = json.loads(ARTIFACT_METADATA_SCHEMA_PATH.read_text(encoding="utf-8"))
+        _validate_json_schema(artifact, schema, root_schema=schema, path="$")
+    except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_artifact_metadata",
+            "error": str(exc),
+        }
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "schema": str(ARTIFACT_METADATA_SCHEMA_PATH),
+    }
+
+
 def _accepted(
     code: str,
     command: dict[str, Any],
@@ -1058,6 +1243,35 @@ def _accepted_subscription(
     }
 
 
+def _accepted_artifact_snapshot(
+    code: str,
+    command: dict[str, Any],
+    snapshot: dict[str, Any],
+    *,
+    artifact: dict[str, Any] | None,
+    artifact_metadata_written: bool,
+    job_state_written: bool,
+    job_orchestration_written: bool,
+) -> dict[str, Any]:
+    result = {
+        "accepted": True,
+        "code": code,
+        "type": command["type"],
+        "version": command["version"],
+        "config_entry_id": command["config_entry_id"],
+        "job_id": snapshot["job_id"],
+        "snapshot": deepcopy(snapshot),
+        "orchestration": job_orchestration_side_effects(
+            artifact_metadata_bookkeeping_written=artifact_metadata_written,
+            job_state_written=job_state_written,
+            job_orchestration_written=job_orchestration_written,
+        ),
+    }
+    if artifact is not None:
+        result["artifact"] = deepcopy(artifact)
+    return result
+
+
 def _orchestration_rejection(
     code: str,
     *,
@@ -1105,6 +1319,115 @@ def _job_for_command(hass: Any, entry_id: str, command: dict[str, Any]) -> dict[
     jobs = store.get("jobs", {}) if isinstance(store, dict) else {}
     job = jobs.get(command.get("job_id"))
     return job if isinstance(job, dict) else None
+
+
+def _artifact_for_job(store: dict[str, Any], job_id: str) -> dict[str, Any] | None:
+    artifact_id = store.get("artifact_by_job_id", {}).get(job_id)
+    artifact = store.get("artifact_metadata", {}).get(artifact_id)
+    return deepcopy(artifact) if isinstance(artifact, dict) else None
+
+
+def _is_artifact_source_snapshot(snapshot: dict[str, Any]) -> bool:
+    progress = snapshot.get("progress")
+    return (
+        snapshot.get("status") == "planning"
+        and isinstance(progress, dict)
+        and progress.get("stage") in ARTIFACT_SOURCE_PROGRESS_STAGES
+    )
+
+
+def _is_artifact_complete_snapshot(snapshot: dict[str, Any], artifact: dict[str, Any]) -> bool:
+    chart = snapshot.get("chart")
+    return (
+        snapshot.get("status") == "complete"
+        and isinstance(chart, dict)
+        and chart.get("image_url") == artifact.get("image_url")
+        and "artifact_storage_scaffold" in snapshot.get("warnings", [])
+    )
+
+
+def _chart_metadata_for_artifact(
+    *,
+    artifact_id: str,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    series = _artifact_series(source_snapshot)
+    return {
+        "title": _artifact_title(job, source_snapshot),
+        "image_url": f"/api/isolinear/artifacts/{artifact_id}.png",
+        "time_range": "approved scaffold history window",
+        "series": series,
+        "overlays": [],
+    }
+
+
+def _artifact_series(source_snapshot: dict[str, Any]) -> list[dict[str, str]]:
+    result = []
+    for index, entity in enumerate(source_snapshot.get("entities", []), start=1):
+        if not isinstance(entity, dict):
+            continue
+        entity_id = entity.get("entity_id")
+        label = entity.get("label") or entity_id
+        if not isinstance(entity_id, str) or not isinstance(label, str):
+            continue
+        result.append(
+            {
+                "series_id": f"series-{index:03d}",
+                "label": label,
+                "entity_id": entity_id,
+            }
+        )
+    return result
+
+
+def _artifact_title(job: dict[str, Any], source_snapshot: dict[str, Any]) -> str:
+    entities = source_snapshot.get("entities", [])
+    if isinstance(entities, list) and len(entities) == 1 and isinstance(entities[0], dict):
+        label = entities[0].get("label")
+        if isinstance(label, str) and label.strip():
+            return f"{label} Chart"
+    prompt = job.get("prompt")
+    if isinstance(prompt, str) and prompt.strip():
+        return f"Isolinear Chart: {prompt.strip()}"
+    return "Isolinear Chart"
+
+
+def _append_artifact_complete_snapshot(job: dict[str, Any], artifact: dict[str, Any]) -> dict[str, Any]:
+    chart = {
+        "title": artifact["title"],
+        "image_url": artifact["image_url"],
+        "time_range": artifact["time_range"],
+        "series": deepcopy(artifact["series"]),
+        "overlays": deepcopy(artifact["overlays"]),
+    }
+    return append_validated_job_snapshot(
+        job,
+        status="complete",
+        state_label="Complete",
+        message="Placeholder chart artifact metadata is ready for the dashboard card.",
+        progress_stage="job_orchestration_artifact_storage_ready",
+        progress_message="Scaffold artifact metadata is stored for future rendering.",
+        validation_status="pass",
+        validation_summary="The artifact storage scaffold created schema-valid placeholder chart metadata.",
+        validation_checks=[
+            {"name": "integration_job_state_scaffold", "status": "pass"},
+            {"name": "integration_artifact_metadata", "status": "pass"},
+            {"name": "worker", "status": "not_called"},
+            {"name": "chart_rendering", "status": "not_called"},
+        ],
+        chart=chart,
+        entities=[
+            {"entity_id": item["entity_id"], "label": item["label"]}
+            for item in artifact["series"]
+        ],
+        warnings=[
+            "artifact_storage_scaffold",
+            "placeholder_chart_artifact",
+            "worker_not_called",
+            "chart_rendering_not_started",
+        ],
+    )
 
 
 def _default_history_time_range(hass: Any) -> dict[str, str]:

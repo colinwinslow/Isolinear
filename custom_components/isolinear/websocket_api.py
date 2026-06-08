@@ -14,6 +14,7 @@ from .const import (
 from .job_orchestration import (
     handle_job_orchestration_clarification_answer_ws_command,
     handle_job_orchestration_retry_ws_command,
+    handle_job_orchestration_snapshot_ws_command,
     handle_job_orchestration_start_ws_command,
     handle_job_orchestration_subscribe_ws_command,
     has_enabled_job_orchestration,
@@ -203,6 +204,8 @@ def handle_registered_ws_command(
         job_result = handle_job_orchestration_clarification_answer_ws_command(hass, command)
     elif command["type"] == INTEGRATION_COMMAND_TYPES["retry_job"] and orchestration_enabled:
         job_result = handle_job_orchestration_retry_ws_command(hass, command)
+    elif command["type"] == INTEGRATION_COMMAND_TYPES["get_snapshot"] and orchestration_enabled:
+        job_result = handle_job_orchestration_snapshot_ws_command(hass, command)
     elif command["type"] == INTEGRATION_COMMAND_TYPES["subscribe_job"] and orchestration_enabled:
         job_result = handle_job_orchestration_subscribe_ws_command(hass, command, message_id=message_id)
     else:
@@ -230,6 +233,7 @@ def handle_registered_ws_command(
         "job_orchestration": {
             "run": job_result.get("run"),
             "progress_event": job_result.get("progress_event"),
+            "artifact": job_result.get("artifact"),
         },
         "orchestration": job_result["orchestration"],
     }

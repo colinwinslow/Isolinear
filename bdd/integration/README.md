@@ -39,6 +39,11 @@ custom integration implementation slices.
   preserving model, worker, rendering, mutation, memory, token, artifact,
   durable-storage, streaming, automatic-retry, worker-retry, and production
   orchestration boundaries.
+- **Home Assistant job orchestration artifact storage scaffold anchor** - the
+  integration owns a config-entry-scoped `job/snapshot` scaffold that records
+  placeholder artifact metadata for scaffold-ready jobs while preserving
+  model, worker, rendering, mutation, memory, token, real artifact file,
+  durable-storage, streaming, retry, and production orchestration boundaries.
 
 ## Validation
 
@@ -71,3 +76,8 @@ custom integration implementation slices.
   deterministic `job/retry` continuation transitions for retryable failed jobs,
   unknown-job and non-retryable rejection, per-config-entry isolation,
   schema-valid snapshots, and bounded side-effect proof.
+- `evals/home_assistant_job_orchestration_artifact_storage_scaffold.py` -
+  deterministic placeholder artifact metadata creation for scaffold-ready jobs,
+  idempotent snapshot retrieval, unknown-job and cross-entry rejection,
+  per-config-entry isolation, schema-valid snapshots/artifact metadata, and
+  bounded side-effect proof.

@@ -49,7 +49,9 @@ contains the manifest, domain constants, local-first configuration/options data
 shape, dashboard resource registration, WebSocket command registration, and a
 config-entry-scoped in-memory approved entity catalog, approved history
 retrieval scaffold, job snapshot scaffold, job-start orchestration scaffold,
-and clarification-answer continuation scaffold for `isolinear/v1/` commands
-without worker, model-provider, semantic-memory persistence, artifact,
-rendering, durable storage, retry behavior, subscription progress streaming, or
-mutation orchestration.
+clarification-answer continuation scaffold, retry continuation scaffold,
+subscription/progress event scaffold, and placeholder artifact metadata
+scaffold for `isolinear/v1/` commands without worker, model-provider,
+semantic-memory persistence, real artifact file writes, rendering, durable
+storage, automatic retry behavior, worker streaming, or mutation
+orchestration.
