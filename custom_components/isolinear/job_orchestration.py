@@ -428,6 +428,204 @@ def handle_job_orchestration_clarification_answer_ws_command(
     )
 
 
+def handle_job_orchestration_retry_ws_command(hass: Any, command: dict[str, Any]) -> dict[str, Any]:
+    """Resume a retryable failed scaffold job through approved history retrieval."""
+    if command["type"] != INTEGRATION_COMMAND_TYPES["retry_job"]:
+        return _orchestration_rejection("unsupported_job_orchestration_command")
+
+    entry_id = command["config_entry_id"]
+    entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})
+    entry = entry_data.get("entry")
+    if entry is None:
+        return _orchestration_rejection("unknown_config_entry")
+
+    store = ensure_job_orchestration_store(hass, entry_id)
+    job = _job_for_command(hass, entry_id, command)
+    if job is None:
+        return _orchestration_rejection("unknown_job", job_id=command.get("job_id"))
+
+    retryable = _retryable_failure_for_job(job)
+    if not retryable["accepted"]:
+        run = _record_run(
+            store,
+            command=command,
+            job=job,
+            result_code=retryable["code"],
+            requested_entity_ids=[],
+            history_entity_ids=[],
+            snapshot_ids=_snapshot_ids(job),
+        )
+        return _orchestration_rejection(
+            retryable["code"],
+            job_id=command.get("job_id"),
+            run=run,
+            orchestration=job_orchestration_side_effects(job_orchestration_written=True),
+        )
+
+    _append_retry_accepted_snapshot(job, failed_snapshot=retryable["snapshot"])
+    catalog_items = _approved_catalog_items(hass, entry_id)
+    selection = select_prompt_entity_ids(job["prompt"], catalog_items)
+    if not selection["accepted"]:
+        if selection["code"] == "entity_selection_requires_clarification":
+            snapshot = _append_clarification_snapshot(
+                job,
+                message=selection["message"],
+                options=selection["options"],
+            )
+            result_code = "job_orchestration_retry_continuation_clarification_needed"
+        else:
+            snapshot = _append_failed_snapshot(
+                job,
+                code=selection["code"],
+                stage="approved_entity_catalog",
+                message=selection["message"],
+                checks=[
+                    {"name": "integration_job_state_scaffold", "status": "pass"},
+                    {"name": "retry_command", "status": "pass"},
+                    {"name": "approved_entity_catalog", "status": "fail"},
+                    {"name": "approved_history_retrieval", "status": "not_run"},
+                    {"name": "model_provider", "status": "not_called"},
+                    {"name": "worker", "status": "not_called"},
+                ],
+            )
+            result_code = "job_orchestration_retry_continuation_failed"
+        run = _record_run(
+            store,
+            command=command,
+            job=job,
+            result_code=selection["code"],
+            requested_entity_ids=[],
+            history_entity_ids=[],
+            snapshot_ids=_snapshot_ids(job),
+        )
+        return _accepted(
+            result_code,
+            command,
+            snapshot,
+            run=run,
+            approved_entity_catalog_read=True,
+            job_state_written=True,
+            job_orchestration_written=True,
+            retry_behavior_called=True,
+        )
+
+    requested_entity_ids = selection["entity_ids"]
+    time_range = _default_history_time_range(hass)
+    rejected_entity_ids = [
+        entity_id
+        for entity_id in requested_entity_ids
+        if entity_id not in {item["entity_id"] for item in catalog_items}
+    ]
+
+    if not rejected_entity_ids:
+        _append_fetching_history_snapshot(job, requested_entity_ids)
+
+    history_result = retrieve_approved_history(
+        hass,
+        entry,
+        entity_ids=requested_entity_ids,
+        start=time_range["start"],
+        end=time_range["end"],
+    )
+    if not history_result["accepted"]:
+        failed_snapshot = _append_failed_snapshot(
+            job,
+            code=history_result["code"],
+            stage="approved_history_retrieval",
+            message=_failure_message(history_result),
+            checks=[
+                {"name": "integration_job_state_scaffold", "status": "pass"},
+                {"name": "retry_command", "status": "pass"},
+                {
+                    "name": "approved_entity_catalog",
+                    "status": "fail" if history_result["code"] == "entity_not_in_approved_catalog" else "pass",
+                },
+                {"name": "approved_history_retrieval", "status": "fail"},
+                {"name": "model_provider", "status": "not_called"},
+                {"name": "worker", "status": "not_called"},
+            ],
+        )
+        run = _record_run(
+            store,
+            command=command,
+            job=job,
+            result_code=history_result["code"],
+            requested_entity_ids=requested_entity_ids,
+            history_entity_ids=[],
+            snapshot_ids=_snapshot_ids(job),
+            rejected_entity_ids=history_result.get("rejected_entity_ids"),
+            missing_entity_ids=history_result.get("missing_entity_ids"),
+        )
+        return _accepted(
+            "job_orchestration_retry_continuation_failed",
+            command,
+            failed_snapshot,
+            run=run,
+            history_result=history_result,
+            approved_entity_catalog_read=True,
+            home_assistant_history_read=history_result["orchestration"].get("home_assistant_history_read", False),
+            history_retrieval_written=False,
+            job_state_written=True,
+            job_orchestration_written=True,
+            retry_behavior_called=True,
+        )
+
+    ready_snapshot = append_validated_job_snapshot(
+        job,
+        status="planning",
+        state_label="Ready",
+        message=(
+            "Retry composed approved catalog and history for a later planning packet; "
+            "model and worker calls are not implemented yet."
+        ),
+        progress_stage="job_orchestration_retry_continuation_ready",
+        progress_message="Approved retry history is staged for future planning.",
+        validation_status="pass",
+        validation_summary=(
+            "The retry continuation scaffold composed approved catalog, history, "
+            "and existing job state."
+        ),
+        validation_checks=[
+            {"name": "integration_job_state_scaffold", "status": "pass"},
+            {"name": "retry_command", "status": "pass"},
+            {"name": "approved_entity_catalog", "status": "pass"},
+            {"name": "approved_history_retrieval", "status": "pass"},
+            {"name": "model_provider", "status": "not_called"},
+            {"name": "worker", "status": "not_called"},
+            {"name": "chart_rendering", "status": "not_called"},
+        ],
+        entities=_snapshot_entities(catalog_items, requested_entity_ids),
+        warnings=[
+            "job_orchestration_retry_continuation_scaffold",
+            "model_provider_not_called",
+            "worker_not_called",
+            "chart_rendering_not_started",
+        ],
+    )
+    run = _record_run(
+        store,
+        command=command,
+        job=job,
+        result_code="retry_approved_history_ready",
+        requested_entity_ids=requested_entity_ids,
+        history_entity_ids=[series["entity_id"] for series in history_result["history_series"]],
+        snapshot_ids=_snapshot_ids(job),
+    )
+    return _accepted(
+        "job_orchestration_retry_continuation_ready",
+        command,
+        ready_snapshot,
+        run=run,
+        history_result=history_result,
+        approved_entity_catalog_read=True,
+        home_assistant_history_read=True,
+        history_retrieval_written=True,
+        job_state_written=True,
+        job_orchestration_written=True,
+        retry_behavior_called=True,
+    )
+
+
 def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -> dict[str, Any]:
     """Deterministically select scaffold entity IDs from prompt text and catalog labels."""
     explicit_entity_ids = _unique(ENTITY_ID_IN_PROMPT.findall(prompt.lower()))
@@ -492,11 +690,13 @@ def job_orchestration_side_effects(
     history_retrieval_written: bool = False,
     job_state_written: bool = False,
     job_orchestration_written: bool = False,
+    retry_behavior_called: bool = False,
     websocket_command_registered: bool = False,
 ) -> dict[str, bool]:
     """Return side-effect accounting for the job orchestration scaffold."""
     return {
         **NO_JOB_ORCHESTRATION_CALLS,
+        "retry_behavior_called": retry_behavior_called,
         "approved_entity_catalog_read": approved_entity_catalog_read,
         "home_assistant_history_read": home_assistant_history_read,
         "history_retrieval_scaffold_written": history_retrieval_written,
@@ -559,6 +759,36 @@ def _append_clarification_answer_accepted_snapshot(
         ],
         entities=[{"entity_id": entity_id, "label": entity_id}],
         warnings=warnings,
+    )
+
+
+def _append_retry_accepted_snapshot(
+    job: dict[str, Any],
+    *,
+    failed_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    failure_code = failed_snapshot.get("failure", {}).get("code", "failed")
+    return append_validated_job_snapshot(
+        job,
+        status="planning",
+        state_label="Retry Accepted",
+        message="Retry accepted for a failed scaffold job; approved history retrieval will run again.",
+        progress_stage="job_orchestration_retry_accepted",
+        progress_message=f"Retrying after scaffold failure {failure_code}.",
+        validation_status="pass",
+        validation_summary="The retry command targeted a failed retryable scaffold job.",
+        validation_checks=[
+            {"name": "integration_job_state_scaffold", "status": "pass"},
+            {"name": "retry_command", "status": "pass"},
+            {"name": "approved_entity_catalog", "status": "not_run"},
+            {"name": "approved_history_retrieval", "status": "not_run"},
+            {"name": "model_provider", "status": "not_called"},
+            {"name": "worker", "status": "not_called"},
+        ],
+        warnings=[
+            "job_orchestration_retry_continuation_scaffold",
+            "retry_accepted",
+        ],
     )
 
 
@@ -674,6 +904,7 @@ def _accepted(
     history_retrieval_written: bool = False,
     job_state_written: bool = False,
     job_orchestration_written: bool = False,
+    retry_behavior_called: bool = False,
 ) -> dict[str, Any]:
     result = {
         "accepted": True,
@@ -690,6 +921,7 @@ def _accepted(
             history_retrieval_written=history_retrieval_written,
             job_state_written=job_state_written,
             job_orchestration_written=job_orchestration_written,
+            retry_behavior_called=retry_behavior_called,
         ),
     }
     if history_result is not None:
@@ -847,6 +1079,24 @@ def _pending_clarification_for_job(job: dict[str, Any]) -> dict[str, Any]:
         "code": "accepted",
         "snapshot": snapshot,
         "clarification": clarification,
+    }
+
+
+def _retryable_failure_for_job(job: dict[str, Any]) -> dict[str, Any]:
+    snapshot = job.get("latest_snapshot")
+    if (
+        not isinstance(snapshot, dict)
+        or snapshot.get("status") != "failed"
+        or snapshot.get("retry_allowed") is not True
+    ):
+        return {
+            "accepted": False,
+            "code": "job_not_retryable",
+        }
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "snapshot": snapshot,
     }
 
 

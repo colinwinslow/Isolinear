@@ -6,9 +6,9 @@ MVP design phase closed. The first production Home Assistant custom integration
 scaffold, config-flow/options surface, dashboard resource registration surface,
 WebSocket command registration surface, job state scaffold, approved entity
 catalog, approved history retrieval, and job orchestration scaffold are
-anchored, including the first clarification-answer continuation path. The next
-packet should keep orchestration work narrow by defining retry continuation
-only, while preserving the existing schema-first, BDD-first workflow.
+anchored, including clarification-answer and retry continuation paths. The next
+packet should keep orchestration work narrow by defining subscription/progress
+streaming only, while preserving the existing schema-first, BDD-first workflow.
 
 ## Product summary
 
@@ -315,23 +315,42 @@ The paired spec/BDD/eval/evidence and
 `evals/home_assistant_job_orchestration_clarification_continuation_scaffold.py`
 prove the anchor.
 
+Home Assistant job orchestration retry continuation scaffold anchor is
+complete. Enabled `isolinear/v1/job/retry` callbacks now resume the same
+config-entry-scoped job only when its latest snapshot is a failed retryable
+scaffold snapshot, reuse the original job prompt through the current approved
+catalog and approved fake history retrieval boundary, append schema-valid
+retry-accepted/fetching-history/scaffold-ready snapshots, and store per-entry
+retry continuation run summaries. Unknown jobs, cross-config-entry jobs, and
+non-retryable jobs fail closed before history read and without retry
+continuation snapshots. The packet remains non-rendering and non-mutating: it
+does not call the worker, model provider, semantic-memory storage helpers,
+Home Assistant service/state mutation APIs, token generation, chart artifact
+writes, chart rendering, durable storage, subscription progress streaming,
+automatic retry loops, worker retry behavior, or production orchestration
+beyond scaffold bookkeeping. The paired spec/BDD/eval/evidence and
+`evals/home_assistant_job_orchestration_retry_continuation_scaffold.py` prove
+the anchor.
+
 ## Next recommended packet
 
-Home Assistant job orchestration retry continuation scaffold anchor:
+Home Assistant job orchestration subscription/progress streaming scaffold
+anchor:
 
-1. Write paired BDD/evidence before code for the first retry continuation path
-   after a failed scaffold job snapshot.
+1. Write paired BDD/evidence before code for the first subscription/progress
+   streaming path after scaffold job state changes.
 2. Build the smallest inspectable config-entry-scoped flow for
-   `isolinear/v1/job/retry` that operates only on the targeted config-entry
-   job, reuses deterministic scaffold inputs, and appends schema-valid retry
-   continuation snapshots.
+   `isolinear/v1/job/subscribe` that records a subscription and emits or stores
+   schema-valid progress events/snapshots only for the targeted config-entry
+   job.
 3. Keep the packet non-rendering and non-mutating: no model-provider calls,
    worker calls, semantic-memory persistence, token generation, chart artifact
    writes, chart rendering, Home Assistant service/state mutation, durable
-   storage beyond scaffold bookkeeping, or subscription progress streaming.
-4. Prove retry acceptance, unknown job rejection, cross-config-entry rejection,
-   no work for non-retryable states if applicable, per-config-entry isolation,
-   and schema-valid snapshots before storage/return.
+   storage beyond scaffold bookkeeping, or production streaming beyond the
+   bounded scaffold event shape.
+4. Prove subscription acceptance, unknown job rejection, cross-config-entry
+   rejection, per-config-entry isolation, and schema-valid snapshots/events
+   before storage/return.
 5. Prove the anchor with unit tests, a focused eval, raw evidence, on-disk
    verification, BDD-evidence review, and standalone architecture review.
 
@@ -346,8 +365,8 @@ Home Assistant job orchestration retry continuation scaffold anchor:
   adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
-- Production Home Assistant retry semantics, subscription/progress streaming,
-  render planning, and artifact storage beyond scaffold snapshots.
+- Production Home Assistant subscription/progress streaming, render planning,
+  artifact storage, and retry/backoff policy beyond scaffold snapshots.
 
 ## Session log
 

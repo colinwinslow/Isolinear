@@ -33,6 +33,12 @@ custom integration implementation slices.
   entity catalog, and approved fake history while preserving model, worker,
   rendering, mutation, memory, token, artifact, durable-storage, and real
   orchestration boundaries.
+- **Home Assistant job orchestration retry continuation scaffold anchor** - the
+  integration owns a config-entry-scoped `job/retry` scaffold that resumes a
+  retryable failed job through approved catalog and approved fake history while
+  preserving model, worker, rendering, mutation, memory, token, artifact,
+  durable-storage, streaming, automatic-retry, worker-retry, and production
+  orchestration boundaries.
 
 ## Validation
 
@@ -61,3 +67,7 @@ custom integration implementation slices.
   `job/start` state transitions, approved catalog/history composition,
   catalog-gate failure, missing approved history failure, per-config-entry
   isolation, schema-valid snapshots, and bounded side-effect proof.
+- `evals/home_assistant_job_orchestration_retry_continuation_scaffold.py` -
+  deterministic `job/retry` continuation transitions for retryable failed jobs,
+  unknown-job and non-retryable rejection, per-config-entry isolation,
+  schema-valid snapshots, and bounded side-effect proof.
