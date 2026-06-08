@@ -47,6 +47,6 @@ Executable Python checks derived from BDD scenarios. They emit deterministic `CA
 First production Home Assistant custom integration scaffold. It currently
 contains the manifest, domain constants, local-first configuration/options data
 shape, dashboard resource registration, WebSocket command registration, and a
-config-entry-scoped in-memory job snapshot scaffold for `isolinear/v1/`
-commands without worker, model-provider, history, semantic-memory, artifact, or
-mutation orchestration.
+config-entry-scoped in-memory approved entity catalog plus job snapshot
+scaffold for `isolinear/v1/` commands without worker, model-provider, history,
+semantic-memory, artifact, or mutation orchestration.

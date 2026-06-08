@@ -4,9 +4,10 @@
 
 MVP design phase closed. The first production Home Assistant custom integration
 scaffold, config-flow/options surface, dashboard resource registration surface,
-WebSocket command registration surface, and job state scaffold are anchored.
-The next packet should define the first approved-entity catalog scaffold for
-the integration while preserving the existing schema-first, BDD-first workflow.
+WebSocket command registration surface, job state scaffold, and approved entity
+catalog scaffold are anchored. The next packet should define the first
+approved-history retrieval scaffold for the integration while preserving the
+existing schema-first, BDD-first workflow.
 
 ## Product summary
 
@@ -236,21 +237,39 @@ artifact writes, durable storage, or real job orchestration. The paired
 spec/BDD/eval/evidence and `evals/home_assistant_job_state_scaffold.py` prove
 the anchor.
 
+Home Assistant approved entity catalog scaffold anchor is complete.
+`custom_components/isolinear/entity_catalog.py` now owns the smallest
+production config-entry-scoped approved entity catalog surface.
+`async_setup_entry` builds and stores one in-memory catalog from the configured
+`entity_allowlist` plus fake Home Assistant entity/state metadata, producing
+only schema-valid `EntityCatalogItem` records with `visible_to_agent: true`.
+Catalog construction validates every item before storage/return, stores
+atomically, keeps catalogs isolated per config entry, rejects unknown
+allowlisted entities, clears any previous catalog on rejected rebuilds so stale
+metadata cannot remain visible, and rejects malformed allowlists and malformed
+normalized items with structured errors before storage. This packet remains
+non-orchestrating: it does not call the worker, model provider, Home Assistant
+history APIs, semantic-memory storage helpers, Home Assistant service/state
+mutation APIs, token generation, chart artifact writes, WebSocket command
+registration, dashboard-resource metadata writes, durable storage, or real job
+orchestration. The paired spec/BDD/eval/evidence and
+`evals/home_assistant_approved_entity_catalog_scaffold.py` prove the anchor.
+
 ## Next recommended packet
 
-Home Assistant approved entity catalog scaffold anchor:
+Home Assistant approved history retrieval scaffold anchor:
 
 1. Write paired BDD/evidence before code for the first integration-owned
-   approved entity catalog surface.
-2. Build the smallest inspectable config-entry-scoped catalog from the
-   configured entity allowlist and fake Home Assistant entity/state metadata,
-   producing schema-valid `EntityCatalogItem` records.
-3. Keep the packet non-orchestrating: no history retrieval, model-provider
-   calls, worker calls, semantic-memory persistence, token generation, artifact
-   storage, or service/state mutation.
-4. Prove allowlist enforcement, missing/unknown entity rejection, per-config
-   entry isolation, schema validation before storage/return, and structured
-   errors for malformed catalog inputs.
+   approved history retrieval surface.
+2. Build the smallest inspectable config-entry-scoped history retrieval
+   scaffold from the approved entity catalog and fake Home Assistant history
+   data, producing schema-valid `HistorySeries` records.
+3. Keep the packet non-orchestrating: no model-provider calls, worker calls,
+   semantic-memory persistence, token generation, artifact storage, service or
+   state mutation, chart rendering, or real job orchestration.
+4. Prove catalog/allowlist enforcement, unknown or non-catalog entity
+   rejection, per-config-entry isolation, schema validation before
+   storage/return, and structured errors for malformed history inputs.
 5. Prove the anchor with unit tests, a focused eval, raw evidence, on-disk
    verification, BDD-evidence review, and standalone architecture review.
 
@@ -261,6 +280,8 @@ Home Assistant approved entity catalog scaffold anchor:
   creation/reuse executable evals beyond the existing threshold-backed proofs.
 - Worker token rotation UI, worker health/readiness endpoint, and long-running
   progress streaming semantics.
+- Production entity-registry, device-registry, area-registry, and label
+  adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
 - Production Home Assistant job orchestration, subscription streaming, retry

@@ -29,6 +29,7 @@ implementing slice produces an evidence file proving each scenario was hit.
 - `entity-resolution-spec.md` — Entity allowlist resolution and validation
 - `history-normalization-spec.md` — Numeric and binary state history normalization
 - `home-assistant-config-flow-options-spec.md` — First production Home Assistant config-flow/options surface
+- `home-assistant-approved-entity-catalog-scaffold-spec.md` — Config-entry-scoped approved entity catalog scaffold
 - `home-assistant-dashboard-resource-registration-spec.md` — Integration-owned dashboard card resource registration
 - `home-assistant-integration-scaffold-spec.md` — First production Home Assistant custom integration scaffold
 - `home-assistant-job-state-scaffold-spec.md` — Config-entry-scoped in-memory job state scaffold behind registered WebSocket commands
