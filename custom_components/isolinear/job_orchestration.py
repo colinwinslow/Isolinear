@@ -33,6 +33,8 @@ NO_JOB_ORCHESTRATION_CALLS = {
     "chart_artifact_written": False,
     "chart_rendering_called": False,
     "durable_storage_written": False,
+    "retry_behavior_called": False,
+    "subscription_progress_streaming_called": False,
     "job_orchestration_called": False,
 }
 
@@ -258,6 +260,174 @@ def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]
     )
 
 
+def handle_job_orchestration_clarification_answer_ws_command(
+    hass: Any,
+    command: dict[str, Any],
+) -> dict[str, Any]:
+    """Resume a pending approved-entity clarification through approved history retrieval."""
+    if command["type"] != INTEGRATION_COMMAND_TYPES["answer_clarification"]:
+        return _orchestration_rejection("unsupported_job_orchestration_command")
+
+    entry_id = command["config_entry_id"]
+    entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})
+    entry = entry_data.get("entry")
+    if entry is None:
+        return _orchestration_rejection("unknown_config_entry")
+
+    store = ensure_job_orchestration_store(hass, entry_id)
+    job = _job_for_command(hass, entry_id, command)
+    if job is None:
+        return _orchestration_rejection("unknown_job", job_id=command.get("job_id"))
+
+    pending = _pending_clarification_for_job(job)
+    if not pending["accepted"]:
+        return _reject_clarification_answer(
+            store,
+            command=command,
+            job=job,
+            code=pending["code"],
+        )
+
+    clarification = pending["clarification"]
+    if command["question_id"] != clarification["question_id"]:
+        return _reject_clarification_answer(
+            store,
+            command=command,
+            job=job,
+            code="clarification_question_mismatch",
+        )
+
+    selected = _selected_clarification_entity(hass, entry_id, clarification, command["option_id"])
+    if not selected["accepted"]:
+        return _reject_clarification_answer(
+            store,
+            command=command,
+            job=job,
+            code=selected["code"],
+            approved_entity_catalog_read=selected.get("approved_entity_catalog_read", False),
+        )
+
+    selected_entity_id = selected["entity_id"]
+    catalog_items = selected["catalog_items"]
+    job.setdefault("clarification_answers", []).append(
+        {
+            "question_id": command["question_id"],
+            "option_id": command["option_id"],
+            "remember": command["remember"],
+            "entity_id": selected_entity_id,
+        }
+    )
+    _append_clarification_answer_accepted_snapshot(
+        job,
+        entity_id=selected_entity_id,
+        remember=command["remember"],
+    )
+    _append_fetching_history_snapshot(job, [selected_entity_id])
+
+    time_range = _default_history_time_range(hass)
+    history_result = retrieve_approved_history(
+        hass,
+        entry,
+        entity_ids=[selected_entity_id],
+        start=time_range["start"],
+        end=time_range["end"],
+    )
+    if not history_result["accepted"]:
+        failed_snapshot = _append_failed_snapshot(
+            job,
+            code=history_result["code"],
+            stage="approved_history_retrieval",
+            message=_failure_message(history_result),
+            checks=[
+                {"name": "integration_job_state_scaffold", "status": "pass"},
+                {"name": "approved_entity_catalog", "status": "pass"},
+                {"name": "clarification_answer", "status": "pass"},
+                {"name": "approved_history_retrieval", "status": "fail"},
+                {"name": "model_provider", "status": "not_called"},
+                {"name": "worker", "status": "not_called"},
+            ],
+        )
+        run = _record_run(
+            store,
+            command=command,
+            job=job,
+            result_code=history_result["code"],
+            requested_entity_ids=[selected_entity_id],
+            history_entity_ids=[],
+            snapshot_ids=_snapshot_ids(job),
+            missing_entity_ids=history_result.get("missing_entity_ids"),
+            rejected_entity_ids=history_result.get("rejected_entity_ids"),
+            clarification_answer=_clarification_answer_summary(command, selected_entity_id),
+        )
+        return _accepted(
+            "job_orchestration_clarification_continuation_failed",
+            command,
+            failed_snapshot,
+            run=run,
+            history_result=history_result,
+            approved_entity_catalog_read=True,
+            home_assistant_history_read=history_result["orchestration"].get("home_assistant_history_read", False),
+            history_retrieval_written=False,
+            job_state_written=True,
+            job_orchestration_written=True,
+        )
+
+    ready_snapshot = append_validated_job_snapshot(
+        job,
+        status="planning",
+        state_label="Ready",
+        message=(
+            "Clarification answer selected an approved entity and history is ready "
+            "for a later planning packet; model and worker calls are not implemented yet."
+        ),
+        progress_stage="job_orchestration_clarification_continuation_ready",
+        progress_message="Approved clarification history is staged for future planning.",
+        validation_status="pass",
+        validation_summary=(
+            "The clarification continuation scaffold composed approved catalog, "
+            "the selected option, history, and job state."
+        ),
+        validation_checks=[
+            {"name": "integration_job_state_scaffold", "status": "pass"},
+            {"name": "approved_entity_catalog", "status": "pass"},
+            {"name": "clarification_answer", "status": "pass"},
+            {"name": "approved_history_retrieval", "status": "pass"},
+            {"name": "model_provider", "status": "not_called"},
+            {"name": "worker", "status": "not_called"},
+            {"name": "chart_rendering", "status": "not_called"},
+        ],
+        entities=_snapshot_entities(catalog_items, [selected_entity_id]),
+        warnings=[
+            "job_orchestration_clarification_continuation_scaffold",
+            "model_provider_not_called",
+            "worker_not_called",
+            "chart_rendering_not_started",
+        ],
+    )
+    run = _record_run(
+        store,
+        command=command,
+        job=job,
+        result_code="clarification_approved_history_ready",
+        requested_entity_ids=[selected_entity_id],
+        history_entity_ids=[series["entity_id"] for series in history_result["history_series"]],
+        snapshot_ids=_snapshot_ids(job),
+        clarification_answer=_clarification_answer_summary(command, selected_entity_id),
+    )
+    return _accepted(
+        "job_orchestration_clarification_continuation_ready",
+        command,
+        ready_snapshot,
+        run=run,
+        history_result=history_result,
+        approved_entity_catalog_read=True,
+        home_assistant_history_read=True,
+        history_retrieval_written=True,
+        job_state_written=True,
+        job_orchestration_written=True,
+    )
+
+
 def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -> dict[str, Any]:
     """Deterministically select scaffold entity IDs from prompt text and catalog labels."""
     explicit_entity_ids = _unique(ENTITY_ID_IN_PROMPT.findall(prompt.lower()))
@@ -358,6 +528,40 @@ def _append_fetching_history_snapshot(job: dict[str, Any], entity_ids: list[str]
     )
 
 
+def _append_clarification_answer_accepted_snapshot(
+    job: dict[str, Any],
+    *,
+    entity_id: str,
+    remember: bool,
+) -> dict[str, Any]:
+    warnings = [
+        "job_orchestration_clarification_continuation_scaffold",
+        "clarification_answer_accepted",
+    ]
+    if remember:
+        warnings.append("semantic_memory_not_persisted_in_scaffold")
+    return append_validated_job_snapshot(
+        job,
+        status="planning",
+        state_label="Clarification Accepted",
+        message="Approved clarification option accepted; approved history retrieval will continue.",
+        progress_stage="clarification_answer_accepted",
+        progress_message=f"Continuing with approved entity {entity_id}.",
+        validation_status="pass",
+        validation_summary="The returned clarification option matched an approved entity option.",
+        validation_checks=[
+            {"name": "integration_job_state_scaffold", "status": "pass"},
+            {"name": "approved_entity_catalog", "status": "pass"},
+            {"name": "clarification_answer", "status": "pass"},
+            {"name": "approved_history_retrieval", "status": "not_run"},
+            {"name": "model_provider", "status": "not_called"},
+            {"name": "worker", "status": "not_called"},
+        ],
+        entities=[{"entity_id": entity_id, "label": entity_id}],
+        warnings=warnings,
+    )
+
+
 def _append_failed_snapshot(
     job: dict[str, Any],
     *,
@@ -433,6 +637,7 @@ def _record_run(
     snapshot_ids: list[str],
     rejected_entity_ids: list[str] | None = None,
     missing_entity_ids: list[str] | None = None,
+    clarification_answer: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     run_number = store["next_run_number"]
     run_id = f"{store['entry_id']}-orchestration-run-{run_number:03d}"
@@ -440,7 +645,7 @@ def _record_run(
         "run_id": run_id,
         "entry_id": store["entry_id"],
         "job_id": job["job_id"],
-        "prompt": command["prompt"],
+        "prompt": command.get("prompt", job.get("prompt", "")),
         "result_code": result_code,
         "requested_entity_ids": list(requested_entity_ids),
         "history_entity_ids": list(history_entity_ids),
@@ -448,6 +653,8 @@ def _record_run(
         "rejected_entity_ids": list(rejected_entity_ids or []),
         "missing_entity_ids": list(missing_entity_ids or []),
     }
+    if clarification_answer is not None:
+        run["clarification_answer"] = deepcopy(clarification_answer)
     store["next_run_number"] = run_number + 1
     store["runs"][run_id] = deepcopy(run)
     store["run_order"].append(run_id)
@@ -497,15 +704,23 @@ def _accepted(
     return result
 
 
-def _orchestration_rejection(code: str, *, job_id: str | None = None) -> dict[str, Any]:
+def _orchestration_rejection(
+    code: str,
+    *,
+    job_id: str | None = None,
+    orchestration: dict[str, bool] | None = None,
+    run: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     result = {
         "accepted": False,
         "code": code,
         "render_attempted": False,
-        "orchestration": job_orchestration_side_effects(),
+        "orchestration": orchestration or job_orchestration_side_effects(),
     }
     if job_id is not None:
         result["job_id"] = job_id
+    if run is not None:
+        result["run"] = deepcopy(run)
     return result
 
 
@@ -527,6 +742,14 @@ def _job_for_result(hass: Any, entry_id: str, result: dict[str, Any]) -> dict[st
     store = entry_data.get(DATA_JOB_STATE, {}) if isinstance(entry_data, dict) else {}
     jobs = store.get("jobs", {}) if isinstance(store, dict) else {}
     job = jobs.get(result.get("job_id"))
+    return job if isinstance(job, dict) else None
+
+
+def _job_for_command(hass: Any, entry_id: str, command: dict[str, Any]) -> dict[str, Any] | None:
+    entry_data = hass.data.get(DOMAIN, {}).get(entry_id, {})
+    store = entry_data.get(DATA_JOB_STATE, {}) if isinstance(entry_data, dict) else {}
+    jobs = store.get("jobs", {}) if isinstance(store, dict) else {}
+    job = jobs.get(command.get("job_id"))
     return job if isinstance(job, dict) else None
 
 
@@ -604,6 +827,114 @@ def _clarification_option_for_item(item: dict[str, Any]) -> dict[str, Any]:
 
 def _option_id_for_entity(entity_id: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_]+", "_", entity_id).strip("_")
+
+
+def _pending_clarification_for_job(job: dict[str, Any]) -> dict[str, Any]:
+    snapshot = job.get("latest_snapshot")
+    if not isinstance(snapshot, dict) or snapshot.get("status") != "clarification_needed":
+        return {
+            "accepted": False,
+            "code": "job_not_awaiting_clarification",
+        }
+    clarification = snapshot.get("clarification")
+    if not isinstance(clarification, dict) or not isinstance(clarification.get("options"), list):
+        return {
+            "accepted": False,
+            "code": "job_not_awaiting_clarification",
+        }
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "snapshot": snapshot,
+        "clarification": clarification,
+    }
+
+
+def _selected_clarification_entity(
+    hass: Any,
+    entry_id: str,
+    clarification: dict[str, Any],
+    option_id: str,
+) -> dict[str, Any]:
+    returned_option_ids = {
+        option.get("option_id")
+        for option in clarification.get("options", [])
+        if isinstance(option, dict)
+    }
+    if option_id not in returned_option_ids:
+        return {
+            "accepted": False,
+            "code": "unknown_clarification_option",
+            "approved_entity_catalog_read": False,
+        }
+
+    catalog_items = _approved_catalog_items(hass, entry_id)
+    matches = [
+        item
+        for item in catalog_items
+        if isinstance(item.get("entity_id"), str) and _option_id_for_entity(item["entity_id"]) == option_id
+    ]
+    if len(matches) == 1:
+        return {
+            "accepted": True,
+            "code": "accepted",
+            "entity_id": matches[0]["entity_id"],
+            "catalog_items": catalog_items,
+            "approved_entity_catalog_read": True,
+        }
+    if len(matches) > 1:
+        return {
+            "accepted": False,
+            "code": "ambiguous_clarification_option",
+            "approved_entity_catalog_read": True,
+        }
+
+    return {
+        "accepted": False,
+        "code": "clarification_option_not_in_approved_catalog",
+        "approved_entity_catalog_read": True,
+    }
+
+
+def _reject_clarification_answer(
+    store: dict[str, Any],
+    *,
+    command: dict[str, Any],
+    job: dict[str, Any],
+    code: str,
+    approved_entity_catalog_read: bool = False,
+) -> dict[str, Any]:
+    run = _record_run(
+        store,
+        command=command,
+        job=job,
+        result_code=code,
+        requested_entity_ids=[],
+        history_entity_ids=[],
+        snapshot_ids=_snapshot_ids(job),
+        clarification_answer=_clarification_answer_summary(command, None),
+    )
+    return _orchestration_rejection(
+        code,
+        job_id=command.get("job_id"),
+        run=run,
+        orchestration=job_orchestration_side_effects(
+            approved_entity_catalog_read=approved_entity_catalog_read,
+            job_orchestration_written=True,
+        ),
+    )
+
+
+def _clarification_answer_summary(
+    command: dict[str, Any],
+    entity_id: str | None,
+) -> dict[str, Any]:
+    return {
+        "question_id": command["question_id"],
+        "option_id": command["option_id"],
+        "remember": command["remember"],
+        "entity_id": entity_id,
+    }
 
 
 def _snapshot_ids(job: dict[str, Any]) -> list[str]:

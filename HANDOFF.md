@@ -6,9 +6,9 @@ MVP design phase closed. The first production Home Assistant custom integration
 scaffold, config-flow/options surface, dashboard resource registration surface,
 WebSocket command registration surface, job state scaffold, approved entity
 catalog, approved history retrieval, and job orchestration scaffold are
-anchored. The next packet should keep orchestration work narrow by defining the
-clarification-answer continuation path only, while preserving the existing
-schema-first, BDD-first workflow.
+anchored, including the first clarification-answer continuation path. The next
+packet should keep orchestration work narrow by defining retry continuation
+only, while preserving the existing schema-first, BDD-first workflow.
 
 ## Product summary
 
@@ -296,24 +296,42 @@ and `evals/home_assistant_job_orchestration_scaffold.py` prove the anchor.
 This packet was larger than ideal; follow-on orchestration work should be split
 into smaller bounded packets.
 
+Home Assistant job orchestration clarification continuation scaffold anchor is
+complete. Enabled `isolinear/v1/clarification/answer` callbacks now resume the
+same config-entry-scoped job when its latest snapshot is
+`clarification_needed`, require a matching question ID, accept only returned
+approved option IDs that resolve to exactly one current approved catalog
+entity, retrieve approved fake history through the existing history boundary,
+append schema-valid clarification-accepted/fetching-history/scaffold-ready
+snapshots, and store per-entry continuation run summaries. Unknown options,
+wrong question IDs, colliding option IDs, unknown jobs, non-clarification jobs,
+and cross-config-entry jobs fail closed before history read and without
+continuation snapshots. The packet remains non-rendering and non-mutating: it
+does not call the worker, model provider, semantic-memory storage helpers,
+Home Assistant service/state mutation APIs, token generation, chart artifact
+writes, chart rendering, durable storage, retry behavior, subscription
+progress streaming, or production orchestration beyond scaffold bookkeeping.
+The paired spec/BDD/eval/evidence and
+`evals/home_assistant_job_orchestration_clarification_continuation_scaffold.py`
+prove the anchor.
+
 ## Next recommended packet
 
-Home Assistant job orchestration clarification continuation scaffold anchor:
+Home Assistant job orchestration retry continuation scaffold anchor:
 
-1. Write paired BDD/evidence before code for the first clarification-answer
-   continuation path after a `job/start` ambiguity snapshot.
+1. Write paired BDD/evidence before code for the first retry continuation path
+   after a failed scaffold job snapshot.
 2. Build the smallest inspectable config-entry-scoped flow for
-   `isolinear/v1/clarification/answer` that accepts a returned approved option
-   ID, resumes the same job through approved history retrieval, and appends
-   schema-valid continuation snapshots.
+   `isolinear/v1/job/retry` that operates only on the targeted config-entry
+   job, reuses deterministic scaffold inputs, and appends schema-valid retry
+   continuation snapshots.
 3. Keep the packet non-rendering and non-mutating: no model-provider calls,
    worker calls, semantic-memory persistence, token generation, chart artifact
    writes, chart rendering, Home Assistant service/state mutation, durable
-   storage, retry behavior, or subscription progress streaming.
-4. Prove accepted clarification continuation, unknown option failure,
-   cross-config-entry/job rejection, no history read before a valid approved
-   option is selected, per-config-entry isolation, and schema-valid snapshots
-   before storage/return.
+   storage beyond scaffold bookkeeping, or subscription progress streaming.
+4. Prove retry acceptance, unknown job rejection, cross-config-entry rejection,
+   no work for non-retryable states if applicable, per-config-entry isolation,
+   and schema-valid snapshots before storage/return.
 5. Prove the anchor with unit tests, a focused eval, raw evidence, on-disk
    verification, BDD-evidence review, and standalone architecture review.
 
@@ -328,9 +346,8 @@ Home Assistant job orchestration clarification continuation scaffold anchor:
   adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
-- Production Home Assistant clarification continuation, retry semantics,
-  subscription/progress streaming, render planning, and artifact storage beyond
-  scaffold snapshots.
+- Production Home Assistant retry semantics, subscription/progress streaming,
+  render planning, and artifact storage beyond scaffold snapshots.
 
 ## Session log
 

@@ -48,6 +48,8 @@ First production Home Assistant custom integration scaffold. It currently
 contains the manifest, domain constants, local-first configuration/options data
 shape, dashboard resource registration, WebSocket command registration, and a
 config-entry-scoped in-memory approved entity catalog, approved history
-retrieval scaffold, and job snapshot scaffold for `isolinear/v1/` commands
-without worker, model-provider, semantic-memory, artifact, rendering, durable
-storage, or mutation orchestration.
+retrieval scaffold, job snapshot scaffold, job-start orchestration scaffold,
+and clarification-answer continuation scaffold for `isolinear/v1/` commands
+without worker, model-provider, semantic-memory persistence, artifact,
+rendering, durable storage, retry behavior, subscription progress streaming, or
+mutation orchestration.
