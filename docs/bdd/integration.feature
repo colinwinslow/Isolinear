@@ -1,7 +1,7 @@
-Feature: Home Assistant integration scaffold
-  The integration package should provide the first production Home Assistant
-  custom integration surface without bypassing schema, worker, allowlist, or
-  read-only safety boundaries.
+Feature: Home Assistant integration anchors
+  The integration package should provide production Home Assistant integration
+  surfaces without bypassing schema, worker, allowlist, or read-only safety
+  boundaries.
 
   Scenario: Scaffold package is visible to Home Assistant
     Given the repository has entered the production integration scaffold packet
@@ -35,3 +35,28 @@ Feature: Home Assistant integration scaffold
     When the scaffold command boundary validates it
     Then the command should be rejected before orchestration
     And no worker, model-provider, history, semantic-memory, or mutation call should occur
+
+  Scenario: Config flow is visible to Home Assistant
+    Given the integration scaffold package exists
+    When the config-flow anchor inspects custom_components/isolinear
+    Then the manifest should enable config_flow
+    And the package should expose config-flow and options-flow classes
+
+  Scenario: User config flow creates validated local-first data
+    Given a user submits model and worker endpoint settings through the config flow
+    When the config-flow validator normalizes the user input
+    Then the result should be accepted
+    And blank optional model fields should become null
+    And the result should contain only validated config-entry data
+
+  Scenario: Options flow persists safe options
+    Given an existing config entry has valid local-first config data
+    When the options-flow validator receives render-mode, repair-attempt, and entity-allowlist input
+    Then the result should be accepted
+    And user-facing allowlist text should become a deterministic entity ID list
+
+  Scenario: Invalid setup flow input fails closed
+    Given config-flow or options-flow input contains invalid or secret-bearing material
+    When the setup flow validator checks the input
+    Then the input should be rejected before persistence
+    And no worker, model-provider, history, semantic-memory, mutation, token-generation, or dashboard-resource registration call should occur

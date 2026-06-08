@@ -3,8 +3,9 @@
 ## Current project phase
 
 MVP design phase closed. The first production Home Assistant custom integration
-scaffold is anchored. The next packet should add the first config-flow/options
-anchor while preserving the existing schema-first, BDD-first workflow.
+scaffold and config-flow/options surface are anchored. The next packet should
+define the first dashboard resource registration anchor while preserving the
+existing schema-first, BDD-first workflow.
 
 ## Product summary
 
@@ -166,18 +167,33 @@ Assistant mutation services. The paired spec/BDD/eval/evidence and
 architecture reviews should use the updated 10 minute timeout guidance in
 `codex/review-architecture.md`.
 
+Home Assistant config flow/options anchor is complete. The manifest now enables
+`config_flow`, and `custom_components/isolinear/config_flow.py` provides a
+minimal Home Assistant user config step plus options init step. The flow reuses
+the existing pure config/options validation helpers, normalizes blank optional
+model fields to `null`, normalizes user-facing allowlist text into a
+deterministic entity list, and rejects credential-bearing endpoints,
+secret-like values, unsupported render modes, duplicate allowlists, malformed
+entity IDs, and forbidden secret material before config-entry or options
+persistence. The packet remains non-orchestrating: it does not call the worker,
+model provider, Home Assistant history APIs, semantic-memory storage helpers,
+Home Assistant services, token generation, or dashboard resource registration.
+The paired spec/BDD/eval/evidence and
+`evals/home_assistant_config_flow_options.py` prove the anchor.
+
 ## Next recommended packet
 
-Home Assistant config flow/options anchor:
+Home Assistant dashboard resource registration anchor:
 
-1. Write paired BDD/evidence before code for config-flow/options behavior.
-2. Add the smallest inspectable Home Assistant config-flow/options surface for
-   the scaffold package.
-3. Reuse the existing pure config/options validation helpers rather than
-   duplicating validation logic.
-4. Keep worker token generation/rotation, dashboard resource registration,
-   history access, model calls, semantic-memory persistence, and orchestration
-   out of this packet unless a new spec/ADR explicitly expands scope.
+1. Write paired BDD/evidence before code for dashboard resource registration
+   behavior.
+2. Define the smallest inspectable integration-owned resource registration
+   surface for the existing `custom:isolinear-card` bundle.
+3. Keep card resource registration separate from worker token generation,
+   history access, model calls, semantic-memory persistence, and job
+   orchestration unless a new spec/ADR explicitly expands scope.
+4. Prove that registration is idempotent, config-entry scoped where relevant,
+   and non-mutating outside Home Assistant dashboard resource metadata.
 5. Prove the anchor with unit tests, a focused eval, raw evidence, and on-disk
    verification.
 
@@ -191,7 +207,7 @@ Home Assistant config flow/options anchor:
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
 - Exact dashboard resource auto-registration behavior once the integration
-  scaffold exists.
+  scaffold/config-flow surface exists.
 
 ## Session log
 
