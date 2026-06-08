@@ -4,9 +4,9 @@
 
 MVP design phase closed. The first production Home Assistant custom integration
 scaffold, config-flow/options surface, dashboard resource registration surface,
-and WebSocket command registration surface are anchored. The next packet should
-define the first production Home Assistant job state scaffold anchor while
-preserving the existing schema-first, BDD-first workflow.
+WebSocket command registration surface, and job state scaffold are anchored.
+The next packet should define the first approved-entity catalog scaffold for
+the integration while preserving the existing schema-first, BDD-first workflow.
 
 ## Product summary
 
@@ -217,21 +217,40 @@ job orchestration, or dashboard-resource metadata writes. The paired
 spec/BDD/eval/evidence and
 `evals/home_assistant_websocket_command_registration.py` prove the anchor.
 
+Home Assistant job state scaffold anchor is complete.
+`custom_components/isolinear/job_state.py` now owns the smallest production
+in-memory job state surface behind the registered WebSocket commands.
+`async_setup_entry` initializes one config-entry-scoped job store, registered
+callbacks use it after deterministic command validation and config-entry scope
+validation, and `async_unload_entry` removes entry job state by removing the
+entry data. The store creates deterministic job IDs and snapshot IDs for a
+fresh runtime, validates every scaffold `IntegrationJobSnapshot` against JSON
+Schema before storage, returns latest snapshots, records retry and
+clarification-answer scaffold snapshots, records a subscription callback/event
+shape, rejects unknown and cross-config-entry job IDs with structured
+`unknown_job` errors, and keeps all state scoped to the command's
+`config_entry_id`. This packet remains non-orchestrating: it does not call the
+worker, model provider, Home Assistant history APIs, semantic-memory storage
+helpers, Home Assistant service/state mutation APIs, token generation, chart
+artifact writes, durable storage, or real job orchestration. The paired
+spec/BDD/eval/evidence and `evals/home_assistant_job_state_scaffold.py` prove
+the anchor.
+
 ## Next recommended packet
 
-Home Assistant job state scaffold anchor:
+Home Assistant approved entity catalog scaffold anchor:
 
-1. Write paired BDD/evidence before code for the first integration-owned job
-   state surface behind the registered WebSocket commands.
-2. Replace one-shot scaffold snapshots with the smallest inspectable
-   config-entry-scoped job snapshot store for start, snapshot, retry, and
-   subscription command behavior.
-3. Keep the packet non-orchestrating: no Home Assistant history retrieval,
-   model-provider calls, worker calls, semantic-memory persistence, token
-   generation, artifact storage, or service/state mutation.
-4. Prove deterministic job IDs or snapshot IDs, per-config-entry isolation,
-   subscription callback shape, retry/snapshot failure cases, unload cleanup,
-   and structured errors for unknown jobs.
+1. Write paired BDD/evidence before code for the first integration-owned
+   approved entity catalog surface.
+2. Build the smallest inspectable config-entry-scoped catalog from the
+   configured entity allowlist and fake Home Assistant entity/state metadata,
+   producing schema-valid `EntityCatalogItem` records.
+3. Keep the packet non-orchestrating: no history retrieval, model-provider
+   calls, worker calls, semantic-memory persistence, token generation, artifact
+   storage, or service/state mutation.
+4. Prove allowlist enforcement, missing/unknown entity rejection, per-config
+   entry isolation, schema validation before storage/return, and structured
+   errors for malformed catalog inputs.
 5. Prove the anchor with unit tests, a focused eval, raw evidence, on-disk
    verification, BDD-evidence review, and standalone architecture review.
 

@@ -31,6 +31,7 @@ implementing slice produces an evidence file proving each scenario was hit.
 - `home-assistant-config-flow-options-spec.md` — First production Home Assistant config-flow/options surface
 - `home-assistant-dashboard-resource-registration-spec.md` — Integration-owned dashboard card resource registration
 - `home-assistant-integration-scaffold-spec.md` — First production Home Assistant custom integration scaffold
+- `home-assistant-job-state-scaffold-spec.md` — Config-entry-scoped in-memory job state scaffold behind registered WebSocket commands
 - `home-assistant-websocket-command-registration-spec.md` — Production Home Assistant WebSocket command registration boundary
 - `integration-api-transport-auth-spec.md` — Integration WebSocket API and worker transport authentication
 - `integration-spec.md` — Home Assistant custom integration interface

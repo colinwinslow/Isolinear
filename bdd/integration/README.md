@@ -20,6 +20,10 @@ custom integration implementation slices.
   registers the accepted `isolinear/v1/` card-facing command set through Home
   Assistant's WebSocket API while preserving config-entry scope, idempotence,
   scaffold snapshots, and non-orchestration boundaries.
+- **Home Assistant job state scaffold anchor** - the integration owns a
+  deterministic in-memory job snapshot store behind the registered WebSocket
+  commands while preserving config-entry isolation, unknown-job rejection,
+  unload cleanup, and non-orchestration boundaries.
 
 ## Validation
 
@@ -35,4 +39,8 @@ custom integration implementation slices.
 - `evals/home_assistant_websocket_command_registration.py` - WebSocket command
   registration, setup-entry storage, accepted scaffold snapshot responses,
   fail-closed invalid commands, missing config-entry scope, idempotence, and
+  non-orchestration proof.
+- `evals/home_assistant_job_state_scaffold.py` - deterministic job and
+  snapshot IDs, start/snapshot/retry/clarification/subscribe behavior,
+  per-config-entry isolation, unknown-job rejection, unload cleanup, and
   non-orchestration proof.

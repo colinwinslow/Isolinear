@@ -11,6 +11,7 @@ from .const import (
     INTEGRATION_COMMAND_TYPES,
     INTEGRATION_WS_VERSION,
 )
+from .job_state import handle_job_state_ws_command
 
 
 try:  # pragma: no cover - exercised by Home Assistant, not repo tests.
@@ -115,7 +116,9 @@ NO_WEBSOCKET_ORCHESTRATION_CALLS = {
 
 ERROR_MESSAGES = {
     "forbidden_card_boundary_content": "The command included content that cannot cross the card boundary.",
+    "invalid_integration_job_snapshot": "The Isolinear job snapshot failed schema validation.",
     "invalid_integration_ws_command": "The Isolinear WebSocket command payload is invalid.",
+    "unknown_job": "The requested Isolinear job was not found for this config entry.",
     "unknown_config_entry": "The Isolinear config entry was not found for this command.",
     "unknown_integration_ws_command": "Unknown Isolinear WebSocket command.",
     "unsupported_integration_ws_version": "Unsupported Isolinear WebSocket command version.",
@@ -176,6 +179,7 @@ def handle_registered_ws_command(
     message: dict[str, Any],
 ) -> dict[str, Any]:
     """Validate a Home Assistant WebSocket message and build a response result."""
+    message_id = message.get("id") if isinstance(message, dict) else None
     command = command_payload_from_ws_message(message)
     result = handle_scaffold_ws_command(command)
     if not result["accepted"]:
@@ -185,14 +189,28 @@ def handle_registered_ws_command(
     if not scope["accepted"]:
         return _registered_rejection(scope["code"], config_entry_id=command["config_entry_id"])
 
+    job_result = handle_job_state_ws_command(hass, command, message_id=message_id)
+    if not job_result["accepted"]:
+        return _registered_rejection(
+            job_result["code"],
+            config_entry_id=command["config_entry_id"],
+            job_id=job_result.get("job_id"),
+            orchestration=job_result.get("orchestration"),
+        )
+
     return {
         "accepted": True,
-        "code": "registered_scaffold_command_accepted",
+        "code": "registered_job_state_command_accepted",
         "type": command["type"],
         "version": command["version"],
         "config_entry_id": command["config_entry_id"],
-        "snapshot": result["snapshot"],
-        "orchestration": websocket_registration_side_effects(False),
+        "snapshot": job_result["snapshot"],
+        "job_state": {
+            "code": job_result["code"],
+            "job_id": job_result["job_id"],
+            "subscription": job_result.get("subscription"),
+        },
+        "orchestration": job_result["orchestration"],
     }
 
 
@@ -372,6 +390,8 @@ def _make_ws_handler(command_type: str) -> Callable[..., Any]:
         result = handle_registered_ws_command(hass, msg)
         message_id = msg.get("id") if isinstance(msg, dict) else None
         if result["accepted"]:
+            if result["type"] == INTEGRATION_COMMAND_TYPES["subscribe_job"] and hasattr(connection, "subscriptions"):
+                connection.subscriptions[message_id] = lambda: None
             connection.send_result(message_id, result["snapshot"])
         else:
             connection.send_error(
@@ -419,15 +439,19 @@ def _registered_rejection(
     code: str,
     *,
     config_entry_id: str | None = None,
+    job_id: str | None = None,
+    orchestration: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     result = {
         "accepted": False,
         "code": code,
         "render_attempted": False,
-        "orchestration": websocket_registration_side_effects(False),
+        "orchestration": orchestration or websocket_registration_side_effects(False),
     }
     if config_entry_id is not None:
         result["config_entry_id"] = config_entry_id
+    if job_id is not None:
+        result["job_id"] = job_id
     return result
 
 

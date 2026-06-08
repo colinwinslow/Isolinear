@@ -217,11 +217,36 @@ def verify_setup_entry_websocket_registration(root=None) -> dict[str, Any]:
 def verify_registered_callback_snapshots(root=None) -> dict[str, Any]:
     root = root or repo_root()
     hass, websocket_api_module, registration = _registered_fake_hass()
+    samples = sample_integration_ws_commands()
+    start_result = websocket_api_module.dispatch(hass, {"id": 1, **samples["start_job"]})
+    start_snapshot = _first_result_payload(start_result)
+    job_id = start_snapshot["job_id"] if isinstance(start_snapshot, dict) else "missing-job"
+    commands = {
+        "start_job": samples["start_job"],
+        "answer_clarification": {
+            **samples["answer_clarification"],
+            "job_id": job_id,
+        },
+        "retry_job": {
+            **samples["retry_job"],
+            "job_id": job_id,
+        },
+        "get_snapshot": {
+            **samples["get_snapshot"],
+            "job_id": job_id,
+        },
+        "subscribe_job": {
+            **samples["subscribe_job"],
+            "job_id": job_id,
+        },
+    }
     dispatch_results = {}
     snapshot_validation = {}
-    for index, (name, command) in enumerate(sample_integration_ws_commands().items(), start=1):
-        message = {"id": index, **command}
-        result = websocket_api_module.dispatch(hass, message)
+    for index, (name, command) in enumerate(commands.items(), start=10):
+        if name == "start_job":
+            result = start_result
+        else:
+            result = websocket_api_module.dispatch(hass, {"id": index, **command})
         dispatch_results[name] = result
         snapshot = _first_result_payload(result)
         try:
