@@ -24,6 +24,10 @@ custom integration implementation slices.
   deterministic in-memory job snapshot store behind the registered WebSocket
   commands while preserving config-entry isolation, unknown-job rejection,
   unload cleanup, and non-orchestration boundaries.
+- **Home Assistant approved history retrieval scaffold anchor** - the
+  integration owns a config-entry-scoped approved history store that reads fake
+  Home Assistant history only after the approved catalog gate passes and stores
+  schema-valid `HistorySeries` records.
 
 ## Validation
 
@@ -43,4 +47,8 @@ custom integration implementation slices.
 - `evals/home_assistant_job_state_scaffold.py` - deterministic job and
   snapshot IDs, start/snapshot/retry/clarification/subscribe behavior,
   per-config-entry isolation, unknown-job rejection, unload cleanup, and
+  non-orchestration proof.
+- `evals/home_assistant_approved_history_retrieval_scaffold.py` - approved
+  catalog enforcement, schema-valid history retrieval, per-config-entry
+  isolation, malformed-history rejection, stale-store clearing, and
   non-orchestration proof.

@@ -7,6 +7,7 @@ from typing import Any
 from .const import DOMAIN
 from .dashboard_resource import async_register_dashboard_resource
 from .entity_catalog import setup_entity_catalog
+from .history_retrieval import setup_history_retrieval
 from .job_state import ensure_job_state_store
 from .websocket_api import async_register_websocket_api
 
@@ -25,6 +26,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
     entry_data = domain_data.setdefault(entry_id, {})
     entry_data["entry"] = entry
     entry_data["entity_catalog_setup"] = setup_entity_catalog(hass, entry)
+    entry_data["history_retrieval_setup"] = setup_history_retrieval(hass, entry)
     entry_data["job_state"] = ensure_job_state_store(hass, entry_id)
     entry_data["dashboard_resource"] = await async_register_dashboard_resource(hass, entry)
     entry_data["websocket_api"] = await async_register_websocket_api(hass, entry=entry)

@@ -5,9 +5,10 @@
 MVP design phase closed. The first production Home Assistant custom integration
 scaffold, config-flow/options surface, dashboard resource registration surface,
 WebSocket command registration surface, job state scaffold, and approved entity
-catalog scaffold are anchored. The next packet should define the first
-approved-history retrieval scaffold for the integration while preserving the
-existing schema-first, BDD-first workflow.
+catalog and approved history retrieval scaffolds are anchored. The next packet
+should define the first job orchestration scaffold that uses the approved
+catalog/history surfaces while preserving the existing schema-first, BDD-first
+workflow.
 
 ## Product summary
 
@@ -255,21 +256,40 @@ registration, dashboard-resource metadata writes, durable storage, or real job
 orchestration. The paired spec/BDD/eval/evidence and
 `evals/home_assistant_approved_entity_catalog_scaffold.py` prove the anchor.
 
+Home Assistant approved history retrieval scaffold anchor is complete.
+`custom_components/isolinear/history_retrieval.py` now owns the smallest
+production config-entry-scoped approved history retrieval surface.
+`async_setup_entry` initializes one in-memory history retrieval store after the
+approved entity catalog setup. Retrieval gates requested entity IDs against
+visible approved catalog items before reading fake Home Assistant history,
+normalizes approved raw state records into schema-valid `HistorySeries`
+records, validates every series before storage/return, stores atomically, keeps
+stores isolated per config entry, rejects non-catalog entities before history
+read, clears stale history on rejected retrievals, and rejects malformed raw
+history and malformed normalized series with structured errors before storage.
+This packet remains non-orchestrating: it does not call the worker, model
+provider, semantic-memory storage helpers, Home Assistant service/state
+mutation APIs, token generation, chart artifact writes, chart rendering,
+WebSocket command registration, dashboard-resource metadata writes, durable
+storage, or real job orchestration. The paired spec/BDD/eval/evidence and
+`evals/home_assistant_approved_history_retrieval_scaffold.py` prove the anchor.
+
 ## Next recommended packet
 
-Home Assistant approved history retrieval scaffold anchor:
+Home Assistant job orchestration scaffold anchor:
 
-1. Write paired BDD/evidence before code for the first integration-owned
-   approved history retrieval surface.
-2. Build the smallest inspectable config-entry-scoped history retrieval
-   scaffold from the approved entity catalog and fake Home Assistant history
-   data, producing schema-valid `HistorySeries` records.
-3. Keep the packet non-orchestrating: no model-provider calls, worker calls,
-   semantic-memory persistence, token generation, artifact storage, service or
-   state mutation, chart rendering, or real job orchestration.
-4. Prove catalog/allowlist enforcement, unknown or non-catalog entity
-   rejection, per-config-entry isolation, schema validation before
-   storage/return, and structured errors for malformed history inputs.
+1. Write paired BDD/evidence before code for the first integration-owned job
+   orchestration scaffold behind `isolinear/v1/job/start`.
+2. Build the smallest inspectable config-entry-scoped orchestration flow that
+   uses the existing job state, approved entity catalog, and approved history
+   retrieval surfaces without calling the model provider or worker.
+3. Keep the packet non-rendering and non-mutating: no model-provider calls,
+   worker calls, semantic-memory persistence, token generation, chart artifact
+   writes, chart rendering, Home Assistant service/state mutation, durable
+   storage, or production progress streaming.
+4. Prove deterministic scaffold state transitions, catalog/history gate
+   failures, per-config-entry isolation, schema-valid snapshots before
+   storage/return, and structured errors for missing approved history.
 5. Prove the anchor with unit tests, a focused eval, raw evidence, on-disk
    verification, BDD-evidence review, and standalone architecture review.
 
