@@ -1,7 +1,8 @@
-"""Versioned WebSocket command stubs for the Isolinear scaffold."""
+"""Versioned WebSocket command registration for the Isolinear integration."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from .const import (
@@ -10,6 +11,38 @@ from .const import (
     INTEGRATION_COMMAND_TYPES,
     INTEGRATION_WS_VERSION,
 )
+
+
+try:  # pragma: no cover - exercised by Home Assistant, not repo tests.
+    import voluptuous as vol
+    from homeassistant.components import websocket_api
+    from homeassistant.core import callback
+except ImportError:  # pragma: no cover - deterministic fallback for repo tests.
+
+    class _FallbackVol:
+        @staticmethod
+        def Required(key: str) -> str:
+            return key
+
+    class _FallbackWebSocketApi:
+        @staticmethod
+        def websocket_command(schema: dict[Any, Any]) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+            def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+                func._isolinear_command_schema = schema
+                return func
+
+            return decorator
+
+        @staticmethod
+        def async_register_command(hass: Any, handler: Callable[..., Any]) -> None:
+            domain_data = hass.data.setdefault(DOMAIN, {})
+            domain_data.setdefault("_fallback_websocket_handlers", []).append(handler)
+
+    def callback(func: Callable[..., Any]) -> Callable[..., Any]:
+        return func
+
+    vol = _FallbackVol()
+    websocket_api = _FallbackWebSocketApi()
 
 
 FORBIDDEN_CARD_KEYS = {
@@ -58,6 +91,9 @@ STRING_COMMAND_FIELDS = {
     "option_id",
 }
 
+DATA_WEBSOCKET_API_MODULE = "_websocket_api_module"
+DATA_WEBSOCKET_REGISTRATION = "websocket_registration"
+
 NO_ORCHESTRATION_CALLS = {
     "worker_called": False,
     "model_provider_called": False,
@@ -66,17 +102,97 @@ NO_ORCHESTRATION_CALLS = {
     "home_assistant_mutation_called": False,
 }
 
+NO_WEBSOCKET_ORCHESTRATION_CALLS = {
+    "worker_called": False,
+    "model_provider_called": False,
+    "home_assistant_history_called": False,
+    "semantic_memory_called": False,
+    "home_assistant_service_or_state_mutation_called": False,
+    "token_generated": False,
+    "job_orchestration_called": False,
+    "dashboard_resource_metadata_written_or_reused": False,
+}
 
-async def async_register_websocket_api(hass: Any) -> dict[str, Any]:
-    """Record scaffold command names without registering real orchestration."""
+ERROR_MESSAGES = {
+    "forbidden_card_boundary_content": "The command included content that cannot cross the card boundary.",
+    "invalid_integration_ws_command": "The Isolinear WebSocket command payload is invalid.",
+    "unknown_config_entry": "The Isolinear config entry was not found for this command.",
+    "unknown_integration_ws_command": "Unknown Isolinear WebSocket command.",
+    "unsupported_integration_ws_version": "Unsupported Isolinear WebSocket command version.",
+}
+
+
+async def async_register_websocket_api(
+    hass: Any,
+    *,
+    entry: Any | None = None,
+    websocket_api_module: Any | None = None,
+) -> dict[str, Any]:
+    """Register Isolinear WebSocket command handlers with Home Assistant."""
     domain_data = hass.data.setdefault(DOMAIN, {})
+    entry_id = getattr(entry, "entry_id", None)
+    existing = domain_data.get(DATA_WEBSOCKET_REGISTRATION)
+    if existing is not None:
+        return {
+            **existing,
+            "code": "websocket_commands_already_registered",
+            "entry_id": entry_id,
+            "config_entry_scoped": entry_id is not None,
+            "call_made": False,
+            "orchestration": websocket_registration_side_effects(False),
+        }
+
+    api = websocket_api_module or domain_data.get(DATA_WEBSOCKET_API_MODULE) or websocket_api
     commands = list(INTEGRATION_COMMAND_TYPES.values())
-    domain_data[DATA_WEBSOCKET_COMMANDS] = commands
-    return {
+    handlers = list(registered_websocket_handlers())
+    for handler in handlers:
+        api.async_register_command(hass, handler)
+
+    registration = {
+        "accepted": True,
+        "code": "websocket_commands_registered",
         "registered": True,
-        "mode": "scaffold",
+        "mode": "home_assistant_websocket",
         "commands": commands,
-        "orchestration": dict(NO_ORCHESTRATION_CALLS),
+        "handler_count": len(handlers),
+        "handlers": [handler.__name__ for handler in handlers],
+        "entry_id": entry_id,
+        "config_entry_scoped": entry_id is not None,
+        "call_made": True,
+        "orchestration": websocket_registration_side_effects(True),
+    }
+    domain_data[DATA_WEBSOCKET_COMMANDS] = commands
+    domain_data[DATA_WEBSOCKET_REGISTRATION] = registration
+    return registration
+
+
+def registered_websocket_handlers() -> tuple[Callable[..., Any], ...]:
+    """Return the Home Assistant WebSocket handlers for the command set."""
+    return REGISTERED_WS_HANDLERS
+
+
+def handle_registered_ws_command(
+    hass: Any,
+    message: dict[str, Any],
+) -> dict[str, Any]:
+    """Validate a Home Assistant WebSocket message and build a response result."""
+    command = command_payload_from_ws_message(message)
+    result = handle_scaffold_ws_command(command)
+    if not result["accepted"]:
+        return _registered_rejection(result["code"])
+
+    scope = validate_config_entry_scope(hass, command["config_entry_id"])
+    if not scope["accepted"]:
+        return _registered_rejection(scope["code"], config_entry_id=command["config_entry_id"])
+
+    return {
+        "accepted": True,
+        "code": "registered_scaffold_command_accepted",
+        "type": command["type"],
+        "version": command["version"],
+        "config_entry_id": command["config_entry_id"],
+        "snapshot": result["snapshot"],
+        "orchestration": websocket_registration_side_effects(False),
     }
 
 
@@ -95,6 +211,31 @@ def handle_scaffold_ws_command(command: dict[str, Any]) -> dict[str, Any]:
         "snapshot": snapshot,
         "orchestration": dict(NO_ORCHESTRATION_CALLS),
     }
+
+
+def command_payload_from_ws_message(message: dict[str, Any]) -> dict[str, Any]:
+    """Remove Home Assistant transport metadata from an Isolinear command."""
+    if not isinstance(message, dict):
+        return message
+    return {
+        key: value
+        for key, value in message.items()
+        if key != "id"
+    }
+
+
+def validate_config_entry_scope(hass: Any, config_entry_id: str) -> dict[str, Any]:
+    """Validate that the command targets a configured Isolinear entry."""
+    domain_data = getattr(hass, "data", {}).get(DOMAIN, {})
+    entry_data = domain_data.get(config_entry_id)
+    if isinstance(entry_data, dict) and "entry" in entry_data:
+        return {
+            "accepted": True,
+            "code": "accepted",
+            "config_entry_id": config_entry_id,
+            "orchestration": websocket_registration_side_effects(False),
+        }
+    return _registered_rejection("unknown_config_entry", config_entry_id=config_entry_id)
 
 
 def validate_ws_command_payload(command: Any) -> dict[str, Any]:
@@ -146,6 +287,14 @@ def validate_ws_command_payload(command: Any) -> dict[str, Any]:
         "type": command_type,
         "version": command["version"],
         "orchestration": dict(NO_ORCHESTRATION_CALLS),
+    }
+
+
+def websocket_registration_side_effects(websocket_command_registered: bool) -> dict[str, bool]:
+    """Return side-effect accounting for the WebSocket registration packet."""
+    return {
+        **NO_WEBSOCKET_ORCHESTRATION_CALLS,
+        "websocket_command_registered": websocket_command_registered,
     }
 
 
@@ -215,6 +364,45 @@ def invalid_command_examples() -> dict[str, dict[str, Any]]:
     }
 
 
+def _make_ws_handler(command_type: str) -> Callable[..., Any]:
+    @websocket_api.websocket_command(_ha_command_schema(command_type))
+    @callback
+    def ws_handle_isolinear_command(hass: Any, connection: Any, msg: dict[str, Any]) -> dict[str, Any]:
+        """Handle an Isolinear WebSocket command."""
+        result = handle_registered_ws_command(hass, msg)
+        message_id = msg.get("id") if isinstance(msg, dict) else None
+        if result["accepted"]:
+            connection.send_result(message_id, result["snapshot"])
+        else:
+            connection.send_error(
+                message_id,
+                result["code"],
+                ERROR_MESSAGES.get(result["code"], "Isolinear WebSocket command rejected."),
+            )
+        return result
+
+    normalized = command_type.replace("/", "_").replace("-", "_")
+    ws_handle_isolinear_command.__name__ = f"ws_handle_{normalized}"
+    ws_handle_isolinear_command._isolinear_command_type = command_type
+    ws_handle_isolinear_command._isolinear_command_schema = _ha_command_schema(command_type)
+    return ws_handle_isolinear_command
+
+
+def _ha_command_schema(command_type: str) -> dict[Any, Any]:
+    # Home Assistant owns command routing. Isolinear's deterministic validator
+    # owns version, payload shape, forbidden material, and config-entry scope so
+    # all failures get the same structured codes in tests and production.
+    return {
+        vol.Required("type"): command_type,
+    }
+
+
+REGISTERED_WS_HANDLERS = tuple(
+    _make_ws_handler(command_type)
+    for command_type in INTEGRATION_COMMAND_TYPES.values()
+)
+
+
 def _rejection(code: str, *, errors: list[dict[str, str]] | None = None) -> dict[str, Any]:
     result = {
         "accepted": False,
@@ -224,6 +412,22 @@ def _rejection(code: str, *, errors: list[dict[str, str]] | None = None) -> dict
     }
     if errors is not None:
         result["errors"] = errors
+    return result
+
+
+def _registered_rejection(
+    code: str,
+    *,
+    config_entry_id: str | None = None,
+) -> dict[str, Any]:
+    result = {
+        "accepted": False,
+        "code": code,
+        "render_attempted": False,
+        "orchestration": websocket_registration_side_effects(False),
+    }
+    if config_entry_id is not None:
+        result["config_entry_id"] = config_entry_id
     return result
 
 

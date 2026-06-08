@@ -19,11 +19,11 @@ async def async_setup(hass: Any, config: dict[str, Any]) -> bool:
 async def async_setup_entry(hass: Any, entry: Any) -> bool:
     """Set up an Isolinear config entry scaffold."""
     domain_data = hass.data.setdefault(DOMAIN, {})
-    domain_data[getattr(entry, "entry_id", "scaffold-entry")] = {
-        "entry": entry,
-        "dashboard_resource": await async_register_dashboard_resource(hass, entry),
-        "websocket_api": await async_register_websocket_api(hass),
-    }
+    entry_id = getattr(entry, "entry_id", "scaffold-entry")
+    entry_data = domain_data.setdefault(entry_id, {})
+    entry_data["entry"] = entry
+    entry_data["dashboard_resource"] = await async_register_dashboard_resource(hass, entry)
+    entry_data["websocket_api"] = await async_register_websocket_api(hass, entry=entry)
     return True
 
 

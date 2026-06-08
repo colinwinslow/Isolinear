@@ -16,6 +16,10 @@ custom integration implementation slices.
 - **Home Assistant dashboard resource registration anchor** - the integration
   serves and registers the existing `isolinear-card` bundle as a dashboard
   module resource while preserving idempotence and orchestration boundaries.
+- **Home Assistant WebSocket command registration anchor** - the integration
+  registers the accepted `isolinear/v1/` card-facing command set through Home
+  Assistant's WebSocket API while preserving config-entry scope, idempotence,
+  scaffold snapshots, and non-orchestration boundaries.
 
 ## Validation
 
@@ -28,3 +32,7 @@ custom integration implementation slices.
 - `evals/home_assistant_dashboard_resource_registration.py` - static path
   registration, Lovelace resource metadata creation/reuse, idempotence,
   missing-bundle rejection, and non-orchestration proof.
+- `evals/home_assistant_websocket_command_registration.py` - WebSocket command
+  registration, setup-entry storage, accepted scaffold snapshot responses,
+  fail-closed invalid commands, missing config-entry scope, idempotence, and
+  non-orchestration proof.

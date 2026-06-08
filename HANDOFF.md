@@ -3,10 +3,10 @@
 ## Current project phase
 
 MVP design phase closed. The first production Home Assistant custom integration
-scaffold, config-flow/options surface, and dashboard resource registration
-surface are anchored. The next packet should define the first production Home
-Assistant WebSocket command registration anchor while preserving the existing
-schema-first, BDD-first workflow.
+scaffold, config-flow/options surface, dashboard resource registration surface,
+and WebSocket command registration surface are anchored. The next packet should
+define the first production Home Assistant job state scaffold anchor while
+preserving the existing schema-first, BDD-first workflow.
 
 ## Product summary
 
@@ -198,22 +198,42 @@ service/state mutation APIs, token generation, job orchestration, or extra
 WebSocket command registration. The paired spec/BDD/eval/evidence and
 `evals/home_assistant_dashboard_resource_registration.py` prove the anchor.
 
+Home Assistant WebSocket command registration anchor is complete. The
+integration now registers the five accepted `isolinear/v1/` card-facing command
+names through Home Assistant's `websocket_api.async_register_command` boundary
+during `async_setup_entry`. The registration result is stored under the
+config-entry ID, repeated setup is idempotent, Home Assistant transport `id`
+metadata is stripped before internal command validation, and config-entry scope
+is checked before any scaffold snapshot is returned. Home Assistant's decorator
+schema owns only command routing; Isolinear's deterministic validator owns
+version, payload-shape, forbidden-material, and config-entry-scope rejection so
+wrong-version, leaky, mutating, malformed, unknown, and missing-config-entry
+commands fail closed with structured errors before orchestration. Registered
+callbacks still return schema-valid scaffold `IntegrationJobSnapshot` payloads
+until a later packet replaces the scaffold behavior. The boundary does not call
+the worker, model provider, Home Assistant history APIs, semantic-memory
+storage helpers, Home Assistant service/state mutation APIs, token generation,
+job orchestration, or dashboard-resource metadata writes. The paired
+spec/BDD/eval/evidence and
+`evals/home_assistant_websocket_command_registration.py` prove the anchor.
+
 ## Next recommended packet
 
-Home Assistant WebSocket command registration anchor:
+Home Assistant job state scaffold anchor:
 
-1. Write paired BDD/evidence before code for real Home Assistant WebSocket
-   command registration behavior.
-2. Replace the current scaffold-only command bookkeeping with the smallest
-   inspectable `websocket_api.async_register_command` boundary for the existing
-   `isolinear/v1/` command names.
-3. Validate config-entry scope and command schemas before returning the existing
-   scaffold snapshots; keep orchestration, history, worker calls, model calls,
-   semantic-memory persistence, and token generation out of scope.
-4. Prove unknown, wrong-version, leaky, mutating, and missing-config-entry
-   commands fail closed before orchestration.
-5. Prove the anchor with unit tests, a focused eval, raw evidence, and on-disk
-   verification.
+1. Write paired BDD/evidence before code for the first integration-owned job
+   state surface behind the registered WebSocket commands.
+2. Replace one-shot scaffold snapshots with the smallest inspectable
+   config-entry-scoped job snapshot store for start, snapshot, retry, and
+   subscription command behavior.
+3. Keep the packet non-orchestrating: no Home Assistant history retrieval,
+   model-provider calls, worker calls, semantic-memory persistence, token
+   generation, artifact storage, or service/state mutation.
+4. Prove deterministic job IDs or snapshot IDs, per-config-entry isolation,
+   subscription callback shape, retry/snapshot failure cases, unload cleanup,
+   and structured errors for unknown jobs.
+5. Prove the anchor with unit tests, a focused eval, raw evidence, on-disk
+   verification, BDD-evidence review, and standalone architecture review.
 
 ## Known unresolved design details
 
@@ -224,8 +244,8 @@ Home Assistant WebSocket command registration anchor:
   progress streaming semantics.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
-- Production Home Assistant WebSocket command registration and config-entry
-  scope enforcement beyond the current scaffold command boundary.
+- Production Home Assistant job orchestration, subscription streaming, retry
+  semantics, and artifact storage beyond scaffold snapshots.
 
 ## Session log
 
