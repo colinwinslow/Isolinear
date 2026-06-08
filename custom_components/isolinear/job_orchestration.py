@@ -14,6 +14,7 @@ from .job_state import (
     DATA_JOB_STATE,
     append_validated_job_snapshot,
     handle_job_state_ws_command,
+    validate_job_snapshot_contract,
 )
 
 
@@ -66,6 +67,10 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
     entry_data = domain_data.setdefault(entry_id, {})
     store = entry_data.get(DATA_JOB_ORCHESTRATION)
     if isinstance(store, dict):
+        store.setdefault("next_progress_event_number", 1)
+        store.setdefault("progress_events", {})
+        store.setdefault("progress_event_order", [])
+        store.setdefault("latest_progress_event", None)
         return store
 
     store = {
@@ -74,6 +79,10 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         "runs": {},
         "run_order": [],
         "latest_run": None,
+        "next_progress_event_number": 1,
+        "progress_events": {},
+        "progress_event_order": [],
+        "latest_progress_event": None,
     }
     entry_data[DATA_JOB_ORCHESTRATION] = store
     return store
@@ -626,6 +635,53 @@ def handle_job_orchestration_retry_ws_command(hass: Any, command: dict[str, Any]
     )
 
 
+def handle_job_orchestration_subscribe_ws_command(
+    hass: Any,
+    command: dict[str, Any],
+    *,
+    message_id: int | str | None = None,
+) -> dict[str, Any]:
+    """Record a subscription and latest-snapshot progress event for one job."""
+    if command["type"] != INTEGRATION_COMMAND_TYPES["subscribe_job"]:
+        return _orchestration_rejection("unsupported_job_orchestration_command")
+
+    entry_id = command["config_entry_id"]
+    entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})
+    if entry_data.get("entry") is None:
+        return _orchestration_rejection("unknown_config_entry")
+
+    store = ensure_job_orchestration_store(hass, entry_id)
+    job = _job_for_command(hass, entry_id, command)
+    if job is None:
+        return _orchestration_rejection("unknown_job", job_id=command.get("job_id"))
+
+    latest_snapshot = job.get("latest_snapshot")
+    validation = validate_job_snapshot_contract(latest_snapshot)
+    if not validation["accepted"]:
+        result = _orchestration_rejection("invalid_integration_job_snapshot", job_id=command.get("job_id"))
+        result["validation"] = validation
+        return result
+
+    subscription_result = handle_job_state_ws_command(hass, command, message_id=message_id)
+    if not subscription_result["accepted"]:
+        return subscription_result
+
+    subscription = subscription_result["subscription"]
+    progress_event = _record_progress_event(
+        store,
+        command=command,
+        subscription=subscription,
+        snapshot=subscription_result["snapshot"],
+    )
+    return _accepted_subscription(
+        "job_orchestration_subscription_progress_recorded",
+        command,
+        subscription_result["snapshot"],
+        subscription=subscription,
+        progress_event=progress_event,
+    )
+
+
 def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -> dict[str, Any]:
     """Deterministically select scaffold entity IDs from prompt text and catalog labels."""
     explicit_entity_ids = _unique(ENTITY_ID_IN_PROMPT.findall(prompt.lower()))
@@ -672,6 +728,7 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
 def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
     """Return an evidence-friendly orchestration store summary."""
     latest_run = store.get("latest_run")
+    latest_progress_event = store.get("latest_progress_event")
     return {
         "entry_id": store.get("entry_id"),
         "run_count": len(store.get("run_order", [])),
@@ -680,6 +737,14 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
         "latest_result_code": latest_run.get("result_code") if isinstance(latest_run, dict) else None,
         "latest_requested_entity_ids": latest_run.get("requested_entity_ids", []) if isinstance(latest_run, dict) else [],
         "latest_history_entity_ids": latest_run.get("history_entity_ids", []) if isinstance(latest_run, dict) else [],
+        "progress_event_count": len(store.get("progress_event_order", [])),
+        "progress_event_ids": list(store.get("progress_event_order", [])),
+        "latest_progress_event_id": (
+            latest_progress_event.get("event_id") if isinstance(latest_progress_event, dict) else None
+        ),
+        "latest_progress_snapshot_id": (
+            latest_progress_event.get("snapshot_id") if isinstance(latest_progress_event, dict) else None
+        ),
     }
 
 
@@ -691,17 +756,21 @@ def job_orchestration_side_effects(
     job_state_written: bool = False,
     job_orchestration_written: bool = False,
     retry_behavior_called: bool = False,
+    subscription_bookkeeping_written: bool = False,
+    subscription_progress_streaming_called: bool = False,
     websocket_command_registered: bool = False,
 ) -> dict[str, bool]:
     """Return side-effect accounting for the job orchestration scaffold."""
     return {
         **NO_JOB_ORCHESTRATION_CALLS,
         "retry_behavior_called": retry_behavior_called,
+        "subscription_progress_streaming_called": subscription_progress_streaming_called,
         "approved_entity_catalog_read": approved_entity_catalog_read,
         "home_assistant_history_read": home_assistant_history_read,
         "history_retrieval_scaffold_written": history_retrieval_written,
         "job_state_scaffold_written": job_state_written,
         "job_orchestration_scaffold_written": job_orchestration_written,
+        "subscription_bookkeeping_written": subscription_bookkeeping_written,
         "websocket_command_registered": websocket_command_registered,
     }
 
@@ -892,6 +961,33 @@ def _record_run(
     return deepcopy(run)
 
 
+def _record_progress_event(
+    store: dict[str, Any],
+    *,
+    command: dict[str, Any],
+    subscription: dict[str, Any],
+    snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    event_number = store["next_progress_event_number"]
+    event_id = f"{store['entry_id']}-progress-event-{event_number:03d}"
+    event = {
+        "event_id": event_id,
+        "type": "isolinear_job_progress",
+        "config_entry_id": store["entry_id"],
+        "job_id": command["job_id"],
+        "subscription_id": subscription["subscription_id"],
+        "message_id": subscription.get("message_id"),
+        "snapshot_id": snapshot["snapshot_id"],
+        "progress": deepcopy(snapshot["progress"]),
+        "snapshot": deepcopy(snapshot),
+    }
+    store["next_progress_event_number"] = event_number + 1
+    store["progress_events"][event_id] = deepcopy(event)
+    store["progress_event_order"].append(event_id)
+    store["latest_progress_event"] = deepcopy(event)
+    return deepcopy(event)
+
+
 def _accepted(
     code: str,
     command: dict[str, Any],
@@ -934,6 +1030,32 @@ def _accepted(
             "missing_entity_ids": history_result.get("missing_entity_ids", []),
         }
     return result
+
+
+def _accepted_subscription(
+    code: str,
+    command: dict[str, Any],
+    snapshot: dict[str, Any],
+    *,
+    subscription: dict[str, Any],
+    progress_event: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "accepted": True,
+        "code": code,
+        "type": command["type"],
+        "version": command["version"],
+        "config_entry_id": command["config_entry_id"],
+        "job_id": snapshot["job_id"],
+        "snapshot": deepcopy(snapshot),
+        "subscription": deepcopy(subscription),
+        "progress_event": deepcopy(progress_event),
+        "orchestration": job_orchestration_side_effects(
+            subscription_bookkeeping_written=True,
+            subscription_progress_streaming_called=True,
+            job_orchestration_written=True,
+        ),
+    }
 
 
 def _orchestration_rejection(

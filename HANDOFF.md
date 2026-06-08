@@ -6,9 +6,10 @@ MVP design phase closed. The first production Home Assistant custom integration
 scaffold, config-flow/options surface, dashboard resource registration surface,
 WebSocket command registration surface, job state scaffold, approved entity
 catalog, approved history retrieval, and job orchestration scaffold are
-anchored, including clarification-answer and retry continuation paths. The next
-packet should keep orchestration work narrow by defining subscription/progress
-streaming only, while preserving the existing schema-first, BDD-first workflow.
+anchored, including clarification-answer, retry continuation, and
+subscription/progress scaffold paths. The next packet should keep orchestration
+work narrow by defining artifact storage/semantics only, while preserving the
+existing schema-first, BDD-first workflow.
 
 ## Product summary
 
@@ -332,25 +333,39 @@ beyond scaffold bookkeeping. The paired spec/BDD/eval/evidence and
 `evals/home_assistant_job_orchestration_retry_continuation_scaffold.py` prove
 the anchor.
 
+Home Assistant job orchestration subscription/progress streaming scaffold
+anchor is complete. Enabled `isolinear/v1/job/subscribe` callbacks now validate
+the targeted config-entry job's latest `IntegrationJobSnapshot`, record a
+deterministic job-state subscription, store one deterministic
+config-entry-scoped orchestration progress event envelope containing the latest
+schema-valid snapshot, and return that latest snapshot immediately. Unknown jobs and
+cross-config-entry jobs fail closed before subscription or progress-event
+storage. The packet remains non-rendering and non-mutating: it does not call
+the worker, model provider, approved Home Assistant history during subscribe,
+semantic-memory storage helpers, Home Assistant service/state mutation APIs,
+token generation, chart artifact writes, chart rendering, durable storage,
+retry behavior, automatic progress tasks, worker streaming, or production
+orchestration beyond scaffold bookkeeping. The paired spec/BDD/eval/evidence
+and `evals/home_assistant_job_orchestration_subscription_progress_scaffold.py`
+prove the anchor.
+
 ## Next recommended packet
 
-Home Assistant job orchestration subscription/progress streaming scaffold
-anchor:
+Home Assistant job orchestration artifact storage scaffold anchor:
 
-1. Write paired BDD/evidence before code for the first subscription/progress
-   streaming path after scaffold job state changes.
-2. Build the smallest inspectable config-entry-scoped flow for
-   `isolinear/v1/job/subscribe` that records a subscription and emits or stores
-   schema-valid progress events/snapshots only for the targeted config-entry
-   job.
+1. Write paired BDD/evidence before code for the first artifact storage
+   semantics path after scaffold job orchestration.
+2. Build the smallest inspectable config-entry-scoped artifact bookkeeping
+   surface for a scaffold-complete job, using placeholder metadata only if no
+   real renderer/worker artifact exists yet.
 3. Keep the packet non-rendering and non-mutating: no model-provider calls,
-   worker calls, semantic-memory persistence, token generation, chart artifact
-   writes, chart rendering, Home Assistant service/state mutation, durable
-   storage beyond scaffold bookkeeping, or production streaming beyond the
-   bounded scaffold event shape.
-4. Prove subscription acceptance, unknown job rejection, cross-config-entry
-   rejection, per-config-entry isolation, and schema-valid snapshots/events
-   before storage/return.
+   worker calls, semantic-memory persistence, token generation, real chart
+   rendering, Home Assistant service/state mutation, durable storage beyond
+   the bounded artifact scaffold, retry/backoff policy, or production
+   orchestration beyond scaffold bookkeeping.
+4. Prove artifact metadata acceptance, unknown job rejection,
+   cross-config-entry rejection, per-config-entry isolation, and schema-valid
+   snapshots/events before storage/return.
 5. Prove the anchor with unit tests, a focused eval, raw evidence, on-disk
    verification, BDD-evidence review, and standalone architecture review.
 
@@ -360,13 +375,14 @@ anchor:
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.
 - Worker token rotation UI, worker health/readiness endpoint, and long-running
-  progress streaming semantics.
+  worker progress streaming semantics beyond the current latest-snapshot
+  subscription scaffold.
 - Production entity-registry, device-registry, area-registry, and label
   adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
-- Production Home Assistant subscription/progress streaming, render planning,
-  artifact storage, and retry/backoff policy beyond scaffold snapshots.
+- Production Home Assistant render planning, artifact storage, worker
+  streaming, and retry/backoff policy beyond scaffold snapshots.
 
 ## Session log
 

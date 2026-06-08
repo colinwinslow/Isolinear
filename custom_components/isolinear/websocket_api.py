@@ -15,6 +15,7 @@ from .job_orchestration import (
     handle_job_orchestration_clarification_answer_ws_command,
     handle_job_orchestration_retry_ws_command,
     handle_job_orchestration_start_ws_command,
+    handle_job_orchestration_subscribe_ws_command,
     has_enabled_job_orchestration,
 )
 from .job_state import handle_job_state_ws_command
@@ -202,6 +203,8 @@ def handle_registered_ws_command(
         job_result = handle_job_orchestration_clarification_answer_ws_command(hass, command)
     elif command["type"] == INTEGRATION_COMMAND_TYPES["retry_job"] and orchestration_enabled:
         job_result = handle_job_orchestration_retry_ws_command(hass, command)
+    elif command["type"] == INTEGRATION_COMMAND_TYPES["subscribe_job"] and orchestration_enabled:
+        job_result = handle_job_orchestration_subscribe_ws_command(hass, command, message_id=message_id)
     else:
         job_result = handle_job_state_ws_command(hass, command, message_id=message_id)
     if not job_result["accepted"]:
@@ -226,6 +229,7 @@ def handle_registered_ws_command(
         },
         "job_orchestration": {
             "run": job_result.get("run"),
+            "progress_event": job_result.get("progress_event"),
         },
         "orchestration": job_result["orchestration"],
     }
