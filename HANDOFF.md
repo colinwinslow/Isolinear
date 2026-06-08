@@ -3,9 +3,10 @@
 ## Current project phase
 
 MVP design phase closed. The first production Home Assistant custom integration
-scaffold and config-flow/options surface are anchored. The next packet should
-define the first dashboard resource registration anchor while preserving the
-existing schema-first, BDD-first workflow.
+scaffold, config-flow/options surface, and dashboard resource registration
+surface are anchored. The next packet should define the first production Home
+Assistant WebSocket command registration anchor while preserving the existing
+schema-first, BDD-first workflow.
 
 ## Product summary
 
@@ -181,19 +182,36 @@ Home Assistant services, token generation, or dashboard resource registration.
 The paired spec/BDD/eval/evidence and
 `evals/home_assistant_config_flow_options.py` prove the anchor.
 
+Home Assistant dashboard resource registration anchor is complete. ADR-0013
+now records that the integration auto-registers the dashboard card resource.
+`custom_components/isolinear/dashboard_resource.py` serves the checked-in
+`frontend/dist/isolinear-card.js` bundle from `/api/isolinear/static` and
+creates or reuses one Lovelace `module` resource at
+`/api/isolinear/static/isolinear-card.js` during `async_setup_entry`. The
+registration result is stored under the config-entry ID, repeated setup is
+idempotent, pre-existing matching metadata is reused, missing bundles and
+unavailable resource collections fail closed before metadata creation, and the
+packet explicitly reports dashboard resource metadata creation/reuse as the
+only allowed Home Assistant write. It does not call the worker, model provider,
+Home Assistant history APIs, semantic-memory storage helpers, Home Assistant
+service/state mutation APIs, token generation, job orchestration, or extra
+WebSocket command registration. The paired spec/BDD/eval/evidence and
+`evals/home_assistant_dashboard_resource_registration.py` prove the anchor.
+
 ## Next recommended packet
 
-Home Assistant dashboard resource registration anchor:
+Home Assistant WebSocket command registration anchor:
 
-1. Write paired BDD/evidence before code for dashboard resource registration
-   behavior.
-2. Define the smallest inspectable integration-owned resource registration
-   surface for the existing `custom:isolinear-card` bundle.
-3. Keep card resource registration separate from worker token generation,
-   history access, model calls, semantic-memory persistence, and job
-   orchestration unless a new spec/ADR explicitly expands scope.
-4. Prove that registration is idempotent, config-entry scoped where relevant,
-   and non-mutating outside Home Assistant dashboard resource metadata.
+1. Write paired BDD/evidence before code for real Home Assistant WebSocket
+   command registration behavior.
+2. Replace the current scaffold-only command bookkeeping with the smallest
+   inspectable `websocket_api.async_register_command` boundary for the existing
+   `isolinear/v1/` command names.
+3. Validate config-entry scope and command schemas before returning the existing
+   scaffold snapshots; keep orchestration, history, worker calls, model calls,
+   semantic-memory persistence, and token generation out of scope.
+4. Prove unknown, wrong-version, leaky, mutating, and missing-config-entry
+   commands fail closed before orchestration.
 5. Prove the anchor with unit tests, a focused eval, raw evidence, and on-disk
    verification.
 
@@ -206,8 +224,8 @@ Home Assistant dashboard resource registration anchor:
   progress streaming semantics.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
-- Exact dashboard resource auto-registration behavior once the integration
-  scaffold/config-flow surface exists.
+- Production Home Assistant WebSocket command registration and config-entry
+  scope enforcement beyond the current scaffold command boundary.
 
 ## Session log
 

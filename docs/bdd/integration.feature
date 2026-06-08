@@ -60,3 +60,33 @@ Feature: Home Assistant integration anchors
     When the setup flow validator checks the input
     Then the input should be rejected before persistence
     And no worker, model-provider, history, semantic-memory, mutation, token-generation, or dashboard-resource registration call should occur
+
+  Scenario: Card bundle is served from an integration static path
+    Given the checked-in Isolinear card bundle exists
+    When the dashboard resource anchor registers static assets
+    Then the integration should use an async static-path registration
+    And the dashboard resource URL should be "/api/isolinear/static/isolinear-card.js"
+
+  Scenario: Config entry setup registers dashboard resource metadata
+    Given an Isolinear config entry is set up
+    When async_setup_entry runs dashboard resource registration
+    Then the config-entry scoped setup data should include the registration result
+    And Lovelace resources should contain one module resource for the Isolinear card URL
+
+  Scenario: Dashboard resource registration is idempotent
+    Given the Isolinear card resource metadata already exists
+    When dashboard resource registration runs again
+    Then the existing resource metadata should be reused
+    And no duplicate resource entry should be created
+
+  Scenario: Missing dashboard bundle fails closed
+    Given the Isolinear card bundle path is missing
+    When dashboard resource registration validates the artifact
+    Then registration should be rejected before dashboard resource metadata is created
+    And the rejection should use a structured failure code
+
+  Scenario: Dashboard resource registration remains non-orchestrating
+    Given dashboard resource registration has handled success and failure cases
+    When the anchor aggregates observed side effects
+    Then no worker, model-provider, history, semantic-memory, service/device/state mutation, token-generation, job-orchestration, or extra WebSocket command handling call should occur
+    And dashboard resource metadata creation or reuse should be reported as the allowed Home Assistant metadata write

@@ -38,3 +38,4 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0010 — `Semantic memory store envelope`
 - 0011 — `Dashboard card implementation technology`
 - 0012 — `Worker transport and authentication`
+- 0013 — `Dashboard resource auto-registration`

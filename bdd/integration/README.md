@@ -13,6 +13,9 @@ custom integration implementation slices.
   Home Assistant config-flow and options-flow surface that persists validated
   local-first setup data while rejecting invalid or secret-bearing input before
   orchestration.
+- **Home Assistant dashboard resource registration anchor** - the integration
+  serves and registers the existing `isolinear-card` bundle as a dashboard
+  module resource while preserving idempotence and orchestration boundaries.
 
 ## Validation
 
@@ -22,3 +25,6 @@ custom integration implementation slices.
 - `evals/home_assistant_config_flow_options.py` - config-flow activation,
   config-entry data normalization, options normalization, invalid-input
   rejection, and non-orchestration proof.
+- `evals/home_assistant_dashboard_resource_registration.py` - static path
+  registration, Lovelace resource metadata creation/reuse, idempotence,
+  missing-bundle rejection, and non-orchestration proof.
