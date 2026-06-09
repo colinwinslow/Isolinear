@@ -21,6 +21,7 @@ SCHEMA_NAMES = {
     "integration-worker-readiness": "integration-worker-readiness.schema.json",
     "integration-worker-dispatch": "integration-worker-dispatch.schema.json",
     "integration-worker-progress": "integration-worker-progress.schema.json",
+    "integration-worker-retry-policy": "integration-worker-retry-policy.schema.json",
     "integration-ws-command": "integration-ws-command.schema.json",
     "planner-result": "planner-result.schema.json",
     "render-request": "render-request.schema.json",

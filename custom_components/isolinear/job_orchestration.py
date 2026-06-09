@@ -57,6 +57,9 @@ WORKER_DISPATCH_SCHEMA_PATH = (
 WORKER_PROGRESS_SCHEMA_PATH = (
     Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-worker-progress.schema.json"
 )
+WORKER_RETRY_POLICY_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-worker-retry-policy.schema.json"
+)
 WORKER_TRANSPORT_REQUEST_SCHEMA_PATH = (
     Path(__file__).resolve().parents[2] / "docs" / "schemas" / "worker-transport-request.schema.json"
 )
@@ -152,6 +155,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         store.setdefault("worker_progress_event_order", [])
         store.setdefault("latest_worker_progress_event", None)
         store.setdefault("worker_progress_event_ids_by_job_id", {})
+        store.setdefault("next_worker_retry_policy_number", 1)
+        store.setdefault("worker_retry_policies", {})
+        store.setdefault("worker_retry_policy_order", [])
+        store.setdefault("latest_worker_retry_policy", None)
+        store.setdefault("worker_retry_policy_ids_by_job_id", {})
         return store
 
     store = {
@@ -189,6 +197,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         "worker_progress_event_order": [],
         "latest_worker_progress_event": None,
         "worker_progress_event_ids_by_job_id": {},
+        "next_worker_retry_policy_number": 1,
+        "worker_retry_policies": {},
+        "worker_retry_policy_order": [],
+        "latest_worker_retry_policy": None,
+        "worker_retry_policy_ids_by_job_id": {},
     }
     entry_data[DATA_JOB_ORCHESTRATION] = store
     return store
@@ -882,6 +895,8 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
             result["model_provider"] = deepcopy(planning_result["model_provider"])
         if "worker" in planning_result:
             result["worker"] = deepcopy(planning_result["worker"])
+        if "worker_retry_policy" in planning_result:
+            result["worker_retry_policy"] = deepcopy(planning_result["worker_retry_policy"])
         return result
 
     artifact = planning_result["artifact"]
@@ -965,6 +980,7 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
     latest_model_provider_plan = store.get("latest_model_provider_plan")
     latest_worker_dispatch = store.get("latest_worker_dispatch")
     latest_worker_progress_event = store.get("latest_worker_progress_event")
+    latest_worker_retry_policy = store.get("latest_worker_retry_policy")
     return {
         "entry_id": store.get("entry_id"),
         "run_count": len(store.get("run_order", [])),
@@ -1042,6 +1058,23 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
             if isinstance(latest_worker_progress_event, dict)
             else None
         ),
+        "worker_retry_policy_count": len(store.get("worker_retry_policy_order", [])),
+        "worker_retry_policy_ids": list(store.get("worker_retry_policy_order", [])),
+        "latest_worker_retry_policy_id": (
+            latest_worker_retry_policy.get("policy_id")
+            if isinstance(latest_worker_retry_policy, dict)
+            else None
+        ),
+        "latest_worker_retry_policy_job_id": (
+            latest_worker_retry_policy.get("job_id")
+            if isinstance(latest_worker_retry_policy, dict)
+            else None
+        ),
+        "latest_worker_retry_policy_delay_seconds": (
+            latest_worker_retry_policy.get("backoff", {}).get("delay_seconds")
+            if isinstance(latest_worker_retry_policy, dict)
+            else None
+        ),
     }
 
 
@@ -1065,6 +1098,7 @@ def job_orchestration_side_effects(
     worker_dispatch_bookkeeping_written: bool = False,
     worker_progress_bookkeeping_written: bool = False,
     worker_progress_streaming_called: bool = False,
+    worker_retry_policy_bookkeeping_written: bool = False,
     websocket_command_registered: bool = False,
 ) -> dict[str, bool]:
     """Return side-effect accounting for the job orchestration scaffold."""
@@ -1088,6 +1122,7 @@ def job_orchestration_side_effects(
         "worker_dispatch_bookkeeping_written": worker_dispatch_bookkeeping_written,
         "worker_progress_bookkeeping_written": worker_progress_bookkeeping_written,
         "worker_progress_streaming_called": worker_progress_streaming_called,
+        "worker_retry_policy_bookkeeping_written": worker_retry_policy_bookkeeping_written,
         "websocket_command_registered": websocket_command_registered,
     }
 
@@ -1398,11 +1433,16 @@ def _record_artifact_and_render_plan(
             "model_provider_called": model_provider_result.get("model_provider_called", False),
             "worker_called": worker_dispatch_result.get("worker_called", False),
             "chart_rendering_called": worker_dispatch_result.get("chart_rendering_called", False),
+            "worker_retry_policy": worker_dispatch_result.get("worker_retry_policy"),
             "orchestration": job_orchestration_side_effects(
                 model_provider_called=model_provider_result.get("model_provider_called", False),
                 worker_called=worker_dispatch_result.get("worker_called", False),
                 chart_rendering_called=worker_dispatch_result.get("chart_rendering_called", False),
                 worker_progress_streaming_called=worker_dispatch_result.get("worker_progress_streaming_called", False),
+                worker_retry_policy_bookkeeping_written=worker_dispatch_result.get(
+                    "worker_retry_policy_written",
+                    False,
+                ),
             ),
         }
 
@@ -1904,7 +1944,7 @@ def _record_worker_dispatch(
         return {
             "accepted": False,
             "code": (
-                worker_response.get("code", "worker_render_failed")
+                _safe_worker_failure_code(worker_response.get("code", "worker_render_failed"))
                 if isinstance(worker_response, dict)
                 else "worker_render_failed"
             ),
@@ -1927,6 +1967,25 @@ def _record_worker_dispatch(
             "worker": worker_summary,
         }
     if not isinstance(render_result, dict) or render_result.get("status") != "success":
+        retry_policy_result = _record_worker_retry_policy(
+            store,
+            job=job,
+            source_snapshot=source_snapshot,
+            worker=worker_response.get("worker") or worker_client_metadata(worker_client),
+            transport_request=transport_request,
+            failure_code=_worker_failure_code(render_result),
+            retry_safe=True,
+        )
+        if not retry_policy_result["accepted"]:
+            return {
+                "accepted": False,
+                "code": retry_policy_result["code"],
+                "validation": retry_policy_result.get("validation"),
+                "worker_called": True,
+                "chart_rendering_called": True,
+                "worker_progress_streaming_called": False,
+                "worker": worker_summary,
+            }
         return {
             "accepted": False,
             "code": _worker_failure_code(render_result),
@@ -1935,6 +1994,8 @@ def _record_worker_dispatch(
             "chart_rendering_called": True,
             "worker_progress_streaming_called": False,
             "worker": worker_summary,
+            "worker_retry_policy": retry_policy_result.get("worker_retry_policy"),
+            "worker_retry_policy_written": True,
         }
 
     worker_dispatch = _build_worker_dispatch(
@@ -2293,6 +2354,122 @@ def _store_validated_worker_progress_event(store: dict[str, Any], event: dict[st
     store["latest_worker_progress_event"] = deepcopy(event)
 
 
+def _record_worker_retry_policy(
+    store: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+    worker: dict[str, Any],
+    transport_request: dict[str, Any],
+    failure_code: str,
+    retry_safe: bool,
+) -> dict[str, Any]:
+    policy = _build_worker_retry_policy(
+        store,
+        job=job,
+        source_snapshot=source_snapshot,
+        worker=worker,
+        transport_request=transport_request,
+        failure_code=failure_code,
+        retry_safe=retry_safe,
+    )
+    validation = validate_worker_retry_policy_contract(policy)
+    if not validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_worker_retry_policy",
+            "validation": validation,
+        }
+
+    _store_validated_worker_retry_policy(store, policy)
+    return {
+        "accepted": True,
+        "code": "worker_retry_policy_recorded",
+        "worker_retry_policy": deepcopy(policy),
+        "validation": validation,
+    }
+
+
+def _build_worker_retry_policy(
+    store: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+    worker: dict[str, Any],
+    transport_request: dict[str, Any],
+    failure_code: str,
+    retry_safe: bool,
+) -> dict[str, Any]:
+    policy_number = store["next_worker_retry_policy_number"]
+    attempt_number = _worker_retry_policy_attempt_number(store, job["job_id"])
+    delay_seconds = min(60, 5 * (2 ** (attempt_number - 1)))
+    normalized_failure_code = _safe_worker_failure_code(failure_code)
+    eligible = bool(retry_safe)
+    return {
+        "policy_id": f"{store['entry_id']}-worker-retry-policy-{policy_number:03d}",
+        "type": "isolinear_worker_retry_policy",
+        "config_entry_id": store["entry_id"],
+        "job_id": job["job_id"],
+        "source_snapshot_id": source_snapshot["snapshot_id"],
+        "worker": {
+            "type": worker.get("type") or "http_json_worker",
+            "role": worker.get("role") or "renderer",
+            "endpoint_url": worker.get("endpoint_url") or "",
+            "api_version": worker.get("api_version") or 1,
+            "authorization": "Bearer <redacted>",
+        },
+        "request": redacted_worker_transport_request(transport_request),
+        "failure": {
+            "stage": "worker_render",
+            "code": normalized_failure_code,
+            "message": "Worker render failed before scaffold artifact metadata was accepted.",
+            "retry_safe": eligible,
+        },
+        "decision": {
+            "eligible": eligible,
+            "reason": "worker_failure_retry_safe" if eligible else "worker_failure_not_retry_safe",
+            "manual_retry_allowed": eligible,
+            "automatic_retry_scheduled": False,
+        },
+        "backoff": {
+            "strategy": "bounded_exponential_scaffold",
+            "attempt_number": attempt_number,
+            "delay_seconds": delay_seconds if eligible else 0,
+            "max_delay_seconds": 60,
+            "jitter_applied": False,
+        },
+        "validation": {
+            "status": "pass",
+            "summary": "Worker retry/backoff policy validates before storage.",
+            "checks": [
+                {"name": "worker_failure_observed", "status": "pass"},
+                {"name": "worker_retry_policy_schema", "status": "pass"},
+                {"name": "worker_authorization_redacted", "status": "pass"},
+                {"name": "automatic_retry_not_scheduled", "status": "pass"},
+            ],
+        },
+        "warnings": [
+            "worker_retry_backoff_policy_scaffold",
+            "worker_authorization_redacted",
+            "automatic_retry_not_scheduled",
+            "bounded_in_memory_retry_policy",
+        ],
+    }
+
+
+def _worker_retry_policy_attempt_number(store: dict[str, Any], job_id: str) -> int:
+    return len(store.get("worker_retry_policy_ids_by_job_id", {}).get(job_id, [])) + 1
+
+
+def _store_validated_worker_retry_policy(store: dict[str, Any], policy: dict[str, Any]) -> None:
+    policy_id = policy["policy_id"]
+    store["next_worker_retry_policy_number"] += 1
+    store["worker_retry_policies"][policy_id] = deepcopy(policy)
+    store["worker_retry_policy_order"].append(policy_id)
+    store.setdefault("worker_retry_policy_ids_by_job_id", {}).setdefault(policy["job_id"], []).append(policy_id)
+    store["latest_worker_retry_policy"] = deepcopy(policy)
+
+
 def _subscription_ids_for_job(hass: Any, entry_id: str, job_id: str) -> list[str]:
     entry_data = getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {})
     store = entry_data.get(DATA_JOB_STATE, {}) if isinstance(entry_data, dict) else {}
@@ -2412,6 +2589,25 @@ def validate_worker_progress_contract(worker_progress: Any) -> dict[str, Any]:
         "code": "accepted",
         "schema": str(WORKER_PROGRESS_SCHEMA_PATH),
         "snapshot_schema": "docs/schemas/integration-job-snapshot.schema.json",
+    }
+
+
+def validate_worker_retry_policy_contract(worker_retry_policy: Any) -> dict[str, Any]:
+    """Validate IntegrationWorkerRetryPolicy against the repo JSON Schema."""
+    try:
+        schema = json.loads(WORKER_RETRY_POLICY_SCHEMA_PATH.read_text(encoding="utf-8"))
+        _validate_json_schema(worker_retry_policy, schema, root_schema=schema, path="$")
+    except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_worker_retry_policy",
+            "error": str(exc),
+        }
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "schema": str(WORKER_RETRY_POLICY_SCHEMA_PATH),
     }
 
 
@@ -3200,8 +3396,18 @@ def _worker_failure_code(render_result: Any) -> str:
     if isinstance(render_result, dict):
         error = render_result.get("error")
         if isinstance(error, dict) and isinstance(error.get("code"), str) and error["code"].strip():
-            return error["code"]
+            return _safe_worker_failure_code(error["code"])
     return "worker_render_failed"
+
+
+def _safe_worker_failure_code(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return "worker_render_failed"
+    stripped = value.strip()
+    if FORBIDDEN_WORKER_PROGRESS_TEXT.search(stripped):
+        return "worker_render_failed"
+    normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "_", stripped).strip("_")
+    return normalized[:80] if normalized else "worker_render_failed"
 
 
 def _snapshot_entities(catalog_items: list[dict[str, Any]], entity_ids: list[str]) -> list[dict[str, str]]:

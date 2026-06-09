@@ -9,11 +9,12 @@ catalog, approved history retrieval, and job orchestration scaffold are
 anchored, including clarification-answer, retry continuation,
 subscription/progress, artifact storage, and render planning scaffold paths.
 The model-provider planning scaffold, worker dispatch/rendering scaffold,
-worker token provisioning/readiness scaffold, and worker progress streaming
-scaffold are now anchored. The next packet should keep orchestration work
-narrow by defining worker retry/backoff policy separately from worker health,
-token rotation, or durable queue semantics, while preserving the existing
-schema-first, BDD-first workflow.
+worker token provisioning/readiness scaffold, worker progress streaming
+scaffold, and worker retry/backoff policy scaffold are now anchored. The next
+packet should keep orchestration work narrow by defining transport-failure
+retry classification separately from worker failure snapshot/manual retry
+integration, worker health, token rotation, durable queues, or scheduler
+semantics, while preserving the existing schema-first, BDD-first workflow.
 
 ## Product summary
 
@@ -475,25 +476,44 @@ introduce a new worker transport, or add production orchestration beyond
 bounded progress bookkeeping. The paired spec/BDD/eval/evidence and
 `evals/home_assistant_worker_progress_streaming_scaffold.py` prove the anchor.
 
+Home Assistant worker retry/backoff policy scaffold anchor is complete. Enabled
+`isolinear/v1/job/snapshot` worker render failures that return schema-valid
+ADR-0012 `RenderResult` envelopes now record one deterministic
+config-entry-scoped `IntegrationWorkerRetryPolicy` envelope before returning a
+failed snapshot. The policy stores redacted worker request/response metadata,
+bounded exponential backoff metadata, retry eligibility, manual-retry
+availability, and `automatic_retry_scheduled: false`; it validates against
+JSON Schema before storage. Unknown jobs, cross-config-entry jobs, invalid
+worker render results, and secret/token-bearing failure codes fail closed
+before policy storage or sensitive metadata exposure. The packet remains
+read-only and bounded: it does not read Home Assistant history during policy
+recording, persist semantic memory, mutate Home Assistant state, generate or
+rotate tokens, write real artifacts, create durable retry storage, perform
+worker health checks, schedule automatic retries, introduce a new worker
+transport, change job retry behavior, or classify `accepted: false` worker
+transport responses. The paired spec/BDD/eval/evidence and
+`evals/home_assistant_worker_retry_backoff_policy_scaffold.py` prove the
+anchor.
+
 ## Next recommended packet
 
-Home Assistant worker retry/backoff policy scaffold anchor:
+Home Assistant worker transport failure retry classification scaffold anchor:
 
-1. Write paired BDD/evidence before code for the first bounded worker
-   retry/backoff policy surface.
+1. Write paired BDD/evidence before code for the bounded worker transport
+   failure retry-classification surface.
 2. Reuse ADR-0012's worker transport/authentication contract and the existing
    job snapshot/orchestration boundaries; write an ADR first if the packet
    introduces a new transport, durable queue, scheduler, health-check endpoint,
    token rotation, or persistent retry state.
-3. Build the smallest inspectable config-entry-scoped surface that records
-   retry eligibility/backoff decisions for worker/render failures without
-   starting unbounded background work.
+3. Build the smallest inspectable config-entry-scoped surface that classifies
+   `accepted: false` worker transport responses, such as connection, HTTP, and
+   malformed-response failures, without starting background retry work.
 4. Keep Home Assistant read-only and card-safe: no Home Assistant
    service/state mutation, no token leakage, no semantic-memory persistence, no
-   durable retry queue, and no unbounded orchestration.
-5. Prove retry/backoff metadata is config-entry/job scoped, fails closed for
-   unknown or cross-entry jobs, preserves redaction, and does not combine worker
-   health checks or token rotation into the same packet.
+   durable retry queue, no health check, and no unbounded orchestration.
+5. Prove transport failure classification is config-entry/job scoped, fails
+   closed for unknown or cross-entry jobs, preserves redaction, and sanitizes
+   failure codes/messages before any policy or snapshot metadata.
 6. Prove the anchor with unit tests, a focused eval, raw evidence, on-disk
    verification, BDD-evidence review, and standalone architecture review.
 
@@ -502,16 +522,17 @@ Home Assistant worker retry/backoff policy scaffold anchor:
 - Semantic-memory storage-helper implementation, migrations, and repair UI details beyond the envelope contract.
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.
-- Worker token rotation UI, worker health/readiness endpoint, and long-running
-  worker progress streaming semantics beyond the current bounded worker
-  progress scaffold.
+- Worker transport-failure retry classification, worker failure snapshot/manual
+  retry integration, worker token rotation UI, worker health/readiness endpoint,
+  and long-running worker progress streaming semantics beyond the current
+  bounded worker progress and retry-policy scaffolds.
 - Production entity-registry, device-registry, area-registry, and label
   adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
 - Production worker token rotation/persistence, worker health checks,
-  provider health/retry policy, and orchestration retry/backoff
-  policy beyond scaffold snapshots.
+  provider health/retry policy, durable retry queue/scheduler behavior, and
+  orchestration retry/backoff policy beyond scaffold snapshots.
 
 ## Session log
 
