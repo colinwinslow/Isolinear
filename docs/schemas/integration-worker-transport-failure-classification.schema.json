@@ -1,0 +1,276 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/integration-worker-transport-failure-classification.schema.json",
+  "title": "IntegrationWorkerTransportFailureClassification",
+  "type": "object",
+  "required": [
+    "classification_id",
+    "type",
+    "config_entry_id",
+    "job_id",
+    "source_snapshot_id",
+    "worker",
+    "request",
+    "failure",
+    "classification",
+    "backoff",
+    "validation",
+    "warnings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "classification_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "type": {
+      "const": "isolinear_worker_transport_failure_classification"
+    },
+    "config_entry_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "job_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "source_snapshot_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "worker": {
+      "type": "object",
+      "required": [
+        "type",
+        "role",
+        "endpoint_url",
+        "api_version",
+        "authorization"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "http_json_worker"
+        },
+        "role": {
+          "const": "renderer"
+        },
+        "endpoint_url": {
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "api_version": {
+          "const": 1
+        },
+        "authorization": {
+          "const": "Bearer <redacted>"
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "protocol_version",
+        "method",
+        "path",
+        "headers",
+        "body"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": 1
+        },
+        "method": {
+          "const": "POST"
+        },
+        "path": {
+          "const": "/v1/render"
+        },
+        "headers": {
+          "type": "object",
+          "required": [
+            "content_type",
+            "x_isolinear_worker_api_version",
+            "authorization"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "content_type": {
+              "const": "application/json"
+            },
+            "x_isolinear_worker_api_version": {
+              "const": "1"
+            },
+            "authorization": {
+              "const": "Bearer <redacted>"
+            }
+          }
+        },
+        "body": {
+          "type": "object",
+          "required": [
+            "version",
+            "operation",
+            "request_id",
+            "render_request"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "operation": {
+              "const": "render_chart"
+            },
+            "request_id": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "render_request": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "required": [
+        "stage",
+        "code",
+        "message",
+        "retry_safe"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "stage": {
+          "const": "worker_transport"
+        },
+        "code": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "message": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "retry_safe": {
+          "type": "boolean"
+        }
+      }
+    },
+    "classification": {
+      "type": "object",
+      "required": [
+        "family",
+        "retry_eligible",
+        "reason",
+        "manual_retry_allowed",
+        "automatic_retry_scheduled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "family": {
+          "enum": [
+            "connection",
+            "http",
+            "malformed_response",
+            "unavailable",
+            "unknown"
+          ]
+        },
+        "retry_eligible": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "manual_retry_allowed": {
+          "type": "boolean"
+        },
+        "automatic_retry_scheduled": {
+          "const": false
+        }
+      }
+    },
+    "backoff": {
+      "type": "object",
+      "required": [
+        "strategy",
+        "attempt_number",
+        "delay_seconds",
+        "max_delay_seconds",
+        "jitter_applied"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "strategy": {
+          "const": "bounded_exponential_scaffold"
+        },
+        "attempt_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "delay_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60
+        },
+        "max_delay_seconds": {
+          "const": 60
+        },
+        "jitter_applied": {
+          "const": false
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary",
+        "checks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "pass"
+        },
+        "summary": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "status": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            }
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -60,6 +60,12 @@ WORKER_PROGRESS_SCHEMA_PATH = (
 WORKER_RETRY_POLICY_SCHEMA_PATH = (
     Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-worker-retry-policy.schema.json"
 )
+WORKER_TRANSPORT_FAILURE_CLASSIFICATION_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "schemas"
+    / "integration-worker-transport-failure-classification.schema.json"
+)
 WORKER_TRANSPORT_REQUEST_SCHEMA_PATH = (
     Path(__file__).resolve().parents[2] / "docs" / "schemas" / "worker-transport-request.schema.json"
 )
@@ -160,6 +166,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         store.setdefault("worker_retry_policy_order", [])
         store.setdefault("latest_worker_retry_policy", None)
         store.setdefault("worker_retry_policy_ids_by_job_id", {})
+        store.setdefault("next_worker_transport_failure_classification_number", 1)
+        store.setdefault("worker_transport_failure_classifications", {})
+        store.setdefault("worker_transport_failure_classification_order", [])
+        store.setdefault("latest_worker_transport_failure_classification", None)
+        store.setdefault("worker_transport_failure_classification_ids_by_job_id", {})
         return store
 
     store = {
@@ -202,6 +213,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         "worker_retry_policy_order": [],
         "latest_worker_retry_policy": None,
         "worker_retry_policy_ids_by_job_id": {},
+        "next_worker_transport_failure_classification_number": 1,
+        "worker_transport_failure_classifications": {},
+        "worker_transport_failure_classification_order": [],
+        "latest_worker_transport_failure_classification": None,
+        "worker_transport_failure_classification_ids_by_job_id": {},
     }
     entry_data[DATA_JOB_ORCHESTRATION] = store
     return store
@@ -981,6 +997,9 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
     latest_worker_dispatch = store.get("latest_worker_dispatch")
     latest_worker_progress_event = store.get("latest_worker_progress_event")
     latest_worker_retry_policy = store.get("latest_worker_retry_policy")
+    latest_worker_transport_failure_classification = store.get(
+        "latest_worker_transport_failure_classification"
+    )
     return {
         "entry_id": store.get("entry_id"),
         "run_count": len(store.get("run_order", [])),
@@ -1075,6 +1094,27 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
             if isinstance(latest_worker_retry_policy, dict)
             else None
         ),
+        "worker_transport_failure_classification_count": len(
+            store.get("worker_transport_failure_classification_order", [])
+        ),
+        "worker_transport_failure_classification_ids": list(
+            store.get("worker_transport_failure_classification_order", [])
+        ),
+        "latest_worker_transport_failure_classification_id": (
+            latest_worker_transport_failure_classification.get("classification_id")
+            if isinstance(latest_worker_transport_failure_classification, dict)
+            else None
+        ),
+        "latest_worker_transport_failure_classification_job_id": (
+            latest_worker_transport_failure_classification.get("job_id")
+            if isinstance(latest_worker_transport_failure_classification, dict)
+            else None
+        ),
+        "latest_worker_transport_failure_classification_family": (
+            latest_worker_transport_failure_classification.get("classification", {}).get("family")
+            if isinstance(latest_worker_transport_failure_classification, dict)
+            else None
+        ),
     }
 
 
@@ -1099,6 +1139,7 @@ def job_orchestration_side_effects(
     worker_progress_bookkeeping_written: bool = False,
     worker_progress_streaming_called: bool = False,
     worker_retry_policy_bookkeeping_written: bool = False,
+    worker_transport_failure_classification_bookkeeping_written: bool = False,
     websocket_command_registered: bool = False,
 ) -> dict[str, bool]:
     """Return side-effect accounting for the job orchestration scaffold."""
@@ -1123,6 +1164,9 @@ def job_orchestration_side_effects(
         "worker_progress_bookkeeping_written": worker_progress_bookkeeping_written,
         "worker_progress_streaming_called": worker_progress_streaming_called,
         "worker_retry_policy_bookkeeping_written": worker_retry_policy_bookkeeping_written,
+        "worker_transport_failure_classification_bookkeeping_written": (
+            worker_transport_failure_classification_bookkeeping_written
+        ),
         "websocket_command_registered": websocket_command_registered,
     }
 
@@ -1434,6 +1478,9 @@ def _record_artifact_and_render_plan(
             "worker_called": worker_dispatch_result.get("worker_called", False),
             "chart_rendering_called": worker_dispatch_result.get("chart_rendering_called", False),
             "worker_retry_policy": worker_dispatch_result.get("worker_retry_policy"),
+            "worker_transport_failure_classification": worker_dispatch_result.get(
+                "worker_transport_failure_classification"
+            ),
             "orchestration": job_orchestration_side_effects(
                 model_provider_called=model_provider_result.get("model_provider_called", False),
                 worker_called=worker_dispatch_result.get("worker_called", False),
@@ -1441,6 +1488,10 @@ def _record_artifact_and_render_plan(
                 worker_progress_streaming_called=worker_dispatch_result.get("worker_progress_streaming_called", False),
                 worker_retry_policy_bookkeeping_written=worker_dispatch_result.get(
                     "worker_retry_policy_written",
+                    False,
+                ),
+                worker_transport_failure_classification_bookkeeping_written=worker_dispatch_result.get(
+                    "worker_transport_failure_classification_written",
                     False,
                 ),
             ),
@@ -1941,17 +1992,35 @@ def _record_worker_dispatch(
 
     worker_response = render_method(transport_request)
     if not isinstance(worker_response, dict) or not worker_response.get("accepted"):
+        classification_result = _record_worker_transport_failure_classification(
+            store,
+            job=job,
+            source_snapshot=source_snapshot,
+            worker=worker_client_metadata(worker_client),
+            transport_request=transport_request,
+            worker_response=worker_response,
+        )
+        if not classification_result["accepted"]:
+            return {
+                "accepted": False,
+                "code": classification_result["code"],
+                "validation": classification_result.get("validation"),
+                "worker_called": True,
+                "chart_rendering_called": True,
+                "worker_progress_streaming_called": False,
+                "worker": worker_summary,
+            }
+
+        classification = classification_result["worker_transport_failure_classification"]
         return {
             "accepted": False,
-            "code": (
-                _safe_worker_failure_code(worker_response.get("code", "worker_render_failed"))
-                if isinstance(worker_response, dict)
-                else "worker_render_failed"
-            ),
+            "code": classification["failure"]["code"],
             "worker_called": True,
             "chart_rendering_called": True,
             "worker_progress_streaming_called": False,
             "worker": worker_summary,
+            "worker_transport_failure_classification": classification,
+            "worker_transport_failure_classification_written": True,
         }
 
     render_result = worker_response.get("render_result")
@@ -2354,6 +2423,136 @@ def _store_validated_worker_progress_event(store: dict[str, Any], event: dict[st
     store["latest_worker_progress_event"] = deepcopy(event)
 
 
+def _record_worker_transport_failure_classification(
+    store: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+    worker: dict[str, Any],
+    transport_request: dict[str, Any],
+    worker_response: Any,
+) -> dict[str, Any]:
+    classification = _build_worker_transport_failure_classification(
+        store,
+        job=job,
+        source_snapshot=source_snapshot,
+        worker=worker,
+        transport_request=transport_request,
+        worker_response=worker_response,
+    )
+    validation = validate_worker_transport_failure_classification_contract(classification)
+    if not validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_worker_transport_failure_classification",
+            "validation": validation,
+        }
+
+    _store_validated_worker_transport_failure_classification(store, classification)
+    return {
+        "accepted": True,
+        "code": "worker_transport_failure_classification_recorded",
+        "worker_transport_failure_classification": deepcopy(classification),
+        "validation": validation,
+    }
+
+
+def _build_worker_transport_failure_classification(
+    store: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+    worker: dict[str, Any],
+    transport_request: dict[str, Any],
+    worker_response: Any,
+) -> dict[str, Any]:
+    classification_number = store["next_worker_transport_failure_classification_number"]
+    attempt_number = _worker_transport_failure_classification_attempt_number(store, job["job_id"])
+    failure_code = _safe_worker_transport_failure_code(
+        worker_response.get("code") if isinstance(worker_response, dict) else None
+    )
+    retry_safe = (
+        bool(worker_response.get("retry_safe"))
+        if isinstance(worker_response, dict) and isinstance(worker_response.get("retry_safe"), bool)
+        else False
+    )
+    family = _worker_transport_failure_family(failure_code)
+    delay_seconds = min(60, 5 * (2 ** (attempt_number - 1))) if retry_safe else 0
+    return {
+        "classification_id": f"{store['entry_id']}-worker-transport-failure-{classification_number:03d}",
+        "type": "isolinear_worker_transport_failure_classification",
+        "config_entry_id": store["entry_id"],
+        "job_id": job["job_id"],
+        "source_snapshot_id": source_snapshot["snapshot_id"],
+        "worker": {
+            "type": worker.get("type") or "http_json_worker",
+            "role": worker.get("role") or "renderer",
+            "endpoint_url": worker.get("endpoint_url") or "",
+            "api_version": worker.get("api_version") or 1,
+            "authorization": "Bearer <redacted>",
+        },
+        "request": redacted_worker_transport_request(transport_request),
+        "failure": {
+            "stage": "worker_transport",
+            "code": failure_code,
+            "message": _safe_worker_transport_failure_message(
+                worker_response.get("message") if isinstance(worker_response, dict) else None
+            ),
+            "retry_safe": retry_safe,
+        },
+        "classification": {
+            "family": family,
+            "retry_eligible": retry_safe,
+            "reason": f"worker_transport_{family}_{'retry_safe' if retry_safe else 'not_retry_safe'}",
+            "manual_retry_allowed": retry_safe,
+            "automatic_retry_scheduled": False,
+        },
+        "backoff": {
+            "strategy": "bounded_exponential_scaffold",
+            "attempt_number": attempt_number,
+            "delay_seconds": delay_seconds,
+            "max_delay_seconds": 60,
+            "jitter_applied": False,
+        },
+        "validation": {
+            "status": "pass",
+            "summary": "Worker transport failure classification validates before storage.",
+            "checks": [
+                {"name": "worker_transport_failure_observed", "status": "pass"},
+                {"name": "worker_transport_failure_classification_schema", "status": "pass"},
+                {"name": "worker_failure_text_sanitized", "status": "pass"},
+                {"name": "worker_authorization_redacted", "status": "pass"},
+                {"name": "automatic_retry_not_scheduled", "status": "pass"},
+            ],
+        },
+        "warnings": [
+            "worker_transport_failure_retry_classification_scaffold",
+            "worker_authorization_redacted",
+            "automatic_retry_not_scheduled",
+            "bounded_in_memory_transport_classification",
+        ],
+    }
+
+
+def _worker_transport_failure_classification_attempt_number(store: dict[str, Any], job_id: str) -> int:
+    return len(store.get("worker_transport_failure_classification_ids_by_job_id", {}).get(job_id, [])) + 1
+
+
+def _store_validated_worker_transport_failure_classification(
+    store: dict[str, Any],
+    classification: dict[str, Any],
+) -> None:
+    classification_id = classification["classification_id"]
+    store["next_worker_transport_failure_classification_number"] += 1
+    store["worker_transport_failure_classifications"][classification_id] = deepcopy(classification)
+    store["worker_transport_failure_classification_order"].append(classification_id)
+    store.setdefault("worker_transport_failure_classification_ids_by_job_id", {}).setdefault(
+        classification["job_id"],
+        [],
+    ).append(classification_id)
+    store["latest_worker_transport_failure_classification"] = deepcopy(classification)
+
+
 def _record_worker_retry_policy(
     store: dict[str, Any],
     *,
@@ -2608,6 +2807,25 @@ def validate_worker_retry_policy_contract(worker_retry_policy: Any) -> dict[str,
         "accepted": True,
         "code": "accepted",
         "schema": str(WORKER_RETRY_POLICY_SCHEMA_PATH),
+    }
+
+
+def validate_worker_transport_failure_classification_contract(classification: Any) -> dict[str, Any]:
+    """Validate IntegrationWorkerTransportFailureClassification against the repo JSON Schema."""
+    try:
+        schema = json.loads(WORKER_TRANSPORT_FAILURE_CLASSIFICATION_SCHEMA_PATH.read_text(encoding="utf-8"))
+        _validate_json_schema(classification, schema, root_schema=schema, path="$")
+    except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_worker_transport_failure_classification",
+            "error": str(exc),
+        }
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "schema": str(WORKER_TRANSPORT_FAILURE_CLASSIFICATION_SCHEMA_PATH),
     }
 
 
@@ -3408,6 +3626,38 @@ def _safe_worker_failure_code(value: Any) -> str:
         return "worker_render_failed"
     normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "_", stripped).strip("_")
     return normalized[:80] if normalized else "worker_render_failed"
+
+
+def _safe_worker_transport_failure_code(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return "worker_transport_failed"
+    stripped = value.strip()
+    if FORBIDDEN_WORKER_PROGRESS_TEXT.search(stripped):
+        return "worker_transport_failed"
+    normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "_", stripped).strip("_")
+    return normalized[:80] if normalized else "worker_transport_failed"
+
+
+def _safe_worker_transport_failure_message(value: Any) -> str:
+    fallback = "Worker transport failed before a render result was accepted."
+    if not isinstance(value, str) or not value.strip():
+        return fallback
+    stripped = re.sub(r"\s+", " ", value.strip())
+    if FORBIDDEN_WORKER_PROGRESS_TEXT.search(stripped):
+        return fallback
+    return stripped[:240] if stripped else fallback
+
+
+def _worker_transport_failure_family(code: str) -> str:
+    if code == "worker_connection_error":
+        return "connection"
+    if code == "worker_http_error":
+        return "http"
+    if code == "worker_response_error":
+        return "malformed_response"
+    if code == "worker_renderer_unavailable":
+        return "unavailable"
+    return "unknown"
 
 
 def _snapshot_entities(catalog_items: list[dict[str, Any]], entity_ids: list[str]) -> list[dict[str, str]]:
