@@ -8,10 +8,12 @@ WebSocket command registration surface, job state scaffold, approved entity
 catalog, approved history retrieval, and job orchestration scaffold are
 anchored, including clarification-answer, retry continuation,
 subscription/progress, artifact storage, and render planning scaffold paths.
-The model-provider planning scaffold, worker dispatch/rendering scaffold, and
-worker token provisioning/readiness scaffold are now anchored. The next packet
-should keep orchestration work narrow by defining worker streaming behavior,
-while preserving the existing schema-first, BDD-first workflow.
+The model-provider planning scaffold, worker dispatch/rendering scaffold,
+worker token provisioning/readiness scaffold, and worker progress streaming
+scaffold are now anchored. The next packet should keep orchestration work
+narrow by defining worker retry/backoff policy separately from worker health,
+token rotation, or durable queue semantics, while preserving the existing
+schema-first, BDD-first workflow.
 
 ## Product summary
 
@@ -452,25 +454,46 @@ readiness bookkeeping and renderer gating. The paired spec/BDD/eval/evidence
 and `evals/home_assistant_worker_token_provisioning_readiness_scaffold.py`
 prove the anchor.
 
+Home Assistant worker progress streaming scaffold anchor is complete. Enabled
+`isolinear/v1/job/snapshot` worker render responses may now carry up to five
+bounded progress payloads through the existing ADR-0012 worker render response
+metadata. The integration validates each progress payload before storage,
+appends schema-valid rendering snapshots before the final complete snapshot,
+records redacted config-entry-scoped `IntegrationWorkerProgress` envelopes,
+includes existing same-job subscription IDs, and idempotently reuses existing
+complete/progress metadata without duplicate worker calls or duplicate progress
+records. Invalid progress payloads and secret/token-bearing progress text fail
+closed before worker progress metadata, worker dispatch metadata, render-plan
+metadata, artifact metadata, or complete snapshot storage. The card-facing
+WebSocket handler still returns only `IntegrationJobSnapshot` payloads, keeping
+worker progress envelopes and worker endpoint metadata internal. The packet
+remains read-only and bounded: it does not read Home Assistant history during
+worker progress, persist semantic memory, mutate Home Assistant state, generate
+tokens, write real artifact files, add durable worker-progress queues/storage,
+add retry/backoff policy, add health checks, start automatic progress tasks,
+introduce a new worker transport, or add production orchestration beyond
+bounded progress bookkeeping. The paired spec/BDD/eval/evidence and
+`evals/home_assistant_worker_progress_streaming_scaffold.py` prove the anchor.
+
 ## Next recommended packet
 
-Home Assistant worker streaming scaffold anchor:
+Home Assistant worker retry/backoff policy scaffold anchor:
 
-1. Write paired BDD/evidence before code for the first worker progress
-   streaming boundary.
+1. Write paired BDD/evidence before code for the first bounded worker
+   retry/backoff policy surface.
 2. Reuse ADR-0012's worker transport/authentication contract and the existing
-   card-facing latest-snapshot subscription scaffold; write an ADR first if the
-   packet introduces new transport, durable queues, retry/backoff, token
-   rotation, or health-check semantics.
-3. Build the smallest inspectable config-entry-scoped surface that can report
-   bounded worker progress events without leaking worker bearer tokens to the
-   dashboard card or model provider.
+   job snapshot/orchestration boundaries; write an ADR first if the packet
+   introduces a new transport, durable queue, scheduler, health-check endpoint,
+   token rotation, or persistent retry state.
+3. Build the smallest inspectable config-entry-scoped surface that records
+   retry eligibility/backoff decisions for worker/render failures without
+   starting unbounded background work.
 4. Keep Home Assistant read-only and card-safe: no Home Assistant
    service/state mutation, no token leakage, no semantic-memory persistence, no
-   durable worker-progress queue, and no unbounded orchestration.
-5. Prove streaming is config-entry/job scoped, fails closed for unknown or
-   cross-entry jobs, preserves redaction, and does not combine retry/backoff
-   policy into the same packet.
+   durable retry queue, and no unbounded orchestration.
+5. Prove retry/backoff metadata is config-entry/job scoped, fails closed for
+   unknown or cross-entry jobs, preserves redaction, and does not combine worker
+   health checks or token rotation into the same packet.
 6. Prove the anchor with unit tests, a focused eval, raw evidence, on-disk
    verification, BDD-evidence review, and standalone architecture review.
 
@@ -480,14 +503,14 @@ Home Assistant worker streaming scaffold anchor:
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.
 - Worker token rotation UI, worker health/readiness endpoint, and long-running
-  worker progress streaming semantics beyond the current latest-snapshot
-  subscription scaffold.
+  worker progress streaming semantics beyond the current bounded worker
+  progress scaffold.
 - Production entity-registry, device-registry, area-registry, and label
   adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
-- Production worker token rotation/persistence, worker health checks, worker
-  streaming, provider health/retry policy, and orchestration retry/backoff
+- Production worker token rotation/persistence, worker health checks,
+  provider health/retry policy, and orchestration retry/backoff
   policy beyond scaffold snapshots.
 
 ## Session log

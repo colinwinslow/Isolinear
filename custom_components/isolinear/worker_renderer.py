@@ -208,12 +208,15 @@ class HttpJsonWorkerRenderClient:
             return _worker_failure("worker_response_error", str(exc), retry_safe=False)
 
         render_result = payload.get("render_result") if isinstance(payload, dict) else payload
-        return {
+        result = {
             "accepted": True,
             "code": "worker_render_result_received",
             "worker": self.provider_metadata(),
             "render_result": render_result,
         }
+        if isinstance(payload, dict) and "progress_events" in payload:
+            result["progress_events"] = deepcopy(payload["progress_events"])
+        return result
 
 
 def _setup_enabled(entry_id: str, worker: dict[str, Any], *, call_made: bool) -> dict[str, Any]:

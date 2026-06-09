@@ -20,6 +20,7 @@ SCHEMA_NAMES = {
     "integration-render-plan": "integration-render-plan.schema.json",
     "integration-worker-readiness": "integration-worker-readiness.schema.json",
     "integration-worker-dispatch": "integration-worker-dispatch.schema.json",
+    "integration-worker-progress": "integration-worker-progress.schema.json",
     "integration-ws-command": "integration-ws-command.schema.json",
     "planner-result": "planner-result.schema.json",
     "render-request": "render-request.schema.json",

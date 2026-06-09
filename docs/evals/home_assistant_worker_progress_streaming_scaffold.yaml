@@ -1,0 +1,56 @@
+id: home_assistant_worker_progress_streaming_scaffold
+summary: The Home Assistant integration records bounded, schema-valid worker progress events from the configured ADR-0012 worker render response, links them to existing card subscriptions, redacts worker authorization, preserves idempotence and per-config-entry isolation, and stays inside read-only scaffold side effects without adding a new streaming transport.
+executable_eval: evals/home_assistant_worker_progress_streaming_scaffold.py
+fixtures:
+  integration_job_orchestration_module: custom_components/isolinear/job_orchestration.py
+  integration_worker_renderer_module: custom_components/isolinear/worker_renderer.py
+  integration_job_state_module: custom_components/isolinear/job_state.py
+  integration_websocket_module: custom_components/isolinear/websocket_api.py
+  integration_setup: custom_components/isolinear/__init__.py
+  worker_progress_schema: docs/schemas/integration-worker-progress.schema.json
+  worker_dispatch_schema: docs/schemas/integration-worker-dispatch.schema.json
+  worker_transport_request_schema: docs/schemas/worker-transport-request.schema.json
+  render_request_schema: docs/schemas/render-request.schema.json
+  render_result_schema: docs/schemas/render-result.schema.json
+  render_plan_schema: docs/schemas/integration-render-plan.schema.json
+  chart_spec_schema: docs/schemas/chart-spec.schema.json
+  history_series_schema: docs/schemas/history-series.schema.json
+  job_snapshot_schema: docs/schemas/integration-job-snapshot.schema.json
+  fake_hass: in-code fake Home Assistant config entries, subscriptions, job state, WebSocket registry, start commands, subscribe commands, snapshot commands, and fake worker render clients
+expect:
+  snapshot_command_routed_to_orchestration: true
+  configured_worker_called_for_eligible_scaffold_ready_job: true
+  worker_progress_payloads_bounded: true
+  worker_progress_events_schema_valid: true
+  worker_progress_snapshots_schema_valid: true
+  worker_progress_events_link_subscription_ids: true
+  worker_progress_authorization_redacted_in_metadata_and_evidence: true
+  repeated_snapshot_reuses_worker_progress: true
+  repeated_snapshot_does_not_call_worker_again: true
+  invalid_worker_progress_rejected_before_storage: true
+  unknown_job_rejected_before_worker_call: true
+  cross_config_entry_job_rejected_before_worker_call: true
+  per_config_entry_isolation: true
+  worker_called_only_for_eligible_configured_jobs: true
+  worker_progress_streaming_called: true
+  worker_progress_bookkeeping_written: true
+  worker_dispatch_bookkeeping_written: true
+  render_plan_bookkeeping_written: true
+  artifact_metadata_bookkeeping_written: true
+  job_state_scaffold_written: true
+  job_orchestration_scaffold_written: true
+  websocket_command_registered: true
+  approved_home_assistant_history_read_during_worker_progress: false
+  semantic_memory_called: false
+  home_assistant_service_or_state_mutation_called: false
+  token_generated: false
+  token_rotation_called: false
+  token_leaked_to_card: false
+  token_leaked_to_model_provider: false
+  chart_artifact_written: false
+  durable_storage_written: false
+  retry_or_backoff_policy_called: false
+  worker_health_check_called: false
+  automatic_progress_task_called: false
+  new_worker_streaming_transport_added: false
+  job_orchestration_called: false

@@ -22,6 +22,7 @@ from .job_state import (
     _validate_json_schema,
     append_validated_job_snapshot,
     handle_job_state_ws_command,
+    store_validated_job_snapshot,
     validate_job_snapshot_contract,
 )
 from .model_provider import (
@@ -53,6 +54,9 @@ MODEL_PROVIDER_PLAN_SCHEMA_PATH = (
 WORKER_DISPATCH_SCHEMA_PATH = (
     Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-worker-dispatch.schema.json"
 )
+WORKER_PROGRESS_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-worker-progress.schema.json"
+)
 WORKER_TRANSPORT_REQUEST_SCHEMA_PATH = (
     Path(__file__).resolve().parents[2] / "docs" / "schemas" / "worker-transport-request.schema.json"
 )
@@ -62,6 +66,10 @@ PLANNER_RESULT_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "sch
 CHART_SPEC_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "chart-spec.schema.json"
 
 ENTITY_ID_IN_PROMPT = re.compile(r"\b[a-z0-9_]+\.[a-z0-9_]+\b")
+FORBIDDEN_WORKER_PROGRESS_TEXT = re.compile(
+    r"\bBearer\s+\S+|access_token|home_assistant_token|long_lived_access_token|worker_token",
+    re.IGNORECASE,
+)
 ARTIFACT_SOURCE_PROGRESS_STAGES = {
     "job_orchestration_scaffold_ready",
     "job_orchestration_clarification_continuation_ready",
@@ -80,8 +88,12 @@ NO_JOB_ORCHESTRATION_CALLS = {
     "durable_storage_written": False,
     "retry_behavior_called": False,
     "subscription_progress_streaming_called": False,
+    "worker_progress_streaming_called": False,
+    "automatic_progress_task_called": False,
     "job_orchestration_called": False,
 }
+
+MAX_WORKER_PROGRESS_EVENTS = 5
 
 
 def setup_job_orchestration(hass: Any, entry: Any) -> dict[str, Any]:
@@ -135,6 +147,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         store.setdefault("worker_dispatch_order", [])
         store.setdefault("latest_worker_dispatch", None)
         store.setdefault("worker_dispatch_by_job_id", {})
+        store.setdefault("next_worker_progress_event_number", 1)
+        store.setdefault("worker_progress_events", {})
+        store.setdefault("worker_progress_event_order", [])
+        store.setdefault("latest_worker_progress_event", None)
+        store.setdefault("worker_progress_event_ids_by_job_id", {})
         return store
 
     store = {
@@ -167,6 +184,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         "worker_dispatch_order": [],
         "latest_worker_dispatch": None,
         "worker_dispatch_by_job_id": {},
+        "next_worker_progress_event_number": 1,
+        "worker_progress_events": {},
+        "worker_progress_event_order": [],
+        "latest_worker_progress_event": None,
+        "worker_progress_event_ids_by_job_id": {},
     }
     entry_data[DATA_JOB_ORCHESTRATION] = store
     return store
@@ -792,6 +814,7 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
     existing_render_plan = _render_plan_for_job(store, job["job_id"])
     existing_model_provider_plan = _model_provider_plan_for_job(store, job["job_id"])
     existing_worker_dispatch = _worker_dispatch_for_job(store, job["job_id"])
+    existing_worker_progress_events = _worker_progress_events_for_job(store, job["job_id"])
     if existing_artifact is not None and _is_artifact_complete_snapshot(latest_snapshot, existing_artifact):
         return _accepted_artifact_snapshot(
             "job_orchestration_artifact_snapshot_returned",
@@ -801,10 +824,13 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
             render_plan=existing_render_plan,
             model_provider_plan=existing_model_provider_plan,
             worker_dispatch=existing_worker_dispatch,
+            worker_progress_events=existing_worker_progress_events,
             artifact_metadata_written=False,
             render_plan_written=False,
             model_provider_plan_written=False,
             worker_dispatch_written=False,
+            worker_progress_written=False,
+            worker_progress_streaming_called=False,
             model_provider_called=False,
             worker_called=False,
             chart_rendering_called=False,
@@ -824,10 +850,13 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
             render_plan=existing_render_plan,
             model_provider_plan=existing_model_provider_plan,
             worker_dispatch=existing_worker_dispatch,
+            worker_progress_events=existing_worker_progress_events,
             artifact_metadata_written=False,
             render_plan_written=False,
             model_provider_plan_written=False,
             worker_dispatch_written=False,
+            worker_progress_written=False,
+            worker_progress_streaming_called=False,
             model_provider_called=False,
             worker_called=False,
             chart_rendering_called=False,
@@ -859,6 +888,7 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
     render_plan = planning_result["render_plan"]
     model_provider_plan = planning_result.get("model_provider_plan")
     worker_dispatch = planning_result.get("worker_dispatch")
+    worker_progress_events = planning_result.get("worker_progress_events") or []
     complete_snapshot = _append_artifact_complete_snapshot(job, artifact, worker_dispatch=worker_dispatch)
     return _accepted_artifact_snapshot(
         "job_orchestration_artifact_storage_recorded",
@@ -868,10 +898,13 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
         render_plan=render_plan,
         model_provider_plan=model_provider_plan,
         worker_dispatch=worker_dispatch,
+        worker_progress_events=worker_progress_events,
         artifact_metadata_written=True,
         render_plan_written=True,
         model_provider_plan_written=model_provider_plan is not None,
         worker_dispatch_written=worker_dispatch is not None,
+        worker_progress_written=bool(worker_progress_events),
+        worker_progress_streaming_called=planning_result.get("worker_progress_streaming_called", False),
         model_provider_called=planning_result.get("model_provider_called", False),
         worker_called=planning_result.get("worker_called", False),
         chart_rendering_called=planning_result.get("chart_rendering_called", False),
@@ -931,6 +964,7 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
     latest_render_plan = store.get("latest_render_plan")
     latest_model_provider_plan = store.get("latest_model_provider_plan")
     latest_worker_dispatch = store.get("latest_worker_dispatch")
+    latest_worker_progress_event = store.get("latest_worker_progress_event")
     return {
         "entry_id": store.get("entry_id"),
         "run_count": len(store.get("run_order", [])),
@@ -991,6 +1025,23 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
         "latest_worker_dispatch_render_plan_id": (
             latest_worker_dispatch.get("render_plan_id") if isinstance(latest_worker_dispatch, dict) else None
         ),
+        "worker_progress_event_count": len(store.get("worker_progress_event_order", [])),
+        "worker_progress_event_ids": list(store.get("worker_progress_event_order", [])),
+        "latest_worker_progress_event_id": (
+            latest_worker_progress_event.get("event_id")
+            if isinstance(latest_worker_progress_event, dict)
+            else None
+        ),
+        "latest_worker_progress_job_id": (
+            latest_worker_progress_event.get("job_id")
+            if isinstance(latest_worker_progress_event, dict)
+            else None
+        ),
+        "latest_worker_progress_snapshot_id": (
+            latest_worker_progress_event.get("snapshot_id")
+            if isinstance(latest_worker_progress_event, dict)
+            else None
+        ),
     }
 
 
@@ -1012,6 +1063,8 @@ def job_orchestration_side_effects(
     render_plan_bookkeeping_written: bool = False,
     model_provider_plan_bookkeeping_written: bool = False,
     worker_dispatch_bookkeeping_written: bool = False,
+    worker_progress_bookkeeping_written: bool = False,
+    worker_progress_streaming_called: bool = False,
     websocket_command_registered: bool = False,
 ) -> dict[str, bool]:
     """Return side-effect accounting for the job orchestration scaffold."""
@@ -1033,6 +1086,8 @@ def job_orchestration_side_effects(
         "render_plan_bookkeeping_written": render_plan_bookkeeping_written,
         "model_provider_plan_bookkeeping_written": model_provider_plan_bookkeeping_written,
         "worker_dispatch_bookkeeping_written": worker_dispatch_bookkeeping_written,
+        "worker_progress_bookkeeping_written": worker_progress_bookkeeping_written,
+        "worker_progress_streaming_called": worker_progress_streaming_called,
         "websocket_command_registered": websocket_command_registered,
     }
 
@@ -1347,11 +1402,13 @@ def _record_artifact_and_render_plan(
                 model_provider_called=model_provider_result.get("model_provider_called", False),
                 worker_called=worker_dispatch_result.get("worker_called", False),
                 chart_rendering_called=worker_dispatch_result.get("chart_rendering_called", False),
+                worker_progress_streaming_called=worker_dispatch_result.get("worker_progress_streaming_called", False),
             ),
         }
 
     model_provider_plan = model_provider_result.get("model_provider_plan")
     worker_dispatch = worker_dispatch_result.get("worker_dispatch")
+    worker_progress_events = worker_dispatch_result.get("worker_progress_events") or []
     if model_provider_plan is not None:
         _store_validated_model_provider_plan(store, model_provider_plan)
     _store_validated_artifact_metadata(store, artifact)
@@ -1365,13 +1422,16 @@ def _record_artifact_and_render_plan(
         "render_plan": deepcopy(render_plan),
         "model_provider_plan": deepcopy(model_provider_plan) if model_provider_plan is not None else None,
         "worker_dispatch": deepcopy(worker_dispatch) if worker_dispatch is not None else None,
+        "worker_progress_events": deepcopy(worker_progress_events),
         "model_provider_called": model_provider_result.get("model_provider_called", False),
         "worker_called": worker_dispatch_result.get("worker_called", False),
         "chart_rendering_called": worker_dispatch_result.get("chart_rendering_called", False),
+        "worker_progress_streaming_called": worker_dispatch_result.get("worker_progress_streaming_called", False),
         "artifact_validation": artifact_validation,
         "model_provider_validation": model_provider_result.get("validation"),
         "render_plan_validation": render_plan_validation,
         "worker_dispatch_validation": worker_dispatch_result.get("validation"),
+        "worker_progress_validation": worker_dispatch_result.get("worker_progress_validation"),
     }
 
 
@@ -1481,6 +1541,280 @@ def _record_model_provider_plan(
     }
 
 
+def _record_worker_progress_events(
+    store: dict[str, Any],
+    *,
+    hass: Any,
+    entry_id: str,
+    job: dict[str, Any],
+    worker: dict[str, Any],
+    worker_authorization: str,
+    request_id: str,
+    progress_payloads: Any,
+) -> dict[str, Any]:
+    forbidden_text_values = [worker_authorization]
+    if worker_authorization.startswith("Bearer "):
+        forbidden_text_values.append(worker_authorization.removeprefix("Bearer ").strip())
+    payload_validation = _normalize_worker_progress_payloads(
+        progress_payloads,
+        forbidden_text_values=forbidden_text_values,
+    )
+    if not payload_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_worker_progress",
+            "validation": payload_validation,
+            "worker_progress_streaming_called": False,
+        }
+
+    normalized_payloads = payload_validation["progress_payloads"]
+    if not normalized_payloads:
+        return {
+            "accepted": True,
+            "code": "worker_progress_not_reported",
+            "worker_progress_events": [],
+            "worker_progress_streaming_called": False,
+            "validation": payload_validation,
+        }
+
+    stored_events = []
+    for payload in normalized_payloads:
+        snapshot = _build_worker_progress_snapshot(job, payload)
+        event = _build_worker_progress_event(
+            store,
+            hass=hass,
+            entry_id=entry_id,
+            job=job,
+            worker=worker,
+            worker_authorization=worker_authorization,
+            request_id=request_id,
+            payload=payload,
+            snapshot=snapshot,
+        )
+        progress_validation = validate_worker_progress_contract(event)
+        if not progress_validation["accepted"]:
+            return {
+                "accepted": False,
+                "code": "invalid_integration_worker_progress",
+                "validation": progress_validation,
+                "worker_progress_streaming_called": True,
+            }
+
+        snapshot_result = store_validated_job_snapshot(job, snapshot)
+        if not snapshot_result["accepted"]:
+            return {
+                "accepted": False,
+                "code": "invalid_integration_worker_progress",
+                "validation": snapshot_result,
+                "worker_progress_streaming_called": True,
+            }
+        job["next_snapshot_number"] += 1
+        _store_validated_worker_progress_event(store, event)
+        stored_events.append(deepcopy(event))
+
+    return {
+        "accepted": True,
+        "code": "worker_progress_recorded",
+        "worker_progress_events": stored_events,
+        "worker_progress_streaming_called": True,
+        "validation": {
+            "accepted": True,
+            "code": "accepted",
+            "event_count": len(stored_events),
+            "schema": str(WORKER_PROGRESS_SCHEMA_PATH),
+        },
+    }
+
+
+def _normalize_worker_progress_payloads(
+    progress_payloads: Any,
+    *,
+    forbidden_text_values: list[str] | None = None,
+) -> dict[str, Any]:
+    if progress_payloads is None:
+        return {
+            "accepted": True,
+            "code": "worker_progress_not_reported",
+            "progress_payloads": [],
+        }
+    if not isinstance(progress_payloads, list):
+        return {
+            "accepted": False,
+            "code": "invalid_worker_progress_payloads",
+            "error": "worker progress payloads must be a list",
+        }
+    if len(progress_payloads) > MAX_WORKER_PROGRESS_EVENTS:
+        return {
+            "accepted": False,
+            "code": "too_many_worker_progress_payloads",
+            "max_worker_progress_events": MAX_WORKER_PROGRESS_EVENTS,
+            "observed_worker_progress_events": len(progress_payloads),
+        }
+
+    normalized = []
+    for index, payload in enumerate(progress_payloads, start=1):
+        if not isinstance(payload, dict):
+            return {
+                "accepted": False,
+                "code": "invalid_worker_progress_payload",
+                "path": f"progress_events[{index - 1}]",
+                "error": "worker progress payload must be an object",
+            }
+        sequence = payload.get("sequence", index)
+        stage = payload.get("stage")
+        message = payload.get("message")
+        percent_complete = payload.get("percent_complete")
+        if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 1:
+            return {
+                "accepted": False,
+                "code": "invalid_worker_progress_sequence",
+                "path": f"progress_events[{index - 1}].sequence",
+            }
+        if not isinstance(stage, str) or not stage.strip():
+            return {
+                "accepted": False,
+                "code": "invalid_worker_progress_stage",
+                "path": f"progress_events[{index - 1}].stage",
+            }
+        if not isinstance(message, str) or not message.strip():
+            return {
+                "accepted": False,
+                "code": "invalid_worker_progress_message",
+                "path": f"progress_events[{index - 1}].message",
+            }
+        if _worker_progress_text_contains_forbidden_material(stage, forbidden_text_values):
+            return {
+                "accepted": False,
+                "code": "forbidden_worker_progress_text",
+                "path": f"progress_events[{index - 1}].stage",
+            }
+        if _worker_progress_text_contains_forbidden_material(message, forbidden_text_values):
+            return {
+                "accepted": False,
+                "code": "forbidden_worker_progress_text",
+                "path": f"progress_events[{index - 1}].message",
+            }
+        if (
+            not isinstance(percent_complete, (int, float))
+            or isinstance(percent_complete, bool)
+            or percent_complete < 0
+            or percent_complete > 100
+        ):
+            return {
+                "accepted": False,
+                "code": "invalid_worker_progress_percent",
+                "path": f"progress_events[{index - 1}].percent_complete",
+            }
+        normalized.append(
+            {
+                "sequence": sequence,
+                "stage": stage.strip(),
+                "message": message.strip(),
+                "percent_complete": percent_complete,
+            }
+        )
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "progress_payloads": normalized,
+    }
+
+
+def _worker_progress_text_contains_forbidden_material(
+    value: str,
+    forbidden_text_values: list[str] | None,
+) -> bool:
+    if FORBIDDEN_WORKER_PROGRESS_TEXT.search(value):
+        return True
+    for forbidden in forbidden_text_values or []:
+        if isinstance(forbidden, str) and forbidden.strip() and forbidden.strip() in value:
+            return True
+    return False
+
+
+def _build_worker_progress_snapshot(job: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    snapshot_number = job["next_snapshot_number"]
+    return {
+        "snapshot_id": f"{job['job_id']}-snapshot-{snapshot_number:03d}",
+        "job_id": job["job_id"],
+        "status": "rendering",
+        "prompt": job["prompt"],
+        "state_label": "Rendering",
+        "message": payload["message"],
+        "progress": {
+            "stage": payload["stage"],
+            "message": payload["message"],
+        },
+        "validation": {
+            "status": "in_progress",
+            "summary": "Worker progress validates before snapshot storage.",
+            "checks": [
+                {"name": "worker_progress_payload", "status": "pass"},
+                {"name": "worker_authorization_redacted", "status": "pass"},
+                {"name": "integration_job_snapshot", "status": "pass"},
+            ],
+        },
+        "warnings": [
+            "worker_progress_streaming_scaffold",
+            "worker_authorization_redacted",
+            "integration_chart_artifact_file_not_written",
+        ],
+    }
+
+
+def _build_worker_progress_event(
+    store: dict[str, Any],
+    *,
+    hass: Any,
+    entry_id: str,
+    job: dict[str, Any],
+    worker: dict[str, Any],
+    worker_authorization: str,
+    request_id: str,
+    payload: dict[str, Any],
+    snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    event_number = store["next_worker_progress_event_number"]
+    event_id = f"{store['entry_id']}-worker-progress-{event_number:03d}"
+    return {
+        "event_id": event_id,
+        "type": "isolinear_worker_progress",
+        "config_entry_id": store["entry_id"],
+        "job_id": job["job_id"],
+        "worker": {
+            "type": worker.get("type") or "http_json_worker",
+            "role": worker.get("role") or "renderer",
+            "endpoint_url": worker.get("endpoint_url") or "",
+            "api_version": worker.get("api_version") or 1,
+            "authorization": "Bearer <redacted>" if worker_authorization.startswith("Bearer ") else "<missing>",
+        },
+        "request_id": request_id,
+        "sequence": payload["sequence"],
+        "stage": payload["stage"],
+        "message": payload["message"],
+        "percent_complete": payload["percent_complete"],
+        "subscription_ids": _subscription_ids_for_job(hass, entry_id, job["job_id"]),
+        "snapshot_id": snapshot["snapshot_id"],
+        "snapshot": deepcopy(snapshot),
+        "validation": {
+            "status": "pass",
+            "summary": "Worker progress payload and rendering snapshot validate before storage.",
+            "checks": [
+                {"name": "worker_progress_payload", "status": "pass"},
+                {"name": "integration_worker_progress_schema", "status": "pass"},
+                {"name": "integration_job_snapshot_schema", "status": "pass"},
+                {"name": "worker_authorization_redacted", "status": "pass"},
+            ],
+        },
+        "warnings": [
+            "worker_progress_streaming_scaffold",
+            "worker_authorization_redacted",
+            "bounded_in_memory_progress_event",
+        ],
+    }
+
+
 def _record_worker_dispatch(
     store: dict[str, Any],
     *,
@@ -1498,7 +1832,9 @@ def _record_worker_dispatch(
             "code": "worker_renderer_not_configured",
             "worker_called": False,
             "chart_rendering_called": False,
+            "worker_progress_streaming_called": False,
             "worker_dispatch": None,
+            "worker_progress_events": [],
         }
 
     token = worker_client_token(worker_client)
@@ -1512,6 +1848,7 @@ def _record_worker_dispatch(
             "code": "worker_renderer_token_missing",
             "worker_called": False,
             "chart_rendering_called": False,
+            "worker_progress_streaming_called": False,
             "worker": worker_summary,
         }
 
@@ -1529,6 +1866,7 @@ def _record_worker_dispatch(
             "validation": render_request_validation,
             "worker_called": False,
             "chart_rendering_called": False,
+            "worker_progress_streaming_called": False,
             "worker": worker_summary,
         }
 
@@ -1546,6 +1884,7 @@ def _record_worker_dispatch(
             "validation": transport_validation,
             "worker_called": False,
             "chart_rendering_called": False,
+            "worker_progress_streaming_called": False,
             "worker": worker_summary,
         }
 
@@ -1556,6 +1895,7 @@ def _record_worker_dispatch(
             "code": "worker_renderer_unavailable",
             "worker_called": False,
             "chart_rendering_called": False,
+            "worker_progress_streaming_called": False,
             "worker": worker_summary,
         }
 
@@ -1570,6 +1910,7 @@ def _record_worker_dispatch(
             ),
             "worker_called": True,
             "chart_rendering_called": True,
+            "worker_progress_streaming_called": False,
             "worker": worker_summary,
         }
 
@@ -1582,6 +1923,7 @@ def _record_worker_dispatch(
             "validation": render_result_validation,
             "worker_called": True,
             "chart_rendering_called": True,
+            "worker_progress_streaming_called": False,
             "worker": worker_summary,
         }
     if not isinstance(render_result, dict) or render_result.get("status") != "success":
@@ -1591,6 +1933,7 @@ def _record_worker_dispatch(
             "validation": render_result_validation,
             "worker_called": True,
             "chart_rendering_called": True,
+            "worker_progress_streaming_called": False,
             "worker": worker_summary,
         }
 
@@ -1612,6 +1955,28 @@ def _record_worker_dispatch(
             "validation": dispatch_validation,
             "worker_called": True,
             "chart_rendering_called": True,
+            "worker_progress_streaming_called": False,
+            "worker": worker_summary,
+        }
+
+    worker_progress_result = _record_worker_progress_events(
+        store,
+        hass=hass,
+        entry_id=entry_id,
+        job=job,
+        worker=worker_response.get("worker") or worker_client_metadata(worker_client),
+        worker_authorization=f"Bearer {token}",
+        request_id=transport_request["body"]["request_id"],
+        progress_payloads=worker_response.get("progress_events"),
+    )
+    if not worker_progress_result["accepted"]:
+        return {
+            "accepted": False,
+            "code": worker_progress_result["code"],
+            "validation": worker_progress_result.get("validation"),
+            "worker_called": True,
+            "chart_rendering_called": True,
+            "worker_progress_streaming_called": worker_progress_result.get("worker_progress_streaming_called", False),
             "worker": worker_summary,
         }
 
@@ -1620,8 +1985,11 @@ def _record_worker_dispatch(
         "code": "accepted",
         "worker_called": True,
         "chart_rendering_called": True,
+        "worker_progress_streaming_called": worker_progress_result.get("worker_progress_streaming_called", False),
         "worker_dispatch": worker_dispatch,
+        "worker_progress_events": worker_progress_result.get("worker_progress_events", []),
         "validation": dispatch_validation,
+        "worker_progress_validation": worker_progress_result.get("validation"),
         "worker": worker_summary,
     }
 
@@ -1916,6 +2284,31 @@ def _store_validated_worker_dispatch(store: dict[str, Any], worker_dispatch: dic
     store["latest_worker_dispatch"] = deepcopy(worker_dispatch)
 
 
+def _store_validated_worker_progress_event(store: dict[str, Any], event: dict[str, Any]) -> None:
+    event_id = event["event_id"]
+    store["next_worker_progress_event_number"] += 1
+    store["worker_progress_events"][event_id] = deepcopy(event)
+    store["worker_progress_event_order"].append(event_id)
+    store.setdefault("worker_progress_event_ids_by_job_id", {}).setdefault(event["job_id"], []).append(event_id)
+    store["latest_worker_progress_event"] = deepcopy(event)
+
+
+def _subscription_ids_for_job(hass: Any, entry_id: str, job_id: str) -> list[str]:
+    entry_data = getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {})
+    store = entry_data.get(DATA_JOB_STATE, {}) if isinstance(entry_data, dict) else {}
+    subscriptions = store.get("subscriptions", {}) if isinstance(store, dict) else {}
+    subscription_order = store.get("subscription_order", []) if isinstance(store, dict) else []
+    return [
+        subscription_id
+        for subscription_id in subscription_order
+        if (
+            subscription_id in subscriptions
+            and isinstance(subscriptions[subscription_id], dict)
+            and subscriptions[subscription_id].get("job_id") == job_id
+        )
+    ]
+
+
 def validate_artifact_metadata_contract(artifact: Any) -> dict[str, Any]:
     """Validate IntegrationArtifactMetadata against the repo JSON Schema."""
     try:
@@ -1989,6 +2382,36 @@ def validate_worker_dispatch_contract(worker_dispatch: Any) -> dict[str, Any]:
         "code": "accepted",
         "schema": str(WORKER_DISPATCH_SCHEMA_PATH),
         "render_result_schema": str(RENDER_RESULT_SCHEMA_PATH),
+    }
+
+
+def validate_worker_progress_contract(worker_progress: Any) -> dict[str, Any]:
+    """Validate IntegrationWorkerProgress and its nested job snapshot."""
+    try:
+        schema = json.loads(WORKER_PROGRESS_SCHEMA_PATH.read_text(encoding="utf-8"))
+        _validate_json_schema(worker_progress, schema, root_schema=schema, path="$")
+    except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_worker_progress",
+            "error": str(exc),
+        }
+
+    snapshot_validation = validate_job_snapshot_contract(
+        worker_progress.get("snapshot") if isinstance(worker_progress, dict) else None
+    )
+    if not snapshot_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_worker_progress_snapshot",
+            "snapshot_validation": snapshot_validation,
+        }
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "schema": str(WORKER_PROGRESS_SCHEMA_PATH),
+        "snapshot_schema": "docs/schemas/integration-job-snapshot.schema.json",
     }
 
 
@@ -2307,6 +2730,9 @@ def _accepted_artifact_snapshot(
     chart_rendering_called: bool,
     job_state_written: bool,
     job_orchestration_written: bool,
+    worker_progress_events: list[dict[str, Any]] | None = None,
+    worker_progress_written: bool = False,
+    worker_progress_streaming_called: bool = False,
 ) -> dict[str, Any]:
     result = {
         "accepted": True,
@@ -2324,6 +2750,8 @@ def _accepted_artifact_snapshot(
             render_plan_bookkeeping_written=render_plan_written,
             model_provider_plan_bookkeeping_written=model_provider_plan_written,
             worker_dispatch_bookkeeping_written=worker_dispatch_written,
+            worker_progress_bookkeeping_written=worker_progress_written,
+            worker_progress_streaming_called=worker_progress_streaming_called,
             job_state_written=job_state_written,
             job_orchestration_written=job_orchestration_written,
         ),
@@ -2336,6 +2764,8 @@ def _accepted_artifact_snapshot(
         result["model_provider_plan"] = deepcopy(model_provider_plan)
     if worker_dispatch is not None:
         result["worker_dispatch"] = deepcopy(worker_dispatch)
+    if worker_progress_events:
+        result["worker_progress_events"] = deepcopy(worker_progress_events)
     return result
 
 
@@ -2410,6 +2840,15 @@ def _worker_dispatch_for_job(store: dict[str, Any], job_id: str) -> dict[str, An
     dispatch_id = store.get("worker_dispatch_by_job_id", {}).get(job_id)
     worker_dispatch = store.get("worker_dispatches", {}).get(dispatch_id)
     return deepcopy(worker_dispatch) if isinstance(worker_dispatch, dict) else None
+
+
+def _worker_progress_events_for_job(store: dict[str, Any], job_id: str) -> list[dict[str, Any]]:
+    event_ids = store.get("worker_progress_event_ids_by_job_id", {}).get(job_id, [])
+    return [
+        deepcopy(store.get("worker_progress_events", {})[event_id])
+        for event_id in event_ids
+        if event_id in store.get("worker_progress_events", {})
+    ]
 
 
 def _is_artifact_source_snapshot(snapshot: dict[str, Any]) -> bool:

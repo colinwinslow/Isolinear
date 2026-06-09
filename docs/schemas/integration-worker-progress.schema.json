@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/integration-worker-progress.schema.json",
+  "title": "IntegrationWorkerProgress",
+  "type": "object",
+  "required": [
+    "event_id",
+    "type",
+    "config_entry_id",
+    "job_id",
+    "worker",
+    "request_id",
+    "sequence",
+    "stage",
+    "message",
+    "percent_complete",
+    "subscription_ids",
+    "snapshot_id",
+    "snapshot",
+    "validation",
+    "warnings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "type": {
+      "const": "isolinear_worker_progress"
+    },
+    "config_entry_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "job_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "worker": {
+      "type": "object",
+      "required": [
+        "type",
+        "role",
+        "endpoint_url",
+        "api_version",
+        "authorization"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "http_json_worker"
+        },
+        "role": {
+          "const": "renderer"
+        },
+        "endpoint_url": {
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "api_version": {
+          "const": 1
+        },
+        "authorization": {
+          "const": "Bearer <redacted>"
+        }
+      }
+    },
+    "request_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "stage": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "message": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "percent_complete": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "subscription_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "\\S"
+      }
+    },
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "validation": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary",
+        "checks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "pass"
+        },
+        "summary": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "status": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            }
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
