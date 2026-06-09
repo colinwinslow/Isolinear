@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -436,6 +437,22 @@ def _validate_json_schema(
     if "enum" in schema and payload not in schema["enum"]:
         raise JobStateSnapshotValidationError(_schema_error(f"{path} must be one of {schema['enum']!r}."))
 
+    if "oneOf" in schema:
+        matches = []
+        errors = []
+        for option in schema["oneOf"]:
+            try:
+                _validate_json_schema(payload, option, root_schema=root_schema, path=path)
+                matches.append(option)
+            except JobStateSnapshotValidationError as exc:
+                errors.append(str(exc))
+        if len(matches) != 1:
+            detail = "; ".join(errors[:3])
+            raise JobStateSnapshotValidationError(
+                _schema_error(f"{path} must match exactly one schema option. {detail}")
+            )
+        return
+
     if "type" in schema:
         _validate_type(payload, schema["type"], path)
 
@@ -496,6 +513,12 @@ def _validate_string(payload: str, schema: dict[str, Any], path: str) -> None:
     if pattern is not None and re.search(pattern, payload) is None:
         raise JobStateSnapshotValidationError(_schema_error(f"{path} must match pattern {pattern!r}."))
 
+    if schema.get("format") == "date-time":
+        try:
+            datetime.fromisoformat(payload.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise JobStateSnapshotValidationError(_schema_error(f"{path} must be a date-time string.")) from exc
+
 
 def _validate_type(payload: Any, schema_type: str | list[str], path: str) -> None:
     expected_types = [schema_type] if isinstance(schema_type, str) else schema_type
@@ -511,6 +534,8 @@ def _matches_type(payload: Any, schema_type: str) -> bool:
         return isinstance(payload, list)
     if schema_type == "string":
         return isinstance(payload, str)
+    if schema_type == "number":
+        return isinstance(payload, (int, float)) and not isinstance(payload, bool)
     if schema_type == "integer":
         return isinstance(payload, int) and not isinstance(payload, bool)
     if schema_type == "boolean":

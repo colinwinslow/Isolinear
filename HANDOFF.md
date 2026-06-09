@@ -6,10 +6,11 @@ MVP design phase closed. The first production Home Assistant custom integration
 scaffold, config-flow/options surface, dashboard resource registration surface,
 WebSocket command registration surface, job state scaffold, approved entity
 catalog, approved history retrieval, and job orchestration scaffold are
-anchored, including clarification-answer, retry continuation, and
-subscription/progress and artifact storage scaffold paths. The next packet
-should keep orchestration work narrow by defining render-planning semantics
-only, while preserving the existing schema-first, BDD-first workflow.
+anchored, including clarification-answer, retry continuation,
+subscription/progress, artifact storage, and render planning scaffold paths.
+The next packet should keep orchestration work narrow by defining the first
+model-provider planning boundary, while preserving the existing schema-first,
+BDD-first workflow.
 
 ## Product summary
 
@@ -367,24 +368,48 @@ spec/BDD/eval/evidence and
 `evals/home_assistant_job_orchestration_artifact_storage_scaffold.py` prove the
 anchor.
 
+Home Assistant job orchestration render planning scaffold anchor is complete.
+Enabled `isolinear/v1/job/snapshot` callbacks now validate the targeted
+config-entry job's latest `IntegrationJobSnapshot`, record one deterministic
+config-entry-scoped placeholder render-plan envelope for scaffold-ready jobs,
+validate the render plan against `IntegrationRenderPlan`, validate the nested
+placeholder `ChartSpec` before storage, reference the same placeholder artifact
+metadata, append and return the existing schema-valid artifact-backed complete
+snapshot, and idempotently reuse existing render plans and artifacts. Unknown
+jobs and cross-config-entry jobs fail closed before render-plan metadata,
+artifact metadata, or complete snapshot storage. The packet remains
+non-rendering and non-mutating: it does not call Ollama or any model provider,
+does not call the worker, does not read approved Home Assistant history during
+render planning, does not persist semantic memory, does not mutate Home
+Assistant state, does not generate tokens, does not write real artifact files,
+does not render charts, and does not add durable storage, retry/backoff,
+automatic progress tasks, worker streaming, or production orchestration beyond
+scaffold bookkeeping. The paired spec/BDD/eval/evidence and
+`evals/home_assistant_job_orchestration_render_planning_scaffold.py` prove the
+anchor.
+
 ## Next recommended packet
 
-Home Assistant job orchestration render planning scaffold anchor:
+Home Assistant job orchestration model-provider planning scaffold anchor:
 
-1. Write paired BDD/evidence before code for the first render-planning
-   semantics path after artifact storage.
-2. Build the smallest inspectable config-entry-scoped render-planning surface
-   that turns an approved scaffold-ready job plus artifact metadata boundary
-   into a deterministic planned-render record or placeholder chart-spec plan.
-3. Keep the packet non-rendering and non-mutating: no model-provider calls,
-   worker calls, semantic-memory persistence, token generation, real chart
-   rendering, Home Assistant service/state mutation, durable storage beyond
-   bounded scaffold bookkeeping, retry/backoff policy, or production
-   orchestration beyond render-planning bookkeeping.
-4. Prove schema-valid planned-render records or snapshots, artifact reference
-   handling, unknown job rejection, cross-config-entry rejection,
-   per-config-entry isolation, and bounded side effects.
-5. Prove the anchor with unit tests, a focused eval, raw evidence, on-disk
+1. Write paired BDD/evidence before code for the first integration-owned
+   model-provider planning boundary after render-plan storage.
+2. Decide in the spec whether the packet is still a deterministic scaffold or
+   the first Ollama-compatible provider call; if it introduces new transport,
+   storage, authentication, or retry semantics, write the ADR first.
+3. Build the smallest inspectable config-entry-scoped surface that can replace
+   the placeholder `ChartSpec` in a render plan with a schema-valid
+   provider-produced `ChartSpec` while preserving entity allowlist and plan
+   validation gates.
+4. Keep the packet non-rendering and non-mutating: no worker calls, chart
+   rendering, Home Assistant service/state mutation, token leakage, durable
+   storage beyond bounded scaffold bookkeeping, worker streaming, or
+   retry/backoff policy.
+5. Prove schema-valid provider planning inputs/outputs, hidden-entity
+   rejection, invalid chart-spec rejection, unknown job rejection,
+   cross-config-entry rejection, per-config-entry isolation, and bounded side
+   effects.
+6. Prove the anchor with unit tests, a focused eval, raw evidence, on-disk
    verification, BDD-evidence review, and standalone architecture review.
 
 ## Known unresolved design details
@@ -399,8 +424,8 @@ Home Assistant job orchestration render planning scaffold anchor:
   adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
-- Production Home Assistant render planning, worker streaming, and
-  retry/backoff policy beyond scaffold snapshots.
+- Production Home Assistant model-provider/Ollama planning, worker render
+  dispatch/streaming, and retry/backoff policy beyond scaffold snapshots.
 
 ## Session log
 

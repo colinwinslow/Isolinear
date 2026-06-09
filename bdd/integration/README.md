@@ -44,6 +44,12 @@ custom integration implementation slices.
   placeholder artifact metadata for scaffold-ready jobs while preserving
   model, worker, rendering, mutation, memory, token, real artifact file,
   durable-storage, streaming, retry, and production orchestration boundaries.
+- **Home Assistant job orchestration render planning scaffold anchor** - the
+  integration owns a config-entry-scoped `job/snapshot` scaffold that records
+  placeholder render plans with schema-valid `ChartSpec` objects for
+  scaffold-ready jobs while preserving Ollama/model-provider, worker,
+  rendering, mutation, memory, token, real artifact file, durable-storage,
+  streaming, retry/backoff, and production orchestration boundaries.
 
 ## Validation
 
@@ -80,4 +86,9 @@ custom integration implementation slices.
   deterministic placeholder artifact metadata creation for scaffold-ready jobs,
   idempotent snapshot retrieval, unknown-job and cross-entry rejection,
   per-config-entry isolation, schema-valid snapshots/artifact metadata, and
+  bounded side-effect proof.
+- `evals/home_assistant_job_orchestration_render_planning_scaffold.py` -
+  deterministic placeholder render-plan creation for scaffold-ready jobs,
+  idempotent render-plan reuse, unknown-job and cross-entry rejection,
+  per-config-entry isolation, schema-valid render plans/chart specs, and
   bounded side-effect proof.

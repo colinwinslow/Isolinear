@@ -234,6 +234,7 @@ def handle_registered_ws_command(
             "run": job_result.get("run"),
             "progress_event": job_result.get("progress_event"),
             "artifact": job_result.get("artifact"),
+            "render_plan": job_result.get("render_plan"),
         },
         "orchestration": job_result["orchestration"],
     }

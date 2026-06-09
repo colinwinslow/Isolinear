@@ -28,6 +28,10 @@ DATA_JOB_ORCHESTRATION_TIME_RANGE = "job_orchestration_default_time_range"
 ARTIFACT_METADATA_SCHEMA_PATH = (
     Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-artifact-metadata.schema.json"
 )
+RENDER_PLAN_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-render-plan.schema.json"
+)
+CHART_SPEC_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "chart-spec.schema.json"
 
 ENTITY_ID_IN_PROMPT = re.compile(r"\b[a-z0-9_]+\.[a-z0-9_]+\b")
 ARTIFACT_SOURCE_PROGRESS_STAGES = {
@@ -88,6 +92,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         store.setdefault("artifact_order", [])
         store.setdefault("latest_artifact", None)
         store.setdefault("artifact_by_job_id", {})
+        store.setdefault("next_render_plan_number", 1)
+        store.setdefault("render_plans", {})
+        store.setdefault("render_plan_order", [])
+        store.setdefault("latest_render_plan", None)
+        store.setdefault("render_plan_by_job_id", {})
         return store
 
     store = {
@@ -105,6 +114,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         "artifact_order": [],
         "latest_artifact": None,
         "artifact_by_job_id": {},
+        "next_render_plan_number": 1,
+        "render_plans": {},
+        "render_plan_order": [],
+        "latest_render_plan": None,
+        "render_plan_by_job_id": {},
     }
     entry_data[DATA_JOB_ORCHESTRATION] = store
     return store
@@ -727,13 +741,16 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
         return result
 
     existing_artifact = _artifact_for_job(store, job["job_id"])
+    existing_render_plan = _render_plan_for_job(store, job["job_id"])
     if existing_artifact is not None and _is_artifact_complete_snapshot(latest_snapshot, existing_artifact):
         return _accepted_artifact_snapshot(
             "job_orchestration_artifact_snapshot_returned",
             command,
             latest_snapshot,
             artifact=existing_artifact,
+            render_plan=existing_render_plan,
             artifact_metadata_written=False,
+            render_plan_written=False,
             job_state_written=False,
             job_orchestration_written=False,
         )
@@ -747,29 +764,38 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
             command,
             snapshot_result["snapshot"],
             artifact=None,
+            render_plan=existing_render_plan,
             artifact_metadata_written=False,
+            render_plan_written=False,
             job_state_written=False,
             job_orchestration_written=False,
         )
 
-    artifact_result = _record_artifact_metadata(store, job=job, source_snapshot=latest_snapshot)
-    if not artifact_result["accepted"]:
+    planning_result = _record_artifact_and_render_plan(
+        store,
+        job=job,
+        source_snapshot=latest_snapshot,
+    )
+    if not planning_result["accepted"]:
         result = _orchestration_rejection(
-            artifact_result["code"],
+            planning_result["code"],
             job_id=command.get("job_id"),
             orchestration=job_orchestration_side_effects(),
         )
-        result["validation"] = artifact_result.get("validation")
+        result["validation"] = planning_result.get("validation")
         return result
 
-    artifact = artifact_result["artifact"]
+    artifact = planning_result["artifact"]
+    render_plan = planning_result["render_plan"]
     complete_snapshot = _append_artifact_complete_snapshot(job, artifact)
     return _accepted_artifact_snapshot(
         "job_orchestration_artifact_storage_recorded",
         command,
         complete_snapshot,
         artifact=artifact,
+        render_plan=render_plan,
         artifact_metadata_written=True,
+        render_plan_written=True,
         job_state_written=True,
         job_orchestration_written=True,
     )
@@ -823,6 +849,7 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
     latest_run = store.get("latest_run")
     latest_progress_event = store.get("latest_progress_event")
     latest_artifact = store.get("latest_artifact")
+    latest_render_plan = store.get("latest_render_plan")
     return {
         "entry_id": store.get("entry_id"),
         "run_count": len(store.get("run_order", [])),
@@ -846,6 +873,17 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
         "latest_artifact_source_snapshot_id": (
             latest_artifact.get("source_snapshot_id") if isinstance(latest_artifact, dict) else None
         ),
+        "render_plan_count": len(store.get("render_plan_order", [])),
+        "render_plan_ids": list(store.get("render_plan_order", [])),
+        "latest_render_plan_id": (
+            latest_render_plan.get("render_plan_id") if isinstance(latest_render_plan, dict) else None
+        ),
+        "latest_render_plan_job_id": (
+            latest_render_plan.get("job_id") if isinstance(latest_render_plan, dict) else None
+        ),
+        "latest_render_plan_artifact_id": (
+            latest_render_plan.get("artifact_id") if isinstance(latest_render_plan, dict) else None
+        ),
     }
 
 
@@ -860,6 +898,7 @@ def job_orchestration_side_effects(
     subscription_bookkeeping_written: bool = False,
     subscription_progress_streaming_called: bool = False,
     artifact_metadata_bookkeeping_written: bool = False,
+    render_plan_bookkeeping_written: bool = False,
     websocket_command_registered: bool = False,
 ) -> dict[str, bool]:
     """Return side-effect accounting for the job orchestration scaffold."""
@@ -874,6 +913,7 @@ def job_orchestration_side_effects(
         "job_orchestration_scaffold_written": job_orchestration_written,
         "subscription_bookkeeping_written": subscription_bookkeeping_written,
         "artifact_metadata_bookkeeping_written": artifact_metadata_bookkeeping_written,
+        "render_plan_bookkeeping_written": render_plan_bookkeeping_written,
         "websocket_command_registered": websocket_command_registered,
     }
 
@@ -1097,6 +1137,71 @@ def _record_artifact_metadata(
     job: dict[str, Any],
     source_snapshot: dict[str, Any],
 ) -> dict[str, Any]:
+    artifact = _build_artifact_metadata(store, job=job, source_snapshot=source_snapshot)
+    validation = validate_artifact_metadata_contract(artifact)
+    if not validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_artifact_metadata",
+            "validation": validation,
+        }
+
+    _store_validated_artifact_metadata(store, artifact)
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "artifact": deepcopy(artifact),
+        "validation": validation,
+    }
+
+
+def _record_artifact_and_render_plan(
+    store: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    artifact = _build_artifact_metadata(store, job=job, source_snapshot=source_snapshot)
+    artifact_validation = validate_artifact_metadata_contract(artifact)
+    if not artifact_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_artifact_metadata",
+            "validation": artifact_validation,
+        }
+
+    render_plan = _build_render_plan(
+        store,
+        job=job,
+        source_snapshot=source_snapshot,
+        artifact=artifact,
+    )
+    render_plan_validation = validate_render_plan_contract(render_plan)
+    if not render_plan_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_render_plan",
+            "validation": render_plan_validation,
+        }
+
+    _store_validated_artifact_metadata(store, artifact)
+    _store_validated_render_plan(store, render_plan)
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "artifact": deepcopy(artifact),
+        "render_plan": deepcopy(render_plan),
+        "artifact_validation": artifact_validation,
+        "render_plan_validation": render_plan_validation,
+    }
+
+
+def _build_artifact_metadata(
+    store: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+) -> dict[str, Any]:
     artifact_number = store["next_artifact_number"]
     artifact_id = f"{store['entry_id']}-artifact-{artifact_number:03d}"
     chart = _chart_metadata_for_artifact(
@@ -1134,25 +1239,77 @@ def _record_artifact_metadata(
             "chart_rendering_not_started",
         ],
     }
-    validation = validate_artifact_metadata_contract(artifact)
-    if not validation["accepted"]:
-        return {
-            "accepted": False,
-            "code": "invalid_integration_artifact_metadata",
-            "validation": validation,
-        }
+    return artifact
 
-    store["next_artifact_number"] = artifact_number + 1
+
+def _store_validated_artifact_metadata(store: dict[str, Any], artifact: dict[str, Any]) -> None:
+    artifact_id = artifact["artifact_id"]
+    store["next_artifact_number"] += 1
     store["artifact_metadata"][artifact_id] = deepcopy(artifact)
     store["artifact_order"].append(artifact_id)
-    store["artifact_by_job_id"][job["job_id"]] = artifact_id
+    store["artifact_by_job_id"][artifact["job_id"]] = artifact_id
     store["latest_artifact"] = deepcopy(artifact)
+
+
+def _build_render_plan(
+    store: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+    artifact: dict[str, Any],
+) -> dict[str, Any]:
+    render_plan_number = store["next_render_plan_number"]
+    render_plan_id = f"{store['entry_id']}-render-plan-{render_plan_number:03d}"
+    chart_spec = _chart_spec_for_render_plan(
+        render_plan_id=render_plan_id,
+        job=job,
+        source_snapshot=source_snapshot,
+    )
     return {
-        "accepted": True,
-        "code": "accepted",
-        "artifact": deepcopy(artifact),
-        "validation": validation,
+        "render_plan_id": render_plan_id,
+        "config_entry_id": store["entry_id"],
+        "job_id": job["job_id"],
+        "source_snapshot_id": source_snapshot["snapshot_id"],
+        "artifact_id": artifact["artifact_id"],
+        "status": "planned",
+        "render_mode": "safe",
+        "renderer": "trusted_chart_spec",
+        "chart_spec": chart_spec,
+        "history_entity_ids": _source_snapshot_entity_ids(source_snapshot),
+        "output": {
+            "format": "png",
+            "width": 1400,
+            "height": 800,
+        },
+        "validation": {
+            "status": "pass",
+            "summary": "Placeholder render plan and chart spec validate before storage.",
+            "checks": [
+                {"name": "integration_job_snapshot", "status": "pass"},
+                {"name": "integration_artifact_metadata", "status": "pass"},
+                {"name": "chart_spec_schema", "status": "pass"},
+                {"name": "model_provider", "status": "not_called"},
+                {"name": "worker", "status": "not_called"},
+                {"name": "chart_rendering", "status": "not_called"},
+            ],
+        },
+        "warnings": [
+            "render_planning_scaffold",
+            "placeholder_chart_spec",
+            "model_provider_not_called",
+            "worker_not_called",
+            "chart_rendering_not_started",
+        ],
     }
+
+
+def _store_validated_render_plan(store: dict[str, Any], render_plan: dict[str, Any]) -> None:
+    render_plan_id = render_plan["render_plan_id"]
+    store["next_render_plan_number"] += 1
+    store["render_plans"][render_plan_id] = deepcopy(render_plan)
+    store["render_plan_order"].append(render_plan_id)
+    store["render_plan_by_job_id"][render_plan["job_id"]] = render_plan_id
+    store["latest_render_plan"] = deepcopy(render_plan)
 
 
 def validate_artifact_metadata_contract(artifact: Any) -> dict[str, Any]:
@@ -1170,6 +1327,52 @@ def validate_artifact_metadata_contract(artifact: Any) -> dict[str, Any]:
         "accepted": True,
         "code": "accepted",
         "schema": str(ARTIFACT_METADATA_SCHEMA_PATH),
+    }
+
+
+def validate_render_plan_contract(render_plan: Any) -> dict[str, Any]:
+    """Validate IntegrationRenderPlan and its placeholder ChartSpec."""
+    try:
+        schema = json.loads(RENDER_PLAN_SCHEMA_PATH.read_text(encoding="utf-8"))
+        _validate_json_schema(render_plan, schema, root_schema=schema, path="$")
+    except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_render_plan",
+            "error": str(exc),
+        }
+
+    chart_validation = validate_chart_spec_contract(render_plan.get("chart_spec") if isinstance(render_plan, dict) else None)
+    if not chart_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_chart_spec",
+            "chart_validation": chart_validation,
+        }
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "schema": str(RENDER_PLAN_SCHEMA_PATH),
+        "chart_schema": str(CHART_SPEC_SCHEMA_PATH),
+    }
+
+
+def validate_chart_spec_contract(chart_spec: Any) -> dict[str, Any]:
+    """Validate a placeholder ChartSpec against the repo JSON Schema."""
+    try:
+        schema = json.loads(CHART_SPEC_SCHEMA_PATH.read_text(encoding="utf-8"))
+        _validate_json_schema(chart_spec, schema, root_schema=schema, path="$")
+    except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
+        return {
+            "accepted": False,
+            "code": "invalid_chart_spec",
+            "error": str(exc),
+        }
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "schema": str(CHART_SPEC_SCHEMA_PATH),
     }
 
 
@@ -1249,7 +1452,9 @@ def _accepted_artifact_snapshot(
     snapshot: dict[str, Any],
     *,
     artifact: dict[str, Any] | None,
+    render_plan: dict[str, Any] | None,
     artifact_metadata_written: bool,
+    render_plan_written: bool,
     job_state_written: bool,
     job_orchestration_written: bool,
 ) -> dict[str, Any]:
@@ -1263,12 +1468,15 @@ def _accepted_artifact_snapshot(
         "snapshot": deepcopy(snapshot),
         "orchestration": job_orchestration_side_effects(
             artifact_metadata_bookkeeping_written=artifact_metadata_written,
+            render_plan_bookkeeping_written=render_plan_written,
             job_state_written=job_state_written,
             job_orchestration_written=job_orchestration_written,
         ),
     }
     if artifact is not None:
         result["artifact"] = deepcopy(artifact)
+    if render_plan is not None:
+        result["render_plan"] = deepcopy(render_plan)
     return result
 
 
@@ -1327,6 +1535,12 @@ def _artifact_for_job(store: dict[str, Any], job_id: str) -> dict[str, Any] | No
     return deepcopy(artifact) if isinstance(artifact, dict) else None
 
 
+def _render_plan_for_job(store: dict[str, Any], job_id: str) -> dict[str, Any] | None:
+    render_plan_id = store.get("render_plan_by_job_id", {}).get(job_id)
+    render_plan = store.get("render_plans", {}).get(render_plan_id)
+    return deepcopy(render_plan) if isinstance(render_plan, dict) else None
+
+
 def _is_artifact_source_snapshot(snapshot: dict[str, Any]) -> bool:
     progress = snapshot.get("progress")
     return (
@@ -1362,9 +1576,79 @@ def _chart_metadata_for_artifact(
     }
 
 
+def _chart_spec_for_render_plan(
+    *,
+    render_plan_id: str,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    entities = _source_snapshot_entities(source_snapshot)
+    chart_type = "timeline" if entities and all(
+        entity["entity_id"].startswith("binary_sensor.")
+        for entity in entities
+    ) else "time_series"
+    render_as = "step" if chart_type == "timeline" else "line"
+    return {
+        "chart_id": f"{render_plan_id}-chart-spec",
+        "chart_type": chart_type,
+        "title": _artifact_title(job, source_snapshot),
+        "time_range": {
+            "type": "relative",
+            "duration": "approved scaffold history window",
+        },
+        "series": [
+            {
+                "series_id": f"series-{index:03d}",
+                "label": entity["label"],
+                "source": {
+                    "type": "entity",
+                    "entity_id": entity["entity_id"],
+                    "attribute": None,
+                },
+                "role": "primary" if index == 1 else "comparison",
+                "render_as": render_as,
+                "transform": {
+                    "operation": "none",
+                    "window": None,
+                },
+                "unit": None,
+            }
+            for index, entity in enumerate(entities, start=1)
+        ],
+        "overlays": [],
+        "x_axis": {
+            "type": "time",
+        },
+        "y_axis": {},
+        "notes": [
+            "render_planning_scaffold",
+            "model_provider_not_called",
+            "worker_not_called",
+            "chart_rendering_not_started",
+        ],
+    }
+
+
 def _artifact_series(source_snapshot: dict[str, Any]) -> list[dict[str, str]]:
     result = []
-    for index, entity in enumerate(source_snapshot.get("entities", []), start=1):
+    for index, entity in enumerate(_source_snapshot_entities(source_snapshot), start=1):
+        result.append(
+            {
+                "series_id": f"series-{index:03d}",
+                "label": entity["label"],
+                "entity_id": entity["entity_id"],
+            }
+        )
+    return result
+
+
+def _source_snapshot_entity_ids(source_snapshot: dict[str, Any]) -> list[str]:
+    return [entity["entity_id"] for entity in _source_snapshot_entities(source_snapshot)]
+
+
+def _source_snapshot_entities(source_snapshot: dict[str, Any]) -> list[dict[str, str]]:
+    result = []
+    for entity in source_snapshot.get("entities", []):
         if not isinstance(entity, dict):
             continue
         entity_id = entity.get("entity_id")
@@ -1373,9 +1657,8 @@ def _artifact_series(source_snapshot: dict[str, Any]) -> list[dict[str, str]]:
             continue
         result.append(
             {
-                "series_id": f"series-{index:03d}",
-                "label": label,
                 "entity_id": entity_id,
+                "label": label,
             }
         )
     return result
