@@ -20,6 +20,11 @@ from .job_state import (
     handle_job_state_ws_command,
     validate_job_snapshot_contract,
 )
+from .model_provider import (
+    get_model_provider_planner,
+    load_planner_result_schema,
+    planner_client_metadata,
+)
 
 
 DATA_JOB_ORCHESTRATION = "job_orchestration"
@@ -31,6 +36,10 @@ ARTIFACT_METADATA_SCHEMA_PATH = (
 RENDER_PLAN_SCHEMA_PATH = (
     Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-render-plan.schema.json"
 )
+MODEL_PROVIDER_PLAN_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-model-provider-plan.schema.json"
+)
+PLANNER_RESULT_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "planner-result.schema.json"
 CHART_SPEC_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "chart-spec.schema.json"
 
 ENTITY_ID_IN_PROMPT = re.compile(r"\b[a-z0-9_]+\.[a-z0-9_]+\b")
@@ -97,6 +106,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         store.setdefault("render_plan_order", [])
         store.setdefault("latest_render_plan", None)
         store.setdefault("render_plan_by_job_id", {})
+        store.setdefault("next_model_provider_plan_number", 1)
+        store.setdefault("model_provider_plans", {})
+        store.setdefault("model_provider_plan_order", [])
+        store.setdefault("latest_model_provider_plan", None)
+        store.setdefault("model_provider_plan_by_job_id", {})
         return store
 
     store = {
@@ -119,6 +133,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         "render_plan_order": [],
         "latest_render_plan": None,
         "render_plan_by_job_id": {},
+        "next_model_provider_plan_number": 1,
+        "model_provider_plans": {},
+        "model_provider_plan_order": [],
+        "latest_model_provider_plan": None,
+        "model_provider_plan_by_job_id": {},
     }
     entry_data[DATA_JOB_ORCHESTRATION] = store
     return store
@@ -742,6 +761,7 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
 
     existing_artifact = _artifact_for_job(store, job["job_id"])
     existing_render_plan = _render_plan_for_job(store, job["job_id"])
+    existing_model_provider_plan = _model_provider_plan_for_job(store, job["job_id"])
     if existing_artifact is not None and _is_artifact_complete_snapshot(latest_snapshot, existing_artifact):
         return _accepted_artifact_snapshot(
             "job_orchestration_artifact_snapshot_returned",
@@ -749,8 +769,11 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
             latest_snapshot,
             artifact=existing_artifact,
             render_plan=existing_render_plan,
+            model_provider_plan=existing_model_provider_plan,
             artifact_metadata_written=False,
             render_plan_written=False,
+            model_provider_plan_written=False,
+            model_provider_called=False,
             job_state_written=False,
             job_orchestration_written=False,
         )
@@ -765,14 +788,19 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
             snapshot_result["snapshot"],
             artifact=None,
             render_plan=existing_render_plan,
+            model_provider_plan=existing_model_provider_plan,
             artifact_metadata_written=False,
             render_plan_written=False,
+            model_provider_plan_written=False,
+            model_provider_called=False,
             job_state_written=False,
             job_orchestration_written=False,
         )
 
     planning_result = _record_artifact_and_render_plan(
         store,
+        hass=hass,
+        entry_id=entry_id,
         job=job,
         source_snapshot=latest_snapshot,
     )
@@ -780,13 +808,16 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
         result = _orchestration_rejection(
             planning_result["code"],
             job_id=command.get("job_id"),
-            orchestration=job_orchestration_side_effects(),
+            orchestration=planning_result.get("orchestration", job_orchestration_side_effects()),
         )
         result["validation"] = planning_result.get("validation")
+        if "model_provider" in planning_result:
+            result["model_provider"] = deepcopy(planning_result["model_provider"])
         return result
 
     artifact = planning_result["artifact"]
     render_plan = planning_result["render_plan"]
+    model_provider_plan = planning_result.get("model_provider_plan")
     complete_snapshot = _append_artifact_complete_snapshot(job, artifact)
     return _accepted_artifact_snapshot(
         "job_orchestration_artifact_storage_recorded",
@@ -794,8 +825,11 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
         complete_snapshot,
         artifact=artifact,
         render_plan=render_plan,
+        model_provider_plan=model_provider_plan,
         artifact_metadata_written=True,
         render_plan_written=True,
+        model_provider_plan_written=model_provider_plan is not None,
+        model_provider_called=planning_result.get("model_provider_called", False),
         job_state_written=True,
         job_orchestration_written=True,
     )
@@ -850,6 +884,7 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
     latest_progress_event = store.get("latest_progress_event")
     latest_artifact = store.get("latest_artifact")
     latest_render_plan = store.get("latest_render_plan")
+    latest_model_provider_plan = store.get("latest_model_provider_plan")
     return {
         "entry_id": store.get("entry_id"),
         "run_count": len(store.get("run_order", [])),
@@ -884,11 +919,27 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
         "latest_render_plan_artifact_id": (
             latest_render_plan.get("artifact_id") if isinstance(latest_render_plan, dict) else None
         ),
+        "model_provider_plan_count": len(store.get("model_provider_plan_order", [])),
+        "model_provider_plan_ids": list(store.get("model_provider_plan_order", [])),
+        "latest_model_provider_plan_id": (
+            latest_model_provider_plan.get("provider_plan_id")
+            if isinstance(latest_model_provider_plan, dict)
+            else None
+        ),
+        "latest_model_provider_plan_job_id": (
+            latest_model_provider_plan.get("job_id") if isinstance(latest_model_provider_plan, dict) else None
+        ),
+        "latest_model_provider_plan_source_snapshot_id": (
+            latest_model_provider_plan.get("source_snapshot_id")
+            if isinstance(latest_model_provider_plan, dict)
+            else None
+        ),
     }
 
 
 def job_orchestration_side_effects(
     *,
+    model_provider_called: bool = False,
     approved_entity_catalog_read: bool = False,
     home_assistant_history_read: bool = False,
     history_retrieval_written: bool = False,
@@ -899,11 +950,13 @@ def job_orchestration_side_effects(
     subscription_progress_streaming_called: bool = False,
     artifact_metadata_bookkeeping_written: bool = False,
     render_plan_bookkeeping_written: bool = False,
+    model_provider_plan_bookkeeping_written: bool = False,
     websocket_command_registered: bool = False,
 ) -> dict[str, bool]:
     """Return side-effect accounting for the job orchestration scaffold."""
     return {
         **NO_JOB_ORCHESTRATION_CALLS,
+        "model_provider_called": model_provider_called,
         "retry_behavior_called": retry_behavior_called,
         "subscription_progress_streaming_called": subscription_progress_streaming_called,
         "approved_entity_catalog_read": approved_entity_catalog_read,
@@ -914,6 +967,7 @@ def job_orchestration_side_effects(
         "subscription_bookkeeping_written": subscription_bookkeeping_written,
         "artifact_metadata_bookkeeping_written": artifact_metadata_bookkeeping_written,
         "render_plan_bookkeeping_written": render_plan_bookkeeping_written,
+        "model_provider_plan_bookkeeping_written": model_provider_plan_bookkeeping_written,
         "websocket_command_registered": websocket_command_registered,
     }
 
@@ -1158,6 +1212,8 @@ def _record_artifact_metadata(
 def _record_artifact_and_render_plan(
     store: dict[str, Any],
     *,
+    hass: Any,
+    entry_id: str,
     job: dict[str, Any],
     source_snapshot: dict[str, Any],
 ) -> dict[str, Any]:
@@ -1170,11 +1226,31 @@ def _record_artifact_and_render_plan(
             "validation": artifact_validation,
         }
 
+    model_provider_result = _record_model_provider_plan(
+        store,
+        hass=hass,
+        entry_id=entry_id,
+        job=job,
+        source_snapshot=source_snapshot,
+    )
+    if not model_provider_result["accepted"]:
+        return {
+            "accepted": False,
+            "code": model_provider_result["code"],
+            "validation": model_provider_result.get("validation"),
+            "model_provider": model_provider_result.get("model_provider"),
+            "model_provider_called": model_provider_result.get("model_provider_called", False),
+            "orchestration": job_orchestration_side_effects(
+                model_provider_called=model_provider_result.get("model_provider_called", False),
+            ),
+        }
+
     render_plan = _build_render_plan(
         store,
         job=job,
         source_snapshot=source_snapshot,
         artifact=artifact,
+        chart_spec=model_provider_result.get("chart_spec"),
     )
     render_plan_validation = validate_render_plan_contract(render_plan)
     if not render_plan_validation["accepted"]:
@@ -1184,6 +1260,9 @@ def _record_artifact_and_render_plan(
             "validation": render_plan_validation,
         }
 
+    model_provider_plan = model_provider_result.get("model_provider_plan")
+    if model_provider_plan is not None:
+        _store_validated_model_provider_plan(store, model_provider_plan)
     _store_validated_artifact_metadata(store, artifact)
     _store_validated_render_plan(store, render_plan)
     return {
@@ -1191,8 +1270,117 @@ def _record_artifact_and_render_plan(
         "code": "accepted",
         "artifact": deepcopy(artifact),
         "render_plan": deepcopy(render_plan),
+        "model_provider_plan": deepcopy(model_provider_plan) if model_provider_plan is not None else None,
+        "model_provider_called": model_provider_result.get("model_provider_called", False),
         "artifact_validation": artifact_validation,
+        "model_provider_validation": model_provider_result.get("validation"),
         "render_plan_validation": render_plan_validation,
+    }
+
+
+def _record_model_provider_plan(
+    store: dict[str, Any],
+    *,
+    hass: Any,
+    entry_id: str,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    planner = get_model_provider_planner(hass, entry_id)
+    if planner is None:
+        return {
+            "accepted": True,
+            "code": "model_provider_planner_not_configured",
+            "model_provider_called": False,
+            "model_provider_plan": None,
+            "chart_spec": None,
+        }
+
+    request = _model_provider_planner_request(job=job, source_snapshot=source_snapshot)
+    result_schema = load_planner_result_schema()
+    provider_response = planner.plan_chart(request, result_schema=result_schema)
+    provider_summary = {
+        "provider": planner_client_metadata(planner),
+        "response_code": provider_response.get("code") if isinstance(provider_response, dict) else None,
+    }
+    if not isinstance(provider_response, dict) or not provider_response.get("accepted"):
+        return {
+            "accepted": False,
+            "code": provider_response.get("code", "model_provider_planning_failed")
+            if isinstance(provider_response, dict)
+            else "model_provider_planning_failed",
+            "model_provider_called": True,
+            "model_provider": provider_summary,
+        }
+
+    planner_result = provider_response.get("planner_result")
+    planner_result_validation = validate_planner_result_contract(planner_result)
+    if not planner_result_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_planner_result",
+            "validation": planner_result_validation,
+            "model_provider_called": True,
+            "model_provider": provider_summary,
+        }
+
+    if not isinstance(planner_result, dict) or planner_result.get("status") != "chart_spec_ready":
+        return {
+            "accepted": False,
+            "code": "model_provider_planner_not_chart_spec_ready",
+            "validation": planner_result_validation,
+            "model_provider_called": True,
+            "model_provider": provider_summary,
+        }
+
+    chart_spec = planner_result.get("chart_spec")
+    chart_spec_validation = validate_chart_spec_contract(chart_spec)
+    if not chart_spec_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_model_provider_chart_spec",
+            "validation": chart_spec_validation,
+            "model_provider_called": True,
+            "model_provider": provider_summary,
+        }
+
+    entity_validation = validate_model_provider_output_entities(planner_result, chart_spec, source_snapshot)
+    if not entity_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": entity_validation["code"],
+            "validation": entity_validation,
+            "model_provider_called": True,
+            "model_provider": provider_summary,
+        }
+
+    provider_plan = _build_model_provider_plan(
+        store,
+        job=job,
+        source_snapshot=source_snapshot,
+        request=request,
+        provider=provider_response.get("provider") or planner_client_metadata(planner),
+        planner_result=planner_result,
+        chart_spec=chart_spec,
+    )
+    provider_plan_validation = validate_model_provider_plan_contract(provider_plan)
+    if not provider_plan_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_model_provider_plan",
+            "validation": provider_plan_validation,
+            "model_provider_called": True,
+            "model_provider": provider_summary,
+        }
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "model_provider_called": True,
+        "model_provider_plan": provider_plan,
+        "chart_spec": deepcopy(chart_spec),
+        "validation": provider_plan_validation,
+        "model_provider": provider_summary,
     }
 
 
@@ -1257,10 +1445,12 @@ def _build_render_plan(
     job: dict[str, Any],
     source_snapshot: dict[str, Any],
     artifact: dict[str, Any],
+    chart_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     render_plan_number = store["next_render_plan_number"]
     render_plan_id = f"{store['entry_id']}-render-plan-{render_plan_number:03d}"
-    chart_spec = _chart_spec_for_render_plan(
+    provider_produced = chart_spec is not None
+    planned_chart_spec = deepcopy(chart_spec) if chart_spec is not None else _chart_spec_for_render_plan(
         render_plan_id=render_plan_id,
         job=job,
         source_snapshot=source_snapshot,
@@ -1274,7 +1464,7 @@ def _build_render_plan(
         "status": "planned",
         "render_mode": "safe",
         "renderer": "trusted_chart_spec",
-        "chart_spec": chart_spec,
+        "chart_spec": planned_chart_spec,
         "history_entity_ids": _source_snapshot_entity_ids(source_snapshot),
         "output": {
             "format": "png",
@@ -1283,20 +1473,80 @@ def _build_render_plan(
         },
         "validation": {
             "status": "pass",
-            "summary": "Placeholder render plan and chart spec validate before storage.",
+            "summary": (
+                "Provider-produced render plan and chart spec validate before storage."
+                if provider_produced
+                else "Placeholder render plan and chart spec validate before storage."
+            ),
             "checks": [
                 {"name": "integration_job_snapshot", "status": "pass"},
                 {"name": "integration_artifact_metadata", "status": "pass"},
+                {"name": "model_provider", "status": "pass" if provider_produced else "not_called"},
                 {"name": "chart_spec_schema", "status": "pass"},
-                {"name": "model_provider", "status": "not_called"},
+                {"name": "worker", "status": "not_called"},
+                {"name": "chart_rendering", "status": "not_called"},
+            ],
+        },
+        "warnings": (
+            [
+                "model_provider_planning_scaffold",
+                "provider_produced_chart_spec",
+                "worker_not_called",
+                "chart_rendering_not_started",
+            ]
+            if provider_produced
+            else [
+                "render_planning_scaffold",
+                "placeholder_chart_spec",
+                "model_provider_not_called",
+                "worker_not_called",
+                "chart_rendering_not_started",
+            ]
+        ),
+    }
+
+
+def _build_model_provider_plan(
+    store: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+    request: dict[str, Any],
+    provider: dict[str, Any],
+    planner_result: dict[str, Any],
+    chart_spec: dict[str, Any],
+) -> dict[str, Any]:
+    provider_plan_number = store["next_model_provider_plan_number"]
+    provider_plan_id = f"{store['entry_id']}-provider-plan-{provider_plan_number:03d}"
+    return {
+        "provider_plan_id": provider_plan_id,
+        "config_entry_id": store["entry_id"],
+        "job_id": job["job_id"],
+        "source_snapshot_id": source_snapshot["snapshot_id"],
+        "provider": {
+            "type": provider.get("type") or "ollama_compatible",
+            "role": provider.get("role") or "planner",
+            "endpoint_url": provider.get("endpoint_url") or "",
+            "model": provider.get("model") or provider.get("planner_model") or "",
+        },
+        "request": deepcopy(request),
+        "status": "chart_spec_ready",
+        "planner_result": deepcopy(planner_result),
+        "chart_spec": deepcopy(chart_spec),
+        "validation": {
+            "status": "pass",
+            "summary": "PlannerResult and provider-produced ChartSpec validate before storage.",
+            "checks": [
+                {"name": "planner_result_schema", "status": "pass"},
+                {"name": "chart_spec_schema", "status": "pass"},
+                {"name": "entity_allowlist", "status": "pass"},
                 {"name": "worker", "status": "not_called"},
                 {"name": "chart_rendering", "status": "not_called"},
             ],
         },
         "warnings": [
-            "render_planning_scaffold",
-            "placeholder_chart_spec",
-            "model_provider_not_called",
+            "model_provider_planning_scaffold",
+            "ollama_compatible_planner",
             "worker_not_called",
             "chart_rendering_not_started",
         ],
@@ -1310,6 +1560,15 @@ def _store_validated_render_plan(store: dict[str, Any], render_plan: dict[str, A
     store["render_plan_order"].append(render_plan_id)
     store["render_plan_by_job_id"][render_plan["job_id"]] = render_plan_id
     store["latest_render_plan"] = deepcopy(render_plan)
+
+
+def _store_validated_model_provider_plan(store: dict[str, Any], provider_plan: dict[str, Any]) -> None:
+    provider_plan_id = provider_plan["provider_plan_id"]
+    store["next_model_provider_plan_number"] += 1
+    store["model_provider_plans"][provider_plan_id] = deepcopy(provider_plan)
+    store["model_provider_plan_order"].append(provider_plan_id)
+    store["model_provider_plan_by_job_id"][provider_plan["job_id"]] = provider_plan_id
+    store["latest_model_provider_plan"] = deepcopy(provider_plan)
 
 
 def validate_artifact_metadata_contract(artifact: Any) -> dict[str, Any]:
@@ -1358,6 +1617,65 @@ def validate_render_plan_contract(render_plan: Any) -> dict[str, Any]:
     }
 
 
+def validate_model_provider_plan_contract(provider_plan: Any) -> dict[str, Any]:
+    """Validate IntegrationModelProviderPlan and its nested planner output."""
+    try:
+        schema = json.loads(MODEL_PROVIDER_PLAN_SCHEMA_PATH.read_text(encoding="utf-8"))
+        _validate_json_schema(provider_plan, schema, root_schema=schema, path="$")
+    except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_model_provider_plan",
+            "error": str(exc),
+        }
+
+    planner_validation = validate_planner_result_contract(
+        provider_plan.get("planner_result") if isinstance(provider_plan, dict) else None
+    )
+    if not planner_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_planner_result",
+            "planner_validation": planner_validation,
+        }
+
+    chart_validation = validate_chart_spec_contract(
+        provider_plan.get("chart_spec") if isinstance(provider_plan, dict) else None
+    )
+    if not chart_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_model_provider_chart_spec",
+            "chart_validation": chart_validation,
+        }
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "schema": str(MODEL_PROVIDER_PLAN_SCHEMA_PATH),
+        "planner_schema": str(PLANNER_RESULT_SCHEMA_PATH),
+        "chart_schema": str(CHART_SPEC_SCHEMA_PATH),
+    }
+
+
+def validate_planner_result_contract(planner_result: Any) -> dict[str, Any]:
+    """Validate PlannerResult against the repo JSON Schema."""
+    try:
+        schema = json.loads(PLANNER_RESULT_SCHEMA_PATH.read_text(encoding="utf-8"))
+        _validate_json_schema(planner_result, schema, root_schema=schema, path="$")
+    except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
+        return {
+            "accepted": False,
+            "code": "invalid_planner_result",
+            "error": str(exc),
+        }
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "schema": str(PLANNER_RESULT_SCHEMA_PATH),
+    }
+
+
 def validate_chart_spec_contract(chart_spec: Any) -> dict[str, Any]:
     """Validate a placeholder ChartSpec against the repo JSON Schema."""
     try:
@@ -1373,6 +1691,48 @@ def validate_chart_spec_contract(chart_spec: Any) -> dict[str, Any]:
         "accepted": True,
         "code": "accepted",
         "schema": str(CHART_SPEC_SCHEMA_PATH),
+    }
+
+
+def validate_model_provider_chart_spec_entities(
+    chart_spec: dict[str, Any],
+    source_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    """Ensure provider-produced chart specs reference only approved source entities."""
+    return validate_model_provider_output_entities(chart_spec, chart_spec, source_snapshot)
+
+
+def validate_model_provider_output_entities(
+    planner_result: dict[str, Any],
+    chart_spec: dict[str, Any],
+    source_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    """Ensure provider output contains only approved Home Assistant entity IDs."""
+    approved_entity_ids = set(_source_snapshot_entity_ids(source_snapshot))
+    structured_refs = _chart_spec_entity_ids(chart_spec)
+    scanned_refs = _entity_ids_in_provider_output(
+        {
+            "planner_result": planner_result,
+            "chart_spec": chart_spec,
+        }
+    )
+    referenced_entity_ids = structured_refs["entity_ids"] | scanned_refs["entity_ids"]
+    rejected_entity_ids = sorted(referenced_entity_ids - approved_entity_ids)
+    if rejected_entity_ids or structured_refs["unsupported_source_refs"]:
+        return {
+            "accepted": False,
+            "code": "model_provider_chart_spec_hidden_entity",
+            "approved_entity_ids": sorted(approved_entity_ids),
+            "referenced_entity_ids": sorted(referenced_entity_ids),
+            "rejected_entity_ids": rejected_entity_ids,
+            "unsupported_source_refs": structured_refs["unsupported_source_refs"],
+            "textual_entity_refs": scanned_refs["matches"],
+        }
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "approved_entity_ids": sorted(approved_entity_ids),
+        "referenced_entity_ids": sorted(referenced_entity_ids),
     }
 
 
@@ -1453,8 +1813,11 @@ def _accepted_artifact_snapshot(
     *,
     artifact: dict[str, Any] | None,
     render_plan: dict[str, Any] | None,
+    model_provider_plan: dict[str, Any] | None,
     artifact_metadata_written: bool,
     render_plan_written: bool,
+    model_provider_plan_written: bool,
+    model_provider_called: bool,
     job_state_written: bool,
     job_orchestration_written: bool,
 ) -> dict[str, Any]:
@@ -1467,8 +1830,10 @@ def _accepted_artifact_snapshot(
         "job_id": snapshot["job_id"],
         "snapshot": deepcopy(snapshot),
         "orchestration": job_orchestration_side_effects(
+            model_provider_called=model_provider_called,
             artifact_metadata_bookkeeping_written=artifact_metadata_written,
             render_plan_bookkeeping_written=render_plan_written,
+            model_provider_plan_bookkeeping_written=model_provider_plan_written,
             job_state_written=job_state_written,
             job_orchestration_written=job_orchestration_written,
         ),
@@ -1477,6 +1842,8 @@ def _accepted_artifact_snapshot(
         result["artifact"] = deepcopy(artifact)
     if render_plan is not None:
         result["render_plan"] = deepcopy(render_plan)
+    if model_provider_plan is not None:
+        result["model_provider_plan"] = deepcopy(model_provider_plan)
     return result
 
 
@@ -1539,6 +1906,12 @@ def _render_plan_for_job(store: dict[str, Any], job_id: str) -> dict[str, Any] |
     render_plan_id = store.get("render_plan_by_job_id", {}).get(job_id)
     render_plan = store.get("render_plans", {}).get(render_plan_id)
     return deepcopy(render_plan) if isinstance(render_plan, dict) else None
+
+
+def _model_provider_plan_for_job(store: dict[str, Any], job_id: str) -> dict[str, Any] | None:
+    provider_plan_id = store.get("model_provider_plan_by_job_id", {}).get(job_id)
+    provider_plan = store.get("model_provider_plans", {}).get(provider_plan_id)
+    return deepcopy(provider_plan) if isinstance(provider_plan, dict) else None
 
 
 def _is_artifact_source_snapshot(snapshot: dict[str, Any]) -> bool:
@@ -1627,6 +2000,104 @@ def _chart_spec_for_render_plan(
             "chart_rendering_not_started",
         ],
     }
+
+
+def _model_provider_planner_request(
+    *,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    entity_ids = _source_snapshot_entity_ids(source_snapshot)
+    return {
+        "prompt": job.get("prompt") if isinstance(job.get("prompt"), str) else "",
+        "approved_entity_ids": entity_ids,
+        "history_entity_ids": entity_ids,
+        "output_schema": "PlannerResult",
+    }
+
+
+def _chart_spec_entity_ids(chart_spec: dict[str, Any]) -> dict[str, Any]:
+    entity_ids: set[str] = set()
+    unsupported_source_refs: list[dict[str, Any]] = []
+
+    for collection_name in ("series", "overlays"):
+        for index, item in enumerate(chart_spec.get(collection_name, [])):
+            if not isinstance(item, dict):
+                continue
+            source = item.get("source")
+            _collect_source_entity_ids(
+                source,
+                entity_ids,
+                unsupported_source_refs,
+                path=f"{collection_name}[{index}].source",
+            )
+
+    return {
+        "entity_ids": entity_ids,
+        "unsupported_source_refs": unsupported_source_refs,
+    }
+
+
+def _entity_ids_in_provider_output(payload: Any) -> dict[str, Any]:
+    entity_ids: set[str] = set()
+    matches: list[dict[str, str]] = []
+    _walk_provider_output_entity_ids(payload, "$", entity_ids, matches)
+    return {
+        "entity_ids": entity_ids,
+        "matches": matches,
+    }
+
+
+def _walk_provider_output_entity_ids(
+    payload: Any,
+    path: str,
+    entity_ids: set[str],
+    matches: list[dict[str, str]],
+) -> None:
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            _walk_provider_output_entity_ids(value, f"{path}.{key}", entity_ids, matches)
+        return
+    if isinstance(payload, list):
+        for index, value in enumerate(payload):
+            _walk_provider_output_entity_ids(value, f"{path}[{index}]", entity_ids, matches)
+        return
+    if isinstance(payload, str):
+        for entity_id in _unique(ENTITY_ID_IN_PROMPT.findall(payload.lower())):
+            entity_ids.add(entity_id)
+            matches.append({"path": path, "entity_id": entity_id})
+
+
+def _collect_source_entity_ids(
+    source: Any,
+    entity_ids: set[str],
+    unsupported_source_refs: list[dict[str, Any]],
+    *,
+    path: str,
+) -> None:
+    if not isinstance(source, dict):
+        unsupported_source_refs.append({"path": path, "reason": "missing_source"})
+        return
+
+    source_type = source.get("type")
+    if source_type == "entity":
+        entity_id = source.get("entity_id")
+        if isinstance(entity_id, str):
+            entity_ids.add(entity_id)
+        return
+    if source_type == "aggregate":
+        for entity_id in source.get("entity_ids", []):
+            if isinstance(entity_id, str):
+                entity_ids.add(entity_id)
+        return
+
+    unsupported_source_refs.append(
+        {
+            "path": path,
+            "reason": "unsupported_or_unresolved_source",
+            "source_type": source_type,
+        }
+    )
 
 
 def _artifact_series(source_snapshot: dict[str, Any]) -> list[dict[str, str]]:

@@ -35,6 +35,7 @@ implementing slice produces an evidence file proving each scenario was hit.
 - `home-assistant-integration-scaffold-spec.md` — First production Home Assistant custom integration scaffold
 - `home-assistant-job-orchestration-clarification-continuation-scaffold-spec.md` — Config-entry-scoped clarification-answer continuation behind `clarification/answer`
 - `home-assistant-job-orchestration-artifact-storage-scaffold-spec.md` — Config-entry-scoped artifact bookkeeping behind `job/snapshot`
+- `home-assistant-job-orchestration-model-provider-planning-scaffold-spec.md` — Config-entry-scoped Ollama-compatible planner boundary behind `job/snapshot`
 - `home-assistant-job-orchestration-render-planning-scaffold-spec.md` — Config-entry-scoped render-plan bookkeeping behind `job/snapshot`
 - `home-assistant-job-orchestration-retry-continuation-scaffold-spec.md` — Config-entry-scoped retry continuation behind `job/retry`
 - `home-assistant-job-orchestration-scaffold-spec.md` — Config-entry-scoped job orchestration scaffold behind `job/start`
