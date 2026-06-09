@@ -901,6 +901,36 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
         source_snapshot=latest_snapshot,
     )
     if not planning_result["accepted"]:
+        worker_failure_snapshot = _append_worker_failure_snapshot_from_planning_result(
+            job,
+            planning_result,
+        )
+        if worker_failure_snapshot is not None:
+            return _accepted_artifact_snapshot(
+                "job_orchestration_worker_failure_snapshot_recorded",
+                command,
+                worker_failure_snapshot,
+                artifact=None,
+                render_plan=None,
+                model_provider_plan=None,
+                worker_dispatch=None,
+                worker_progress_events=None,
+                artifact_metadata_written=False,
+                render_plan_written=False,
+                model_provider_plan_written=False,
+                worker_dispatch_written=False,
+                worker_progress_written=False,
+                worker_progress_streaming_called=planning_result.get("worker_progress_streaming_called", False),
+                worker_retry_policy_written=planning_result.get("worker_retry_policy") is not None,
+                worker_transport_failure_classification_written=(
+                    planning_result.get("worker_transport_failure_classification") is not None
+                ),
+                model_provider_called=planning_result.get("model_provider_called", False),
+                worker_called=planning_result.get("worker_called", False),
+                chart_rendering_called=planning_result.get("chart_rendering_called", False),
+                job_state_written=True,
+                job_orchestration_written=True,
+            )
         result = _orchestration_rejection(
             planning_result["code"],
             job_id=command.get("job_id"),
@@ -1282,6 +1312,88 @@ def _append_failed_snapshot(
         },
         retry_allowed=True,
         warnings=["job_orchestration_scaffold", code, "orchestration_stopped_before_model_worker"],
+    )
+
+
+def _append_worker_failure_snapshot_from_planning_result(
+    job: dict[str, Any],
+    planning_result: dict[str, Any],
+) -> dict[str, Any] | None:
+    retry_policy = planning_result.get("worker_retry_policy")
+    if isinstance(retry_policy, dict):
+        return _append_worker_failure_snapshot(
+            job,
+            code=retry_policy.get("failure", {}).get("code", "worker_render_failed"),
+            stage="worker_render",
+            message=retry_policy.get("failure", {}).get(
+                "message",
+                "Worker render failed before a chart artifact was accepted.",
+            ),
+            retry_allowed=retry_policy.get("decision", {}).get("manual_retry_allowed") is True,
+            validation_check_name="worker_failure_metadata",
+            warning="worker_failure_metadata_recorded",
+        )
+
+    classification = planning_result.get("worker_transport_failure_classification")
+    if isinstance(classification, dict):
+        return _append_worker_failure_snapshot(
+            job,
+            code=classification.get("failure", {}).get("code", "worker_transport_failed"),
+            stage="worker_transport",
+            message=classification.get("failure", {}).get(
+                "message",
+                "Worker transport failed before a render result was accepted.",
+            ),
+            retry_allowed=classification.get("classification", {}).get("manual_retry_allowed") is True,
+            validation_check_name="worker_failure_metadata",
+            warning="worker_failure_metadata_recorded",
+        )
+
+    return None
+
+
+def _append_worker_failure_snapshot(
+    job: dict[str, Any],
+    *,
+    code: str,
+    stage: str,
+    message: str,
+    retry_allowed: bool,
+    validation_check_name: str,
+    warning: str,
+) -> dict[str, Any]:
+    safe_code = _safe_worker_snapshot_failure_code(code, stage=stage)
+    safe_message = _safe_worker_snapshot_failure_message(message, stage=stage)
+    return append_validated_job_snapshot(
+        job,
+        status="failed",
+        state_label="Failed",
+        message=safe_message,
+        progress_stage="worker_failure_snapshot_ready",
+        progress_message=safe_message,
+        validation_status="fail",
+        validation_summary="A validated worker failure was converted to a card-facing failed snapshot.",
+        validation_checks=[
+            {"name": "integration_job_state_scaffold", "status": "pass"},
+            {"name": "worker", "status": "fail"},
+            {"name": validation_check_name, "status": "pass"},
+            {"name": "worker_authorization_redacted", "status": "pass"},
+            {"name": "manual_retry_affordance", "status": "pass" if retry_allowed else "not_allowed"},
+            {"name": "automatic_retry", "status": "not_scheduled"},
+        ],
+        failure={
+            "stage": stage,
+            "code": safe_code,
+            "message": safe_message,
+        },
+        retry_allowed=retry_allowed,
+        warnings=[
+            "worker_failure_snapshot_manual_retry_integration_scaffold",
+            warning,
+            "worker_authorization_not_exposed_to_card",
+            "worker_metadata_not_exposed_to_card",
+            "automatic_retry_not_scheduled",
+        ],
     )
 
 
@@ -3147,6 +3259,8 @@ def _accepted_artifact_snapshot(
     worker_progress_events: list[dict[str, Any]] | None = None,
     worker_progress_written: bool = False,
     worker_progress_streaming_called: bool = False,
+    worker_retry_policy_written: bool = False,
+    worker_transport_failure_classification_written: bool = False,
 ) -> dict[str, Any]:
     result = {
         "accepted": True,
@@ -3166,6 +3280,10 @@ def _accepted_artifact_snapshot(
             worker_dispatch_bookkeeping_written=worker_dispatch_written,
             worker_progress_bookkeeping_written=worker_progress_written,
             worker_progress_streaming_called=worker_progress_streaming_called,
+            worker_retry_policy_bookkeeping_written=worker_retry_policy_written,
+            worker_transport_failure_classification_bookkeeping_written=(
+                worker_transport_failure_classification_written
+            ),
             job_state_written=job_state_written,
             job_orchestration_written=job_orchestration_written,
         ),
@@ -3640,6 +3758,26 @@ def _safe_worker_transport_failure_code(value: Any) -> str:
 
 def _safe_worker_transport_failure_message(value: Any) -> str:
     fallback = "Worker transport failed before a render result was accepted."
+    if not isinstance(value, str) or not value.strip():
+        return fallback
+    stripped = re.sub(r"\s+", " ", value.strip())
+    if FORBIDDEN_WORKER_PROGRESS_TEXT.search(stripped):
+        return fallback
+    return stripped[:240] if stripped else fallback
+
+
+def _safe_worker_snapshot_failure_code(value: Any, *, stage: str) -> str:
+    if stage == "worker_transport":
+        return _safe_worker_transport_failure_code(value)
+    return _safe_worker_failure_code(value)
+
+
+def _safe_worker_snapshot_failure_message(value: Any, *, stage: str) -> str:
+    fallback = (
+        "Worker transport failed before a render result was accepted."
+        if stage == "worker_transport"
+        else "Worker render failed before a chart artifact was accepted."
+    )
     if not isinstance(value, str) or not value.strip():
         return fallback
     stripped = re.sub(r"\s+", " ", value.strip())

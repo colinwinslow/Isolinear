@@ -26,7 +26,9 @@ class WorkerTransportFailureClassificationAnchorTests(unittest.TestCase):
     def test_connection_failure_records_retry_classification(self):
         result = verify_worker_connection_failure_records_retry_classification(REPO_ROOT)
 
-        self.assertFalse(result["snapshot"]["accepted"], result)
+        self.assertTrue(result["snapshot"]["accepted"], result)
+        self.assertEqual(result["snapshot"]["connection"]["results"][0]["result"]["status"], "failed")
+        self.assertEqual(result["snapshot"]["connection"]["results"][0]["result"]["retry_allowed"], True)
         self.assertEqual(result["worker_call_count"], 1)
         self.assertEqual(result["error_codes"], ["worker_connection_error"])
         self.assertEqual(len(result["classifications"]), 1)
@@ -111,7 +113,11 @@ class WorkerTransportFailureClassificationAnchorTests(unittest.TestCase):
     def test_worker_transport_secret_failure_text_is_redacted(self):
         result = verify_worker_transport_secret_failure_text_redaction(REPO_ROOT)
 
-        self.assertFalse(result["snapshot"]["accepted"], result)
+        self.assertTrue(result["snapshot"]["accepted"], result)
+        self.assertEqual(
+            result["snapshot"]["connection"]["results"][0]["result"]["failure"]["code"],
+            "worker_transport_failed",
+        )
         self.assertEqual(result["error_codes"], ["worker_transport_failed"])
         self.assertEqual(result["classification_failure_code"], "worker_transport_failed")
         self.assertEqual(result["classification"]["failure"]["code"], "worker_transport_failed")
@@ -144,8 +150,10 @@ class WorkerTransportFailureClassificationAnchorTests(unittest.TestCase):
     def test_valid_transport_classifications_stay_config_entry_scoped(self):
         result = verify_valid_worker_transport_classifications_stay_config_entry_scoped(REPO_ROOT)
 
-        self.assertFalse(result["entry_a"]["snapshot"]["accepted"], result)
-        self.assertFalse(result["entry_b"]["snapshot"]["accepted"], result)
+        self.assertTrue(result["entry_a"]["snapshot"]["accepted"], result)
+        self.assertTrue(result["entry_b"]["snapshot"]["accepted"], result)
+        self.assertEqual(result["entry_a"]["snapshot"]["connection"]["results"][0]["result"]["status"], "failed")
+        self.assertEqual(result["entry_b"]["snapshot"]["connection"]["results"][0]["result"]["status"], "failed")
         self.assertEqual(result["entry_a"]["worker_call_count"], 1)
         self.assertEqual(result["entry_b"]["worker_call_count"], 1)
         self.assertEqual(

@@ -63,6 +63,11 @@ custom integration implementation slices.
   metadata while preserving mutation, memory, token-generation, real artifact
   file write, durable-storage, streaming, retry/backoff, and unbounded
   orchestration boundaries.
+- **Home Assistant worker failure snapshot/manual retry integration scaffold
+  anchor** - the integration turns existing worker render failure policies and
+  worker transport failure classifications into card-facing failed
+  `IntegrationJobSnapshot` payloads with safe manual retry affordance metadata
+  while preserving redaction, config-entry isolation, and no automatic retry.
 
 ## Validation
 
@@ -116,3 +121,8 @@ custom integration implementation slices.
   worker transport metadata, worker failure handling, idempotent reuse,
   unknown-job and cross-entry rejection, per-config-entry isolation,
   schema-valid worker/render contracts, and bounded side-effect proof.
+- `evals/home_assistant_worker_failure_snapshot_manual_retry_integration_scaffold.py` -
+  card-facing worker failure snapshots, manual retry continuation,
+  non-retryable worker failure rejection, redaction, config-entry isolation,
+  schema-valid snapshots/internal worker envelopes, and bounded side-effect
+  proof.

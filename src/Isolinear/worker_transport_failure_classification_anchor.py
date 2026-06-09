@@ -557,8 +557,10 @@ def verify_worker_transport_failure_classification_anchor(root=None) -> dict[str
     failures = []
     if not files["all_files_present"]:
         failures.append("One or more worker transport failure classification scaffold files are missing.")
-    if accepted["snapshot"]["accepted"]:
-        failures.append("Worker transport failure unexpectedly returned an accepted WebSocket result.")
+    if not accepted["snapshot"]["accepted"]:
+        failures.append("Worker transport failure did not return a card-facing failed snapshot result.")
+    if _first_result_payload(accepted["snapshot"]).get("status") != "failed":
+        failures.append("Worker transport failure result payload was not a failed snapshot.")
     if accepted["worker_call_count"] != 1:
         failures.append("Worker transport failure did not call the fake worker exactly once.")
     if len(accepted["classifications"]) != 1:

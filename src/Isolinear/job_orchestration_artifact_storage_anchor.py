@@ -499,10 +499,21 @@ def _dispatch_snapshot(
 
 
 def _error_codes(dispatch_result: dict[str, Any]) -> list[str]:
-    return [
+    error_codes = [
         item["code"]
         for item in dispatch_result["connection"]["errors"]
     ]
+    if error_codes:
+        return error_codes
+
+    result_codes = []
+    for item in dispatch_result["connection"]["results"]:
+        result = item.get("result")
+        if isinstance(result, dict) and result.get("status") == "failed":
+            failure = result.get("failure")
+            if isinstance(failure, dict) and isinstance(failure.get("code"), str):
+                result_codes.append(failure["code"])
+    return result_codes
 
 
 def _job_store(hass: Any, entry_id: str) -> dict[str, Any]:

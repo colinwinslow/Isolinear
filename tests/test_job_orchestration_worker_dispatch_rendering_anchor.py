@@ -106,7 +106,12 @@ class JobOrchestrationWorkerDispatchRenderingAnchorTests(unittest.TestCase):
     def test_worker_failure_rejected_before_storage(self):
         result = verify_worker_failure_rejected_before_storage(REPO_ROOT)
 
-        self.assertFalse(result["snapshot"]["accepted"], result)
+        self.assertTrue(result["snapshot"]["accepted"], result)
+        self.assertEqual(result["snapshot"]["connection"]["results"][0]["result"]["status"], "failed")
+        self.assertEqual(
+            result["snapshot"]["connection"]["results"][0]["result"]["failure"]["stage"],
+            "worker_render",
+        )
         self.assertEqual(result["worker_call_count"], 1)
         self.assertEqual(result["error_codes"], ["worker_safe_renderer_failed"])
         self.assertEqual(result["worker_dispatches"], [])
