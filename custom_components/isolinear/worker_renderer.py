@@ -18,6 +18,7 @@ DATA_WORKER_RENDER_TOKEN = "worker_render_token"
 WORKER_TRANSPORT_VERSION = 1
 WORKER_RENDER_PATH = "/v1/render"
 DEFAULT_WORKER_TIMEOUT_SECONDS = 60
+MIN_WORKER_RENDER_TOKEN_LENGTH = 24
 
 
 def setup_worker_renderer(hass: Any, entry: Any) -> dict[str, Any]:
@@ -33,7 +34,11 @@ def setup_worker_renderer(hass: Any, entry: Any) -> dict[str, Any]:
     config_data = getattr(entry, "data", {}) or {}
     endpoint_url = config_data.get("worker_endpoint_url")
     token = entry_data.get(DATA_WORKER_RENDER_TOKEN)
-    if isinstance(endpoint_url, str) and endpoint_url.strip().startswith(("http://", "https://")) and isinstance(token, str) and token.strip():
+    if (
+        isinstance(endpoint_url, str)
+        and endpoint_url.strip().startswith(("http://", "https://"))
+        and is_valid_worker_render_token(token)
+    ):
         client = HttpJsonWorkerRenderClient(endpoint_url=endpoint_url, worker_token=token)
         entry_data[DATA_WORKER_RENDER_CLIENT] = client
         setup = _setup_enabled(entry_id, client.provider_metadata(), call_made=True)
@@ -136,14 +141,19 @@ def worker_client_metadata(client: Any) -> dict[str, Any]:
 def worker_client_token(client: Any) -> str | None:
     """Return the integration-owned worker bearer token from a client object."""
     token = getattr(client, "worker_token", None)
-    if isinstance(token, str) and token.strip():
+    if is_valid_worker_render_token(token):
         return token
     token_method = getattr(client, "get_worker_token", None)
     if callable(token_method):
         value = token_method()
-        if isinstance(value, str) and value.strip():
+        if is_valid_worker_render_token(value):
             return value
     return None
+
+
+def is_valid_worker_render_token(value: Any) -> bool:
+    """Return whether a value is shaped like an integration-owned worker token."""
+    return isinstance(value, str) and len(value.strip()) >= MIN_WORKER_RENDER_TOKEN_LENGTH
 
 
 class HttpJsonWorkerRenderClient:
