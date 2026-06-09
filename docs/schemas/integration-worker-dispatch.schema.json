@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/integration-worker-dispatch.schema.json",
+  "title": "IntegrationWorkerDispatch",
+  "type": "object",
+  "required": [
+    "dispatch_id",
+    "config_entry_id",
+    "job_id",
+    "source_snapshot_id",
+    "render_plan_id",
+    "artifact_id",
+    "status",
+    "worker",
+    "request",
+    "render_result",
+    "validation",
+    "warnings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "dispatch_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "config_entry_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "job_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "source_snapshot_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "render_plan_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "artifact_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "status": {
+      "const": "render_succeeded"
+    },
+    "worker": {
+      "type": "object",
+      "required": [
+        "type",
+        "role",
+        "endpoint_url",
+        "api_version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "http_json_worker"
+        },
+        "role": {
+          "const": "renderer"
+        },
+        "endpoint_url": {
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "api_version": {
+          "const": 1
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "protocol_version",
+        "method",
+        "path",
+        "headers",
+        "body"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": 1
+        },
+        "method": {
+          "const": "POST"
+        },
+        "path": {
+          "const": "/v1/render"
+        },
+        "headers": {
+          "type": "object",
+          "required": [
+            "content_type",
+            "x_isolinear_worker_api_version",
+            "authorization"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "content_type": {
+              "const": "application/json"
+            },
+            "x_isolinear_worker_api_version": {
+              "const": "1"
+            },
+            "authorization": {
+              "const": "Bearer <redacted>"
+            }
+          }
+        },
+        "body": {
+          "type": "object",
+          "required": [
+            "version",
+            "operation",
+            "request_id",
+            "render_request"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "operation": {
+              "const": "render_chart"
+            },
+            "request_id": {
+              "type": "string",
+              "pattern": "\\S"
+            },
+            "render_request": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      }
+    },
+    "render_result": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "validation": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary",
+        "checks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "pass"
+        },
+        "summary": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "status": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            }
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

@@ -39,6 +39,7 @@ implementing slice produces an evidence file proving each scenario was hit.
 - `home-assistant-job-orchestration-render-planning-scaffold-spec.md` — Config-entry-scoped render-plan bookkeeping behind `job/snapshot`
 - `home-assistant-job-orchestration-retry-continuation-scaffold-spec.md` — Config-entry-scoped retry continuation behind `job/retry`
 - `home-assistant-job-orchestration-scaffold-spec.md` — Config-entry-scoped job orchestration scaffold behind `job/start`
+- `home-assistant-job-orchestration-worker-dispatch-rendering-scaffold-spec.md` — Config-entry-scoped worker dispatch/rendering boundary behind `job/snapshot`
 - `home-assistant-job-state-scaffold-spec.md` — Config-entry-scoped in-memory job state scaffold behind registered WebSocket commands
 - `home-assistant-websocket-command-registration-spec.md` — Production Home Assistant WebSocket command registration boundary
 - `integration-api-transport-auth-spec.md` — Integration WebSocket API and worker transport authentication

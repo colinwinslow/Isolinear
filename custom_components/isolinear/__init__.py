@@ -11,6 +11,7 @@ from .history_retrieval import setup_history_retrieval
 from .job_orchestration import setup_job_orchestration
 from .job_state import ensure_job_state_store
 from .model_provider import setup_model_provider_planner
+from .worker_renderer import setup_worker_renderer
 from .websocket_api import async_register_websocket_api
 
 
@@ -31,6 +32,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
     entry_data["history_retrieval_setup"] = setup_history_retrieval(hass, entry)
     entry_data["job_state"] = ensure_job_state_store(hass, entry_id)
     entry_data["model_provider_setup"] = setup_model_provider_planner(hass, entry)
+    entry_data["worker_renderer_setup"] = setup_worker_renderer(hass, entry)
     entry_data["job_orchestration_setup"] = setup_job_orchestration(hass, entry)
     entry_data["dashboard_resource"] = await async_register_dashboard_resource(hass, entry)
     entry_data["websocket_api"] = await async_register_websocket_api(hass, entry=entry)

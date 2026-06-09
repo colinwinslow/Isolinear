@@ -11,7 +11,11 @@ from typing import Any
 
 from .const import DOMAIN, INTEGRATION_COMMAND_TYPES
 from .entity_catalog import DATA_ENTITY_CATALOG
-from .history_retrieval import retrieve_approved_history
+from .history_retrieval import (
+    DATA_HISTORY_RETRIEVAL,
+    retrieve_approved_history,
+    validate_history_series_collection_contract,
+)
 from .job_state import (
     DATA_JOB_STATE,
     JobStateSnapshotValidationError,
@@ -24,6 +28,13 @@ from .model_provider import (
     get_model_provider_planner,
     load_planner_result_schema,
     planner_client_metadata,
+)
+from .worker_renderer import (
+    build_worker_transport_request,
+    get_worker_render_client,
+    redacted_worker_transport_request,
+    worker_client_metadata,
+    worker_client_token,
 )
 
 
@@ -39,6 +50,14 @@ RENDER_PLAN_SCHEMA_PATH = (
 MODEL_PROVIDER_PLAN_SCHEMA_PATH = (
     Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-model-provider-plan.schema.json"
 )
+WORKER_DISPATCH_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-worker-dispatch.schema.json"
+)
+WORKER_TRANSPORT_REQUEST_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "worker-transport-request.schema.json"
+)
+RENDER_REQUEST_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "render-request.schema.json"
+RENDER_RESULT_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "render-result.schema.json"
 PLANNER_RESULT_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "planner-result.schema.json"
 CHART_SPEC_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "chart-spec.schema.json"
 
@@ -111,6 +130,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         store.setdefault("model_provider_plan_order", [])
         store.setdefault("latest_model_provider_plan", None)
         store.setdefault("model_provider_plan_by_job_id", {})
+        store.setdefault("next_worker_dispatch_number", 1)
+        store.setdefault("worker_dispatches", {})
+        store.setdefault("worker_dispatch_order", [])
+        store.setdefault("latest_worker_dispatch", None)
+        store.setdefault("worker_dispatch_by_job_id", {})
         return store
 
     store = {
@@ -138,6 +162,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         "model_provider_plan_order": [],
         "latest_model_provider_plan": None,
         "model_provider_plan_by_job_id": {},
+        "next_worker_dispatch_number": 1,
+        "worker_dispatches": {},
+        "worker_dispatch_order": [],
+        "latest_worker_dispatch": None,
+        "worker_dispatch_by_job_id": {},
     }
     entry_data[DATA_JOB_ORCHESTRATION] = store
     return store
@@ -762,6 +791,7 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
     existing_artifact = _artifact_for_job(store, job["job_id"])
     existing_render_plan = _render_plan_for_job(store, job["job_id"])
     existing_model_provider_plan = _model_provider_plan_for_job(store, job["job_id"])
+    existing_worker_dispatch = _worker_dispatch_for_job(store, job["job_id"])
     if existing_artifact is not None and _is_artifact_complete_snapshot(latest_snapshot, existing_artifact):
         return _accepted_artifact_snapshot(
             "job_orchestration_artifact_snapshot_returned",
@@ -770,10 +800,14 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
             artifact=existing_artifact,
             render_plan=existing_render_plan,
             model_provider_plan=existing_model_provider_plan,
+            worker_dispatch=existing_worker_dispatch,
             artifact_metadata_written=False,
             render_plan_written=False,
             model_provider_plan_written=False,
+            worker_dispatch_written=False,
             model_provider_called=False,
+            worker_called=False,
+            chart_rendering_called=False,
             job_state_written=False,
             job_orchestration_written=False,
         )
@@ -789,10 +823,14 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
             artifact=None,
             render_plan=existing_render_plan,
             model_provider_plan=existing_model_provider_plan,
+            worker_dispatch=existing_worker_dispatch,
             artifact_metadata_written=False,
             render_plan_written=False,
             model_provider_plan_written=False,
+            worker_dispatch_written=False,
             model_provider_called=False,
+            worker_called=False,
+            chart_rendering_called=False,
             job_state_written=False,
             job_orchestration_written=False,
         )
@@ -813,12 +851,15 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
         result["validation"] = planning_result.get("validation")
         if "model_provider" in planning_result:
             result["model_provider"] = deepcopy(planning_result["model_provider"])
+        if "worker" in planning_result:
+            result["worker"] = deepcopy(planning_result["worker"])
         return result
 
     artifact = planning_result["artifact"]
     render_plan = planning_result["render_plan"]
     model_provider_plan = planning_result.get("model_provider_plan")
-    complete_snapshot = _append_artifact_complete_snapshot(job, artifact)
+    worker_dispatch = planning_result.get("worker_dispatch")
+    complete_snapshot = _append_artifact_complete_snapshot(job, artifact, worker_dispatch=worker_dispatch)
     return _accepted_artifact_snapshot(
         "job_orchestration_artifact_storage_recorded",
         command,
@@ -826,10 +867,14 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
         artifact=artifact,
         render_plan=render_plan,
         model_provider_plan=model_provider_plan,
+        worker_dispatch=worker_dispatch,
         artifact_metadata_written=True,
         render_plan_written=True,
         model_provider_plan_written=model_provider_plan is not None,
+        worker_dispatch_written=worker_dispatch is not None,
         model_provider_called=planning_result.get("model_provider_called", False),
+        worker_called=planning_result.get("worker_called", False),
+        chart_rendering_called=planning_result.get("chart_rendering_called", False),
         job_state_written=True,
         job_orchestration_written=True,
     )
@@ -885,6 +930,7 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
     latest_artifact = store.get("latest_artifact")
     latest_render_plan = store.get("latest_render_plan")
     latest_model_provider_plan = store.get("latest_model_provider_plan")
+    latest_worker_dispatch = store.get("latest_worker_dispatch")
     return {
         "entry_id": store.get("entry_id"),
         "run_count": len(store.get("run_order", [])),
@@ -934,12 +980,26 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
             if isinstance(latest_model_provider_plan, dict)
             else None
         ),
+        "worker_dispatch_count": len(store.get("worker_dispatch_order", [])),
+        "worker_dispatch_ids": list(store.get("worker_dispatch_order", [])),
+        "latest_worker_dispatch_id": (
+            latest_worker_dispatch.get("dispatch_id") if isinstance(latest_worker_dispatch, dict) else None
+        ),
+        "latest_worker_dispatch_job_id": (
+            latest_worker_dispatch.get("job_id") if isinstance(latest_worker_dispatch, dict) else None
+        ),
+        "latest_worker_dispatch_render_plan_id": (
+            latest_worker_dispatch.get("render_plan_id") if isinstance(latest_worker_dispatch, dict) else None
+        ),
     }
 
 
 def job_orchestration_side_effects(
     *,
+    worker_called: bool = False,
     model_provider_called: bool = False,
+    chart_rendering_called: bool = False,
+    chart_artifact_written: bool = False,
     approved_entity_catalog_read: bool = False,
     home_assistant_history_read: bool = False,
     history_retrieval_written: bool = False,
@@ -951,12 +1011,16 @@ def job_orchestration_side_effects(
     artifact_metadata_bookkeeping_written: bool = False,
     render_plan_bookkeeping_written: bool = False,
     model_provider_plan_bookkeeping_written: bool = False,
+    worker_dispatch_bookkeeping_written: bool = False,
     websocket_command_registered: bool = False,
 ) -> dict[str, bool]:
     """Return side-effect accounting for the job orchestration scaffold."""
     return {
         **NO_JOB_ORCHESTRATION_CALLS,
+        "worker_called": worker_called,
         "model_provider_called": model_provider_called,
+        "chart_rendering_called": chart_rendering_called,
+        "chart_artifact_written": chart_artifact_written,
         "retry_behavior_called": retry_behavior_called,
         "subscription_progress_streaming_called": subscription_progress_streaming_called,
         "approved_entity_catalog_read": approved_entity_catalog_read,
@@ -968,6 +1032,7 @@ def job_orchestration_side_effects(
         "artifact_metadata_bookkeeping_written": artifact_metadata_bookkeeping_written,
         "render_plan_bookkeeping_written": render_plan_bookkeeping_written,
         "model_provider_plan_bookkeeping_written": model_provider_plan_bookkeeping_written,
+        "worker_dispatch_bookkeeping_written": worker_dispatch_bookkeeping_written,
         "websocket_command_registered": websocket_command_registered,
     }
 
@@ -1260,21 +1325,53 @@ def _record_artifact_and_render_plan(
             "validation": render_plan_validation,
         }
 
+    worker_dispatch_result = _record_worker_dispatch(
+        store,
+        hass=hass,
+        entry_id=entry_id,
+        job=job,
+        source_snapshot=source_snapshot,
+        artifact=artifact,
+        render_plan=render_plan,
+    )
+    if not worker_dispatch_result["accepted"]:
+        return {
+            "accepted": False,
+            "code": worker_dispatch_result["code"],
+            "validation": worker_dispatch_result.get("validation"),
+            "worker": worker_dispatch_result.get("worker"),
+            "model_provider_called": model_provider_result.get("model_provider_called", False),
+            "worker_called": worker_dispatch_result.get("worker_called", False),
+            "chart_rendering_called": worker_dispatch_result.get("chart_rendering_called", False),
+            "orchestration": job_orchestration_side_effects(
+                model_provider_called=model_provider_result.get("model_provider_called", False),
+                worker_called=worker_dispatch_result.get("worker_called", False),
+                chart_rendering_called=worker_dispatch_result.get("chart_rendering_called", False),
+            ),
+        }
+
     model_provider_plan = model_provider_result.get("model_provider_plan")
+    worker_dispatch = worker_dispatch_result.get("worker_dispatch")
     if model_provider_plan is not None:
         _store_validated_model_provider_plan(store, model_provider_plan)
     _store_validated_artifact_metadata(store, artifact)
     _store_validated_render_plan(store, render_plan)
+    if worker_dispatch is not None:
+        _store_validated_worker_dispatch(store, worker_dispatch)
     return {
         "accepted": True,
         "code": "accepted",
         "artifact": deepcopy(artifact),
         "render_plan": deepcopy(render_plan),
         "model_provider_plan": deepcopy(model_provider_plan) if model_provider_plan is not None else None,
+        "worker_dispatch": deepcopy(worker_dispatch) if worker_dispatch is not None else None,
         "model_provider_called": model_provider_result.get("model_provider_called", False),
+        "worker_called": worker_dispatch_result.get("worker_called", False),
+        "chart_rendering_called": worker_dispatch_result.get("chart_rendering_called", False),
         "artifact_validation": artifact_validation,
         "model_provider_validation": model_provider_result.get("validation"),
         "render_plan_validation": render_plan_validation,
+        "worker_dispatch_validation": worker_dispatch_result.get("validation"),
     }
 
 
@@ -1381,6 +1478,151 @@ def _record_model_provider_plan(
         "chart_spec": deepcopy(chart_spec),
         "validation": provider_plan_validation,
         "model_provider": provider_summary,
+    }
+
+
+def _record_worker_dispatch(
+    store: dict[str, Any],
+    *,
+    hass: Any,
+    entry_id: str,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+    artifact: dict[str, Any],
+    render_plan: dict[str, Any],
+) -> dict[str, Any]:
+    worker_client = get_worker_render_client(hass, entry_id)
+    if worker_client is None:
+        return {
+            "accepted": True,
+            "code": "worker_renderer_not_configured",
+            "worker_called": False,
+            "chart_rendering_called": False,
+            "worker_dispatch": None,
+        }
+
+    token = worker_client_token(worker_client)
+    worker_summary = {
+        "worker": worker_client_metadata(worker_client),
+        "authorization": "Bearer <redacted>" if token else "<missing>",
+    }
+    if token is None:
+        return {
+            "accepted": False,
+            "code": "worker_renderer_token_missing",
+            "worker_called": False,
+            "chart_rendering_called": False,
+            "worker": worker_summary,
+        }
+
+    render_request = _build_worker_render_request(
+        store,
+        hass=hass,
+        entry_id=entry_id,
+        render_plan=render_plan,
+    )
+    render_request_validation = validate_render_request_contract(render_request)
+    if not render_request_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_worker_render_request",
+            "validation": render_request_validation,
+            "worker_called": False,
+            "chart_rendering_called": False,
+            "worker": worker_summary,
+        }
+
+    dispatch_number = store["next_worker_dispatch_number"]
+    transport_request = build_worker_transport_request(
+        render_request,
+        request_id=f"{store['entry_id']}-worker-transport-{dispatch_number:03d}",
+        worker_token=token,
+    )
+    transport_validation = validate_worker_transport_request_contract(transport_request)
+    if not transport_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_worker_transport_request",
+            "validation": transport_validation,
+            "worker_called": False,
+            "chart_rendering_called": False,
+            "worker": worker_summary,
+        }
+
+    render_method = getattr(worker_client, "render_chart", None)
+    if not callable(render_method):
+        return {
+            "accepted": False,
+            "code": "worker_renderer_unavailable",
+            "worker_called": False,
+            "chart_rendering_called": False,
+            "worker": worker_summary,
+        }
+
+    worker_response = render_method(transport_request)
+    if not isinstance(worker_response, dict) or not worker_response.get("accepted"):
+        return {
+            "accepted": False,
+            "code": (
+                worker_response.get("code", "worker_render_failed")
+                if isinstance(worker_response, dict)
+                else "worker_render_failed"
+            ),
+            "worker_called": True,
+            "chart_rendering_called": True,
+            "worker": worker_summary,
+        }
+
+    render_result = worker_response.get("render_result")
+    render_result_validation = validate_render_result_contract(render_result)
+    if not render_result_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_worker_render_result",
+            "validation": render_result_validation,
+            "worker_called": True,
+            "chart_rendering_called": True,
+            "worker": worker_summary,
+        }
+    if not isinstance(render_result, dict) or render_result.get("status") != "success":
+        return {
+            "accepted": False,
+            "code": _worker_failure_code(render_result),
+            "validation": render_result_validation,
+            "worker_called": True,
+            "chart_rendering_called": True,
+            "worker": worker_summary,
+        }
+
+    worker_dispatch = _build_worker_dispatch(
+        store,
+        job=job,
+        source_snapshot=source_snapshot,
+        artifact=artifact,
+        render_plan=render_plan,
+        worker=worker_response.get("worker") or worker_client_metadata(worker_client),
+        transport_request=transport_request,
+        render_result=render_result,
+    )
+    dispatch_validation = validate_worker_dispatch_contract(worker_dispatch)
+    if not dispatch_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_worker_dispatch",
+            "validation": dispatch_validation,
+            "worker_called": True,
+            "chart_rendering_called": True,
+            "worker": worker_summary,
+        }
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "worker_called": True,
+        "chart_rendering_called": True,
+        "worker_dispatch": worker_dispatch,
+        "validation": dispatch_validation,
+        "worker": worker_summary,
     }
 
 
@@ -1553,6 +1795,100 @@ def _build_model_provider_plan(
     }
 
 
+def _build_worker_render_request(
+    store: dict[str, Any],
+    *,
+    hass: Any,
+    entry_id: str,
+    render_plan: dict[str, Any],
+) -> dict[str, Any]:
+    dispatch_number = store["next_worker_dispatch_number"]
+    return {
+        "request_id": f"{store['entry_id']}-render-request-{dispatch_number:03d}",
+        "render_mode": render_plan["render_mode"],
+        "chart_spec": deepcopy(render_plan["chart_spec"]),
+        "history_series": _history_series_for_render_plan(
+            hass,
+            entry_id=entry_id,
+            render_plan=render_plan,
+        ),
+        "derived_intervals": [],
+        "output": deepcopy(render_plan["output"]),
+        "theme": {},
+        "codegen": None,
+    }
+
+
+def _history_series_for_render_plan(
+    hass: Any,
+    *,
+    entry_id: str,
+    render_plan: dict[str, Any],
+) -> list[dict[str, Any]]:
+    entry_data = getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {})
+    store = entry_data.get(DATA_HISTORY_RETRIEVAL, {}) if isinstance(entry_data, dict) else {}
+    staged = store.get("series", []) if isinstance(store, dict) else []
+    by_entity_id = {
+        series.get("entity_id"): series
+        for series in staged
+        if isinstance(series, dict) and isinstance(series.get("entity_id"), str)
+    }
+    return [
+        deepcopy(by_entity_id[entity_id])
+        for entity_id in render_plan.get("history_entity_ids", [])
+        if entity_id in by_entity_id
+    ]
+
+
+def _build_worker_dispatch(
+    store: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+    artifact: dict[str, Any],
+    render_plan: dict[str, Any],
+    worker: dict[str, Any],
+    transport_request: dict[str, Any],
+    render_result: dict[str, Any],
+) -> dict[str, Any]:
+    dispatch_number = store["next_worker_dispatch_number"]
+    dispatch_id = f"{store['entry_id']}-worker-dispatch-{dispatch_number:03d}"
+    return {
+        "dispatch_id": dispatch_id,
+        "config_entry_id": store["entry_id"],
+        "job_id": job["job_id"],
+        "source_snapshot_id": source_snapshot["snapshot_id"],
+        "render_plan_id": render_plan["render_plan_id"],
+        "artifact_id": artifact["artifact_id"],
+        "status": "render_succeeded",
+        "worker": {
+            "type": worker.get("type") or "http_json_worker",
+            "role": worker.get("role") or "renderer",
+            "endpoint_url": worker.get("endpoint_url") or "",
+            "api_version": worker.get("api_version") or 1,
+        },
+        "request": redacted_worker_transport_request(transport_request),
+        "render_result": deepcopy(render_result),
+        "validation": {
+            "status": "pass",
+            "summary": "Worker transport request and render result validate before dispatch storage.",
+            "checks": [
+                {"name": "integration_render_plan", "status": "pass"},
+                {"name": "render_request_schema", "status": "pass"},
+                {"name": "worker_transport_request_schema", "status": "pass"},
+                {"name": "render_result_schema", "status": "pass"},
+                {"name": "worker_authorization_redacted", "status": "pass"},
+            ],
+        },
+        "warnings": [
+            "worker_dispatch_rendering_scaffold",
+            "worker_render_result_recorded",
+            "worker_authorization_redacted",
+            "integration_chart_artifact_file_not_written",
+        ],
+    }
+
+
 def _store_validated_render_plan(store: dict[str, Any], render_plan: dict[str, Any]) -> None:
     render_plan_id = render_plan["render_plan_id"]
     store["next_render_plan_number"] += 1
@@ -1569,6 +1905,15 @@ def _store_validated_model_provider_plan(store: dict[str, Any], provider_plan: d
     store["model_provider_plan_order"].append(provider_plan_id)
     store["model_provider_plan_by_job_id"][provider_plan["job_id"]] = provider_plan_id
     store["latest_model_provider_plan"] = deepcopy(provider_plan)
+
+
+def _store_validated_worker_dispatch(store: dict[str, Any], worker_dispatch: dict[str, Any]) -> None:
+    dispatch_id = worker_dispatch["dispatch_id"]
+    store["next_worker_dispatch_number"] += 1
+    store["worker_dispatches"][dispatch_id] = deepcopy(worker_dispatch)
+    store["worker_dispatch_order"].append(dispatch_id)
+    store["worker_dispatch_by_job_id"][worker_dispatch["job_id"]] = dispatch_id
+    store["latest_worker_dispatch"] = deepcopy(worker_dispatch)
 
 
 def validate_artifact_metadata_contract(artifact: Any) -> dict[str, Any]:
@@ -1614,6 +1959,144 @@ def validate_render_plan_contract(render_plan: Any) -> dict[str, Any]:
         "code": "accepted",
         "schema": str(RENDER_PLAN_SCHEMA_PATH),
         "chart_schema": str(CHART_SPEC_SCHEMA_PATH),
+    }
+
+
+def validate_worker_dispatch_contract(worker_dispatch: Any) -> dict[str, Any]:
+    """Validate IntegrationWorkerDispatch and its nested render result."""
+    try:
+        schema = json.loads(WORKER_DISPATCH_SCHEMA_PATH.read_text(encoding="utf-8"))
+        _validate_json_schema(worker_dispatch, schema, root_schema=schema, path="$")
+    except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_worker_dispatch",
+            "error": str(exc),
+        }
+
+    render_result_validation = validate_render_result_contract(
+        worker_dispatch.get("render_result") if isinstance(worker_dispatch, dict) else None
+    )
+    if not render_result_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_worker_render_result",
+            "render_result_validation": render_result_validation,
+        }
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "schema": str(WORKER_DISPATCH_SCHEMA_PATH),
+        "render_result_schema": str(RENDER_RESULT_SCHEMA_PATH),
+    }
+
+
+def validate_worker_transport_request_contract(request: Any) -> dict[str, Any]:
+    """Validate WorkerTransportRequest and its nested RenderRequest."""
+    try:
+        schema = json.loads(WORKER_TRANSPORT_REQUEST_SCHEMA_PATH.read_text(encoding="utf-8"))
+        _validate_json_schema(request, schema, root_schema=schema, path="$")
+    except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
+        return {
+            "accepted": False,
+            "code": "invalid_worker_transport_request",
+            "error": str(exc),
+        }
+
+    body = request.get("body") if isinstance(request, dict) else None
+    render_request_validation = validate_render_request_contract(
+        body.get("render_request") if isinstance(body, dict) else None
+    )
+    if not render_request_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_worker_render_request",
+            "render_request_validation": render_request_validation,
+        }
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "schema": str(WORKER_TRANSPORT_REQUEST_SCHEMA_PATH),
+        "render_request_schema": str(RENDER_REQUEST_SCHEMA_PATH),
+    }
+
+
+def validate_render_request_contract(render_request: Any) -> dict[str, Any]:
+    """Validate RenderRequest, ChartSpec, and HistorySeries before worker dispatch."""
+    try:
+        schema = json.loads(RENDER_REQUEST_SCHEMA_PATH.read_text(encoding="utf-8"))
+        _validate_json_schema(render_request, schema, root_schema=schema, path="$")
+    except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
+        return {
+            "accepted": False,
+            "code": "invalid_worker_render_request",
+            "error": str(exc),
+        }
+
+    chart_validation = validate_chart_spec_contract(
+        render_request.get("chart_spec") if isinstance(render_request, dict) else None
+    )
+    if not chart_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_chart_spec",
+            "chart_validation": chart_validation,
+        }
+
+    history_validation = validate_history_series_collection_contract(
+        render_request.get("history_series") if isinstance(render_request, dict) else None
+    )
+    if not history_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_history_series",
+            "history_validation": history_validation,
+        }
+
+    history_entity_ids = {
+        item.get("entity_id")
+        for item in render_request.get("history_series", [])
+        if isinstance(item, dict)
+    }
+    render_plan_entity_ids = _chart_spec_entity_ids(render_request.get("chart_spec", {}))["entity_ids"]
+    missing_entity_ids = sorted(
+        entity_id
+        for entity_id in render_plan_entity_ids
+        if entity_id not in history_entity_ids
+    )
+    if missing_entity_ids:
+        return {
+            "accepted": False,
+            "code": "missing_worker_history_series",
+            "missing_entity_ids": missing_entity_ids,
+        }
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "schema": str(RENDER_REQUEST_SCHEMA_PATH),
+        "chart_schema": str(CHART_SPEC_SCHEMA_PATH),
+        "history_schema": "docs/schemas/history-series.schema.json",
+    }
+
+
+def validate_render_result_contract(render_result: Any) -> dict[str, Any]:
+    """Validate RenderResult before worker dispatch metadata storage."""
+    try:
+        schema = json.loads(RENDER_RESULT_SCHEMA_PATH.read_text(encoding="utf-8"))
+        _validate_json_schema(render_result, schema, root_schema=schema, path="$")
+    except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
+        return {
+            "accepted": False,
+            "code": "invalid_worker_render_result",
+            "error": str(exc),
+        }
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "schema": str(RENDER_RESULT_SCHEMA_PATH),
     }
 
 
@@ -1814,10 +2297,14 @@ def _accepted_artifact_snapshot(
     artifact: dict[str, Any] | None,
     render_plan: dict[str, Any] | None,
     model_provider_plan: dict[str, Any] | None,
+    worker_dispatch: dict[str, Any] | None,
     artifact_metadata_written: bool,
     render_plan_written: bool,
     model_provider_plan_written: bool,
+    worker_dispatch_written: bool,
     model_provider_called: bool,
+    worker_called: bool,
+    chart_rendering_called: bool,
     job_state_written: bool,
     job_orchestration_written: bool,
 ) -> dict[str, Any]:
@@ -1830,10 +2317,13 @@ def _accepted_artifact_snapshot(
         "job_id": snapshot["job_id"],
         "snapshot": deepcopy(snapshot),
         "orchestration": job_orchestration_side_effects(
+            worker_called=worker_called,
             model_provider_called=model_provider_called,
+            chart_rendering_called=chart_rendering_called,
             artifact_metadata_bookkeeping_written=artifact_metadata_written,
             render_plan_bookkeeping_written=render_plan_written,
             model_provider_plan_bookkeeping_written=model_provider_plan_written,
+            worker_dispatch_bookkeeping_written=worker_dispatch_written,
             job_state_written=job_state_written,
             job_orchestration_written=job_orchestration_written,
         ),
@@ -1844,6 +2334,8 @@ def _accepted_artifact_snapshot(
         result["render_plan"] = deepcopy(render_plan)
     if model_provider_plan is not None:
         result["model_provider_plan"] = deepcopy(model_provider_plan)
+    if worker_dispatch is not None:
+        result["worker_dispatch"] = deepcopy(worker_dispatch)
     return result
 
 
@@ -1912,6 +2404,12 @@ def _model_provider_plan_for_job(store: dict[str, Any], job_id: str) -> dict[str
     provider_plan_id = store.get("model_provider_plan_by_job_id", {}).get(job_id)
     provider_plan = store.get("model_provider_plans", {}).get(provider_plan_id)
     return deepcopy(provider_plan) if isinstance(provider_plan, dict) else None
+
+
+def _worker_dispatch_for_job(store: dict[str, Any], job_id: str) -> dict[str, Any] | None:
+    dispatch_id = store.get("worker_dispatch_by_job_id", {}).get(job_id)
+    worker_dispatch = store.get("worker_dispatches", {}).get(dispatch_id)
+    return deepcopy(worker_dispatch) if isinstance(worker_dispatch, dict) else None
 
 
 def _is_artifact_source_snapshot(snapshot: dict[str, Any]) -> bool:
@@ -2147,7 +2645,12 @@ def _artifact_title(job: dict[str, Any], source_snapshot: dict[str, Any]) -> str
     return "Isolinear Chart"
 
 
-def _append_artifact_complete_snapshot(job: dict[str, Any], artifact: dict[str, Any]) -> dict[str, Any]:
+def _append_artifact_complete_snapshot(
+    job: dict[str, Any],
+    artifact: dict[str, Any],
+    *,
+    worker_dispatch: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     chart = {
         "title": artifact["title"],
         "image_url": artifact["image_url"],
@@ -2155,32 +2658,55 @@ def _append_artifact_complete_snapshot(job: dict[str, Any], artifact: dict[str, 
         "series": deepcopy(artifact["series"]),
         "overlays": deepcopy(artifact["overlays"]),
     }
+    worker_rendered = worker_dispatch is not None
     return append_validated_job_snapshot(
         job,
         status="complete",
         state_label="Complete",
-        message="Placeholder chart artifact metadata is ready for the dashboard card.",
+        message=(
+            "Worker render result is recorded and placeholder chart artifact metadata is ready for the dashboard card."
+            if worker_rendered
+            else "Placeholder chart artifact metadata is ready for the dashboard card."
+        ),
         progress_stage="job_orchestration_artifact_storage_ready",
-        progress_message="Scaffold artifact metadata is stored for future rendering.",
+        progress_message=(
+            "Worker dispatch metadata is stored with the scaffold artifact metadata."
+            if worker_rendered
+            else "Scaffold artifact metadata is stored for future rendering."
+        ),
         validation_status="pass",
-        validation_summary="The artifact storage scaffold created schema-valid placeholder chart metadata.",
+        validation_summary=(
+            "The worker dispatch scaffold recorded a schema-valid worker render result and placeholder chart metadata."
+            if worker_rendered
+            else "The artifact storage scaffold created schema-valid placeholder chart metadata."
+        ),
         validation_checks=[
             {"name": "integration_job_state_scaffold", "status": "pass"},
             {"name": "integration_artifact_metadata", "status": "pass"},
-            {"name": "worker", "status": "not_called"},
-            {"name": "chart_rendering", "status": "not_called"},
+            {"name": "worker", "status": "pass" if worker_rendered else "not_called"},
+            {"name": "chart_rendering", "status": "pass" if worker_rendered else "not_called"},
         ],
         chart=chart,
         entities=[
             {"entity_id": item["entity_id"], "label": item["label"]}
             for item in artifact["series"]
         ],
-        warnings=[
-            "artifact_storage_scaffold",
-            "placeholder_chart_artifact",
-            "worker_not_called",
-            "chart_rendering_not_started",
-        ],
+        warnings=(
+            [
+                "artifact_storage_scaffold",
+                "placeholder_chart_artifact",
+                "worker_dispatch_rendering_scaffold",
+                "worker_render_result_recorded",
+                "integration_chart_artifact_file_not_written",
+            ]
+            if worker_rendered
+            else [
+                "artifact_storage_scaffold",
+                "placeholder_chart_artifact",
+                "worker_not_called",
+                "chart_rendering_not_started",
+            ]
+        ),
     )
 
 
@@ -2229,6 +2755,14 @@ def _unique(values: list[str]) -> list[str]:
         seen.add(value)
         result.append(value)
     return result
+
+
+def _worker_failure_code(render_result: Any) -> str:
+    if isinstance(render_result, dict):
+        error = render_result.get("error")
+        if isinstance(error, dict) and isinstance(error.get("code"), str) and error["code"].strip():
+            return error["code"]
+    return "worker_render_failed"
 
 
 def _snapshot_entities(catalog_items: list[dict[str, Any]], entity_ids: list[str]) -> list[dict[str, str]]:

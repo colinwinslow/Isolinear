@@ -18,6 +18,7 @@ SCHEMA_NAMES = {
     "integration-job-snapshot": "integration-job-snapshot.schema.json",
     "integration-model-provider-plan": "integration-model-provider-plan.schema.json",
     "integration-render-plan": "integration-render-plan.schema.json",
+    "integration-worker-dispatch": "integration-worker-dispatch.schema.json",
     "integration-ws-command": "integration-ws-command.schema.json",
     "planner-result": "planner-result.schema.json",
     "render-request": "render-request.schema.json",

@@ -50,6 +50,19 @@ custom integration implementation slices.
   scaffold-ready jobs while preserving Ollama/model-provider, worker,
   rendering, mutation, memory, token, real artifact file, durable-storage,
   streaming, retry/backoff, and production orchestration boundaries.
+- **Home Assistant job orchestration model-provider planning scaffold anchor** -
+  the integration owns a config-entry-scoped Ollama-compatible planner boundary
+  behind `job/snapshot` that validates provider-produced `PlannerResult` and
+  `ChartSpec` records before render-plan storage while preserving worker,
+  rendering, mutation, memory, token, real artifact file, durable-storage,
+  streaming, retry/backoff, and production orchestration boundaries.
+- **Home Assistant job orchestration worker dispatch/rendering scaffold
+  anchor** - the integration owns a config-entry-scoped worker dispatch
+  boundary behind `job/snapshot` that validates render requests, ADR-0012
+  worker transport requests, render results, and redacted worker-dispatch
+  metadata while preserving mutation, memory, token-generation, real artifact
+  file write, durable-storage, streaming, retry/backoff, and unbounded
+  orchestration boundaries.
 
 ## Validation
 
@@ -92,3 +105,14 @@ custom integration implementation slices.
   idempotent render-plan reuse, unknown-job and cross-entry rejection,
   per-config-entry isolation, schema-valid render plans/chart specs, and
   bounded side-effect proof.
+- `evals/home_assistant_job_orchestration_model_provider_planning_scaffold.py` -
+  deterministic model-provider plan creation for scaffold-ready jobs,
+  provider-produced `ChartSpec` render-plan storage, hidden-output rejection,
+  invalid-chart-spec rejection, idempotent reuse, unknown-job and cross-entry
+  rejection, per-config-entry isolation, schema-valid provider/render plans,
+  and bounded side-effect proof.
+- `evals/home_assistant_job_orchestration_worker_dispatch_rendering_scaffold.py` -
+  deterministic worker dispatch creation for scaffold-ready jobs, redacted
+  worker transport metadata, worker failure handling, idempotent reuse,
+  unknown-job and cross-entry rejection, per-config-entry isolation,
+  schema-valid worker/render contracts, and bounded side-effect proof.

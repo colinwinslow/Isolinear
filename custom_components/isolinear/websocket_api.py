@@ -236,6 +236,7 @@ def handle_registered_ws_command(
             "model_provider_plan": job_result.get("model_provider_plan"),
             "artifact": job_result.get("artifact"),
             "render_plan": job_result.get("render_plan"),
+            "worker_dispatch": job_result.get("worker_dispatch"),
         },
         "orchestration": job_result["orchestration"],
     }
