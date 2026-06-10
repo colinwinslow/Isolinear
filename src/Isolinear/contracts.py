@@ -18,6 +18,7 @@ SCHEMA_NAMES = {
     "integration-job-snapshot": "integration-job-snapshot.schema.json",
     "integration-model-provider-plan": "integration-model-provider-plan.schema.json",
     "integration-render-plan": "integration-render-plan.schema.json",
+    "integration-worker-health": "integration-worker-health.schema.json",
     "integration-worker-readiness": "integration-worker-readiness.schema.json",
     "integration-worker-dispatch": "integration-worker-dispatch.schema.json",
     "integration-worker-progress": "integration-worker-progress.schema.json",
@@ -32,6 +33,7 @@ SCHEMA_NAMES = {
     "semantic-alias": "semantic-alias.schema.json",
     "semantic-memory-store": "semantic-memory-store.schema.json",
     "validation-result": "validation-result.schema.json",
+    "worker-health-request": "worker-health-request.schema.json",
     "worker-transport-request": "worker-transport-request.schema.json",
 }
 

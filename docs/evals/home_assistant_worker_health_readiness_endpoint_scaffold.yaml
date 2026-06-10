@@ -1,0 +1,39 @@
+id: home_assistant_worker_health_readiness_endpoint_scaffold
+summary: The Home Assistant integration owns a config-entry-scoped worker health/readiness endpoint scaffold that explicitly probes a configured worker through the existing token/readiness gate, records redacted schema-valid internal health metadata, and keeps health details out of dashboard-card payloads.
+executable_eval: evals/home_assistant_worker_health_readiness_endpoint_scaffold.py
+fixtures:
+  integration_worker_health_module: custom_components/isolinear/worker_health.py
+  integration_worker_renderer_module: custom_components/isolinear/worker_renderer.py
+  integration_setup: custom_components/isolinear/__init__.py
+  worker_health_request_schema: docs/schemas/worker-health-request.schema.json
+  integration_worker_health_schema: docs/schemas/integration-worker-health.schema.json
+  fake_hass: in-code fake Home Assistant config entries, WebSocket registry, worker endpoints, deterministic tokens, and fake worker health clients
+expect:
+  ready_health_probe_records_redacted_metadata: true
+  not_ready_health_response_records_internal_state: true
+  transport_failure_records_unavailable_health: true
+  malformed_accepted_health_response_fails_before_storage: true
+  no_token_entry_rejected_before_worker_call: true
+  unknown_config_entry_rejected_before_worker_call: true
+  per_config_entry_isolation: true
+  worker_authorization_redacted_in_metadata_and_evidence: true
+  token_absent_from_dashboard_card_metadata: true
+  worker_endpoint_absent_from_dashboard_card_payloads: true
+  internal_health_metadata_absent_from_dashboard_card_payloads: true
+  worker_health_request_valid: true
+  integration_worker_health_schema_valid: true
+  health_probe_only_explicit: true
+  worker_health_bookkeeping_written: true
+  home_assistant_history_read: false
+  semantic_memory_called: false
+  home_assistant_service_or_state_mutation_called: false
+  token_generation_called: false
+  token_rotation_called: false
+  worker_render_called: false
+  chart_rendering_called: false
+  chart_artifact_written: false
+  durable_storage_written: false
+  retry_or_backoff_policy_called: false
+  scheduler_called: false
+  automatic_retry_called: false
+  automatic_progress_task_called: false

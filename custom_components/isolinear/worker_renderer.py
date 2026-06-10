@@ -17,6 +17,7 @@ DATA_WORKER_RENDER_TOKEN = "worker_render_token"
 
 WORKER_TRANSPORT_VERSION = 1
 WORKER_RENDER_PATH = "/v1/render"
+WORKER_HEALTH_PATH = "/v1/health"
 DEFAULT_WORKER_TIMEOUT_SECONDS = 60
 MIN_WORKER_RENDER_TOKEN_LENGTH = 24
 
@@ -104,6 +105,33 @@ def build_worker_transport_request(
 
 def redacted_worker_transport_request(request: dict[str, Any]) -> dict[str, Any]:
     """Return a JSON-safe worker transport envelope with authorization redacted."""
+    redacted = deepcopy(request)
+    headers = redacted.get("headers")
+    if isinstance(headers, dict):
+        headers["authorization"] = redact_authorization(headers.get("authorization"))
+    return redacted
+
+
+def build_worker_health_request(
+    *,
+    request_id: str,
+    worker_token: str,
+) -> dict[str, Any]:
+    """Build the ADR-0012-authenticated worker health request envelope."""
+    return {
+        "protocol_version": WORKER_TRANSPORT_VERSION,
+        "method": "GET",
+        "path": WORKER_HEALTH_PATH,
+        "headers": {
+            "accept": "application/json",
+            "x_isolinear_worker_api_version": str(WORKER_TRANSPORT_VERSION),
+            "authorization": f"Bearer {worker_token}",
+        },
+    }
+
+
+def redacted_worker_health_request(request: dict[str, Any]) -> dict[str, Any]:
+    """Return a JSON-safe worker health request with authorization redacted."""
     redacted = deepcopy(request)
     headers = redacted.get("headers")
     if isinstance(headers, dict):
@@ -217,6 +245,36 @@ class HttpJsonWorkerRenderClient:
         if isinstance(payload, dict) and "progress_events" in payload:
             result["progress_events"] = deepcopy(payload["progress_events"])
         return result
+
+    def check_health(self, health_request: dict[str, Any]) -> dict[str, Any]:
+        """Call the worker health endpoint and return its health envelope."""
+        headers = health_request.get("headers", {})
+        request = urllib.request.Request(
+            f"{self.endpoint_url}{WORKER_HEALTH_PATH}",
+            headers={
+                "Accept": headers.get("accept", "application/json"),
+                "X-Isolinear-Worker-API-Version": headers.get("x_isolinear_worker_api_version", "1"),
+                "Authorization": headers.get("authorization", ""),
+            },
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            return _worker_failure("worker_health_http_error", str(exc), retry_safe=False)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            return _worker_failure("worker_health_connection_error", str(exc), retry_safe=False)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            return _worker_failure("worker_health_response_error", str(exc), retry_safe=False)
+
+        health_result = payload.get("health") if isinstance(payload, dict) and "health" in payload else payload
+        return {
+            "accepted": True,
+            "code": "worker_health_result_received",
+            "worker": self.provider_metadata(),
+            "health_result": health_result,
+        }
 
 
 def _setup_enabled(entry_id: str, worker: dict[str, Any], *, call_made: bool) -> dict[str, Any]:
