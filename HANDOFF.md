@@ -12,11 +12,11 @@ The model-provider planning scaffold, worker dispatch/rendering scaffold,
 worker token provisioning/readiness scaffold, worker progress streaming
 scaffold, worker retry/backoff policy scaffold, worker transport failure
 retry-classification scaffold, worker failure snapshot/manual retry
-integration scaffold, and worker health/readiness endpoint scaffold are now
-anchored. The next packet should keep worker work narrow by defining explicit
-worker token rotation/repair separately from durable health polling, retry
-queues, and scheduler semantics, while preserving the existing schema-first,
-BDD-first workflow.
+integration scaffold, worker health/readiness endpoint scaffold, and worker
+token rotation/repair scaffold are now anchored. The next packet should keep
+worker work narrow by deciding durable worker health polling, storage,
+scheduler, and repair semantics with an ADR before implementation, while
+preserving the existing schema-first, BDD-first workflow.
 
 ## Product summary
 
@@ -565,47 +565,63 @@ authorization, or internal health metadata. The paired spec/BDD/evidence and
 `evals/home_assistant_worker_health_readiness_endpoint_scaffold.py` prove the
 anchor.
 
+Home Assistant worker token rotation/repair scaffold anchor is complete.
+`custom_components/isolinear/worker_readiness.py` now owns explicit
+config-entry-scoped in-memory worker token rotation and repair functions.
+Rotation requires an existing valid same-entry integration-owned worker token,
+generates a replacement token, invalidates the old token and renderer client,
+validates/stores redacted ready readiness metadata, and refreshes the same-entry
+renderer setup. Repair creates a valid token only for known no-token entries
+with configured worker endpoints. Unknown and cross-entry requests fail before
+token generation or state changes, while readiness validation/storage and
+renderer setup failures roll back token, readiness, and renderer state. The
+packet remains read-only and bounded: it does not call worker render or health
+endpoints, persist tokens durably, schedule repair, mutate Home Assistant state,
+or expose worker endpoint, token material, readiness, health, or repair
+internals to dashboard-card payloads. The paired spec/BDD/evidence and
+`evals/home_assistant_worker_token_rotation_repair_scaffold.py` prove the
+anchor. Focused and adjacent worker verification is green; the full Python
+suite currently has an unrelated codegen sandbox matplotlib subprocess flake
+documented in `STATUS.md`.
+
 ## Next recommended packet
 
-Home Assistant worker token rotation/repair scaffold anchor:
+Home Assistant durable worker health polling ADR anchor:
 
-1. Write paired BDD/evidence before code for the bounded explicit token
-   rotation and repair surface.
-2. Reuse ADR-0012's worker transport/authentication contract, the existing
-   worker token/readiness gate, and ADR-0014's health endpoint only where the
-   packet explicitly needs readiness proof; write a new ADR first if the packet
-   introduces persistent token storage, durable health state, durable retry
-   storage, a scheduler, or automatic repair behavior.
-3. Build the smallest inspectable config-entry-scoped surface that invalidates
-   an old in-memory worker token, validates/stores redacted new readiness
-   metadata, and rolls back cleanly when validation or storage fails.
-4. Keep Home Assistant read-only and card-safe: no Home Assistant
-   service/state mutation, no token leakage, no semantic-memory persistence, no
-   durable retry queue, no automatic retry, no scheduler, and no unbounded
-   orchestration.
-5. Prove rotation behavior is config-entry scoped, fails closed for unknown or
-   cross-entry requests, preserves redaction, and does not expose worker
-   endpoint, token material, repair internals, or internal health/readiness
-   metadata to the dashboard card.
-6. Prove the anchor with unit tests, a focused eval, raw evidence, on-disk
-   verification, BDD-evidence review, and standalone architecture review.
+1. Draft an ADR before implementation for durable worker health polling,
+   scheduler, storage, and repair semantics.
+2. Reuse ADR-0012 worker transport/authentication, ADR-0014 health endpoint,
+   the worker readiness gate, and token rotation/repair only as explicit
+   inputs; do not introduce automatic repair behavior without deciding it in
+   the ADR.
+3. Define the minimal boundary for polling trigger/cadence, in-memory versus
+   durable state, failure family retention, startup behavior, and any retry or
+   backoff behavior.
+4. Keep Home Assistant read-only and card-safe: no service/state mutation, no
+   token leakage, no worker render calls, no model-provider calls, no chart
+   writes, and no exposure of endpoint, health internals, scheduler internals,
+   or repair internals to dashboard payloads.
+5. Prove the ADR outcome with any required paired spec/BDD/tests/eval/evidence,
+   on-disk verification, BDD-evidence review, standalone architecture review,
+   and an explicit note on the known codegen sandbox full-suite caveat.
 
 ## Known unresolved design details
 
 - Semantic-memory storage-helper implementation, migrations, and repair UI details beyond the envelope contract.
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.
-- Worker token rotation UI and long-running worker progress streaming
-  semantics beyond the current bounded worker progress, retry-policy,
-  transport-classification, worker-failure snapshot, and worker-health
-  scaffolds.
+- Worker token rotation UI/persistence/automatic repair semantics and
+  long-running worker progress streaming semantics beyond the current bounded
+  worker progress, retry-policy, transport-classification, worker-failure
+  snapshot, worker-health, and token rotation/repair scaffolds.
 - Production entity-registry, device-registry, area-registry, and label
   adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
-- Production worker token rotation/persistence, durable worker health polling,
-  provider health/retry policy, durable retry queue/scheduler behavior, and
-  orchestration retry/backoff policy beyond scaffold snapshots.
+- Production worker token rotation persistence/automatic repair behavior,
+  durable worker health polling, provider health/retry policy, durable retry
+  queue/scheduler behavior, and orchestration retry/backoff policy beyond
+  scaffold snapshots.
 
 ## Session log
 

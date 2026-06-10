@@ -1,0 +1,36 @@
+id: home_assistant_worker_token_rotation_repair_scaffold
+summary: The Home Assistant integration owns an explicit config-entry-scoped worker token rotation/repair boundary that replaces stale or missing in-memory worker tokens, validates redacted readiness metadata, refreshes same-entry worker renderer setup, rolls back on validation failure, and avoids leaking worker credentials or calling worker render/health.
+executable_eval: evals/home_assistant_worker_token_rotation_repair_scaffold.py
+fixtures:
+  integration_worker_readiness_module: custom_components/isolinear/worker_readiness.py
+  integration_worker_renderer_module: custom_components/isolinear/worker_renderer.py
+  integration_setup: custom_components/isolinear/__init__.py
+  worker_readiness_schema: docs/schemas/integration-worker-readiness.schema.json
+  fake_hass: in-code fake Home Assistant config entries, WebSocket registry, worker endpoints, deterministic token factories, and renderer clients
+expect:
+  rotation_invalidates_old_token_and_refreshes_readiness: true
+  missing_token_repair_records_ready_state: true
+  validation_failure_rolls_back_rotation: true
+  unknown_config_entry_rejected_before_side_effects: true
+  cross_entry_request_rejected_before_side_effects: true
+  readiness_schema_valid_after_rotation_and_repair: true
+  worker_renderer_refreshed_only_for_target_entry: true
+  worker_authorization_redacted_in_metadata_and_evidence: true
+  token_absent_from_dashboard_card_metadata: true
+  token_absent_from_model_provider_metadata: true
+  token_generation_only_during_explicit_rotation_or_repair: true
+  readiness_bookkeeping_written: true
+  same_entry_worker_renderer_setup_refreshed: true
+  home_assistant_history_read: false
+  semantic_memory_called: false
+  home_assistant_service_or_state_mutation_called: false
+  worker_render_called: false
+  worker_health_check_called: false
+  chart_rendering_called: false
+  chart_artifact_written: false
+  durable_token_storage_written: false
+  durable_health_or_retry_storage_written: false
+  retry_or_backoff_policy_called: false
+  scheduler_called: false
+  automatic_retry_called: false
+  automatic_progress_task_called: false
