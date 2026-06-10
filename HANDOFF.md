@@ -13,10 +13,12 @@ worker token provisioning/readiness scaffold, worker progress streaming
 scaffold, worker retry/backoff policy scaffold, worker transport failure
 retry-classification scaffold, worker failure snapshot/manual retry
 integration scaffold, worker health/readiness endpoint scaffold, and worker
-token rotation/repair scaffold are now anchored. The next packet should keep
-worker work narrow by deciding durable worker health polling, storage,
-scheduler, and repair semantics with an ADR before implementation, while
-preserving the existing schema-first, BDD-first workflow.
+token rotation/repair scaffold are now anchored, and draft ADR-0015 now records
+the durable worker health polling, storage, scheduler, and repair-boundary
+decision. The next packet should keep worker work narrow by confirming whether
+ADR-0015 should be promoted to accepted, then scaffolding the durable polling
+spec, BDD/evidence, schema, and eval before implementation, while preserving
+the existing schema-first, BDD-first workflow.
 
 ## Product summary
 
@@ -584,44 +586,62 @@ anchor. Focused and adjacent worker verification is green; the full Python
 suite currently has an unrelated codegen sandbox matplotlib subprocess flake
 documented in `STATUS.md`.
 
+Home Assistant durable worker health polling ADR anchor is drafted and
+architecture-reviewed. Draft ADR-0015 records the proposed durable polling
+direction before implementation: the poller is an integration-owned diagnostic
+loop over ADR-0014 `GET /v1/health`, stores only schema-valid redacted
+config-entry-scoped latest health summary and scheduler metadata in a Home
+Assistant storage helper, enqueues post-setup/reload polling only when worker
+endpoint, readiness, token, and same-entry health-client preconditions are met,
+uses a 300 second ready cadence with bounded 30/60/120/300/900 second failure
+backoff, and keeps dashboard-card payloads free of worker endpoint, token
+material, health internals, scheduler internals, repair recommendations, and
+durable polling metadata. The ADR keeps durable health diagnostic rather than
+an authorization gate and forbids automatic token provisioning, rotation,
+repair, worker render calls, model-provider calls, Home Assistant history
+reads, semantic-memory persistence, Home Assistant mutation services, chart
+rendering, artifact writes, external databases, queues, Recorder, config-entry
+option storage, and automatic repair. It explicitly preserves ADR-0014's
+setup-time no-automatic-poller constraint by allowing setup only to create
+scheduler bookkeeping and enqueue later polling work. ADR-0015 remains draft
+until the human explicitly accepts it.
+
 ## Next recommended packet
 
-Home Assistant durable worker health polling ADR anchor:
+Home Assistant durable worker health polling spec/BDD/schema scaffold anchor:
 
-1. Draft an ADR before implementation for durable worker health polling,
-   scheduler, storage, and repair semantics.
-2. Reuse ADR-0012 worker transport/authentication, ADR-0014 health endpoint,
-   the worker readiness gate, and token rotation/repair only as explicit
-   inputs; do not introduce automatic repair behavior without deciding it in
-   the ADR.
-3. Define the minimal boundary for polling trigger/cadence, in-memory versus
-   durable state, failure family retention, startup behavior, and any retry or
-   backoff behavior.
-4. Keep Home Assistant read-only and card-safe: no service/state mutation, no
-   token leakage, no worker render calls, no model-provider calls, no chart
-   writes, and no exposure of endpoint, health internals, scheduler internals,
-   or repair internals to dashboard payloads.
-5. Prove the ADR outcome with any required paired spec/BDD/tests/eval/evidence,
-   on-disk verification, BDD-evidence review, standalone architecture review,
-   and an explicit note on the known codegen sandbox full-suite caveat.
+1. Confirm whether draft ADR-0015 should be promoted to accepted before
+   implementation.
+2. Scaffold the durable worker health polling spec, paired BDD/evidence, eval
+   outline, and polling-state JSON Schema from ADR-0015.
+3. Build the anchor artifact first: the smallest inspectable durable polling
+   state and poller behavior proof before broader scheduler/storage plumbing.
+4. Preserve ADR-0015's boundaries: redacted durable state, post-setup polling,
+   no automatic repair/rotation/render behavior, and no worker endpoint, token
+   material, health internals, scheduler internals, repair recommendations, or
+   durable polling metadata in dashboard payloads.
+5. Prove the scaffold with focused tests/eval/evidence, on-disk verification,
+   BDD-evidence review, standalone architecture review, and an explicit note on
+   the known codegen sandbox full-suite caveat.
 
 ## Known unresolved design details
 
 - Semantic-memory storage-helper implementation, migrations, and repair UI details beyond the envelope contract.
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.
-- Worker token rotation UI/persistence/automatic repair semantics and
-  long-running worker progress streaming semantics beyond the current bounded
-  worker progress, retry-policy, transport-classification, worker-failure
-  snapshot, worker-health, and token rotation/repair scaffolds.
+- Worker token rotation UI/persistence/automatic repair semantics, durable
+  worker health polling implementation beyond draft ADR-0015, and long-running
+  worker progress streaming semantics beyond the current bounded worker
+  progress, retry-policy, transport-classification, worker-failure snapshot,
+  worker-health, and token rotation/repair scaffolds.
 - Production entity-registry, device-registry, area-registry, and label
   adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
 - Production worker token rotation persistence/automatic repair behavior,
-  durable worker health polling, provider health/retry policy, durable retry
-  queue/scheduler behavior, and orchestration retry/backoff policy beyond
-  scaffold snapshots.
+  durable worker health polling implementation beyond draft ADR-0015, provider
+  health/retry policy, durable retry queue/scheduler behavior, and
+  orchestration retry/backoff policy beyond scaffold snapshots.
 
 ## Session log
 
