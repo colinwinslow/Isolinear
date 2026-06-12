@@ -398,6 +398,11 @@ def verify_storage_load_merges_persisted_entries_without_dropping_unsaved(root=N
     invalid_bounds_state["config_entry_id"] = "worker-polling-invalid-bounds-entry"
     invalid_bounds_state["scheduler"]["backoff_seconds"] = 901
 
+    cancelled_state = deepcopy(persisted_state)
+    cancelled_state["polling_id"] = "worker-polling-cancelled-entry-worker-health-polling-001"
+    cancelled_state["config_entry_id"] = "worker-polling-cancelled-entry"
+    cancelled_state["scheduler"]["cancelled"] = True
+
     ha_store = FakeHomeAssistantPollingStore(
         {
             "version": 1,
@@ -410,6 +415,7 @@ def verify_storage_load_merges_persisted_entries_without_dropping_unsaved(root=N
                 },
                 "worker-polling-invalid-bounds-entry": invalid_bounds_state,
                 "worker-polling-invalid-cadence-entry": invalid_cadence_state,
+                "worker-polling-cancelled-entry": cancelled_state,
             },
         }
     )
@@ -434,6 +440,7 @@ def verify_storage_load_merges_persisted_entries_without_dropping_unsaved(root=N
         "invalid_bounds_entry_absent": "worker-polling-invalid-bounds-entry" not in after_load["entry_ids"],
         "invalid_cadence_entry_absent": "worker-polling-invalid-cadence-entry"
         not in after_load["entry_ids"],
+        "cancelled_entry_absent": "worker-polling-cancelled-entry" not in after_load["entry_ids"],
         "unloaded_entry_not_remerged": entry_a.entry_id not in after_unloaded_load["entry_ids"],
         "persisted_entry_still_present_after_unloaded_load": entry_b.entry_id
         in after_unloaded_load["entry_ids"],
@@ -444,6 +451,7 @@ def verify_storage_load_merges_persisted_entries_without_dropping_unsaved(root=N
         "invalid_state_not_loaded": store.read_state("worker-polling-invalid-persisted-entry") is None,
         "invalid_bounds_state_not_loaded": store.read_state("worker-polling-invalid-bounds-entry") is None,
         "invalid_cadence_state_not_loaded": store.read_state("worker-polling-invalid-cadence-entry") is None,
+        "cancelled_state_not_loaded": store.read_state("worker-polling-cancelled-entry") is None,
         "state_a_validation": _validate_polling_state(state_a_after_load, root),
         "state_b_validation": _validate_polling_state(state_b_after_load, root),
         "token_missing_validation": _validate_polling_state(token_missing_state_after_load, root),

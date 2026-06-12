@@ -110,6 +110,8 @@ be skipped before merge
 **And** persisted polling entries whose stored next-poll interval does not
 match the 300-second ready cadence or bounded failure backoff windows should
 be skipped before merge
+**And** persisted polling entries with cancelled scheduler metadata should be
+skipped before merge and should not be resumable
 
 ### Scenario H - lifecycle path: setup resumes persisted polling cadence
 

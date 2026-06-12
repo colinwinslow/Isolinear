@@ -56,6 +56,9 @@ The durable worker health polling boundary must:
 - Persisted scheduler state is valid to resume only when its stored
   `next_poll_not_before` matches the 300-second ready cadence or one of the
   bounded failure backoff windows, and is not beyond the bounded resume window.
+- Persisted scheduler state marked `cancelled` is not valid to load or resume;
+  storage load must skip it so unload-cancelled timer metadata cannot
+  resurrect after restart.
 - During config-entry setup, write only polling state and scheduler
   bookkeeping; setup must not call the worker health endpoint.
 - Enable post-setup polling only when the entry has a configured worker
@@ -176,28 +179,30 @@ config-entry isolation, and bounded side effects.
     merge.
 16. Evidence confirms persisted polling entries with out-of-bounds scheduler
     metadata or invalid next-poll cadence are skipped before merge.
-17. Evidence confirms setup after storage load resumes valid persisted cadence
+17. Evidence confirms persisted polling entries with cancelled scheduler
+    metadata are skipped before merge and cannot be resumed.
+18. Evidence confirms setup after storage load resumes valid persisted cadence
     and backoff metadata without calling the worker.
-18. Evidence confirms durable polling state and eval output do not include raw
+19. Evidence confirms durable polling state and eval output do not include raw
     token material, bearer authorization, worker endpoint URLs, health request
     bodies, or health response internals.
-19. Evidence confirms worker health response messages that mention endpoint
+20. Evidence confirms worker health response messages that mention endpoint
     URLs are redacted before durable polling state or evidence output.
-20. Evidence confirms worker health response codes that normalize endpoint URLs
+21. Evidence confirms worker health response codes that normalize endpoint URLs
     are redacted before durable polling state or evidence output.
-21. Evidence confirms worker health response codes or messages that echo the
+22. Evidence confirms worker health response codes or messages that echo the
     raw worker token without a bearer marker are redacted before durable
     polling state or evidence output.
-22. Evidence confirms dashboard-card WebSocket payloads do not expose worker
+23. Evidence confirms dashboard-card WebSocket payloads do not expose worker
     endpoint, token material, health internals, scheduler internals, repair
     recommendations, or durable polling metadata.
-23. Evidence confirms no Home Assistant history read, semantic-memory
+24. Evidence confirms no Home Assistant history read, semantic-memory
     persistence, Home Assistant service/device/state mutation, token
     generation/rotation/repair, worker render call, model-provider call, chart
     rendering, chart artifact write, durable retry queue, Recorder write,
     config-entry option write, external queue/database, automatic retry,
     automatic progress task, or automatic repair occurs.
-24. Real artifacts are verified on disk: production polling module,
+25. Real artifacts are verified on disk: production polling module,
     integration setup/unload wiring, polling-state schema, BDD, eval outline,
     tests, eval, evidence, and verifier anchor.
 

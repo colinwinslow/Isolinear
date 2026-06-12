@@ -1,11 +1,19 @@
 # Home Assistant Durable Worker Health Polling Scaffold Evidence
 
-Run timestamp: 2026-06-12T16:21:00+00:00
+Run timestamp: 2026-06-12T23:54:25+00:00
 
 BDD file:
 `bdd/integration/home-assistant-durable-worker-health-polling-scaffold-bdd.md`
 
 Overall result: PASS for durable worker health polling BDD scenarios.
+
+Hardening update: persisted polling states with
+`scheduler.cancelled: true` are now rejected during storage-helper load, so
+unload-cancelled timer metadata cannot be re-merged or resumed after restart.
+Focused polling tests (`17 passed`), module `py_compile`, and the focused
+durable polling eval are green for this follow-up. Standalone architecture
+review returned OK with no recommendations. Inline BDD-evidence review
+confirmed scenarios A-K have matching `CASE`/`PASS` evidence.
 
 Refactor note: the durable polling maintainability refactor preserved the BDD
 scenario behavior and reran the packet-specific eval unchanged. Focused
@@ -263,6 +271,7 @@ CASE worker_health_polling_stays_config_entry_scoped
     "after_load": {
       "entry_ids": [
         "worker-polling-persisted-entry",
+        "worker-polling-token-missing-entry",
         "worker-polling-unsaved-entry"
       ]
     },
@@ -272,6 +281,7 @@ CASE worker_health_polling_stays_config_entry_scoped
     "invalid_entry_absent": true,
     "invalid_bounds_entry_absent": true,
     "invalid_cadence_entry_absent": true,
+    "cancelled_entry_absent": true,
     "unloaded_entry_not_remerged": true,
     "unsaved_state_preserved": true,
     "persisted_state_loaded": true,
@@ -279,6 +289,7 @@ CASE worker_health_polling_stays_config_entry_scoped
     "unloaded_state_not_loaded": true,
     "invalid_bounds_state_not_loaded": true,
     "invalid_cadence_state_not_loaded": true,
+    "cancelled_state_not_loaded": true,
     "invalid_state_not_loaded": true
   }
 PASS worker_health_polling_stays_config_entry_scoped
@@ -384,6 +395,12 @@ Raw output:
 ```text
 .\.venv\Scripts\python.exe -m pytest tests/test_worker_health_polling_anchor.py
 17 passed
+
+.\.venv\Scripts\python.exe -m py_compile custom_components/isolinear/worker_health_polling_contract.py src/Isolinear/worker_health_polling_anchor_cases.py src/Isolinear/worker_health_polling_anchor_verifier.py
+passed with no output
+
+codex exec "You are an architecture reviewer. Read codex/review-architecture.md and AGENTS.md in this repo, then review the current git diff against the project invariants. Output the verdict format from the protocol."
+Verdict OK; invariant violations none; recommendations none.
 
 .\.venv\Scripts\python.exe -m pytest tests/test_worker_health_polling_anchor.py tests/test_worker_token_provisioning_readiness_anchor.py tests/test_worker_health_readiness_endpoint_anchor.py tests/test_worker_token_rotation_repair_anchor.py tests/test_job_orchestration_worker_dispatch_rendering_anchor.py tests/test_worker_progress_streaming_anchor.py tests/test_worker_retry_backoff_policy_anchor.py tests/test_worker_transport_failure_classification_anchor.py tests/test_worker_failure_snapshot_manual_retry_anchor.py
 98 passed

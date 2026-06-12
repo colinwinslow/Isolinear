@@ -90,6 +90,8 @@ def _loaded_polling_entry_is_valid(entry_id: Any, state: Any) -> bool:
     scheduler = state.get("scheduler")
     if isinstance(scheduler, dict) and scheduler.get("poll_in_flight") is True:
         return False
+    if isinstance(scheduler, dict) and scheduler.get("cancelled") is True:
+        return False
     if _polling_state_has_forbidden_text(state):
         return False
     return validate_worker_health_polling_contract(state)["accepted"] is True

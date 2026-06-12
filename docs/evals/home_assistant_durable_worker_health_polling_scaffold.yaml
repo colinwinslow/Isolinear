@@ -24,6 +24,7 @@ expect:
   per_config_entry_isolation: true
   setup_resumes_persisted_polling_cadence: true
   invalid_persisted_cadence_skipped_before_merge: true
+  cancelled_persisted_polling_state_skipped_before_merge: true
   polling_state_schema_valid: true
   worker_authorization_absent_from_polling_state_and_evidence: true
   worker_endpoint_absent_from_polling_state_and_dashboard_payloads: true

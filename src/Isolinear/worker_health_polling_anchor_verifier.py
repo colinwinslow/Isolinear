@@ -96,6 +96,7 @@ def verify_worker_health_polling_anchor(root=None) -> dict[str, Any]:
         or not storage_merge["invalid_entry_absent"]
         or not storage_merge["invalid_bounds_entry_absent"]
         or not storage_merge["invalid_cadence_entry_absent"]
+        or not storage_merge["cancelled_entry_absent"]
         or not storage_merge["unloaded_entry_not_remerged"]
     ):
         failure_messages.append("Storage load did not merge persisted and unsaved polling entries.")
@@ -106,6 +107,7 @@ def verify_worker_health_polling_anchor(root=None) -> dict[str, Any]:
         or not storage_merge["invalid_state_not_loaded"]
         or not storage_merge["invalid_bounds_state_not_loaded"]
         or not storage_merge["invalid_cadence_state_not_loaded"]
+        or not storage_merge["cancelled_state_not_loaded"]
         or not storage_merge["unloaded_state_not_loaded"]
     ):
         failure_messages.append("Storage load replaced or corrupted polling entries.")

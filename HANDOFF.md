@@ -19,7 +19,10 @@ polling checkpoint scaffold are now anchored. The durable
 polling maintainability refactor is complete: the checkpoint still stands as
 the completed ADR-0015 behavior packet, and the large production and verifier
 modules have been split into focused helper modules without schema,
-BDD/evidence, eval, or dashboard-card contract changes.
+BDD/evidence, eval, or dashboard-card contract changes. A narrow durable
+polling hardening follow-up now rejects persisted cancelled polling state
+during storage load/resume so unload-cancelled scheduler metadata cannot
+resurrect after restart.
 
 ## Product summary
 
@@ -655,6 +658,20 @@ standalone architecture review. A full `tests/` rerun hit the known unrelated
 codegen sandbox matplotlib flake once (`267 passed, 1 failed`), and the exact
 failed test passed on rerun.
 
+Home Assistant durable worker health polling cancelled-state hardening is
+complete. Persisted `IntegrationWorkerHealthPollingState` entries whose
+scheduler metadata has `cancelled: true` are now rejected during
+storage-helper load/resume, preventing unload-cancelled timer metadata from
+being re-merged after restart. The scaffold spec, BDD, eval outline, evidence,
+verifier anchor, and focused tests now prove cancelled persisted polling state
+is skipped before merge while valid persisted entries, token-missing
+diagnostics, and unsaved in-memory state remain intact. Verification on
+2026-06-12 reran the focused polling tests (`17 passed`), focused durable
+polling eval (`PASS home_assistant_durable_worker_health_polling_scaffold`),
+adjacent worker regressions (`98 passed`), module `py_compile`, and
+`git diff --check`. Standalone architecture review returned OK with no
+recommendations.
+
 ## Next recommended packet
 
 Choose the next worker/orchestration follow-up:
@@ -663,8 +680,8 @@ Choose the next worker/orchestration follow-up:
    the durable polling checkpoint.
 2. Candidate next packets are token rotation UI/persistence/automatic repair,
    automatic/durable provider retry semantics, durable retry queue/scheduler
-   behavior, or a narrow durable-polling production-hardening follow-up if the
-   human wants one after reading the durable polling checkpoint/refactor.
+   behavior, or another specifically requested durable-polling hardening
+   follow-up.
 3. Preserve the known codegen sandbox matplotlib subprocess flake as a
    historical caveat, but note that the rescue-audit full-suite rerun passed
    cleanly (`268 passed`).
@@ -675,12 +692,13 @@ Choose the next worker/orchestration follow-up:
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.
 - Worker token rotation UI/persistence/automatic repair semantics,
-  automatic/durable provider retry semantics, durable polling production
-  hardening, and long-running worker progress streaming semantics beyond the
-  current bounded provider retry-policy, provider health diagnostics, worker
-  progress, worker retry-policy, transport-classification, worker-failure
-  snapshot, worker-health, token rotation/repair, durable polling scaffolds,
-  and durable polling maintainability refactor.
+  automatic/durable provider retry semantics, additional durable polling
+  production hardening if requested, and long-running worker progress
+  streaming semantics beyond the current bounded provider retry-policy,
+  provider health diagnostics, worker progress, worker retry-policy,
+  transport-classification, worker-failure snapshot, worker-health, token
+  rotation/repair, durable polling scaffolds, durable polling maintainability
+  refactor, and cancelled-state hardening.
 - Production entity-registry, device-registry, area-registry, and label
   adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
