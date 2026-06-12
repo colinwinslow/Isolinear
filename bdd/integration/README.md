@@ -56,6 +56,11 @@ custom integration implementation slices.
   `ChartSpec` records before render-plan storage while preserving worker,
   rendering, mutation, memory, token, real artifact file, durable-storage,
   streaming, retry/backoff, and production orchestration boundaries.
+- **Home Assistant model-provider retry/backoff policy scaffold anchor** - the
+  integration records schema-valid, config-entry-scoped retry/backoff policy
+  metadata for retry-safe planner failures and returns only a sanitized failed
+  `IntegrationJobSnapshot` to the dashboard card while preserving no automatic
+  retry, durable storage, worker behavior, rendering, or mutation.
 - **Home Assistant job orchestration worker dispatch/rendering scaffold
   anchor** - the integration owns a config-entry-scoped worker dispatch
   boundary behind `job/snapshot` that validates render requests, ADR-0012
@@ -116,6 +121,11 @@ custom integration implementation slices.
   invalid-chart-spec rejection, idempotent reuse, unknown-job and cross-entry
   rejection, per-config-entry isolation, schema-valid provider/render plans,
   and bounded side-effect proof.
+- `evals/home_assistant_model_provider_retry_backoff_policy_scaffold.py` -
+  deterministic model-provider retry/backoff policy storage for retry-safe
+  planner failures, malformed/secret failure rejection, unknown-job and
+  cross-entry rejection, config-entry isolation, schema-valid internal policy
+  metadata, sanitized failed snapshots, and bounded side-effect proof.
 - `evals/home_assistant_job_orchestration_worker_dispatch_rendering_scaffold.py` -
   deterministic worker dispatch creation for scaffold-ready jobs, redacted
   worker transport metadata, worker failure handling, idempotent reuse,

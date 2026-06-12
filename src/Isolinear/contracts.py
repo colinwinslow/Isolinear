@@ -17,6 +17,7 @@ SCHEMA_NAMES = {
     "integration-artifact-metadata": "integration-artifact-metadata.schema.json",
     "integration-job-snapshot": "integration-job-snapshot.schema.json",
     "integration-model-provider-plan": "integration-model-provider-plan.schema.json",
+    "integration-model-provider-retry-policy": "integration-model-provider-retry-policy.schema.json",
     "integration-render-plan": "integration-render-plan.schema.json",
     "integration-worker-health": "integration-worker-health.schema.json",
     "integration-worker-health-polling-state": "integration-worker-health-polling-state.schema.json",

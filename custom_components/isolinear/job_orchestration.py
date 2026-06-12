@@ -51,6 +51,12 @@ RENDER_PLAN_SCHEMA_PATH = (
 MODEL_PROVIDER_PLAN_SCHEMA_PATH = (
     Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-model-provider-plan.schema.json"
 )
+MODEL_PROVIDER_RETRY_POLICY_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "schemas"
+    / "integration-model-provider-retry-policy.schema.json"
+)
 WORKER_DISPATCH_SCHEMA_PATH = (
     Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-worker-dispatch.schema.json"
 )
@@ -79,6 +85,11 @@ FORBIDDEN_WORKER_PROGRESS_TEXT = re.compile(
     r"\bBearer\s+\S+|access_token|home_assistant_token|long_lived_access_token|worker_token",
     re.IGNORECASE,
 )
+FORBIDDEN_MODEL_PROVIDER_FAILURE_TEXT = re.compile(
+    r"\bBearer\s+\S+|access_token|home_assistant_token|long_lived_access_token|"
+    r"worker_token|model_provider_token|ollama_api_key",
+    re.IGNORECASE,
+)
 ARTIFACT_SOURCE_PROGRESS_STAGES = {
     "job_orchestration_scaffold_ready",
     "job_orchestration_clarification_continuation_ready",
@@ -100,6 +111,7 @@ NO_JOB_ORCHESTRATION_CALLS = {
     "worker_progress_streaming_called": False,
     "automatic_progress_task_called": False,
     "job_orchestration_called": False,
+    "model_provider_retry_policy_bookkeeping_written": False,
 }
 
 MAX_WORKER_PROGRESS_EVENTS = 5
@@ -151,6 +163,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         store.setdefault("model_provider_plan_order", [])
         store.setdefault("latest_model_provider_plan", None)
         store.setdefault("model_provider_plan_by_job_id", {})
+        store.setdefault("next_model_provider_retry_policy_number", 1)
+        store.setdefault("model_provider_retry_policies", {})
+        store.setdefault("model_provider_retry_policy_order", [])
+        store.setdefault("latest_model_provider_retry_policy", None)
+        store.setdefault("model_provider_retry_policy_ids_by_job_id", {})
         store.setdefault("next_worker_dispatch_number", 1)
         store.setdefault("worker_dispatches", {})
         store.setdefault("worker_dispatch_order", [])
@@ -198,6 +215,11 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         "model_provider_plan_order": [],
         "latest_model_provider_plan": None,
         "model_provider_plan_by_job_id": {},
+        "next_model_provider_retry_policy_number": 1,
+        "model_provider_retry_policies": {},
+        "model_provider_retry_policy_order": [],
+        "latest_model_provider_retry_policy": None,
+        "model_provider_retry_policy_ids_by_job_id": {},
         "next_worker_dispatch_number": 1,
         "worker_dispatches": {},
         "worker_dispatch_order": [],
@@ -901,6 +923,33 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
         source_snapshot=latest_snapshot,
     )
     if not planning_result["accepted"]:
+        model_provider_failure_snapshot = _append_model_provider_failure_snapshot_from_planning_result(
+            job,
+            planning_result,
+        )
+        if model_provider_failure_snapshot is not None:
+            return _accepted_artifact_snapshot(
+                "job_orchestration_model_provider_failure_snapshot_recorded",
+                command,
+                model_provider_failure_snapshot,
+                artifact=None,
+                render_plan=None,
+                model_provider_plan=None,
+                worker_dispatch=None,
+                artifact_metadata_written=False,
+                render_plan_written=False,
+                model_provider_plan_written=False,
+                worker_dispatch_written=False,
+                model_provider_called=planning_result.get("model_provider_called", False),
+                worker_called=False,
+                chart_rendering_called=False,
+                job_state_written=True,
+                job_orchestration_written=True,
+                model_provider_retry_policy=planning_result.get("model_provider_retry_policy"),
+                model_provider_retry_policy_written=(
+                    planning_result.get("model_provider_retry_policy") is not None
+                ),
+            )
         worker_failure_snapshot = _append_worker_failure_snapshot_from_planning_result(
             job,
             planning_result,
@@ -1024,6 +1073,7 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
     latest_artifact = store.get("latest_artifact")
     latest_render_plan = store.get("latest_render_plan")
     latest_model_provider_plan = store.get("latest_model_provider_plan")
+    latest_model_provider_retry_policy = store.get("latest_model_provider_retry_policy")
     latest_worker_dispatch = store.get("latest_worker_dispatch")
     latest_worker_progress_event = store.get("latest_worker_progress_event")
     latest_worker_retry_policy = store.get("latest_worker_retry_policy")
@@ -1077,6 +1127,23 @@ def summarize_job_orchestration_store(store: dict[str, Any]) -> dict[str, Any]:
         "latest_model_provider_plan_source_snapshot_id": (
             latest_model_provider_plan.get("source_snapshot_id")
             if isinstance(latest_model_provider_plan, dict)
+            else None
+        ),
+        "model_provider_retry_policy_count": len(store.get("model_provider_retry_policy_order", [])),
+        "model_provider_retry_policy_ids": list(store.get("model_provider_retry_policy_order", [])),
+        "latest_model_provider_retry_policy_id": (
+            latest_model_provider_retry_policy.get("policy_id")
+            if isinstance(latest_model_provider_retry_policy, dict)
+            else None
+        ),
+        "latest_model_provider_retry_policy_job_id": (
+            latest_model_provider_retry_policy.get("job_id")
+            if isinstance(latest_model_provider_retry_policy, dict)
+            else None
+        ),
+        "latest_model_provider_retry_policy_delay_seconds": (
+            latest_model_provider_retry_policy.get("backoff", {}).get("delay_seconds")
+            if isinstance(latest_model_provider_retry_policy, dict)
             else None
         ),
         "worker_dispatch_count": len(store.get("worker_dispatch_order", [])),
@@ -1165,6 +1232,7 @@ def job_orchestration_side_effects(
     artifact_metadata_bookkeeping_written: bool = False,
     render_plan_bookkeeping_written: bool = False,
     model_provider_plan_bookkeeping_written: bool = False,
+    model_provider_retry_policy_bookkeeping_written: bool = False,
     worker_dispatch_bookkeeping_written: bool = False,
     worker_progress_bookkeeping_written: bool = False,
     worker_progress_streaming_called: bool = False,
@@ -1190,6 +1258,7 @@ def job_orchestration_side_effects(
         "artifact_metadata_bookkeeping_written": artifact_metadata_bookkeeping_written,
         "render_plan_bookkeeping_written": render_plan_bookkeeping_written,
         "model_provider_plan_bookkeeping_written": model_provider_plan_bookkeeping_written,
+        "model_provider_retry_policy_bookkeeping_written": model_provider_retry_policy_bookkeeping_written,
         "worker_dispatch_bookkeeping_written": worker_dispatch_bookkeeping_written,
         "worker_progress_bookkeeping_written": worker_progress_bookkeeping_written,
         "worker_progress_streaming_called": worker_progress_streaming_called,
@@ -1350,6 +1419,64 @@ def _append_worker_failure_snapshot_from_planning_result(
         )
 
     return None
+
+
+def _append_model_provider_failure_snapshot_from_planning_result(
+    job: dict[str, Any],
+    planning_result: dict[str, Any],
+) -> dict[str, Any] | None:
+    retry_policy = planning_result.get("model_provider_retry_policy")
+    if not isinstance(retry_policy, dict):
+        return None
+
+    return _append_model_provider_failure_snapshot(
+        job,
+        code=retry_policy.get("failure", {}).get("code", "model_provider_planning_failed"),
+        message=retry_policy.get("failure", {}).get(
+            "message",
+            "Model provider planning failed before a chart spec was accepted.",
+        ),
+        retry_allowed=retry_policy.get("decision", {}).get("manual_retry_allowed") is True,
+    )
+
+
+def _append_model_provider_failure_snapshot(
+    job: dict[str, Any],
+    *,
+    code: str,
+    message: str,
+    retry_allowed: bool,
+) -> dict[str, Any]:
+    safe_code = _safe_model_provider_failure_code(code)
+    safe_message = _safe_model_provider_failure_message(message)
+    return append_validated_job_snapshot(
+        job,
+        status="failed",
+        state_label="Failed",
+        message=safe_message,
+        progress_stage="model_provider_failure_snapshot_ready",
+        progress_message=safe_message,
+        validation_status="fail",
+        validation_summary="A validated model-provider failure was converted to a card-facing failed snapshot.",
+        validation_checks=[
+            {"name": "integration_job_state_scaffold", "status": "pass"},
+            {"name": "model_provider", "status": "fail"},
+            {"name": "model_provider_failure_metadata", "status": "pass"},
+            {"name": "manual_retry_affordance", "status": "pass" if retry_allowed else "not_allowed"},
+            {"name": "automatic_retry", "status": "not_scheduled"},
+        ],
+        failure={
+            "stage": "model_provider_planning",
+            "code": safe_code,
+            "message": safe_message,
+        },
+        retry_allowed=retry_allowed,
+        warnings=[
+            "model_provider_retry_backoff_policy_scaffold",
+            "model_provider_metadata_not_exposed_to_card",
+            "automatic_retry_not_scheduled",
+        ],
+    )
 
 
 def _append_worker_failure_snapshot(
@@ -1550,9 +1677,13 @@ def _record_artifact_and_render_plan(
             "code": model_provider_result["code"],
             "validation": model_provider_result.get("validation"),
             "model_provider": model_provider_result.get("model_provider"),
+            "model_provider_retry_policy": model_provider_result.get("model_provider_retry_policy"),
             "model_provider_called": model_provider_result.get("model_provider_called", False),
             "orchestration": job_orchestration_side_effects(
                 model_provider_called=model_provider_result.get("model_provider_called", False),
+                model_provider_retry_policy_bookkeeping_written=(
+                    model_provider_result.get("model_provider_retry_policy_written", False)
+                ),
             ),
         }
 
@@ -1664,11 +1795,36 @@ def _record_model_provider_plan(
         "response_code": provider_response.get("code") if isinstance(provider_response, dict) else None,
     }
     if not isinstance(provider_response, dict) or not provider_response.get("accepted"):
+        if isinstance(provider_response, dict):
+            retry_policy_result = _record_model_provider_retry_policy(
+                store,
+                job=job,
+                source_snapshot=source_snapshot,
+                provider=planner_client_metadata(planner),
+                request=request,
+                provider_response=provider_response,
+            )
+            if retry_policy_result["accepted"]:
+                policy = retry_policy_result["model_provider_retry_policy"]
+                return {
+                    "accepted": False,
+                    "code": policy["failure"]["code"],
+                    "model_provider_called": True,
+                    "model_provider": provider_summary,
+                    "model_provider_retry_policy": policy,
+                    "model_provider_retry_policy_written": True,
+                    "validation": retry_policy_result.get("validation"),
+                }
+            return {
+                "accepted": False,
+                "code": retry_policy_result["code"],
+                "validation": retry_policy_result.get("validation"),
+                "model_provider_called": True,
+                "model_provider": provider_summary,
+            }
         return {
             "accepted": False,
-            "code": provider_response.get("code", "model_provider_planning_failed")
-            if isinstance(provider_response, dict)
-            else "model_provider_planning_failed",
+            "code": "model_provider_planning_failed",
             "model_provider_called": True,
             "model_provider": provider_summary,
         }
@@ -2405,6 +2561,124 @@ def _build_model_provider_plan(
     }
 
 
+def _record_model_provider_retry_policy(
+    store: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+    provider: dict[str, Any],
+    request: dict[str, Any],
+    provider_response: dict[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(provider_response.get("retry_safe"), bool):
+        return {
+            "accepted": False,
+            "code": "invalid_model_provider_failure",
+            "validation": {
+                "accepted": False,
+                "code": "invalid_model_provider_failure",
+                "error": "Provider failure retry_safe must be boolean.",
+            },
+        }
+    if _model_provider_failure_contains_forbidden_material(provider_response):
+        return {
+            "accepted": False,
+            "code": "model_provider_failure_forbidden_material",
+            "validation": {
+                "accepted": False,
+                "code": "model_provider_failure_forbidden_material",
+                "error": "Provider failure text contained forbidden material.",
+            },
+        }
+
+    policy = _build_model_provider_retry_policy(
+        store,
+        job=job,
+        source_snapshot=source_snapshot,
+        provider=provider,
+        request=request,
+        provider_response=provider_response,
+    )
+    validation = validate_model_provider_retry_policy_contract(policy)
+    if not validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_model_provider_retry_policy",
+            "validation": validation,
+        }
+
+    _store_validated_model_provider_retry_policy(store, policy)
+    return {
+        "accepted": True,
+        "code": "model_provider_retry_policy_recorded",
+        "model_provider_retry_policy": deepcopy(policy),
+        "validation": validation,
+    }
+
+
+def _build_model_provider_retry_policy(
+    store: dict[str, Any],
+    *,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+    provider: dict[str, Any],
+    request: dict[str, Any],
+    provider_response: dict[str, Any],
+) -> dict[str, Any]:
+    policy_number = store["next_model_provider_retry_policy_number"]
+    attempt_number = _model_provider_retry_policy_attempt_number(store, job["job_id"])
+    eligible = provider_response.get("retry_safe") is True
+    delay_seconds = min(60, 5 * (2 ** (attempt_number - 1))) if eligible else 0
+    return {
+        "policy_id": f"{store['entry_id']}-model-provider-retry-policy-{policy_number:03d}",
+        "type": "isolinear_model_provider_retry_policy",
+        "config_entry_id": store["entry_id"],
+        "job_id": job["job_id"],
+        "source_snapshot_id": source_snapshot["snapshot_id"],
+        "provider": {
+            "type": provider.get("type") or "ollama_compatible",
+            "role": provider.get("role") or "planner",
+            "endpoint_url": provider.get("endpoint_url") or "",
+            "model": provider.get("model") or provider.get("planner_model") or "",
+        },
+        "request": deepcopy(request),
+        "failure": {
+            "stage": "model_provider_planning",
+            "code": _safe_model_provider_failure_code(provider_response.get("code")),
+            "message": _safe_model_provider_failure_message(provider_response.get("message")),
+            "retry_safe": eligible,
+        },
+        "decision": {
+            "eligible": eligible,
+            "reason": "model_provider_failure_retry_safe" if eligible else "model_provider_failure_not_retry_safe",
+            "manual_retry_allowed": eligible,
+            "automatic_retry_scheduled": False,
+        },
+        "backoff": {
+            "strategy": "bounded_exponential_scaffold",
+            "attempt_number": attempt_number,
+            "delay_seconds": delay_seconds,
+            "max_delay_seconds": 60,
+            "jitter_applied": False,
+        },
+        "validation": {
+            "status": "pass",
+            "summary": "Model-provider retry/backoff policy validates before storage.",
+            "checks": [
+                {"name": "model_provider_failure_observed", "status": "pass"},
+                {"name": "model_provider_retry_policy_schema", "status": "pass"},
+                {"name": "model_provider_failure_text_sanitized", "status": "pass"},
+                {"name": "automatic_retry_not_scheduled", "status": "pass"},
+            ],
+        },
+        "warnings": [
+            "model_provider_retry_backoff_policy_scaffold",
+            "automatic_retry_not_scheduled",
+            "bounded_in_memory_retry_policy",
+        ],
+    }
+
+
 def _build_worker_render_request(
     store: dict[str, Any],
     *,
@@ -2515,6 +2789,21 @@ def _store_validated_model_provider_plan(store: dict[str, Any], provider_plan: d
     store["model_provider_plan_order"].append(provider_plan_id)
     store["model_provider_plan_by_job_id"][provider_plan["job_id"]] = provider_plan_id
     store["latest_model_provider_plan"] = deepcopy(provider_plan)
+
+
+def _model_provider_retry_policy_attempt_number(store: dict[str, Any], job_id: str) -> int:
+    return len(store.get("model_provider_retry_policy_ids_by_job_id", {}).get(job_id, [])) + 1
+
+
+def _store_validated_model_provider_retry_policy(store: dict[str, Any], policy: dict[str, Any]) -> None:
+    policy_id = policy["policy_id"]
+    store["next_model_provider_retry_policy_number"] += 1
+    store["model_provider_retry_policies"][policy_id] = deepcopy(policy)
+    store["model_provider_retry_policy_order"].append(policy_id)
+    store.setdefault("model_provider_retry_policy_ids_by_job_id", {}).setdefault(policy["job_id"], []).append(
+        policy_id
+    )
+    store["latest_model_provider_retry_policy"] = deepcopy(policy)
 
 
 def _store_validated_worker_dispatch(store: dict[str, Any], worker_dispatch: dict[str, Any]) -> None:
@@ -2922,6 +3211,25 @@ def validate_worker_retry_policy_contract(worker_retry_policy: Any) -> dict[str,
     }
 
 
+def validate_model_provider_retry_policy_contract(model_provider_retry_policy: Any) -> dict[str, Any]:
+    """Validate IntegrationModelProviderRetryPolicy against the repo JSON Schema."""
+    try:
+        schema = json.loads(MODEL_PROVIDER_RETRY_POLICY_SCHEMA_PATH.read_text(encoding="utf-8"))
+        _validate_json_schema(model_provider_retry_policy, schema, root_schema=schema, path="$")
+    except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
+        return {
+            "accepted": False,
+            "code": "invalid_integration_model_provider_retry_policy",
+            "error": str(exc),
+        }
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "schema": str(MODEL_PROVIDER_RETRY_POLICY_SCHEMA_PATH),
+    }
+
+
 def validate_worker_transport_failure_classification_contract(classification: Any) -> dict[str, Any]:
     """Validate IntegrationWorkerTransportFailureClassification against the repo JSON Schema."""
     try:
@@ -3257,6 +3565,8 @@ def _accepted_artifact_snapshot(
     job_state_written: bool,
     job_orchestration_written: bool,
     worker_progress_events: list[dict[str, Any]] | None = None,
+    model_provider_retry_policy: dict[str, Any] | None = None,
+    model_provider_retry_policy_written: bool = False,
     worker_progress_written: bool = False,
     worker_progress_streaming_called: bool = False,
     worker_retry_policy_written: bool = False,
@@ -3277,6 +3587,7 @@ def _accepted_artifact_snapshot(
             artifact_metadata_bookkeeping_written=artifact_metadata_written,
             render_plan_bookkeeping_written=render_plan_written,
             model_provider_plan_bookkeeping_written=model_provider_plan_written,
+            model_provider_retry_policy_bookkeeping_written=model_provider_retry_policy_written,
             worker_dispatch_bookkeeping_written=worker_dispatch_written,
             worker_progress_bookkeeping_written=worker_progress_written,
             worker_progress_streaming_called=worker_progress_streaming_called,
@@ -3294,6 +3605,8 @@ def _accepted_artifact_snapshot(
         result["render_plan"] = deepcopy(render_plan)
     if model_provider_plan is not None:
         result["model_provider_plan"] = deepcopy(model_provider_plan)
+    if model_provider_retry_policy is not None:
+        result["model_provider_retry_policy"] = deepcopy(model_provider_retry_policy)
     if worker_dispatch is not None:
         result["worker_dispatch"] = deepcopy(worker_dispatch)
     if worker_progress_events:
@@ -3734,6 +4047,37 @@ def _worker_failure_code(render_result: Any) -> str:
         if isinstance(error, dict) and isinstance(error.get("code"), str) and error["code"].strip():
             return _safe_worker_failure_code(error["code"])
     return "worker_render_failed"
+
+
+def _model_provider_failure_contains_forbidden_material(provider_response: dict[str, Any]) -> bool:
+    return any(
+        FORBIDDEN_MODEL_PROVIDER_FAILURE_TEXT.search(value)
+        for value in (
+            provider_response.get("code"),
+            provider_response.get("message"),
+        )
+        if isinstance(value, str)
+    )
+
+
+def _safe_model_provider_failure_code(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return "model_provider_planning_failed"
+    stripped = value.strip()
+    if FORBIDDEN_MODEL_PROVIDER_FAILURE_TEXT.search(stripped):
+        return "model_provider_planning_failed"
+    normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "_", stripped).strip("_")
+    return normalized[:80] if normalized else "model_provider_planning_failed"
+
+
+def _safe_model_provider_failure_message(value: Any) -> str:
+    fallback = "Model provider planning failed before a chart spec was accepted."
+    if not isinstance(value, str) or not value.strip():
+        return fallback
+    stripped = re.sub(r"\s+", " ", value.strip())
+    if FORBIDDEN_MODEL_PROVIDER_FAILURE_TEXT.search(stripped):
+        return fallback
+    return stripped[:240] if stripped else fallback
 
 
 def _safe_worker_failure_code(value: Any) -> str:

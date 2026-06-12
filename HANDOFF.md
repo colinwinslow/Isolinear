@@ -8,16 +8,17 @@ WebSocket command registration surface, job state scaffold, approved entity
 catalog, approved history retrieval, and job orchestration scaffold are
 anchored, including clarification-answer, retry continuation,
 subscription/progress, artifact storage, and render planning scaffold paths.
-The model-provider planning scaffold, worker dispatch/rendering scaffold,
-worker token provisioning/readiness scaffold, worker progress streaming
-scaffold, worker retry/backoff policy scaffold, worker transport failure
-retry-classification scaffold, worker failure snapshot/manual retry
-integration scaffold, worker health/readiness endpoint scaffold, worker token
-rotation/repair scaffold, and durable worker health polling checkpoint scaffold
-are now anchored. The durable polling maintainability refactor is complete:
-the checkpoint still stands as the completed ADR-0015 behavior packet, and the
-large production and verifier modules have been split into focused helper
-modules without schema, BDD/evidence, eval, or dashboard-card contract changes.
+The model-provider planning scaffold, model-provider retry/backoff policy
+scaffold, worker dispatch/rendering scaffold, worker token
+provisioning/readiness scaffold, worker progress streaming scaffold, worker
+retry/backoff policy scaffold, worker transport failure retry-classification
+scaffold, worker failure snapshot/manual retry integration scaffold, worker
+health/readiness endpoint scaffold, worker token rotation/repair scaffold, and
+durable worker health polling checkpoint scaffold are now anchored. The durable
+polling maintainability refactor is complete: the checkpoint still stands as
+the completed ADR-0015 behavior packet, and the large production and verifier
+modules have been split into focused helper modules without schema,
+BDD/evidence, eval, or dashboard-card contract changes.
 
 ## Product summary
 
@@ -418,6 +419,23 @@ spec/BDD/eval/evidence and
 `evals/home_assistant_job_orchestration_model_provider_planning_scaffold.py`
 prove the anchor.
 
+Home Assistant model-provider retry/backoff policy scaffold anchor is
+complete. Enabled `isolinear/v1/job/snapshot` callbacks now record one
+deterministic config-entry-scoped `IntegrationModelProviderRetryPolicy`
+envelope when a configured planner returns a retry-safe provider failure. The
+policy stores provider metadata, deterministic planner request metadata,
+sanitized failure code/message text, manual-retry/backoff decision metadata,
+and `automatic_retry_scheduled: false`, validates against JSON Schema before
+storage, and returns only a schema-valid failed `IntegrationJobSnapshot` to the
+dashboard card. Malformed retry metadata, secret-like provider failure text,
+unknown jobs, and cross-config-entry jobs fail before provider retry-policy
+storage. The packet remains read-only and bounded: it does not add provider
+health polling, automatic retry, durable retry queues, worker behavior, chart
+rendering, token persistence, dashboard UI, or Home Assistant mutation. The
+paired spec/BDD/evidence and
+`evals/home_assistant_model_provider_retry_backoff_policy_scaffold.py` prove
+the anchor.
+
 Home Assistant job orchestration worker dispatch/rendering scaffold anchor is
 complete. Enabled `isolinear/v1/job/snapshot` callbacks now use a
 config-entry-scoped ADR-0012 worker renderer client when an integration-owned
@@ -628,9 +646,10 @@ Choose the next worker/orchestration follow-up:
 1. Keep remaining worker work split into small packets rather than extending
    the durable polling checkpoint.
 2. Candidate next packets are token rotation UI/persistence/automatic repair,
-   provider health/retry policy, durable retry queue/scheduler behavior, or a
-   narrow durable-polling production-hardening follow-up if the human wants
-   one after reading the durable polling checkpoint/refactor.
+   provider health diagnostics or automatic/durable provider retry semantics,
+   durable retry queue/scheduler behavior, or a narrow durable-polling
+   production-hardening follow-up if the human wants one after reading the
+   durable polling checkpoint/refactor.
 3. Preserve the known codegen sandbox matplotlib subprocess flake as a
    historical caveat, but note that the rescue-audit full-suite rerun passed
    cleanly (`268 passed`).
@@ -640,19 +659,21 @@ Choose the next worker/orchestration follow-up:
 - Semantic-memory storage-helper implementation, migrations, and repair UI details beyond the envelope contract.
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.
-- Worker token rotation UI/persistence/automatic repair semantics, durable
+- Worker token rotation UI/persistence/automatic repair semantics, provider
+  health diagnostics or automatic/durable provider retry semantics, durable
   polling production hardening, and long-running worker progress streaming
-  semantics beyond the current bounded worker progress, retry-policy,
-  transport-classification, worker-failure snapshot, worker-health, token
-  rotation/repair, durable polling scaffolds, and durable polling
-  maintainability refactor.
+  semantics beyond the current bounded provider retry-policy, worker progress,
+  worker retry-policy, transport-classification, worker-failure snapshot,
+  worker-health, token rotation/repair, durable polling scaffolds, and durable
+  polling maintainability refactor.
 - Production entity-registry, device-registry, area-registry, and label
   adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
 - Production worker token rotation persistence/automatic repair behavior,
-  provider health/retry policy, durable retry queue/scheduler behavior, and
-  orchestration retry/backoff policy beyond scaffold snapshots.
+  provider health diagnostics or automatic/durable provider retry behavior,
+  durable retry queue/scheduler behavior, and orchestration retry/backoff policy
+  beyond scaffold snapshots.
 
 ## Session log
 
