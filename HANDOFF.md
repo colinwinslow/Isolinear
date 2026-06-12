@@ -9,12 +9,13 @@ catalog, approved history retrieval, and job orchestration scaffold are
 anchored, including clarification-answer, retry continuation,
 subscription/progress, artifact storage, and render planning scaffold paths.
 The model-provider planning scaffold, model-provider retry/backoff policy
-scaffold, worker dispatch/rendering scaffold, worker token
-provisioning/readiness scaffold, worker progress streaming scaffold, worker
-retry/backoff policy scaffold, worker transport failure retry-classification
-scaffold, worker failure snapshot/manual retry integration scaffold, worker
-health/readiness endpoint scaffold, worker token rotation/repair scaffold, and
-durable worker health polling checkpoint scaffold are now anchored. The durable
+scaffold, model-provider health diagnostics scaffold, worker
+dispatch/rendering scaffold, worker token provisioning/readiness scaffold,
+worker progress streaming scaffold, worker retry/backoff policy scaffold,
+worker transport failure retry-classification scaffold, worker failure
+snapshot/manual retry integration scaffold, worker health/readiness endpoint
+scaffold, worker token rotation/repair scaffold, and durable worker health
+polling checkpoint scaffold are now anchored. The durable
 polling maintainability refactor is complete: the checkpoint still stands as
 the completed ADR-0015 behavior packet, and the large production and verifier
 modules have been split into focused helper modules without schema,
@@ -436,6 +437,21 @@ paired spec/BDD/evidence and
 `evals/home_assistant_model_provider_retry_backoff_policy_scaffold.py` prove
 the anchor.
 
+Home Assistant model-provider health diagnostics scaffold anchor is complete.
+Config-entry setup now records explicit provider-health probe availability
+without calling the provider. The provider health boundary validates a
+schema-valid Ollama-compatible `ModelProviderHealthRequest` for `GET /api/tags`,
+calls only the same-entry configured planner client, stores one
+schema-valid `IntegrationModelProviderHealth` envelope for `ready`,
+`not_ready`, and `unavailable` results, and rejects malformed or
+secret-bearing accepted health responses before storage. Unknown entries and
+unconfigured entries fail before provider calls or health metadata storage.
+Dashboard-card payloads remain unchanged and do not expose provider endpoint,
+request details, provider response internals, or internal health metadata. The
+paired spec/BDD/evidence and
+`evals/home_assistant_model_provider_health_diagnostics_scaffold.py` prove the
+anchor.
+
 Home Assistant job orchestration worker dispatch/rendering scaffold anchor is
 complete. Enabled `isolinear/v1/job/snapshot` callbacks now use a
 config-entry-scoped ADR-0012 worker renderer client when an integration-owned
@@ -646,10 +662,9 @@ Choose the next worker/orchestration follow-up:
 1. Keep remaining worker work split into small packets rather than extending
    the durable polling checkpoint.
 2. Candidate next packets are token rotation UI/persistence/automatic repair,
-   provider health diagnostics or automatic/durable provider retry semantics,
-   durable retry queue/scheduler behavior, or a narrow durable-polling
-   production-hardening follow-up if the human wants one after reading the
-   durable polling checkpoint/refactor.
+   automatic/durable provider retry semantics, durable retry queue/scheduler
+   behavior, or a narrow durable-polling production-hardening follow-up if the
+   human wants one after reading the durable polling checkpoint/refactor.
 3. Preserve the known codegen sandbox matplotlib subprocess flake as a
    historical caveat, but note that the rescue-audit full-suite rerun passed
    cleanly (`268 passed`).
@@ -659,21 +674,20 @@ Choose the next worker/orchestration follow-up:
 - Semantic-memory storage-helper implementation, migrations, and repair UI details beyond the envelope contract.
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.
-- Worker token rotation UI/persistence/automatic repair semantics, provider
-  health diagnostics or automatic/durable provider retry semantics, durable
-  polling production hardening, and long-running worker progress streaming
-  semantics beyond the current bounded provider retry-policy, worker progress,
-  worker retry-policy, transport-classification, worker-failure snapshot,
-  worker-health, token rotation/repair, durable polling scaffolds, and durable
-  polling maintainability refactor.
+- Worker token rotation UI/persistence/automatic repair semantics,
+  automatic/durable provider retry semantics, durable polling production
+  hardening, and long-running worker progress streaming semantics beyond the
+  current bounded provider retry-policy, provider health diagnostics, worker
+  progress, worker retry-policy, transport-classification, worker-failure
+  snapshot, worker-health, token rotation/repair, durable polling scaffolds,
+  and durable polling maintainability refactor.
 - Production entity-registry, device-registry, area-registry, and label
   adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
 - Production worker token rotation persistence/automatic repair behavior,
-  provider health diagnostics or automatic/durable provider retry behavior,
-  durable retry queue/scheduler behavior, and orchestration retry/backoff policy
-  beyond scaffold snapshots.
+  automatic/durable provider retry behavior, durable retry queue/scheduler
+  behavior, and orchestration retry/backoff policy beyond scaffold snapshots.
 
 ## Session log
 

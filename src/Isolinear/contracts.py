@@ -16,6 +16,7 @@ SCHEMA_NAMES = {
     "history-series": "history-series.schema.json",
     "integration-artifact-metadata": "integration-artifact-metadata.schema.json",
     "integration-job-snapshot": "integration-job-snapshot.schema.json",
+    "integration-model-provider-health": "integration-model-provider-health.schema.json",
     "integration-model-provider-plan": "integration-model-provider-plan.schema.json",
     "integration-model-provider-retry-policy": "integration-model-provider-retry-policy.schema.json",
     "integration-render-plan": "integration-render-plan.schema.json",
@@ -29,6 +30,7 @@ SCHEMA_NAMES = {
         "integration-worker-transport-failure-classification.schema.json"
     ),
     "integration-ws-command": "integration-ws-command.schema.json",
+    "model-provider-health-request": "model-provider-health-request.schema.json",
     "planner-result": "planner-result.schema.json",
     "render-request": "render-request.schema.json",
     "render-result": "render-result.schema.json",

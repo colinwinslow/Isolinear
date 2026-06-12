@@ -11,6 +11,7 @@ from .history_retrieval import setup_history_retrieval
 from .job_orchestration import setup_job_orchestration
 from .job_state import ensure_job_state_store
 from .model_provider import setup_model_provider_planner
+from .model_provider_health import setup_model_provider_health
 from .worker_health import setup_worker_health
 from .worker_health_polling import async_setup_worker_health_polling, unload_worker_health_polling
 from .worker_readiness import setup_worker_readiness
@@ -35,6 +36,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
     entry_data["history_retrieval_setup"] = setup_history_retrieval(hass, entry)
     entry_data["job_state"] = ensure_job_state_store(hass, entry_id)
     entry_data["model_provider_setup"] = setup_model_provider_planner(hass, entry)
+    entry_data["model_provider_health_setup"] = setup_model_provider_health(hass, entry)
     entry_data["worker_readiness_setup"] = setup_worker_readiness(hass, entry)
     entry_data["worker_renderer_setup"] = setup_worker_renderer(hass, entry)
     entry_data["worker_health_setup"] = setup_worker_health(hass, entry)

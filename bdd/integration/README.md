@@ -61,6 +61,11 @@ custom integration implementation slices.
   metadata for retry-safe planner failures and returns only a sanitized failed
   `IntegrationJobSnapshot` to the dashboard card while preserving no automatic
   retry, durable storage, worker behavior, rendering, or mutation.
+- **Home Assistant model-provider health diagnostics scaffold anchor** - the
+  integration explicitly probes a configured Ollama-compatible planner,
+  records schema-valid config-entry-scoped health metadata, and keeps provider
+  details internal while preserving no automatic polling, retry behavior,
+  durable storage, worker behavior, rendering, or mutation.
 - **Home Assistant job orchestration worker dispatch/rendering scaffold
   anchor** - the integration owns a config-entry-scoped worker dispatch
   boundary behind `job/snapshot` that validates render requests, ADR-0012
@@ -126,6 +131,12 @@ custom integration implementation slices.
   planner failures, malformed/secret failure rejection, unknown-job and
   cross-entry rejection, config-entry isolation, schema-valid internal policy
   metadata, sanitized failed snapshots, and bounded side-effect proof.
+- `evals/home_assistant_model_provider_health_diagnostics_scaffold.py` -
+  explicit model-provider health diagnostics for configured providers,
+  ready/not-ready/unavailable health metadata, malformed/secret response
+  rejection, unconfigured/unknown-entry rejection, config-entry isolation,
+  card-safety, schema-valid internal health metadata, and bounded side-effect
+  proof.
 - `evals/home_assistant_job_orchestration_worker_dispatch_rendering_scaffold.py` -
   deterministic worker dispatch creation for scaffold-ready jobs, redacted
   worker transport metadata, worker failure handling, idempotent reuse,

@@ -17,6 +17,7 @@ DATA_MODEL_PROVIDER_SETUP = "model_provider_setup"
 
 PLANNER_RESULT_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "planner-result.schema.json"
 DEFAULT_OLLAMA_TIMEOUT_SECONDS = 30
+MODEL_PROVIDER_HEALTH_PATH = "/api/tags"
 
 
 def setup_model_provider_planner(hass: Any, entry: Any) -> dict[str, Any]:
@@ -160,6 +161,54 @@ class OllamaCompatiblePlannerClient:
             "provider_response": _provider_response_summary(response_payload),
         }
 
+    def check_health(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Call the Ollama tags endpoint and return provider health metadata."""
+        http_request = urllib.request.Request(
+            _ollama_tags_url(self.endpoint_url),
+            headers={"Accept": request.get("headers", {}).get("accept", "application/json")},
+            method="GET",
+        )
+
+        try:
+            with urllib.request.urlopen(http_request, timeout=self.timeout_seconds) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            return _provider_failure("model_provider_health_http_error", str(exc), retry_safe=True)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            return _provider_failure("model_provider_health_connection_error", str(exc), retry_safe=True)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            return _provider_failure("model_provider_health_response_error", str(exc), retry_safe=False)
+
+        model_names = _ollama_model_names(response_payload)
+        model_ready = _planner_model_is_listed(self.planner_model, model_names)
+        status = "ready" if model_ready else "not_ready"
+        return {
+            "accepted": True,
+            "code": "model_provider_health_result_received",
+            "provider": self.provider_metadata(),
+            "health_result": {
+                "version": 1,
+                "status": status,
+                "code": f"model_provider_health_{status}",
+                "message": (
+                    "Configured planner model is available."
+                    if model_ready
+                    else "Configured planner model was not listed by the provider."
+                ),
+                "checks": [
+                    {"name": "ollama_tags_endpoint", "status": "pass"},
+                    {"name": "planner_model", "status": "pass" if model_ready else "not_ready"},
+                ],
+                "capabilities": {
+                    "planning": model_ready,
+                    "structured_output": model_ready,
+                },
+            },
+            "provider_response": {
+                "model_count": len(model_names),
+            },
+        }
+
     def _chat_payload(self, request: dict[str, Any], result_schema: dict[str, Any]) -> dict[str, Any]:
         prompt_payload = {
             "task": "Return one PlannerResult JSON object for an Isolinear chart plan.",
@@ -223,6 +272,12 @@ def _ollama_chat_url(endpoint_url: str) -> str:
     return f"{endpoint_url.rstrip('/')}/api/chat"
 
 
+def _ollama_tags_url(endpoint_url: str) -> str:
+    if endpoint_url.rstrip("/").endswith(MODEL_PROVIDER_HEALTH_PATH):
+        return endpoint_url.rstrip("/")
+    return f"{endpoint_url.rstrip('/')}{MODEL_PROVIDER_HEALTH_PATH}"
+
+
 def _provider_failure(code: str, message: str, *, retry_safe: bool) -> dict[str, Any]:
     return {
         "accepted": False,
@@ -241,3 +296,21 @@ def _provider_response_summary(response_payload: dict[str, Any]) -> dict[str, An
         "prompt_eval_count": response_payload.get("prompt_eval_count"),
         "eval_count": response_payload.get("eval_count"),
     }
+
+
+def _ollama_model_names(response_payload: Any) -> list[str]:
+    if not isinstance(response_payload, dict) or not isinstance(response_payload.get("models"), list):
+        return []
+    names: list[str] = []
+    for item in response_payload["models"]:
+        if not isinstance(item, dict):
+            continue
+        for key in ("name", "model"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                names.append(value.strip())
+    return names
+
+
+def _planner_model_is_listed(planner_model: str, model_names: list[str]) -> bool:
+    return any(name == planner_model or name.startswith(f"{planner_model}:") for name in model_names)
