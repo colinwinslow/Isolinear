@@ -40,4 +40,4 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0012 — `Worker transport and authentication`
 - 0013 — `Dashboard resource auto-registration`
 - 0014 — `Worker health/readiness endpoint`
-- 0015 — `Durable worker health polling` (draft)
+- 0015 — `Durable worker health polling`

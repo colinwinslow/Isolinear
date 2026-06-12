@@ -1,7 +1,7 @@
 ---
 id: 0015
 title: Durable worker health polling
-status: draft
+status: accepted
 date: 2026-06-10
 supersedes: []
 superseded-by: null

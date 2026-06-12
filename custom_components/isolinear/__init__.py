@@ -12,6 +12,7 @@ from .job_orchestration import setup_job_orchestration
 from .job_state import ensure_job_state_store
 from .model_provider import setup_model_provider_planner
 from .worker_health import setup_worker_health
+from .worker_health_polling import async_setup_worker_health_polling, unload_worker_health_polling
 from .worker_readiness import setup_worker_readiness
 from .worker_renderer import setup_worker_renderer
 from .websocket_api import async_register_websocket_api
@@ -40,11 +41,14 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
     entry_data["job_orchestration_setup"] = setup_job_orchestration(hass, entry)
     entry_data["dashboard_resource"] = await async_register_dashboard_resource(hass, entry)
     entry_data["websocket_api"] = await async_register_websocket_api(hass, entry=entry)
+    entry_data["worker_health_polling_setup"] = await async_setup_worker_health_polling(hass, entry)
     return True
 
 
 async def async_unload_entry(hass: Any, entry: Any) -> bool:
     """Unload an Isolinear config entry scaffold."""
     domain_data = hass.data.setdefault(DOMAIN, {})
-    domain_data.pop(getattr(entry, "entry_id", "scaffold-entry"), None)
+    entry_id = getattr(entry, "entry_id", "scaffold-entry")
+    unload_worker_health_polling(hass, entry_id)
+    domain_data.pop(entry_id, None)
     return True
