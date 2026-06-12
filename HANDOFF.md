@@ -14,12 +14,10 @@ scaffold, worker retry/backoff policy scaffold, worker transport failure
 retry-classification scaffold, worker failure snapshot/manual retry
 integration scaffold, worker health/readiness endpoint scaffold, worker token
 rotation/repair scaffold, and durable worker health polling checkpoint scaffold
-are now anchored. The checkpoint promoted ADR-0015 to accepted and added the
-durable polling spec, BDD/evidence, eval outline, polling-state schema,
-verifier anchor, focused tests, and production setup/unload polling wiring.
-The rescue closeout/audit is complete: the checkpoint was verified against the
-BDD and architecture invariants, and the broad timer/storage/race-handling
-scope stands as the completed durable polling checkpoint.
+are now anchored. The durable polling maintainability refactor is complete:
+the checkpoint still stands as the completed ADR-0015 behavior packet, and the
+large production and verifier modules have been split into focused helper
+modules without schema, BDD/evidence, eval, or dashboard-card contract changes.
 
 ## Product summary
 
@@ -605,17 +603,34 @@ full Python suite (`268 passed`), and checkpoint diff formatting
 (`git diff --check HEAD~1..HEAD` clean). BDD-evidence review and standalone
 architecture review both returned OK with no required follow-up.
 
+Home Assistant durable worker health polling maintainability refactor is
+complete. `custom_components/isolinear/worker_health_polling.py` remains the
+public orchestration facade, while constants, contract validation, storage
+helper behavior, and state/redaction construction now live in focused
+`worker_health_polling_*` helper modules. `src/Isolinear/worker_health_polling_anchor.py`
+remains the public verifier facade, while fixtures, scenario cases, and the
+aggregate verifier live in focused anchor helper modules. The refactor is
+behavior-preserving: ADR-0015 polling semantics, schemas, BDD/evidence, eval
+output, redaction, dashboard-card safety, and setup/unload wiring remain
+unchanged; the existing BDD evidence note was refreshed with the refactor
+verification posture. Verification on 2026-06-12 reran focused polling tests
+(`17 passed`), the focused durable polling eval
+(`PASS home_assistant_durable_worker_health_polling_scaffold`), adjacent
+worker regressions (`81 passed`), module `py_compile`, `git diff --check`, and
+standalone architecture review. A full `tests/` rerun hit the known unrelated
+codegen sandbox matplotlib flake once (`267 passed, 1 failed`), and the exact
+failed test passed on rerun.
+
 ## Next recommended packet
 
 Choose the next worker/orchestration follow-up:
 
 1. Keep remaining worker work split into small packets rather than extending
    the durable polling checkpoint.
-2. Candidate next packets are the durable polling maintainability refactor,
-   token rotation UI/persistence/automatic repair, provider health/retry
-   policy, durable retry queue/scheduler behavior, or a narrow
-   production-hardening follow-up if the human wants one after reading the
-   durable polling checkpoint.
+2. Candidate next packets are token rotation UI/persistence/automatic repair,
+   provider health/retry policy, durable retry queue/scheduler behavior, or a
+   narrow durable-polling production-hardening follow-up if the human wants
+   one after reading the durable polling checkpoint/refactor.
 3. Preserve the known codegen sandbox matplotlib subprocess flake as a
    historical caveat, but note that the rescue-audit full-suite rerun passed
    cleanly (`268 passed`).
@@ -626,11 +641,11 @@ Choose the next worker/orchestration follow-up:
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.
 - Worker token rotation UI/persistence/automatic repair semantics, durable
-  worker health polling maintainability refactor for the large production and
-  verifier modules, durable polling production hardening, and long-running
-  worker progress streaming semantics beyond the current bounded worker
-  progress, retry-policy, transport-classification, worker-failure snapshot,
-  worker-health, token rotation/repair, and durable polling scaffolds.
+  polling production hardening, and long-running worker progress streaming
+  semantics beyond the current bounded worker progress, retry-policy,
+  transport-classification, worker-failure snapshot, worker-health, token
+  rotation/repair, durable polling scaffolds, and durable polling
+  maintainability refactor.
 - Production entity-registry, device-registry, area-registry, and label
   adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.

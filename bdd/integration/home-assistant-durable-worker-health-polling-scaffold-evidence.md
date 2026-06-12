@@ -1,16 +1,18 @@
 # Home Assistant Durable Worker Health Polling Scaffold Evidence
 
-Run timestamp: 2026-06-11T23:28:50+00:00
+Run timestamp: 2026-06-12T16:21:00+00:00
 
 BDD file:
 `bdd/integration/home-assistant-durable-worker-health-polling-scaffold-bdd.md`
 
 Overall result: PASS for durable worker health polling BDD scenarios.
 
-Full-suite note: the packet-specific, adjacent worker regression, and latest
-full Python test suite are green. Earlier in this session, the previously
-documented codegen sandbox matplotlib subprocess flake reproduced once
-(`1 failed, 263 passed`) and passed on immediate rerun.
+Refactor note: the durable polling maintainability refactor preserved the BDD
+scenario behavior and reran the packet-specific eval unchanged. Focused
+polling tests (`17 passed`), adjacent worker regressions (`81 passed`), and
+the focused durable polling eval are green. The full Python suite rerun hit the
+known unrelated codegen sandbox matplotlib subprocess flake once
+(`267 passed, 1 failed`), and the exact failed test passed on immediate rerun.
 Verifier runs use the fake-HA in-memory storage-helper surface; production
 Home Assistant setup wraps the same polling contract in HA's versioned
 storage helper before writing setup state.
