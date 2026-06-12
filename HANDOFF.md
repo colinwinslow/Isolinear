@@ -611,10 +611,11 @@ Choose the next worker/orchestration follow-up:
 
 1. Keep remaining worker work split into small packets rather than extending
    the durable polling checkpoint.
-2. Candidate next packets are token rotation UI/persistence/automatic repair,
-   provider health/retry policy, durable retry queue/scheduler behavior, or a
-   narrow production-hardening follow-up if the human wants one after reading
-   the durable polling checkpoint.
+2. Candidate next packets are the durable polling maintainability refactor,
+   token rotation UI/persistence/automatic repair, provider health/retry
+   policy, durable retry queue/scheduler behavior, or a narrow
+   production-hardening follow-up if the human wants one after reading the
+   durable polling checkpoint.
 3. Preserve the known codegen sandbox matplotlib subprocess flake as a
    historical caveat, but note that the rescue-audit full-suite rerun passed
    cleanly (`268 passed`).
@@ -625,11 +626,11 @@ Choose the next worker/orchestration follow-up:
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.
 - Worker token rotation UI/persistence/automatic repair semantics, durable
-  worker health polling production hardening or trim/refactor requested by
-  review, and long-running worker progress streaming semantics beyond the
-  current bounded worker progress, retry-policy, transport-classification,
-  worker-failure snapshot, worker-health, token rotation/repair, and durable
-  polling scaffolds.
+  worker health polling maintainability refactor for the large production and
+  verifier modules, durable polling production hardening, and long-running
+  worker progress streaming semantics beyond the current bounded worker
+  progress, retry-policy, transport-classification, worker-failure snapshot,
+  worker-health, token rotation/repair, and durable polling scaffolds.
 - Production entity-registry, device-registry, area-registry, and label
   adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
