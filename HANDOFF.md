@@ -702,6 +702,15 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
+> **⚠️ Direction change (2026-06-12):** Read
+> [`docs/reality-pivot-review.md`](docs/reality-pivot-review.md) first. The
+> project has only ever run on simulated data; the next packet should be the
+> **first real vertical slice** (real Home Assistant recorder history + real
+> Ollama planner + real matplotlib, rendered in-process), letting real data
+> correct the schemas. Defer further worker/sandbox/polling/retry scaffolds and
+> stop building parallel `*_anchor.py` verifiers. See ADR-0016 suggestion in the
+> review. The worker/orchestration options below are now lower priority.
+
 Choose the next worker/orchestration follow-up:
 
 1. Keep remaining worker work split into small packets rather than extending
