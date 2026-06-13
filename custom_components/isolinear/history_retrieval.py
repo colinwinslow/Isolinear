@@ -133,7 +133,16 @@ def retrieve_approved_history(
             approved_entity_catalog_read=True,
         )
 
-    source = _history_source_from_hass(hass) if history_by_entity is None else history_by_entity
+    source = (
+        _history_source_from_hass(
+            hass,
+            entity_ids=requested_entity_ids,
+            range_start=time_range["start_dt"],
+            range_end=time_range["end_dt"],
+        )
+        if history_by_entity is None
+        else history_by_entity
+    )
     if not isinstance(source, dict):
         return _history_rejection(
             "invalid_history_source",
@@ -383,12 +392,91 @@ def _approved_catalog_items(hass: Any, entry_id: str) -> list[dict[str, Any]]:
     ]
 
 
-def _history_source_from_hass(hass: Any) -> dict[str, Any]:
+def _history_source_from_hass(
+    hass: Any,
+    *,
+    entity_ids: list[str],
+    range_start: datetime,
+    range_end: datetime,
+) -> dict[str, Any]:
     domain_data = getattr(hass, "data", {}).get(DOMAIN, {})
     source = domain_data.get(DATA_HISTORY_SOURCE, {})
+    if isinstance(source, dict) and source:
+        return source
+    recorder_source = _recorder_history_source_from_hass(
+        hass,
+        entity_ids=entity_ids,
+        range_start=range_start,
+        range_end=range_end,
+    )
+    if recorder_source is not None:
+        return recorder_source
     if source is None:
         return {}
     return source
+
+
+def _recorder_history_source_from_hass(
+    hass: Any,
+    *,
+    entity_ids: list[str],
+    range_start: datetime,
+    range_end: datetime,
+) -> dict[str, Any] | None:
+    """Return best-effort real Home Assistant recorder history records."""
+    try:  # pragma: no cover - exercised only in Home Assistant.
+        from homeassistant.components.recorder import history as recorder_history
+    except ImportError:  # pragma: no cover - repo tests run without Home Assistant.
+        return None
+
+    try:
+        raw = recorder_history.get_significant_states(
+            hass,
+            range_start,
+            range_end,
+            entity_ids,
+            include_start_time_state=True,
+            significant_changes_only=False,
+            minimal_response=False,
+            no_attributes=False,
+        )
+    except TypeError:  # pragma: no cover - compatibility with older HA signatures.
+        try:
+            raw = recorder_history.get_significant_states(
+                hass,
+                range_start,
+                range_end,
+                entity_ids,
+                include_start_time_state=True,
+                significant_changes_only=False,
+            )
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+    if not isinstance(raw, dict):
+        return None
+    return {
+        entity_id: [_history_record_from_state(entity_id, state) for state in raw.get(entity_id, [])]
+        for entity_id in entity_ids
+    }
+
+
+def _history_record_from_state(entity_id: str, state: Any) -> dict[str, Any]:
+    if isinstance(state, dict):
+        return {
+            "entity_id": state.get("entity_id", entity_id),
+            "state": state.get("state"),
+            "last_changed": state.get("last_changed"),
+            "attributes": state.get("attributes", {}),
+        }
+    return {
+        "entity_id": getattr(state, "entity_id", entity_id),
+        "state": getattr(state, "state", None),
+        "last_changed": getattr(state, "last_changed", None),
+        "attributes": getattr(state, "attributes", {}) or {},
+    }
 
 
 def _normalize_history_series(

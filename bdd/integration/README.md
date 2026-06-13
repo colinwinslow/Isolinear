@@ -84,6 +84,11 @@ custom integration implementation slices.
   setup, and records redacted repair issue metadata when restore is impossible
   while preserving card-safety, no setup-time token generation, and no
   automatic repair execution.
+- **Home Assistant first real vertical slice** - the integration routes an
+  allowlisted prompt through approved Home Assistant metadata/history, an
+  Ollama-compatible planner boundary, and trusted in-process matplotlib
+  rendering to return a real PNG data URL while preserving schema validation,
+  hidden-entity rejection, no worker dispatch, and no generated Python.
 
 ## Validation
 
@@ -157,3 +162,6 @@ custom integration implementation slices.
   durable worker token storage, setup-time restore from persisted token,
   redacted repair issue metadata, invalid persisted-entry rejection, rollback,
   config-entry isolation, card-safety, and bounded side-effect proof.
+- `tests/test_first_real_vertical_slice.py` - focused pytest proof for a
+  complete PNG-returning first real slice, hidden provider entity rejection,
+  and idempotent completed-snapshot reuse without worker dispatch.

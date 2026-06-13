@@ -29,6 +29,15 @@ after lifecycle storage succeeds, fails closed before readiness/renderer setup
 on lifecycle storage rejection, and records redacted repair-issue metadata
 when restore is impossible.
 
+The reality-pivot implementation packet is now in place behind draft ADR-0017:
+the existing Home Assistant WebSocket job flow can use approved metadata,
+approved history, an Ollama-compatible planner result, and trusted in-process
+matplotlib rendering to return a real PNG data URL when the first-real-slice
+route is enabled and no worker dispatch is used. The next bounded packet is
+manual verification against a real Home Assistant dev instance and real Ollama
+endpoint so real registry, recorder, and planner behavior can correct the
+contracts before ADR-0017/spec promotion.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -41,11 +50,21 @@ Isolinear lets a user ask natural-language questions about approved Home Assista
 - Standalone worker mode should remain possible for Home Assistant installs that cannot use add-ons.
 - Model provider should be Ollama-compatible, with local-first defaults and optional stronger providers later.
 - Trusted chart-spec renderer is the default path.
+- The first real prompt-to-chart proof renders trusted ChartSpecs in-process and returns a PNG data URL before reintroducing the worker/add-on split.
 - Sandboxed matplotlib codegen is an advanced path.
 
 ## Open implementation status
 
 Fake-provider vertical slice implemented as a local Python module with schema-backed contract validation, a pre-render plan validation gate, deterministic render metadata validation, trusted safe-mode rendering for shaded interval overlays, state interval timelines, and aggregate bar charts, fake binary-state interval extraction, confirmed threshold-derived interval extraction, deterministic threshold clarification for continuous power sensors, use-once threshold confirmation handling, deterministic threshold semantic alias creation, reuse of saved threshold aliases, deterministic invalidation of saved threshold aliases that reference unavailable or non-allowlisted entities, and a versioned semantic-memory store envelope anchor that computes invalidity at use time while failing closed for unsupported versions or duplicate alias IDs. Eval scripts now emit structured `CASE` evidence payloads, and implemented eval-backed scenario groups have paired markdown BDD/evidence files under `bdd/<feature>/`.
+
+First real vertical slice pivot implementation is complete but not manually
+verified against live services. `custom_components/isolinear` now has a
+trusted in-process matplotlib renderer for safe numeric `time_series`
+ChartSpecs, best-effort real Home Assistant registry/state metadata enrichment,
+best-effort recorder-history retrieval, and a first-real-slice route in the
+existing `isolinear/v1/job/start` -> `job/snapshot` flow. The focused pytest
+proves a PNG data URL, hidden-entity rejection before rendering/artifact
+storage, idempotent completed-snapshot reuse, and no worker dispatch.
 
 Dashboard card implementation technology is decided in ADR-0011: the MVP card is a TypeScript Lit custom element loaded as `custom:isolinear-card`, bundled as an ES module, and kept as a thin client over integration-owned Home Assistant WebSocket commands. The card must not directly call the worker, model provider, Home Assistant history APIs, semantic-memory storage, mutation services, or browser local storage for Isolinear state.
 
@@ -702,26 +721,23 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-> **⚠️ Direction change (2026-06-12):** Read
-> [`docs/reality-pivot-review.md`](docs/reality-pivot-review.md) first. The
-> project has only ever run on simulated data; the next packet should be the
-> **first real vertical slice** (real Home Assistant recorder history + real
-> Ollama planner + real matplotlib, rendered in-process), letting real data
-> correct the schemas. Defer further worker/sandbox/polling/retry scaffolds and
-> stop building parallel `*_anchor.py` verifiers. See ADR-0016 suggestion in the
-> review. The worker/orchestration options below are now lower priority.
+Manually verify the ADR-0017 first-real-slice implementation against a real
+Home Assistant dev instance and a real Ollama-compatible planner endpoint:
 
-Choose the next worker/orchestration follow-up:
+1. Load the current integration with a configured `entity_allowlist` and enable
+   the first-real-slice in-process render route for the config entry.
+2. Configure a real Ollama-compatible planner endpoint/model and run
+   `isolinear/v1/job/start` followed by `isolinear/v1/job/snapshot` through the
+   real Home Assistant WebSocket/dashboard path.
+3. Confirm the returned `chart.image_url` decodes to a PNG, the chart references
+   only allowlisted history, and no worker dispatch or generated Python is used.
+4. Capture any schema/runtime drift from real entity registry, recorder, or
+   planner behavior before promoting ADR-0017/specs from draft.
 
-1. Keep remaining worker work split into small packets rather than extending
-   the durable polling checkpoint.
-2. Candidate next packets are token rotation UI or real Home Assistant
-   Repairs/automatic repair semantics, automatic/durable provider retry
-   semantics, durable retry queue/scheduler behavior, or another specifically
-   requested durable-polling hardening follow-up.
-3. Preserve the known codegen sandbox matplotlib subprocess flake as a
-   historical caveat, but note that the rescue-audit full-suite rerun passed
-   cleanly (`268 passed`).
+Defer further worker/sandbox/polling/retry scaffolds until this live loop has
+run. Preserve the known codegen sandbox matplotlib subprocess flake as a
+historical caveat; the first-real-slice closeout full Python suite passed
+cleanly (`303 passed`).
 
 ## Known unresolved design details
 
@@ -739,6 +755,8 @@ Choose the next worker/orchestration follow-up:
   polling maintainability refactor, and cancelled-state hardening.
 - Production entity-registry, device-registry, area-registry, and label
   adapters beyond the scaffold-compatible approved entity metadata shape.
+- Manual real Home Assistant plus real Ollama verification of the ADR-0017
+  first-real-slice path and any resulting schema/runtime corrections.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
 - Production worker token rotation UI or real Home Assistant Repairs/automatic

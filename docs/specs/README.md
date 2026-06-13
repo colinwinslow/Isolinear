@@ -32,6 +32,7 @@ implementing slice produces an evidence file proving each scenario was hit.
 - `home-assistant-approved-entity-catalog-scaffold-spec.md` — Config-entry-scoped approved entity catalog scaffold
 - `home-assistant-approved-history-retrieval-scaffold-spec.md` — Config-entry-scoped approved history retrieval scaffold
 - `home-assistant-dashboard-resource-registration-spec.md` — Integration-owned dashboard card resource registration
+- `home-assistant-first-real-vertical-slice.md` — First real Home Assistant metadata/history plus Ollama planner plus in-process matplotlib PNG slice
 - `home-assistant-integration-scaffold-spec.md` — First production Home Assistant custom integration scaffold
 - `home-assistant-job-orchestration-clarification-continuation-scaffold-spec.md` — Config-entry-scoped clarification-answer continuation behind `clarification/answer`
 - `home-assistant-job-orchestration-artifact-storage-scaffold-spec.md` — Config-entry-scoped artifact bookkeeping behind `job/snapshot`

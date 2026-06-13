@@ -16,6 +16,11 @@ from .history_retrieval import (
     retrieve_approved_history,
     validate_history_series_collection_contract,
 )
+from .in_process_renderer import (
+    IN_PROCESS_RENDERER_NAME,
+    first_real_vertical_slice_enabled,
+    render_in_process_chart,
+)
 from .job_state import (
     DATA_JOB_STATE,
     JobStateSnapshotValidationError,
@@ -999,6 +1004,7 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
     model_provider_plan = planning_result.get("model_provider_plan")
     worker_dispatch = planning_result.get("worker_dispatch")
     worker_progress_events = planning_result.get("worker_progress_events") or []
+    in_process_render = planning_result.get("in_process_render")
     complete_snapshot = _append_artifact_complete_snapshot(job, artifact, worker_dispatch=worker_dispatch)
     return _accepted_artifact_snapshot(
         "job_orchestration_artifact_storage_recorded",
@@ -1015,6 +1021,7 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
         worker_dispatch_written=worker_dispatch is not None,
         worker_progress_written=bool(worker_progress_events),
         worker_progress_streaming_called=planning_result.get("worker_progress_streaming_called", False),
+        in_process_render=in_process_render,
         model_provider_called=planning_result.get("model_provider_called", False),
         worker_called=planning_result.get("worker_called", False),
         chart_rendering_called=planning_result.get("chart_rendering_called", False),
@@ -1702,6 +1709,55 @@ def _record_artifact_and_render_plan(
             "validation": render_plan_validation,
         }
 
+    in_process_render_result = _record_in_process_render(
+        store,
+        hass=hass,
+        entry_id=entry_id,
+        artifact=artifact,
+        render_plan=render_plan,
+        model_provider_result=model_provider_result,
+    )
+    if in_process_render_result.get("enabled"):
+        if not in_process_render_result["accepted"]:
+            return {
+                "accepted": False,
+                "code": in_process_render_result["code"],
+                "validation": in_process_render_result.get("validation"),
+                "model_provider_called": model_provider_result.get("model_provider_called", False),
+                "worker_called": False,
+                "chart_rendering_called": in_process_render_result.get("chart_rendering_called", False),
+                "orchestration": job_orchestration_side_effects(
+                    model_provider_called=model_provider_result.get("model_provider_called", False),
+                    chart_rendering_called=in_process_render_result.get("chart_rendering_called", False),
+                ),
+            }
+
+        model_provider_plan = model_provider_result.get("model_provider_plan")
+        artifact = in_process_render_result["artifact"]
+        if model_provider_plan is not None:
+            _store_validated_model_provider_plan(store, model_provider_plan)
+        _store_validated_artifact_metadata(store, artifact)
+        _store_validated_render_plan(store, render_plan)
+        return {
+            "accepted": True,
+            "code": "accepted",
+            "artifact": deepcopy(artifact),
+            "render_plan": deepcopy(render_plan),
+            "model_provider_plan": deepcopy(model_provider_plan) if model_provider_plan is not None else None,
+            "worker_dispatch": None,
+            "worker_progress_events": [],
+            "in_process_render": deepcopy(in_process_render_result["in_process_render"]),
+            "model_provider_called": model_provider_result.get("model_provider_called", False),
+            "worker_called": False,
+            "chart_rendering_called": True,
+            "worker_progress_streaming_called": False,
+            "artifact_validation": in_process_render_result.get("artifact_validation"),
+            "model_provider_validation": model_provider_result.get("validation"),
+            "render_plan_validation": render_plan_validation,
+            "worker_dispatch_validation": None,
+            "worker_progress_validation": None,
+        }
+
     worker_dispatch_result = _record_worker_dispatch(
         store,
         hass=hass,
@@ -1897,6 +1953,103 @@ def _record_model_provider_plan(
         "chart_spec": deepcopy(chart_spec),
         "validation": provider_plan_validation,
         "model_provider": provider_summary,
+    }
+
+
+def _record_in_process_render(
+    store: dict[str, Any],
+    *,
+    hass: Any,
+    entry_id: str,
+    artifact: dict[str, Any],
+    render_plan: dict[str, Any],
+    model_provider_result: dict[str, Any],
+) -> dict[str, Any]:
+    if not first_real_vertical_slice_enabled(hass, entry_id):
+        return {"enabled": False}
+    if get_worker_render_client(hass, entry_id) is not None:
+        return {"enabled": False}
+    if model_provider_result.get("model_provider_plan") is None:
+        return {"enabled": False}
+
+    render_request = _build_worker_render_request(
+        store,
+        hass=hass,
+        entry_id=entry_id,
+        render_plan=render_plan,
+    )
+    render_request_validation = validate_render_request_contract(render_request)
+    if not render_request_validation["accepted"]:
+        return {
+            "enabled": True,
+            "accepted": False,
+            "code": "invalid_in_process_render_request",
+            "validation": render_request_validation,
+            "chart_rendering_called": False,
+        }
+
+    render_response = render_in_process_chart(render_request)
+    render_result = render_response.get("render_result") if isinstance(render_response, dict) else None
+    render_result_validation = validate_render_result_contract(render_result)
+    if not render_result_validation["accepted"]:
+        return {
+            "enabled": True,
+            "accepted": False,
+            "code": "invalid_in_process_render_result",
+            "validation": render_result_validation,
+            "chart_rendering_called": True,
+        }
+    if not isinstance(render_response, dict) or not render_response.get("accepted"):
+        return {
+            "enabled": True,
+            "accepted": False,
+            "code": render_response.get("code", "in_process_renderer_failed")
+            if isinstance(render_response, dict)
+            else "in_process_renderer_failed",
+            "validation": render_result_validation,
+            "chart_rendering_called": True,
+            "in_process_render": render_response if isinstance(render_response, dict) else None,
+        }
+    if not isinstance(render_result, dict) or render_result.get("status") != "success":
+        return {
+            "enabled": True,
+            "accepted": False,
+            "code": "in_process_renderer_failed",
+            "validation": render_result_validation,
+            "chart_rendering_called": True,
+            "in_process_render": render_response,
+        }
+
+    rendered_artifact = _build_in_process_artifact_metadata(
+        artifact,
+        render_result=render_result,
+        image_url=render_response["image_url"],
+    )
+    artifact_validation = validate_artifact_metadata_contract(rendered_artifact)
+    if not artifact_validation["accepted"]:
+        return {
+            "enabled": True,
+            "accepted": False,
+            "code": "invalid_in_process_artifact_metadata",
+            "validation": artifact_validation,
+            "chart_rendering_called": True,
+            "in_process_render": render_response,
+        }
+
+    return {
+        "enabled": True,
+        "accepted": True,
+        "code": "in_process_render_recorded",
+        "artifact": rendered_artifact,
+        "artifact_validation": artifact_validation,
+        "render_result_validation": render_result_validation,
+        "in_process_render": {
+            "renderer": render_response["renderer"],
+            "render_result": render_result,
+            "png_byte_count": render_response["png_byte_count"],
+            "image_url_prefix": "data:image/png;base64",
+        },
+        "chart_rendering_called": True,
     }
 
 
@@ -2436,6 +2589,43 @@ def _build_artifact_metadata(
         ],
     }
     return artifact
+
+
+def _build_in_process_artifact_metadata(
+    artifact: dict[str, Any],
+    *,
+    render_result: dict[str, Any],
+    image_url: str,
+) -> dict[str, Any]:
+    rendered = deepcopy(artifact)
+    render_metadata = render_result.get("render_metadata") if isinstance(render_result, dict) else {}
+    rendered["status"] = "rendered"
+    rendered["image_url"] = image_url
+    rendered["render_metadata"] = {
+        "renderer": IN_PROCESS_RENDERER_NAME,
+        "render_attempted": True,
+        "worker_called": False,
+        "chart_rendering_called": True,
+    }
+    rendered["validation"] = {
+        "status": "pass",
+        "summary": "In-process trusted matplotlib artifact validates before storage.",
+        "checks": [
+            {"name": "integration_job_snapshot", "status": "pass"},
+            {"name": "integration_render_plan", "status": "pass"},
+            {"name": "render_request_schema", "status": "pass"},
+            {"name": "render_result_schema", "status": "pass"},
+            {"name": "matplotlib_png", "status": "pass"},
+            {"name": "worker", "status": "not_called"},
+        ],
+    }
+    rendered["warnings"] = [
+        "first_real_vertical_slice",
+        "in_process_matplotlib_renderer",
+        "chart_artifact_data_url",
+        *list(render_metadata.get("warnings", []) if isinstance(render_metadata, dict) else []),
+    ]
+    return rendered
 
 
 def _store_validated_artifact_metadata(store: dict[str, Any], artifact: dict[str, Any]) -> None:
@@ -3571,6 +3761,7 @@ def _accepted_artifact_snapshot(
     worker_progress_streaming_called: bool = False,
     worker_retry_policy_written: bool = False,
     worker_transport_failure_classification_written: bool = False,
+    in_process_render: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     result = {
         "accepted": True,
@@ -3611,6 +3802,8 @@ def _accepted_artifact_snapshot(
         result["worker_dispatch"] = deepcopy(worker_dispatch)
     if worker_progress_events:
         result["worker_progress_events"] = deepcopy(worker_progress_events)
+    if in_process_render is not None:
+        result["in_process_render"] = deepcopy(in_process_render)
     return result
 
 
@@ -3711,7 +3904,6 @@ def _is_artifact_complete_snapshot(snapshot: dict[str, Any], artifact: dict[str,
         snapshot.get("status") == "complete"
         and isinstance(chart, dict)
         and chart.get("image_url") == artifact.get("image_url")
-        and "artifact_storage_scaffold" in snapshot.get("warnings", [])
     )
 
 
@@ -3943,6 +4135,7 @@ def _append_artifact_complete_snapshot(
         "overlays": deepcopy(artifact["overlays"]),
     }
     worker_rendered = worker_dispatch is not None
+    in_process_rendered = artifact.get("render_metadata", {}).get("renderer") == IN_PROCESS_RENDERER_NAME
     return append_validated_job_snapshot(
         job,
         status="complete",
@@ -3950,25 +4143,40 @@ def _append_artifact_complete_snapshot(
         message=(
             "Worker render result is recorded and placeholder chart artifact metadata is ready for the dashboard card."
             if worker_rendered
-            else "Placeholder chart artifact metadata is ready for the dashboard card."
+            else (
+                "In-process trusted matplotlib render is ready for the dashboard card."
+                if in_process_rendered
+                else "Placeholder chart artifact metadata is ready for the dashboard card."
+            )
         ),
         progress_stage="job_orchestration_artifact_storage_ready",
         progress_message=(
             "Worker dispatch metadata is stored with the scaffold artifact metadata."
             if worker_rendered
-            else "Scaffold artifact metadata is stored for future rendering."
+            else (
+                "Rendered chart artifact metadata is stored for the first real slice."
+                if in_process_rendered
+                else "Scaffold artifact metadata is stored for future rendering."
+            )
         ),
         validation_status="pass",
         validation_summary=(
             "The worker dispatch scaffold recorded a schema-valid worker render result and placeholder chart metadata."
             if worker_rendered
-            else "The artifact storage scaffold created schema-valid placeholder chart metadata."
+            else (
+                "The first real vertical slice rendered a schema-valid PNG chart in process."
+                if in_process_rendered
+                else "The artifact storage scaffold created schema-valid placeholder chart metadata."
+            )
         ),
         validation_checks=[
             {"name": "integration_job_state_scaffold", "status": "pass"},
             {"name": "integration_artifact_metadata", "status": "pass"},
             {"name": "worker", "status": "pass" if worker_rendered else "not_called"},
-            {"name": "chart_rendering", "status": "pass" if worker_rendered else "not_called"},
+            {
+                "name": "chart_rendering",
+                "status": "pass" if worker_rendered or in_process_rendered else "not_called",
+            },
         ],
         chart=chart,
         entities=[
@@ -3984,12 +4192,21 @@ def _append_artifact_complete_snapshot(
                 "integration_chart_artifact_file_not_written",
             ]
             if worker_rendered
-            else [
-                "artifact_storage_scaffold",
-                "placeholder_chart_artifact",
-                "worker_not_called",
-                "chart_rendering_not_started",
-            ]
+            else (
+                [
+                    "first_real_vertical_slice",
+                    "in_process_matplotlib_renderer",
+                    "chart_artifact_data_url",
+                    "worker_not_called",
+                ]
+                if in_process_rendered
+                else [
+                    "artifact_storage_scaffold",
+                    "placeholder_chart_artifact",
+                    "worker_not_called",
+                    "chart_rendering_not_started",
+                ]
+            )
         ),
     )
 

@@ -237,6 +237,7 @@ def handle_registered_ws_command(
             "artifact": job_result.get("artifact"),
             "render_plan": job_result.get("render_plan"),
             "worker_dispatch": job_result.get("worker_dispatch"),
+            "in_process_render": job_result.get("in_process_render"),
         },
         "orchestration": job_result["orchestration"],
     }

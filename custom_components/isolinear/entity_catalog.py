@@ -346,7 +346,8 @@ def _metadata_for_entity(
 ) -> dict[str, Any]:
     raw_metadata = metadata_by_entity.get(entity_id)
     state_metadata = _state_metadata_for_entity(hass, entity_id)
-    if raw_metadata is None and state_metadata is None:
+    registry_metadata = _registry_metadata_for_entity(hass, entity_id)
+    if raw_metadata is None and state_metadata is None and registry_metadata is None:
         return {
             "accepted": False,
             "code": "unknown_allowlisted_entity",
@@ -359,6 +360,8 @@ def _metadata_for_entity(
         }
 
     metadata = {}
+    if registry_metadata is not None:
+        metadata.update(registry_metadata)
     if state_metadata is not None:
         metadata.update(state_metadata)
     if raw_metadata is not None:
@@ -375,6 +378,66 @@ def _metadata_for_entity(
         "code": "accepted",
         "metadata": metadata,
     }
+
+
+def _registry_metadata_for_entity(hass: Any, entity_id: str) -> dict[str, Any] | None:
+    """Return best-effort real Home Assistant registry metadata for one entity."""
+    try:  # pragma: no cover - exercised only in Home Assistant.
+        from homeassistant.helpers import area_registry, device_registry, entity_registry
+    except ImportError:  # pragma: no cover - repo tests run without Home Assistant.
+        return None
+
+    try:
+        entity_reg = entity_registry.async_get(hass)
+        entity_entry = entity_reg.async_get(entity_id)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if entity_entry is None:
+        return None
+
+    metadata: dict[str, Any] = {
+        "friendly_name": getattr(entity_entry, "name", None)
+        or getattr(entity_entry, "original_name", None),
+        "device_class": getattr(entity_entry, "device_class", None)
+        or getattr(entity_entry, "original_device_class", None),
+        "integration": getattr(entity_entry, "platform", None),
+    }
+
+    area_id = getattr(entity_entry, "area_id", None)
+    device_id = getattr(entity_entry, "device_id", None)
+    labels = getattr(entity_entry, "labels", None)
+    if isinstance(labels, (set, list, tuple)):
+        metadata["labels"] = sorted(str(label) for label in labels)
+
+    try:
+        area_reg = area_registry.async_get(hass)
+        device_reg = device_registry.async_get(hass)
+    except (AttributeError, TypeError, ValueError):
+        area_reg = None
+        device_reg = None
+
+    if device_id is not None and device_reg is not None:
+        try:
+            device_entry = device_reg.async_get(device_id)
+        except (AttributeError, TypeError, ValueError):
+            device_entry = None
+        if device_entry is not None:
+            metadata["device_name"] = (
+                getattr(device_entry, "name_by_user", None)
+                or getattr(device_entry, "name", None)
+                or getattr(device_entry, "default_name", None)
+            )
+            area_id = area_id or getattr(device_entry, "area_id", None)
+
+    if area_id is not None and area_reg is not None:
+        try:
+            area_entry = area_reg.async_get_area(area_id)
+        except (AttributeError, TypeError, ValueError):
+            area_entry = None
+        if area_entry is not None:
+            metadata["area"] = getattr(area_entry, "name", None)
+
+    return {key: value for key, value in metadata.items() if value is not None}
 
 
 def _state_metadata_for_entity(hass: Any, entity_id: str) -> dict[str, Any] | None:
