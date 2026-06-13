@@ -78,6 +78,12 @@ custom integration implementation slices.
   worker transport failure classifications into card-facing failed
   `IntegrationJobSnapshot` payloads with safe manual retry affordance metadata
   while preserving redaction, config-entry isolation, and no automatic retry.
+- **Home Assistant durable worker token lifecycle scaffold anchor** - the
+  integration persists integration-owned worker tokens in an integration-owned
+  storage helper, restores valid persisted tokens before worker readiness
+  setup, and records redacted repair issue metadata when restore is impossible
+  while preserving card-safety, no setup-time token generation, and no
+  automatic repair execution.
 
 ## Validation
 
@@ -147,3 +153,7 @@ custom integration implementation slices.
   non-retryable worker failure rejection, redaction, config-entry isolation,
   schema-valid snapshots/internal worker envelopes, and bounded side-effect
   proof.
+- `evals/home_assistant_durable_worker_token_lifecycle_scaffold.py` -
+  durable worker token storage, setup-time restore from persisted token,
+  redacted repair issue metadata, invalid persisted-entry rejection, rollback,
+  config-entry isolation, card-safety, and bounded side-effect proof.

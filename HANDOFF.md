@@ -14,15 +14,20 @@ dispatch/rendering scaffold, worker token provisioning/readiness scaffold,
 worker progress streaming scaffold, worker retry/backoff policy scaffold,
 worker transport failure retry-classification scaffold, worker failure
 snapshot/manual retry integration scaffold, worker health/readiness endpoint
-scaffold, worker token rotation/repair scaffold, and durable worker health
-polling checkpoint scaffold are now anchored. The durable
+scaffold, worker token rotation/repair scaffold, durable worker health
+polling checkpoint scaffold, and durable worker token lifecycle scaffold are
+now anchored. The durable
 polling maintainability refactor is complete: the checkpoint still stands as
 the completed ADR-0015 behavior packet, and the large production and verifier
 modules have been split into focused helper modules without schema,
 BDD/evidence, eval, or dashboard-card contract changes. A narrow durable
 polling hardening follow-up now rejects persisted cancelled polling state
 during storage load/resume so unload-cancelled scheduler metadata cannot
-resurrect after restart.
+resurrect after restart. ADR-0016 now anchors integration-owned durable worker
+token lifecycle storage: setup restores only valid same-entry persisted tokens
+after lifecycle storage succeeds, fails closed before readiness/renderer setup
+on lifecycle storage rejection, and records redacted repair-issue metadata
+when restore is impossible.
 
 ## Product summary
 
@@ -672,16 +677,39 @@ adjacent worker regressions (`98 passed`), module `py_compile`, and
 `git diff --check`. Standalone architecture review returned OK with no
 recommendations.
 
+Home Assistant durable worker token lifecycle scaffold is complete. ADR-0016
+records the storage-helper credential persistence decision and the packet adds
+`custom_components/isolinear/worker_token_lifecycle.py` plus setup wiring before
+worker readiness and renderer setup. Config-entry setup loads the lifecycle
+store, restores only valid same-entry persisted tokens after schema-valid
+lifecycle storage succeeds, blocks readiness/renderer setup if lifecycle storage
+fails, stores redacted `not_ready` repair-issue metadata when no token can be
+restored, and stores disabled lifecycle state when no worker endpoint exists.
+Durable explicit provision, rotation, and repair wrappers persist raw token
+material privately and roll back old durable token, readiness, and renderer
+state on lifecycle validation/storage failure. Dashboard-card token controls,
+real Home Assistant Repairs flows, setup-time token generation, automatic repair
+execution, worker health/render calls, provider calls, durable retry queues,
+scheduler tasks, Home Assistant mutation, and token/endpoint leakage remain out
+of scope. Verification on 2026-06-13 reran focused lifecycle tests
+(`11 passed`), the focused lifecycle eval
+(`PASS home_assistant_durable_worker_token_lifecycle_scaffold`), adjacent
+worker regressions (`109 passed`), module `py_compile`, adjacent
+worker/orchestration evals, `git diff --cached --check`, inline BDD-evidence
+review, and standalone architecture review. The full Python suite previously
+hit the known unrelated codegen sandbox matplotlib subprocess flake once
+(`298 passed, 1 failed`), and the exact failed test passed on rerun.
+
 ## Next recommended packet
 
 Choose the next worker/orchestration follow-up:
 
 1. Keep remaining worker work split into small packets rather than extending
    the durable polling checkpoint.
-2. Candidate next packets are token rotation UI/persistence/automatic repair,
-   automatic/durable provider retry semantics, durable retry queue/scheduler
-   behavior, or another specifically requested durable-polling hardening
-   follow-up.
+2. Candidate next packets are token rotation UI or real Home Assistant
+   Repairs/automatic repair semantics, automatic/durable provider retry
+   semantics, durable retry queue/scheduler behavior, or another specifically
+   requested durable-polling hardening follow-up.
 3. Preserve the known codegen sandbox matplotlib subprocess flake as a
    historical caveat, but note that the rescue-audit full-suite rerun passed
    cleanly (`268 passed`).
@@ -691,21 +719,23 @@ Choose the next worker/orchestration follow-up:
 - Semantic-memory storage-helper implementation, migrations, and repair UI details beyond the envelope contract.
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.
-- Worker token rotation UI/persistence/automatic repair semantics,
+- Worker token rotation UI or real Home Assistant Repairs/automatic repair
+  semantics,
   automatic/durable provider retry semantics, additional durable polling
   production hardening if requested, and long-running worker progress
   streaming semantics beyond the current bounded provider retry-policy,
   provider health diagnostics, worker progress, worker retry-policy,
   transport-classification, worker-failure snapshot, worker-health, token
-  rotation/repair, durable polling scaffolds, durable polling maintainability
-  refactor, and cancelled-state hardening.
+  rotation/repair, durable token lifecycle, durable polling scaffolds, durable
+  polling maintainability refactor, and cancelled-state hardening.
 - Production entity-registry, device-registry, area-registry, and label
   adapters beyond the scaffold-compatible approved entity metadata shape.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
-- Production worker token rotation persistence/automatic repair behavior,
-  automatic/durable provider retry behavior, durable retry queue/scheduler
-  behavior, and orchestration retry/backoff policy beyond scaffold snapshots.
+- Production worker token rotation UI or real Home Assistant Repairs/automatic
+  repair behavior, automatic/durable provider retry behavior, durable retry
+  queue/scheduler behavior, and orchestration retry/backoff policy beyond
+  scaffold snapshots.
 
 ## Session log
 

@@ -22,6 +22,7 @@ SCHEMA_NAMES = {
     "integration-render-plan": "integration-render-plan.schema.json",
     "integration-worker-health": "integration-worker-health.schema.json",
     "integration-worker-health-polling-state": "integration-worker-health-polling-state.schema.json",
+    "integration-worker-token-lifecycle-state": "integration-worker-token-lifecycle-state.schema.json",
     "integration-worker-readiness": "integration-worker-readiness.schema.json",
     "integration-worker-dispatch": "integration-worker-dispatch.schema.json",
     "integration-worker-progress": "integration-worker-progress.schema.json",

@@ -45,6 +45,7 @@ implementing slice produces an evidence file proving each scenario was hit.
 - `home-assistant-model-provider-retry-backoff-policy-scaffold-spec.md` — Config-entry-scoped model-provider retry/backoff policy metadata for safe planner failures
 - `home-assistant-worker-transport-failure-retry-classification-scaffold-spec.md` — Config-entry-scoped worker transport failure classification behind `job/snapshot`
 - `home-assistant-worker-failure-snapshot-manual-retry-integration-scaffold-spec.md` — Card-facing worker failure snapshots and manual retry integration behind `job/snapshot` and `job/retry`
+- `home-assistant-durable-worker-token-lifecycle-scaffold-spec.md` — Config-entry-scoped durable worker token lifecycle, setup restore, and repair-issue metadata
 - `home-assistant-websocket-command-registration-spec.md` — Production Home Assistant WebSocket command registration boundary
 - `integration-api-transport-auth-spec.md` — Integration WebSocket API and worker transport authentication
 - `integration-spec.md` — Home Assistant custom integration interface
