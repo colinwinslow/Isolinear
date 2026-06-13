@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 date: 2026-06-13
 depends-on-adrs:
   - 0001
@@ -17,7 +17,9 @@ depends-on-adrs:
 
 ## Status
 
-Draft. Defines the first real prompt-to-chart spine per ADR-0017.
+Accepted. Defines the first real prompt-to-chart spine per ADR-0017 and is
+backed by focused pytest evidence plus manual Home Assistant/Ollama verification
+captured in the paired evidence file.
 
 ## Related docs
 
@@ -82,7 +84,7 @@ prompt through the existing WebSocket command helpers, using injected
 Home-Assistant-shaped metadata/history and an injected Ollama-compatible
 planner, and verifies that the returned chart image is a real PNG data URL.
 
-## Implementation order
+## Implementation order used
 
 1. Record ADR-0017 and this paired BDD/spec.
 2. Add a narrow in-process trusted matplotlib renderer for numeric
@@ -110,6 +112,9 @@ planner, and verifies that the returned chart image is a real PNG data URL.
 7. Manual evidence proves the same registered Home Assistant WebSocket handler
    path can use real Home Assistant recorder history and a real
    Ollama-compatible planner without blocking the event loop.
+
+All proof requirements are met by
+[bdd/integration/home-assistant-first-real-vertical-slice-evidence.md](../../bdd/integration/home-assistant-first-real-vertical-slice-evidence.md).
 
 ## Non-goals
 

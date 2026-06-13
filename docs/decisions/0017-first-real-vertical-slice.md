@@ -1,7 +1,7 @@
 ---
 id: 0017
 title: First real vertical slice
-status: draft
+status: accepted
 date: 2026-06-13
 supersedes: []
 superseded-by: null
@@ -72,9 +72,26 @@ must still use the existing sandbox/worker decision when re-enabled.
 
 **Open:**
 - Production artifact serving endpoint versus data-URL delivery.
-- Async Home Assistant recorder and aiohttp integration details for full
-  production ergonomics.
+- Longer-running browser/dashboard-card smoke against a real Home Assistant
+  dev server.
 - Exact worker handoff after the real in-process renderer proves the contracts.
+
+## Acceptance evidence
+
+Accepted on 2026-06-13 after manual verification against Home Assistant core
+`2025.1.4`, a real SQLite recorder database, a configured Ollama-compatible
+planner at `http://10.0.1.39:11434` using `gemma4:e4b`, and the registered
+`isolinear/v1/job/start` plus `isolinear/v1/job/snapshot` WebSocket handler
+path. The verified snapshot returned a PNG `data:image/png;base64,...` chart
+using only `sensor.isolinear_probe_temperature` history, wrote one provider
+plan, one render plan, and one rendered artifact, and wrote zero worker
+dispatches.
+
+Runtime drift found during acceptance was closed before promotion: registered
+WebSocket commands now use Home Assistant's `async_response` scheduler and
+executor offload for blocking orchestration, and the Ollama structured-output
+schema now narrows `chart_spec` to the first-slice `time_series` ChartSpec
+shape.
 
 ## References
 
@@ -88,3 +105,4 @@ must still use the existing sandbox/worker decision when re-enabled.
 - ADR-0012: Worker transport and authentication
 - [Reality pivot review](../reality-pivot-review.md)
 - [First real vertical slice spec](../specs/home-assistant-first-real-vertical-slice.md)
+- [First real vertical slice evidence](../../bdd/integration/home-assistant-first-real-vertical-slice-evidence.md)

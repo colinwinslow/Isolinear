@@ -42,4 +42,4 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0014 — `Worker health/readiness endpoint`
 - 0015 — `Durable worker health polling`
 - 0016 — `Durable worker token lifecycle` (draft)
-- 0017 — `First real vertical slice` (draft)
+- 0017 — `First real vertical slice`

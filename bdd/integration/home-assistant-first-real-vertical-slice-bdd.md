@@ -2,8 +2,10 @@
 
 ## Status
 
-Draft. Paired with
-[docs/specs/home-assistant-first-real-vertical-slice.md](../../docs/specs/home-assistant-first-real-vertical-slice.md).
+Accepted. Paired with
+[docs/specs/home-assistant-first-real-vertical-slice.md](../../docs/specs/home-assistant-first-real-vertical-slice.md)
+and backed by focused pytest evidence plus manual Home Assistant/Ollama
+verification.
 
 ## Why this BDD exists
 

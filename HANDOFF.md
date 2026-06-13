@@ -29,7 +29,7 @@ after lifecycle storage succeeds, fails closed before readiness/renderer setup
 on lifecycle storage rejection, and records redacted repair-issue metadata
 when restore is impossible.
 
-The reality-pivot implementation packet is now in place behind draft ADR-0017:
+The reality-pivot implementation packet is now in place under accepted ADR-0017:
 the existing Home Assistant WebSocket job flow can use approved metadata,
 approved history, an Ollama-compatible planner result, and trusted in-process
 matplotlib rendering to return a real PNG data URL when the first-real-slice
@@ -730,11 +730,10 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 ## Next recommended packet
 
 Choose the next real-slice hardening packet before returning to additional
-scaffolds. Good candidates are promoting ADR-0017/spec/BDD out of draft using
-the captured live evidence, running a long-running Home Assistant browser/card
-smoke against the registered WebSocket commands, replacing the temporary PNG
-data URL proof with production artifact serving, or reintroducing the
-worker/add-on rendering boundary for the same verified real-slice route.
+scaffolds. Good candidates are running a long-running Home Assistant
+browser/card smoke against the registered WebSocket commands, replacing the
+temporary PNG data URL proof with production artifact serving, or reintroducing
+the worker/add-on rendering boundary for the same verified real-slice route.
 
 Preserve the known codegen sandbox matplotlib subprocess flake as a historical
 caveat; the first-real-slice closeout full Python suite passed cleanly
