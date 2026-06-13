@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import unittest
 from pathlib import Path
@@ -8,6 +9,8 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from Isolinear.websocket_command_registration_anchor import (  # noqa: E402
+    FakeConfigEntry,
+    FakeConnection,
     verify_idempotent_command_registration,
     verify_invalid_registered_commands_fail_closed,
     verify_missing_config_entry_rejection,
@@ -16,6 +19,27 @@ from Isolinear.websocket_command_registration_anchor import (  # noqa: E402
     verify_setup_entry_websocket_registration,
     verify_websocket_command_registration_anchor,
 )
+from custom_components.isolinear.const import DOMAIN, INTEGRATION_COMMAND_TYPES, INTEGRATION_WS_VERSION  # noqa: E402
+from custom_components.isolinear.websocket_api import registered_websocket_handlers  # noqa: E402
+
+
+class SchedulingHass:
+    def __init__(self) -> None:
+        self.data = {
+            DOMAIN: {
+                "fake-config-entry": {"entry": FakeConfigEntry()},
+            },
+        }
+        self.background_tasks = []
+        self.executor_calls = []
+
+    def async_create_background_task(self, coro, name, **kwargs):
+        self.background_tasks.append({"name": name, "kwargs": kwargs})
+        return asyncio.run(coro)
+
+    def async_add_executor_job(self, func, *args):
+        self.executor_calls.append({"func": func.__name__, "args": args})
+        return func(*args)
 
 
 class WebSocketCommandRegistrationAnchorTests(unittest.TestCase):
@@ -95,6 +119,31 @@ class WebSocketCommandRegistrationAnchorTests(unittest.TestCase):
         self.assertEqual(result["second_count"], 5)
         self.assertEqual(result["duplicate_count"], 0)
         self.assertEqual(result["second_registration"]["code"], "websocket_commands_already_registered")
+
+    def test_registered_handler_uses_home_assistant_async_response_scheduler(self):
+        hass = SchedulingHass()
+        connection = FakeConnection()
+        handler = next(
+            item
+            for item in registered_websocket_handlers()
+            if getattr(item, "_isolinear_command_type", None) == INTEGRATION_COMMAND_TYPES["start_job"]
+        )
+        message = {
+            "id": 1,
+            "type": INTEGRATION_COMMAND_TYPES["start_job"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": "fake-config-entry",
+            "prompt": "Show the temperature",
+        }
+
+        result = handler(hass, connection, message)
+
+        self.assertIsNone(result)
+        self.assertEqual(len(hass.background_tasks), 1)
+        self.assertEqual(hass.background_tasks[0]["name"], "websocket_api.async:ws_handle_isolinear_command")
+        self.assertEqual(hass.executor_calls[0]["func"], "handle_registered_ws_command")
+        self.assertEqual(connection.errors, [])
+        self.assertEqual(connection.results[0]["result"]["status"], "planning")
 
     def test_websocket_command_registration_anchor_verification_passes(self):
         result = verify_websocket_command_registration_anchor(REPO_ROOT)

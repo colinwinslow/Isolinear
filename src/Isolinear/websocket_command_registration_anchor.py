@@ -79,7 +79,7 @@ class FakeWebSocketApiModule:
                 "orchestration": websocket_registration_side_effects(False),
             }
 
-        handler_result = handler(hass, connection, message)
+        handler_result = _run_if_awaitable(handler(hass, connection, message))
         return {
             "accepted": bool(connection.results) and not connection.errors,
             "handler_called": True,
@@ -436,3 +436,9 @@ def _first_result_payload(dispatch_result: dict[str, Any]) -> Any:
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+def _run_if_awaitable(value):
+    if asyncio.iscoroutine(value):
+        return _run(value)
+    return value

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
+from functools import wraps
 from typing import Any
 
 from .const import (
@@ -25,7 +27,6 @@ from .job_state import handle_job_state_ws_command
 try:  # pragma: no cover - exercised by Home Assistant, not repo tests.
     import voluptuous as vol
     from homeassistant.components import websocket_api
-    from homeassistant.core import callback
 except ImportError:  # pragma: no cover - deterministic fallback for repo tests.
 
     class _FallbackVol:
@@ -43,12 +44,22 @@ except ImportError:  # pragma: no cover - deterministic fallback for repo tests.
             return decorator
 
         @staticmethod
+        def async_response(func: Callable[..., Any]) -> Callable[..., Any]:
+            @wraps(func)
+            def schedule_handler(hass: Any, connection: Any, msg: dict[str, Any]) -> Any:
+                coro = func(hass, connection, msg)
+                create_task = getattr(hass, "async_create_background_task", None)
+                if callable(create_task):
+                    create_task(coro, f"websocket_api.async:{func.__name__}", eager_start=True)
+                    return None
+                return coro
+
+            return schedule_handler
+
+        @staticmethod
         def async_register_command(hass: Any, handler: Callable[..., Any]) -> None:
             domain_data = hass.data.setdefault(DOMAIN, {})
             domain_data.setdefault("_fallback_websocket_handlers", []).append(handler)
-
-    def callback(func: Callable[..., Any]) -> Callable[..., Any]:
-        return func
 
     vol = _FallbackVol()
     websocket_api = _FallbackWebSocketApi()
@@ -413,10 +424,10 @@ def invalid_command_examples() -> dict[str, dict[str, Any]]:
 
 def _make_ws_handler(command_type: str) -> Callable[..., Any]:
     @websocket_api.websocket_command(_ha_command_schema(command_type))
-    @callback
-    def ws_handle_isolinear_command(hass: Any, connection: Any, msg: dict[str, Any]) -> dict[str, Any]:
+    @websocket_api.async_response
+    async def ws_handle_isolinear_command(hass: Any, connection: Any, msg: dict[str, Any]) -> dict[str, Any]:
         """Handle an Isolinear WebSocket command."""
-        result = handle_registered_ws_command(hass, msg)
+        result = await async_handle_registered_ws_command(hass, msg)
         message_id = msg.get("id") if isinstance(msg, dict) else None
         if result["accepted"]:
             if result["type"] == INTEGRATION_COMMAND_TYPES["subscribe_job"] and hasattr(connection, "subscriptions"):
@@ -435,6 +446,20 @@ def _make_ws_handler(command_type: str) -> Callable[..., Any]:
     ws_handle_isolinear_command._isolinear_command_type = command_type
     ws_handle_isolinear_command._isolinear_command_schema = _ha_command_schema(command_type)
     return ws_handle_isolinear_command
+
+
+async def async_handle_registered_ws_command(
+    hass: Any,
+    message: dict[str, Any],
+) -> dict[str, Any]:
+    """Run a registered command without blocking Home Assistant's event loop."""
+    executor_job = getattr(hass, "async_add_executor_job", None)
+    if callable(executor_job):
+        result = executor_job(handle_registered_ws_command, hass, message)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+    return handle_registered_ws_command(hass, message)
 
 
 def _ha_command_schema(command_type: str) -> dict[Any, Any]:

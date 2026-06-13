@@ -56,7 +56,72 @@ def get_model_provider_planner(hass: Any, entry_id: str) -> Any | None:
 
 def load_planner_result_schema() -> dict[str, Any]:
     """Load the PlannerResult JSON Schema for Ollama structured output."""
-    return json.loads(PLANNER_RESULT_SCHEMA_PATH.read_text(encoding="utf-8"))
+    schema = json.loads(PLANNER_RESULT_SCHEMA_PATH.read_text(encoding="utf-8"))
+    schema.setdefault("properties", {})["chart_spec"] = {
+        "type": "object",
+        "required": ["chart_id", "chart_type", "title", "time_range", "series"],
+        "additionalProperties": False,
+        "properties": {
+            "chart_id": {"type": "string"},
+            "chart_type": {"enum": ["time_series"]},
+            "title": {"type": "string"},
+            "time_range": {
+                "type": "object",
+                "required": ["type", "duration"],
+                "additionalProperties": False,
+                "properties": {
+                    "type": {"enum": ["relative"]},
+                    "duration": {"type": "string"},
+                },
+            },
+            "series": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                "type": "object",
+                "required": ["series_id", "label", "source", "role", "render_as", "transform", "unit"],
+                "additionalProperties": False,
+                    "properties": {
+                        "series_id": {"type": "string"},
+                        "label": {"type": "string"},
+                        "source": {
+                            "type": "object",
+                            "required": ["type", "entity_id", "attribute"],
+                            "additionalProperties": False,
+                            "properties": {
+                                "type": {"enum": ["entity"]},
+                                "entity_id": {"type": "string"},
+                                "attribute": {"type": ["string", "null"]},
+                            },
+                        },
+                        "role": {"enum": ["primary", "comparison", "secondary", "annotation"]},
+                        "render_as": {"enum": ["line"]},
+                        "transform": {
+                            "type": "object",
+                            "required": ["operation", "window"],
+                            "additionalProperties": False,
+                            "properties": {
+                                "operation": {"enum": ["none"]},
+                                "window": {"type": ["string", "null"]},
+                            },
+                        },
+                        "unit": {"type": ["string", "null"]},
+                    },
+                },
+            },
+            "overlays": {
+                "type": "array",
+                "items": {"type": "object"},
+            },
+            "x_axis": {"type": "object"},
+            "y_axis": {"type": "object"},
+            "notes": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+        },
+    }
+    return schema
 
 
 def planner_client_metadata(planner: Any) -> dict[str, str]:
@@ -215,10 +280,39 @@ class OllamaCompatiblePlannerClient:
             "rules": [
                 "Use only approved_entity_ids supplied in the request.",
                 "Return status chart_spec_ready with a ChartSpec for this packet.",
+                "The chart_spec must use chart_type, not graph_type.",
+                "Each series must include series_id, label, source, role, render_as, transform, and unit.",
+                "Each entity series source must be {\"type\":\"entity\",\"entity_id\":\"<approved id>\",\"attribute\":null}.",
+                "Use chart_type time_series, render_as line, transform operation none, x_axis type time, and overlays [].",
                 "Do not include raw Home Assistant history, secrets, worker URLs, tokens, or prose outside JSON.",
             ],
             "planner_request": deepcopy(request),
             "planner_result_schema": result_schema,
+            "minimal_chart_spec_example": {
+                "chart_id": "approved_entity_time_series",
+                "chart_type": "time_series",
+                "title": "Approved entity history",
+                "time_range": {"type": "relative", "duration": "24h"},
+                "series": [
+                    {
+                        "series_id": "approved_entity",
+                        "label": "Approved Entity",
+                        "source": {
+                            "type": "entity",
+                            "entity_id": "<one approved_entity_ids value>",
+                            "attribute": None,
+                        },
+                        "role": "primary",
+                        "render_as": "line",
+                        "transform": {"operation": "none", "window": None},
+                        "unit": None,
+                    }
+                ],
+                "overlays": [],
+                "x_axis": {"type": "time"},
+                "y_axis": {},
+                "notes": [],
+            },
         }
         return {
             "model": self.planner_model,

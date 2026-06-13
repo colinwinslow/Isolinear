@@ -29,6 +29,7 @@ from custom_components.isolinear.job_orchestration import (  # noqa: E402
 )
 from custom_components.isolinear.job_state import ensure_job_state_store  # noqa: E402
 from custom_components.isolinear.model_provider import DATA_MODEL_PROVIDER_PLANNER  # noqa: E402
+from custom_components.isolinear.model_provider import load_planner_result_schema  # noqa: E402
 from custom_components.isolinear.websocket_api import handle_registered_ws_command  # noqa: E402
 
 
@@ -199,6 +200,23 @@ def _orchestration_store(hass: FakeHass, entry: FakeEntry) -> dict[str, Any]:
 
 
 class FirstRealVerticalSliceTests(unittest.TestCase):
+    def test_ollama_structured_output_schema_embeds_chart_spec_contract(self):
+        schema = load_planner_result_schema()
+
+        chart_spec_schema = schema["properties"]["chart_spec"]
+
+        self.assertIn("chart_id", chart_spec_schema["required"])
+        self.assertIn("chart_type", chart_spec_schema["required"])
+        self.assertEqual(chart_spec_schema["properties"]["chart_type"]["enum"], ["time_series"])
+        self.assertEqual(
+            chart_spec_schema["properties"]["series"]["items"]["required"],
+            ["series_id", "label", "source", "role", "render_as", "transform", "unit"],
+        )
+        self.assertEqual(
+            chart_spec_schema["properties"]["series"]["items"]["properties"]["source"]["properties"]["type"]["enum"],
+            ["entity"],
+        )
+
     def test_prompt_returns_png_data_url_from_in_process_renderer(self):
         planner = FakePlanner()
         hass, entry = configured_real_slice_hass(planner=planner)

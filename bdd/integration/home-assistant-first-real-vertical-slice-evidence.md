@@ -1,6 +1,6 @@
 # Home Assistant Integration: First Real Vertical Slice - Evidence
 
-Run timestamp: 2026-06-13T07:09:12.5831438-07:00
+Run timestamp: 2026-06-13T10:05:08.5235113-07:00
 
 ## Scenario A - happy path: allowed prompt returns a PNG chart
 
@@ -134,11 +134,117 @@ Raw result snippet:
 }
 ```
 
+## Manual real Home Assistant + Ollama verification
+
+Manual verification timestamp: 2026-06-13.
+
+Runtime shape:
+
+- Home Assistant core: `2025.1.4`, running in WSL Ubuntu 24.04 with a temporary
+  config directory and a real SQLite recorder database.
+- Ollama endpoint: `http://10.0.1.39:11434`.
+- Planner model: `gemma4:e4b` as reported by Ollama `/api/tags`.
+- Entity allowlist: `["sensor.isolinear_probe_temperature"]`.
+- Invocation path: current custom integration loaded into a real Home
+  Assistant `HomeAssistant` object, then `isolinear/v1/job/start` and
+  `isolinear/v1/job/snapshot` dispatched through the registered Home Assistant
+  WebSocket handlers with a test connection object.
+
+Command shape:
+
+```powershell
+wsl.exe -d Ubuntu-24.04 -- bash -lc "cd /mnt/c/Users/c.winslow/OneDrive\ -\ Kagwerks/Documents/Repos/Isolinear && /home/cwinslow/.cache/isolinear-ha-site-20260613/bin/python <manual-real-ha-ollama-script>"
+```
+
+Raw result snippet:
+
+```json
+{
+  "hass_ready": true,
+  "real_recorder_history_count": 4,
+  "setup": {
+    "isolinear_setup_ok": true,
+    "catalog_setup": {
+      "code": "entity_catalog_ready",
+      "item_count": 1,
+      "entity_ids": ["sensor.isolinear_probe_temperature"],
+      "all_visible_to_agent": true
+    },
+    "history_setup": {
+      "code": "history_retrieval_ready",
+      "entities": ["sensor.isolinear_probe_temperature"]
+    },
+    "model_setup": {
+      "code": "model_provider_planner_configured",
+      "provider": {
+        "type": "ollama_compatible",
+        "role": "planner",
+        "endpoint_url": "http://10.0.1.39:11434",
+        "model": "gemma4:e4b"
+      }
+    },
+    "dashboard_resource_code": "dashboard_resource_registered",
+    "websocket_code": "websocket_commands_registered"
+  },
+  "start_result": {
+    "accepted": true,
+    "code": "registered_job_state_command_accepted",
+    "connection_errors": [],
+    "connection_result_status": "planning",
+    "job_id": "real-ha-entry-pass-job-001",
+    "status": "planning"
+  },
+  "snapshot_result": {
+    "accepted": true,
+    "code": "registered_job_state_command_accepted",
+    "connection_errors": [],
+    "status": "complete",
+    "message": "In-process trusted matplotlib render is ready for the dashboard card.",
+    "image_url_prefix": "data:image/png;base64,",
+    "image_url_length": 56110,
+    "png_signature": [137, 80, 78, 71, 13, 10, 26, 10],
+    "orchestration": {
+      "model_provider_called": true,
+      "chart_rendering_called": true,
+      "worker_called": false,
+      "model_provider_plan_bookkeeping_written": true,
+      "render_plan_bookkeeping_written": true,
+      "artifact_metadata_bookkeeping_written": true,
+      "home_assistant_mutation": false,
+      "semantic_memory_written": false,
+      "worker_token_written": false
+    }
+  },
+  "store_counts": {
+    "provider_plans": 1,
+    "render_plans": 1,
+    "artifacts": 1,
+    "worker_dispatches": 0,
+    "artifact_renderer": "in_process_matplotlib",
+    "artifact_status": "rendered",
+    "chart_entity": "sensor.isolinear_probe_temperature",
+    "history_series": ["sensor.isolinear_probe_temperature"]
+  }
+}
+```
+
+Runtime drift found and closed:
+
+- Real Home Assistant recorder access cannot run inside the event loop, and
+  Home Assistant's WebSocket dispatcher does not directly await bare coroutine
+  handlers. The registered WebSocket handler now uses Home Assistant's
+  `async_response` scheduler and awaits an async bridge that runs the existing
+  blocking orchestration helper through `hass.async_add_executor_job`.
+- The first live `gemma4:e4b` structured response used a graph-shaped object
+  instead of the expected `ChartSpec` fields. The Ollama structured-output
+  schema now narrows `chart_spec` to the first-slice `time_series` contract and
+  the prompt includes a minimal valid example.
+
 ## Test Output
 
 ```text
-3 passed in 3.51s
-54 passed in 5.91s
-57 passed in 9.37s
-303 passed in 63.78s
+4 passed in 3.47s
+8 passed in 0.45s
+40 passed in 6.72s
+305 passed in 57.56s
 ```

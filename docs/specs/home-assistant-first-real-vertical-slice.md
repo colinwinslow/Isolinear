@@ -41,6 +41,9 @@ The first real vertical slice must:
 
 - Run behind the existing `isolinear/v1/job/start` and
   `isolinear/v1/job/snapshot` WebSocket commands.
+- Keep registered Home Assistant WebSocket handlers async-safe by using Home
+  Assistant's async-response scheduling pattern and running the blocking
+  orchestration path in Home Assistant's executor.
 - Build catalog items only for configured allowlisted entities.
 - Prefer real Home Assistant registry/state metadata when running in a real
   Home Assistant runtime, while preserving explicit fake metadata injection for
@@ -104,6 +107,9 @@ planner, and verifies that the returned chart image is a real PNG data URL.
 5. Evidence file contains raw command/result snippets and decoded PNG
    signature bytes.
 6. Adjacent orchestration tests remain green.
+7. Manual evidence proves the same registered Home Assistant WebSocket handler
+   path can use real Home Assistant recorder history and a real
+   Ollama-compatible planner without blocking the event loop.
 
 ## Non-goals
 
