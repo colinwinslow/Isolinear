@@ -7,6 +7,12 @@
 **Next bounded packet:** `Choose next worker/orchestration follow-up`
 **Current readiness:** `READY-FOR-NEXT-PACKET`
 
+> **⚠️ Direction change (2026-06-12):** Before picking another scaffold packet,
+> read [`docs/reality-pivot-review.md`](docs/reality-pivot-review.md). The next
+> work is a **real vertical slice** (real recorder history + real Ollama +
+> real matplotlib, rendered in-process) — not another simulated scaffold. Stop
+> adding `*_anchor.py` verifiers; pytest is the single source of behavioral truth.
+
 ## Recent sessions (rolling, last 5)
 
 > Newest first. Add one entry per session at `/closeout`. **Trim to 5** — older sessions live in git history.
