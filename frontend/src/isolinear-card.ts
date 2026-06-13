@@ -28,6 +28,15 @@ const IDLE_SNAPSHOT: IsolinearJobSnapshot = {
   warnings: [],
 };
 
+const ACTIVE_JOB_STATUSES = new Set<IsolinearJobSnapshot["status"]>([
+  "planning",
+  "fetching_history",
+  "rendering",
+  "validating",
+]);
+
+const SNAPSHOT_POLL_INTERVAL_MS = 1000;
+
 function validateConfig(config: Partial<IsolinearCardConfig> | undefined): IsolinearCardConfig {
   if (!config || config.type !== "custom:isolinear-card") {
     throw new Error("Isolinear card config requires type custom:isolinear-card.");
@@ -69,6 +78,11 @@ export class IsolinearCard extends LitElement {
   @state()
   private prompt = "";
 
+  public snapshotPollIntervalMs = SNAPSHOT_POLL_INTERVAL_MS;
+
+  private pollTimer?: number;
+  private pollGeneration = 0;
+
   public static getConfigElement(): HTMLElement {
     return document.createElement("isolinear-card-editor");
   }
@@ -98,6 +112,11 @@ export class IsolinearCard extends LitElement {
     };
   }
 
+  public disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.cancelSnapshotPolling();
+  }
+
   protected updated(changed: Map<string, unknown>): void {
     if (changed.has("hass") && this.hass?.isolinearSnapshot) {
       this.snapshot = this.hass.isolinearSnapshot;
@@ -107,7 +126,7 @@ export class IsolinearCard extends LitElement {
   protected render() {
     const config = this.config;
     const snapshot = this.snapshot;
-    const busy = snapshot.status === "planning";
+    const busy = ACTIVE_JOB_STATUSES.has(snapshot.status);
 
     return html`
       <article class="card" data-layout=${statusLayout(snapshot.status)}>
@@ -253,11 +272,14 @@ export class IsolinearCard extends LitElement {
 
   private async submitPrompt(event: Event): Promise<void> {
     event.preventDefault();
-    if (!this.hass || !this.config || !this.prompt.trim() || this.snapshot.status === "planning") {
+    if (!this.hass || !this.config || !this.prompt.trim() || ACTIVE_JOB_STATUSES.has(this.snapshot.status)) {
       return;
     }
 
+    this.cancelSnapshotPolling();
     this.snapshot = await createIsolinearApi(this.hass, this.config).startJob(this.prompt.trim());
+    this.notifyCallsChanged();
+    this.startSnapshotPollingIfActive();
   }
 
   private async answerClarification(
@@ -274,6 +296,8 @@ export class IsolinearCard extends LitElement {
       option.option_id,
       remember,
     );
+    this.notifyCallsChanged();
+    this.startSnapshotPollingIfActive();
   }
 
   private async retryJob(): Promise<void> {
@@ -281,11 +305,102 @@ export class IsolinearCard extends LitElement {
       return;
     }
 
+    this.cancelSnapshotPolling();
     this.snapshot = await createIsolinearApi(this.hass, this.config).retryJob(this.snapshot);
+    this.notifyCallsChanged();
+    this.startSnapshotPollingIfActive();
   }
 
   private focusPrompt(): void {
     this.renderRoot.querySelector<HTMLTextAreaElement>("[data-testid='prompt-input']")?.focus();
+  }
+
+  private startSnapshotPollingIfActive(): void {
+    if (!this.snapshot.job_id || !ACTIVE_JOB_STATUSES.has(this.snapshot.status)) {
+      this.cancelSnapshotPolling();
+      return;
+    }
+
+    this.cancelSnapshotPolling();
+    this.pollGeneration += 1;
+    this.scheduleSnapshotPoll(this.pollGeneration);
+  }
+
+  private scheduleSnapshotPoll(generation: number): void {
+    if (!this.snapshot.job_id || !ACTIVE_JOB_STATUSES.has(this.snapshot.status)) {
+      return;
+    }
+
+    this.pollTimer = window.setTimeout(() => {
+      void this.pollSnapshot(generation);
+    }, this.snapshotPollIntervalMs);
+  }
+
+  private async pollSnapshot(generation: number): Promise<void> {
+    if (
+      generation !== this.pollGeneration ||
+      !this.hass ||
+      !this.config ||
+      !this.snapshot.job_id ||
+      !ACTIVE_JOB_STATUSES.has(this.snapshot.status)
+    ) {
+      return;
+    }
+
+    this.pollTimer = undefined;
+
+    try {
+      this.snapshot = await createIsolinearApi(this.hass, this.config).getSnapshot(this.snapshot.job_id);
+      this.notifyCallsChanged();
+    } catch (error) {
+      this.snapshot = this.snapshotPollingFailure(error);
+      this.notifyCallsChanged();
+      return;
+    }
+
+    if (generation === this.pollGeneration && ACTIVE_JOB_STATUSES.has(this.snapshot.status)) {
+      this.scheduleSnapshotPoll(generation);
+    }
+  }
+
+  private cancelSnapshotPolling(): void {
+    this.pollGeneration += 1;
+    if (this.pollTimer !== undefined) {
+      window.clearTimeout(this.pollTimer);
+      this.pollTimer = undefined;
+    }
+  }
+
+  private snapshotPollingFailure(error: unknown): IsolinearJobSnapshot {
+    const message = error instanceof Error ? error.message : "Snapshot polling failed.";
+
+    return {
+      snapshot_id: `${this.snapshot.job_id ?? "job"}-dashboard-poll-failed`,
+      job_id: this.snapshot.job_id,
+      status: "failed",
+      prompt: this.snapshot.prompt,
+      state_label: "Failed",
+      failure: {
+        stage: "dashboard_card",
+        code: "snapshot_poll_failed",
+        message,
+      },
+      retry_allowed: true,
+      validation: {
+        status: "fail",
+        summary: "The dashboard card could not refresh the job snapshot.",
+      },
+      warnings: ["snapshot_poll_failed"],
+    };
+  }
+
+  private notifyCallsChanged(): void {
+    this.dispatchEvent(
+      new CustomEvent("isolinear-calls-changed", {
+        bubbles: true,
+        composed: true,
+      }),
+    );
   }
 
   static styles = css`

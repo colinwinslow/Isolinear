@@ -41,6 +41,16 @@ drift issues: registered WebSocket commands now use Home Assistant's
 Assistant's executor, and the Ollama structured-output schema now narrows
 `chart_spec` to the first-slice `time_series` ChartSpec shape.
 
+The dashboard-card long-running smoke hardening packet is complete. The Lit
+card now treats `planning`, `fetching_history`, `rendering`, and `validating`
+snapshots as active jobs, disables duplicate prompt submission, and polls
+`isolinear/v1/job/snapshot` through the integration-owned Home Assistant
+connection until a terminal snapshot arrives. The mounted `happy-dom` Vitest
+smoke proves delayed `job/start` -> automatic `job/snapshot` -> chart-first PNG
+result behavior, while the focused Python smoke proves the same command shapes
+complete through the registered WebSocket handler path with only the
+allowlisted entity and zero worker dispatches.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -83,7 +93,10 @@ snapshots, Vitest adapter coverage, Python verifier/eval coverage, and raw
 BDD evidence proving idle, planning, clarification, complete, failed, and
 integration-boundary scenarios. Repo-local setup scripts create `.venv`, run
 pytest, resolve the Windows Node.js install, and run frontend install/build/test
-commands without depending on ambient PATH.
+commands without depending on ambient PATH. A long-running mounted-card smoke
+now covers the active prompt workflow beyond static fixture rendering: delayed
+prompt submission, automatic snapshot polling, duplicate-submit suppression,
+and chart-first PNG completion.
 
 Worker API transport and authentication is designed and anchored in ADR-0012.
 The card-facing API is a versioned Home Assistant WebSocket command set under
@@ -730,10 +743,9 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 ## Next recommended packet
 
 Choose the next real-slice hardening packet before returning to additional
-scaffolds. Good candidates are running a long-running Home Assistant
-browser/card smoke against the registered WebSocket commands, replacing the
-temporary PNG data URL proof with production artifact serving, or reintroducing
-the worker/add-on rendering boundary for the same verified real-slice route.
+scaffolds. Good candidates are replacing the temporary PNG data URL proof with
+production artifact serving or reintroducing the worker/add-on rendering
+boundary for the same verified real-slice route.
 
 Preserve the known codegen sandbox matplotlib subprocess flake as a historical
 caveat; the first-real-slice closeout full Python suite passed cleanly
@@ -755,9 +767,10 @@ caveat; the first-real-slice closeout full Python suite passed cleanly
   polling maintainability refactor, and cancelled-state hardening.
 - Production entity-registry, device-registry, area-registry, and label
   adapters beyond the scaffold-compatible approved entity metadata shape.
-- Long-running browser/dashboard-card smoke against a real Home Assistant dev
-  server; the completed manual proof used real Home Assistant core and the
-  registered WebSocket handler path with a test connection object.
+- Live Home Assistant dashboard browser smoke against a real dev server remains
+  unresolved; the completed hardening packet covers a mounted card plus the
+  registered command path, and the prior manual proof used real Home Assistant
+  core with a test connection object.
 - Production worker packaging details for matplotlib and target Home Assistant/Raspberry Pi images.
 - Post-MVP floorplan heatmap geometry, upload/storage, and room-mapping contract.
 - Production worker token rotation UI or real Home Assistant Repairs/automatic

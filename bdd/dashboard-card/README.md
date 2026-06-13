@@ -13,6 +13,9 @@ integration boundary.
 - **Chart result** - User sees a chart-dominant result view with entity
   disclosure, aliases, validation status, and a compact bottom prompt composer
   for a new request.
+- **Long-running prompt smoke** - User submits a prompt, the card disables
+  duplicate submission, polls `job/snapshot`, and reaches a chart-first PNG
+  result.
 - **Failure details** - User sees the failed stage and retry or revision action.
 - **Integration boundary** - Card gestures are sent through integration-owned
   WebSocket commands, not direct worker, model, history, memory, or mutation
@@ -34,8 +37,10 @@ integration boundary.
 - ADR: [docs/decisions/0012-worker-transport-and-authentication.md](../../docs/decisions/0012-worker-transport-and-authentication.md)
 - Source scenarios: [docs/bdd/dashboard-card.feature](../../docs/bdd/dashboard-card.feature)
 - Paired BDD: [custom-card-anchor-bdd.md](custom-card-anchor-bdd.md)
+- Paired BDD: [home-assistant-dashboard-card-long-running-smoke-bdd.md](home-assistant-dashboard-card-long-running-smoke-bdd.md)
 - Paired BDD: [integration-api-transport-auth-bdd.md](integration-api-transport-auth-bdd.md)
 - Evidence: [custom-card-anchor-evidence.md](custom-card-anchor-evidence.md)
+- Evidence: [home-assistant-dashboard-card-long-running-smoke-evidence.md](home-assistant-dashboard-card-long-running-smoke-evidence.md)
 - Evidence: [integration-api-transport-auth-evidence.md](integration-api-transport-auth-evidence.md)
 - Eval: [evals/dashboard_card_anchor.py](../../evals/dashboard_card_anchor.py)
 - Eval: [evals/integration_api_transport_auth.py](../../evals/integration_api_transport_auth.py)

@@ -20,3 +20,7 @@ The local harness at `harness/index.html` imports the bundle, supplies a fake
 Home Assistant object, and renders the fixture job snapshots from
 `fixtures/job-snapshots.json`. After starting the server, open
 `http://127.0.0.1:8765/harness/`.
+
+The long-running smoke harness at `harness/long-running-smoke.html` mounts the
+same bundle and expects a test bridge for `__isolinear_smoke_ws`; the automated
+Vitest smoke is the usual way to run that path.
