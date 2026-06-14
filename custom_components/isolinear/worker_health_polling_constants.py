@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
+
+from ._paths import schema_path
 
 DATA_WORKER_HEALTH_POLLING = "worker_health_polling"
 DATA_WORKER_HEALTH_POLLING_CANCEL = "worker_health_polling_cancel"
@@ -27,8 +28,5 @@ POLLING_LOADED_FORBIDDEN_RE = re.compile(
 )
 
 WORKER_HEALTH_POLLING_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "docs"
-    / "schemas"
-    / "integration-worker-health-polling-state.schema.json"
+    schema_path("integration-worker-health-polling-state.schema.json")
 )

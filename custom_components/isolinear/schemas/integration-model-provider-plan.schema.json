@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/integration-model-provider-plan.schema.json",
+  "title": "IntegrationModelProviderPlan",
+  "type": "object",
+  "required": [
+    "provider_plan_id",
+    "config_entry_id",
+    "job_id",
+    "source_snapshot_id",
+    "provider",
+    "request",
+    "status",
+    "planner_result",
+    "chart_spec",
+    "validation",
+    "warnings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "provider_plan_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "config_entry_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "job_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "source_snapshot_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "provider": {
+      "type": "object",
+      "required": [
+        "type",
+        "role",
+        "endpoint_url",
+        "model"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "ollama_compatible"
+        },
+        "role": {
+          "const": "planner"
+        },
+        "endpoint_url": {
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "model": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "prompt",
+        "approved_entity_ids",
+        "history_entity_ids",
+        "output_schema"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "prompt": {
+          "type": "string"
+        },
+        "approved_entity_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "history_entity_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
+        },
+        "output_schema": {
+          "const": "PlannerResult"
+        }
+      }
+    },
+    "status": {
+      "const": "chart_spec_ready"
+    },
+    "planner_result": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "chart_spec": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "validation": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary",
+        "checks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "pass"
+        },
+        "summary": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "status": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            }
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

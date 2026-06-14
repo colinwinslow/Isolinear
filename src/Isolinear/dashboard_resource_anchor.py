@@ -24,7 +24,7 @@ from .dashboard_card_anchor import repo_root
 DASHBOARD_RESOURCE_FILES = [
     "custom_components/isolinear/dashboard_resource.py",
     "custom_components/isolinear/__init__.py",
-    "frontend/dist/isolinear-card.js",
+    "custom_components/isolinear/frontend/dist/isolinear-card.js",
 ]
 
 

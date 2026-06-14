@@ -8,9 +8,9 @@ import json
 import re
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 
+from ._paths import schema_path
 from .artifact_serving import prepare_png_artifact, remove_png_artifact, write_png_artifact
 from .const import DOMAIN, INTEGRATION_COMMAND_TYPES
 from .entity_catalog import DATA_ENTITY_CATALOG
@@ -51,42 +51,36 @@ DATA_JOB_ORCHESTRATION = "job_orchestration"
 DATA_JOB_ORCHESTRATION_SETUP = "job_orchestration_setup"
 DATA_JOB_ORCHESTRATION_TIME_RANGE = "job_orchestration_default_time_range"
 ARTIFACT_METADATA_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-artifact-metadata.schema.json"
+    schema_path("integration-artifact-metadata.schema.json")
 )
 RENDER_PLAN_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-render-plan.schema.json"
+    schema_path("integration-render-plan.schema.json")
 )
 MODEL_PROVIDER_PLAN_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-model-provider-plan.schema.json"
+    schema_path("integration-model-provider-plan.schema.json")
 )
 MODEL_PROVIDER_RETRY_POLICY_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "docs"
-    / "schemas"
-    / "integration-model-provider-retry-policy.schema.json"
+    schema_path("integration-model-provider-retry-policy.schema.json")
 )
 WORKER_DISPATCH_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-worker-dispatch.schema.json"
+    schema_path("integration-worker-dispatch.schema.json")
 )
 WORKER_PROGRESS_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-worker-progress.schema.json"
+    schema_path("integration-worker-progress.schema.json")
 )
 WORKER_RETRY_POLICY_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-worker-retry-policy.schema.json"
+    schema_path("integration-worker-retry-policy.schema.json")
 )
 WORKER_TRANSPORT_FAILURE_CLASSIFICATION_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "docs"
-    / "schemas"
-    / "integration-worker-transport-failure-classification.schema.json"
+    schema_path("integration-worker-transport-failure-classification.schema.json")
 )
 WORKER_TRANSPORT_REQUEST_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "worker-transport-request.schema.json"
+    schema_path("worker-transport-request.schema.json")
 )
-RENDER_REQUEST_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "render-request.schema.json"
-RENDER_RESULT_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "render-result.schema.json"
-PLANNER_RESULT_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "planner-result.schema.json"
-CHART_SPEC_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "chart-spec.schema.json"
+RENDER_REQUEST_SCHEMA_PATH = schema_path("render-request.schema.json")
+RENDER_RESULT_SCHEMA_PATH = schema_path("render-result.schema.json")
+PLANNER_RESULT_SCHEMA_PATH = schema_path("planner-result.schema.json")
+CHART_SPEC_SCHEMA_PATH = schema_path("chart-spec.schema.json")
 
 ENTITY_ID_IN_PROMPT = re.compile(r"\b[a-z0-9_]+\.[a-z0-9_]+\b")
 FORBIDDEN_WORKER_PROGRESS_TEXT = re.compile(
@@ -3854,7 +3848,7 @@ def validate_worker_progress_contract(worker_progress: Any) -> dict[str, Any]:
         "accepted": True,
         "code": "accepted",
         "schema": str(WORKER_PROGRESS_SCHEMA_PATH),
-        "snapshot_schema": "docs/schemas/integration-job-snapshot.schema.json",
+        "snapshot_schema": str(schema_path("integration-job-snapshot.schema.json")),
     }
 
 
@@ -4001,7 +3995,7 @@ def validate_render_request_contract(render_request: Any) -> dict[str, Any]:
         "code": "accepted",
         "schema": str(RENDER_REQUEST_SCHEMA_PATH),
         "chart_schema": str(CHART_SPEC_SCHEMA_PATH),
-        "history_schema": "docs/schemas/history-series.schema.json",
+        "history_schema": str(schema_path("history-series.schema.json")),
     }
 
 

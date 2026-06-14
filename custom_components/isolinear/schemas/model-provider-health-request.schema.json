@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/model-provider-health-request.schema.json",
+  "title": "ModelProviderHealthRequest",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "method",
+    "path",
+    "headers"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "const": 1
+    },
+    "method": {
+      "const": "GET"
+    },
+    "path": {
+      "const": "/api/tags"
+    },
+    "headers": {
+      "type": "object",
+      "required": [
+        "accept"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "accept": {
+          "const": "application/json"
+        }
+      }
+    }
+  }
+}

@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import re
 from copy import deepcopy
-from pathlib import Path
 from typing import Any
 
+from ._paths import schema_path
 from .const import DOMAIN
 from .job_state import JobStateSnapshotValidationError, _validate_json_schema
 from .worker_readiness import get_worker_readiness
@@ -25,10 +25,10 @@ DATA_WORKER_HEALTH = "worker_health"
 DATA_WORKER_HEALTH_SETUP = "worker_health_setup"
 
 WORKER_HEALTH_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-worker-health.schema.json"
+    schema_path("integration-worker-health.schema.json")
 )
 WORKER_HEALTH_REQUEST_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "worker-health-request.schema.json"
+    schema_path("worker-health-request.schema.json")
 )
 
 FORBIDDEN_WORKER_HEALTH_TEXT = re.compile(

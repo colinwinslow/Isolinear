@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import secrets
 from copy import deepcopy
-from pathlib import Path
 from typing import Any, Callable
 
+from ._paths import schema_path
 from .const import DOMAIN
 from .job_state import JobStateSnapshotValidationError, _validate_json_schema
 from .worker_renderer import (
@@ -26,7 +26,7 @@ DATA_WORKER_READINESS = "worker_readiness"
 DATA_WORKER_READINESS_SETUP = "worker_readiness_setup"
 
 WORKER_READINESS_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-worker-readiness.schema.json"
+    schema_path("integration-worker-readiness.schema.json")
 )
 DEFAULT_WORKER_TOKEN_BYTES = 32
 

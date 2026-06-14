@@ -33,6 +33,7 @@ implementing slice produces an evidence file proving each scenario was hit.
 - `home-assistant-approved-history-retrieval-scaffold-spec.md` — Config-entry-scoped approved history retrieval scaffold
 - `home-assistant-dashboard-resource-registration-spec.md` — Integration-owned dashboard card resource registration
 - `home-assistant-dashboard-card-long-running-smoke.md` — Dashboard card active-job polling smoke against versioned WebSocket snapshots
+- `home-assistant-hacs-install-packaging.md` — HACS custom-repository packaging for one-click install/update
 - `home-assistant-first-real-vertical-slice.md` — First real Home Assistant metadata/history plus Ollama planner plus in-process matplotlib PNG slice
 - `home-assistant-production-artifact-serving.md` — Production serving for rendered chart PNG artifacts
 - `home-assistant-worker-rendered-artifact-serving.md` — Worker-rendered real-slice PNG bytes written to the served artifact store

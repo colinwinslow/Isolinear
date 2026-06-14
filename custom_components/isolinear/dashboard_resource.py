@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ._paths import frontend_dist_path
 from .const import DOMAIN
 
 
@@ -41,13 +42,6 @@ NO_RESOURCE_ORCHESTRATION_CALLS = {
     "job_orchestration_called": False,
     "websocket_command_registered": False,
 }
-
-
-def frontend_dist_path(root: Path | None = None) -> Path:
-    """Return the checked-in dashboard card bundle directory."""
-    if root is not None:
-        return root / "frontend" / "dist"
-    return Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
 def dashboard_resource_metadata() -> dict[str, str]:

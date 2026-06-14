@@ -6,9 +6,9 @@ import json
 import re
 from copy import deepcopy
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
+from ._paths import schema_path
 from .config_schema import ENTITY_ID_PATTERN
 from .const import DOMAIN
 from .entity_catalog import DATA_ENTITY_CATALOG
@@ -18,7 +18,7 @@ DATA_HISTORY_RETRIEVAL = "history_retrieval"
 DATA_HISTORY_RETRIEVAL_SETUP = "history_retrieval_setup"
 DATA_HISTORY_SOURCE = "history_data"
 HISTORY_SERIES_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "history-series.schema.json"
+    schema_path("history-series.schema.json")
 )
 
 MISSING_STATE_QUALITIES = {

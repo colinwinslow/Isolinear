@@ -81,6 +81,18 @@ before decode, and post-write progress rejection removes the just-written PNG
 plus artifact-write metadata. The older worker dispatch scaffold still proves
 no-file placeholder behavior when the real-slice model-provider plan is absent.
 
+The HACS install-packaging packet is complete. The repository is now shaped as
+a HACS custom integration repository with root `hacs.json`, manifest
+`issue_tracker` metadata, and exactly one packaged Home Assistant integration
+under `custom_components/isolinear`. Runtime JSON Schemas are bundled under
+`custom_components/isolinear/schemas`, the dashboard card bundle is bundled
+under `custom_components/isolinear/frontend/dist`, and runtime validators plus
+dashboard resource registration resolve package-local assets so HACS installs
+do not require separately copying repo-root `docs/schemas` or `frontend/dist`.
+`scripts/frontend.ps1 build` refreshes the packaged card bundle after frontend
+builds, and the README now documents the HACS custom-repository install and
+redownload update loop.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -88,6 +100,7 @@ Isolinear lets a user ask natural-language questions about approved Home Assista
 ## Current architecture direction
 
 - Home Assistant custom integration.
+- Install/update path is HACS custom repository of type `integration`.
 - TypeScript Lit custom dashboard card as the first UI (`custom:isolinear-card`).
 - Optional Home Assistant add-on worker for rendering and sandbox execution.
 - Standalone worker mode should remain possible for Home Assistant installs that cannot use add-ons.
@@ -783,10 +796,14 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Choose the next real-slice hardening packet before returning to additional
-scaffolds. The strongest next candidate is reintroducing the worker/add-on
-rendering boundary for the same verified real-slice route while preserving the
-served artifact URL contract.
+Install Isolinear into a live Home Assistant dev instance through HACS as a
+custom repository, then run the worker-rendered served-artifact path against
+real recorder-backed sensor history and the configured Ollama planner. Capture
+evidence that HACS redownload/restart updates the integration, the card loads
+from `/api/isolinear/static/isolinear-card.js`, the job returns
+`/api/isolinear/artifacts/<artifact_id>.png`, and no worker token, worker-local
+path, local artifact path, or base64 image bytes leak to card-facing WebSocket
+responses.
 
 Preserve the known codegen sandbox matplotlib subprocess flake as a historical
 caveat; the first-real-slice closeout full Python suite passed cleanly

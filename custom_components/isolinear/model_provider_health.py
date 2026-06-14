@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import re
 from copy import deepcopy
-from pathlib import Path
 from typing import Any
 
+from ._paths import schema_path
 from .const import DOMAIN
 from .job_state import JobStateSnapshotValidationError, _validate_json_schema
 from .model_provider import (
@@ -21,10 +21,10 @@ DATA_MODEL_PROVIDER_HEALTH = "model_provider_health"
 DATA_MODEL_PROVIDER_HEALTH_SETUP = "model_provider_health_setup"
 
 MODEL_PROVIDER_HEALTH_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-model-provider-health.schema.json"
+    schema_path("integration-model-provider-health.schema.json")
 )
 MODEL_PROVIDER_HEALTH_REQUEST_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "model-provider-health-request.schema.json"
+    schema_path("model-provider-health-request.schema.json")
 )
 
 FORBIDDEN_MODEL_PROVIDER_HEALTH_TEXT = re.compile(

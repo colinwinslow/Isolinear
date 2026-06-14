@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import re
 from copy import deepcopy
-from pathlib import Path
 from typing import Any, Callable
 
+from ._paths import schema_path
 from .const import DOMAIN
 from .job_state import JobStateSnapshotValidationError, _validate_json_schema
 from .worker_readiness import (
@@ -38,10 +38,7 @@ TOKEN_LIFECYCLE_FORBIDDEN_RE = re.compile(
     re.IGNORECASE,
 )
 WORKER_TOKEN_LIFECYCLE_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "docs"
-    / "schemas"
-    / "integration-worker-token-lifecycle-state.schema.json"
+    schema_path("integration-worker-token-lifecycle-state.schema.json")
 )
 
 try:

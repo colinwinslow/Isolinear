@@ -6,14 +6,14 @@ import json
 import re
 from datetime import datetime
 from copy import deepcopy
-from pathlib import Path
 from typing import Any
 
+from ._paths import schema_path
 from .const import DOMAIN, INTEGRATION_COMMAND_TYPES
 
 
 DATA_JOB_STATE = "job_state"
-SNAPSHOT_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "integration-job-snapshot.schema.json"
+SNAPSHOT_SCHEMA_PATH = schema_path("integration-job-snapshot.schema.json")
 
 NO_JOB_STATE_ORCHESTRATION_CALLS = {
     "worker_called": False,

@@ -39,6 +39,12 @@ if ($Action -eq "install") {
 
 if ($Action -eq "build") {
     & $Npm --prefix $FrontendRoot run build -- @ExtraArgs
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+    $PackagedDist = Join-Path $RepoRoot "custom_components\isolinear\frontend\dist"
+    New-Item -ItemType Directory -Force -Path $PackagedDist | Out-Null
+    Copy-Item -Force -LiteralPath (Join-Path $FrontendRoot "dist\isolinear-card.js") -Destination (Join-Path $PackagedDist "isolinear-card.js")
     exit $LASTEXITCODE
 }
 

@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import re
 from copy import deepcopy
-from pathlib import Path
 from typing import Any
 
+from ._paths import schema_path
 from .config_schema import ENTITY_ID_PATTERN
 from .const import DOMAIN
 
@@ -16,7 +16,7 @@ DATA_ENTITY_CATALOG = "entity_catalog"
 DATA_ENTITY_CATALOG_SETUP = "entity_catalog_setup"
 DATA_ENTITY_METADATA = "entity_metadata"
 ENTITY_CATALOG_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "docs" / "schemas" / "entity-catalog-item.schema.json"
+    schema_path("entity-catalog-item.schema.json")
 )
 
 NO_ENTITY_CATALOG_ORCHESTRATION_CALLS = {

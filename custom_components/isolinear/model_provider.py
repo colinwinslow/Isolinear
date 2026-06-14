@@ -6,16 +6,16 @@ import json
 import urllib.error
 import urllib.request
 from copy import deepcopy
-from pathlib import Path
 from typing import Any
 
+from ._paths import schema_path
 from .const import DOMAIN, MODEL_PROVIDER_OLLAMA_COMPATIBLE
 
 
 DATA_MODEL_PROVIDER_PLANNER = "model_provider_planner"
 DATA_MODEL_PROVIDER_SETUP = "model_provider_setup"
 
-PLANNER_RESULT_SCHEMA_PATH = Path(__file__).resolve().parents[2] / "docs" / "schemas" / "planner-result.schema.json"
+PLANNER_RESULT_SCHEMA_PATH = schema_path("planner-result.schema.json")
 DEFAULT_OLLAMA_TIMEOUT_SECONDS = 30
 MODEL_PROVIDER_HEALTH_PATH = "/api/tags"
 

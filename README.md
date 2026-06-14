@@ -41,6 +41,35 @@ The system will:
 - `docs/schemas/` defines machine-checkable internal contracts.
 - `docs/evals/` sketches BDD-derived evaluation cases.
 
+## Home Assistant install with HACS
+
+Isolinear is shaped as a HACS custom integration repository. In Home Assistant:
+
+1. Open **HACS**.
+2. Use the top-right menu and choose **Custom repositories**.
+3. Add this GitHub repository URL.
+4. Select repository type **Integration**.
+5. Download Isolinear.
+6. Restart Home Assistant.
+7. Go to **Settings -> Devices & services -> Add integration -> Isolinear**.
+
+For normal development updates, push the repo changes, then use HACS
+**Redownload** for the Isolinear repository and restart Home Assistant.
+
+The integration package is self-contained for HACS: runtime schemas live under
+`custom_components/isolinear/schemas/`, and the dashboard card bundle lives at
+`custom_components/isolinear/frontend/dist/isolinear-card.js`. The public
+dashboard resource URL remains `/api/isolinear/static/isolinear-card.js`.
+
+When changing frontend code, run:
+
+```powershell
+.\scripts\frontend.ps1 build
+```
+
+The build updates both `frontend/dist/isolinear-card.js` and the packaged HACS
+copy under `custom_components/isolinear/frontend/dist/`.
+
 ## Engineering rule of thumb
 
 The model may infer, propose, and explain. The product constrains, validates, logs, and asks for user confirmation when ambiguity matters.
