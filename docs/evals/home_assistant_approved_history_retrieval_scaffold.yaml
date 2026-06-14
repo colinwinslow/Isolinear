@@ -1,0 +1,31 @@
+id: home_assistant_approved_history_retrieval_scaffold
+summary: The Home Assistant integration owns a config-entry-scoped approved history retrieval scaffold that reads only approved entity history and stores schema-valid HistorySeries records.
+executable_eval: evals/home_assistant_approved_history_retrieval_scaffold.py
+fixtures:
+  history_series_schema: docs/schemas/history-series.schema.json
+  integration_history_retrieval_module: custom_components/isolinear/history_retrieval.py
+  integration_entity_catalog_module: custom_components/isolinear/entity_catalog.py
+  integration_setup: custom_components/isolinear/__init__.py
+  fake_hass: in-code fake Home Assistant approved catalog and history data
+expect:
+  approved_entities_only: true
+  schema_valid_history_series: true
+  config_entry_scoped_store: true
+  per_config_entry_isolation: true
+  non_catalog_entity_rejected_before_history_read: true
+  rejected_retrieval_clears_existing_history: true
+  malformed_raw_history_rejected_without_storage: true
+  malformed_history_series_rejected_before_storage: true
+  approved_entity_catalog_read: true
+  home_assistant_history_read: true
+  history_retrieval_scaffold_written: true
+  worker_called: false
+  model_provider_called: false
+  semantic_memory_called: false
+  home_assistant_service_or_state_mutation_called: false
+  token_generated: false
+  chart_artifact_written: false
+  chart_rendering_called: false
+  job_orchestration_called: false
+  websocket_command_registered: false
+  dashboard_resource_metadata_written_or_reused: false

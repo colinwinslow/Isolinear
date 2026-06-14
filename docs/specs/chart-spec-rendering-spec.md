@@ -31,6 +31,221 @@ The trusted renderer should support chart primitives such as:
 - Event markers.
 - Hourly or daily aggregations.
 
+## First trusted renderer release scope
+
+The first trusted renderer release intentionally supports a narrow, inspectable
+primitive set:
+
+- `chart_type: time_series`.
+- One or more numeric history series rendered as `line`.
+- No series transform, or `transform.operation: none`.
+- Entity-backed series sources only.
+- Optional overlays rendered as `shaded_intervals` from supplied
+  `DerivedInterval` records.
+- PNG output.
+
+The first release does not support `bar`, `histogram`, `scatter`, `timeline`,
+`multi_panel`, `step`, `area`, rolling/resampling transforms, aggregate or alias
+sources, marker overlays, band overlays, categorical state bands, event markers,
+or SVG output in trusted mode.
+
+Unsupported but schema-valid chart specs must fail closed with
+`unsupported_chart_spec` in safe mode. They must not silently fall into codegen
+mode; codegen remains an explicitly requested advanced path.
+
+## Trusted renderer roadmap
+
+After the first release, expand trusted rendering with focused slices for these
+chart families:
+
+- State interval timeline (selected first follow-up): binary or categorical state over time, such as
+  doors, occupancy, appliance cycles, HVAC modes, or automation states.
+- Aggregate bar chart: one value per entity, area, device class, or time bucket,
+  such as average temperature by room, runtime by appliance, or daily energy by
+  source.
+- Calendar/hour heatmap (selected third follow-up): values grouped by hour,
+  day, or weekday for questions like when HVAC, energy use, or occupancy most
+  often occurs.
+- Event markers (selected fourth follow-up): point-in-time annotations over a time-series chart for state
+  changes, automation runs, threshold crossings, or user-confirmed events.
+- Distribution or histogram (selected fourth follow-up): value frequency over a selected period, such as
+  how often temperature, humidity, or power draw stayed inside a range.
+- Scatter or correlation chart (selected fifth follow-up): paired numeric
+  values for relationships such as outdoor temperature versus HVAC runtime or
+  solar production versus load.
+
+Each family needs its own BDD/eval slice before implementation. Support should
+enter the trusted renderer only when the required `ChartSpec`, normalized data,
+render metadata, and validation behavior are deterministic.
+
+## State interval timeline follow-up scope
+
+The first follow-up trusted renderer family is `state_interval_timeline`.
+
+This slice supports:
+
+- `chart_type: timeline`.
+- One or more binary or categorical state tracks rendered as `step`.
+- Entity-backed series sources only.
+- No series transform, or `transform.operation: none`.
+- One supplied `DerivedInterval` per rendered track, with
+  `DerivedInterval.interval_id` matching the chart `series_id` and
+  `DerivedInterval.source_entity_id` matching the chart series source entity.
+- Absolute chart time ranges for deterministic `x_min` and `x_max` metadata.
+- PNG output.
+
+This slice does not support timeline overlays, aggregate or alias sources,
+numeric timelines, marker overlays, SVG output, or codegen fallback. Unsupported
+but schema-valid timeline specs must fail closed with `unsupported_chart_spec`
+before writing output artifacts. Missing derived intervals fail before writing
+output artifacts.
+
+## Aggregate bar chart follow-up scope
+
+The second follow-up trusted renderer family is `aggregate_bar_chart`.
+
+This slice supports:
+
+- `chart_type: bar`.
+- One or more aggregate series rendered as `bar`.
+- Aggregate series sources using `source.type: aggregate`.
+- Aggregate operations: `mean`, `min`, `max`, `sum`, and `count`.
+- One bar per source entity ID, computed from matching supplied numeric
+  `HistorySeries` records over the chart time range.
+- No series transform, or `transform.operation: none`.
+- No overlays.
+- PNG output.
+
+The first aggregate-bar slice does not support entity, alias, area, device
+class, or time-bucket bar sources; grouped or stacked bars; non-numeric history;
+bar overlays; SVG output; or codegen fallback. Unsupported but schema-valid bar
+specs must fail closed with `unsupported_chart_spec` before writing output
+artifacts. Missing aggregate source history or source history with no numeric
+points must fail before writing output artifacts.
+
+## Calendar/hour heatmap follow-up scope
+
+The third follow-up trusted renderer family is `calendar_hour_heatmap`.
+
+This slice supports:
+
+- `chart_type: heatmap`.
+- One numeric entity history series rendered as `heatmap`.
+- Entity-backed series sources only.
+- No series transform, or `transform.operation: none`.
+- `x_axis.group_by: hour`.
+- `y_axis.group_by: weekday`.
+- Fixed `mean` aggregation per weekday/hour cell.
+- Absolute chart time ranges for deterministic `x_min` and `x_max` metadata.
+- No overlays.
+- PNG output.
+
+The first heatmap slice does not support aggregate or alias sources, multiple
+heatmap series, non-numeric history, day/date calendar rows, custom cell
+aggregation operations, heatmap overlays, SVG output, or codegen fallback.
+Unsupported but schema-valid heatmap specs must fail closed with
+`unsupported_chart_spec` before writing output artifacts. Missing heatmap source
+history or heatmap history with no numeric points in range must fail before
+writing output artifacts.
+
+## Event marker follow-up scope
+
+The fourth follow-up trusted renderer family includes `event_markers`.
+
+This slice supports:
+
+- `chart_type: time_series`.
+- One or more numeric entity history series rendered as `line`.
+- Entity-backed series sources only.
+- No series transform, or `transform.operation: none`.
+- Overlay `render_as: markers`.
+- Marker overlay sources using `source.type: entity`.
+- Marker timestamps derived from supplied validated `HistorySeries` records:
+  - Binary or categorical state histories emit a marker when a point enters one
+    of `active_values`.
+  - Numeric histories emit a marker when a point first crosses the overlay
+    `threshold`.
+  - Event histories emit one marker per event point when no `active_values` or
+    `threshold` rule is supplied.
+- Absolute chart time ranges for deterministic `x_min` and `x_max` metadata.
+- PNG output.
+
+The first marker slice does not support marker overlays on non-time-series
+charts, alias or aggregate marker sources, simultaneous `active_values` and
+`threshold` marker rules, marker bands, marker labels in the rendered image,
+SVG output, or codegen fallback. Unsupported but schema-valid marker specs must
+fail closed with `unsupported_chart_spec` before writing output artifacts.
+Missing marker source history or marker history with no matching events in
+range must fail before writing output artifacts.
+
+## Distribution/histogram follow-up scope
+
+The fourth follow-up trusted renderer family includes `distribution_histogram`.
+
+This slice supports:
+
+- `chart_type: histogram`.
+- One numeric entity history series rendered as `histogram`.
+- Entity-backed series sources only.
+- No series transform, or `transform.operation: none`.
+- Fixed-count value bins from `x_axis.bin_count`; if omitted, the trusted
+  renderer uses a deterministic default of 8 bins.
+- Supported bin counts from 4 through 64.
+- Absolute chart time ranges for deterministic `x_min` and `x_max` metadata.
+- No overlays.
+- PNG output.
+
+The first histogram slice does not support multiple histogram series,
+aggregate or alias sources, non-numeric history, cumulative distributions,
+density normalization, stacked/grouped histograms, histogram overlays, SVG
+output, or codegen fallback. Unsupported but schema-valid histogram specs must
+fail closed with `unsupported_chart_spec` before writing output artifacts.
+Missing histogram source history or histogram history with no numeric points in
+range must fail before writing output artifacts.
+
+## Scatter/correlation follow-up scope
+
+The fifth follow-up trusted renderer family is `scatter_correlation`.
+
+This slice supports:
+
+- `chart_type: scatter`.
+- Exactly two numeric entity history series rendered as `scatter`.
+- Entity-backed series sources only.
+- No series transform, or `transform.operation: none`.
+- `x_axis.source_series_id` must match the first series ID, and
+  `y_axis.source_series_id` must match the second series ID.
+- Paired points joined by exact matching timestamps inside the chart time
+  range.
+- Absolute chart time ranges for deterministic `x_min` and `x_max` metadata.
+- No overlays.
+- PNG output.
+
+The first scatter/correlation slice does not support aggregate or alias
+sources, more than two series, non-numeric history, nearest-neighbor or
+resampled pairing, rendered correlation coefficients, regression bands,
+scatter overlays, SVG output, or codegen fallback. Unsupported but schema-valid
+scatter specs must fail closed with `unsupported_chart_spec` before writing
+output artifacts. Missing scatter source history or scatter histories with no
+paired numeric points in range must fail before writing output artifacts.
+
+## Floorplan heatmap deferral
+
+Floorplan-style views are useful but intentionally deferred until after the MVP.
+Home Assistant provides floors and areas as logical organization, but it does
+not natively provide room geometry. A trusted floorplan renderer will therefore
+need an explicit user-provided geometry contract, such as:
+
+- A floorplan SVG or image.
+- Room or area IDs mapped to SVG paths, rectangles, or polygons.
+- Entity mappings for each area metric, such as temperature, occupancy, power,
+  or energy.
+- Deterministic color scales, legends, missing-data styling, and allowlist
+  validation for every referenced entity.
+
+The likely first floorplan slice is `floorplan_heatmap`: one floor, one metric,
+one value per mapped area, no Home Assistant mutation, and no codegen fallback.
+
 ## ChartSpec requirements
 
 A valid chart spec must identify:

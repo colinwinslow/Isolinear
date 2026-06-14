@@ -1,0 +1,46 @@
+id: home_assistant_durable_worker_token_lifecycle_scaffold
+summary: The Home Assistant integration owns a durable worker token lifecycle scaffold that persists integration-owned worker tokens in an integration-owned storage helper, restores valid persisted tokens before readiness setup, records schema-valid redacted repair issue metadata when restore is impossible, and keeps token lifecycle internals out of dashboard-card payloads.
+executable_eval: evals/home_assistant_durable_worker_token_lifecycle_scaffold.py
+fixtures:
+  integration_worker_token_lifecycle_module: custom_components/isolinear/worker_token_lifecycle.py
+  integration_worker_readiness_module: custom_components/isolinear/worker_readiness.py
+  integration_worker_renderer_module: custom_components/isolinear/worker_renderer.py
+  integration_setup: custom_components/isolinear/__init__.py
+  integration_worker_token_lifecycle_state_schema: docs/schemas/integration-worker-token-lifecycle-state.schema.json
+  fake_hass: in-code fake Home Assistant config entries, storage-helper surface, deterministic tokens, readiness metadata, and renderer clients
+expect:
+  setup_restores_persisted_token_before_readiness: true
+  setup_restore_enables_worker_renderer_without_worker_call: true
+  missing_persisted_token_records_repair_issue: true
+  disabled_entry_records_no_repair_issue: true
+  durable_explicit_provision_persists_private_token: true
+  durable_explicit_rotation_persists_private_token: true
+  durable_explicit_repair_persists_private_token: true
+  invalid_persisted_entries_skipped_before_restore: true
+  setup_lifecycle_storage_failure_blocks_restore: true
+  lifecycle_validation_failure_rolls_back_durable_and_memory_state: true
+  per_config_entry_isolation: true
+  lifecycle_state_schema_valid: true
+  repair_issue_metadata_schema_valid: true
+  worker_authorization_absent_from_lifecycle_state_and_evidence: true
+  worker_endpoint_absent_from_lifecycle_state_and_dashboard_payloads: true
+  lifecycle_metadata_absent_from_dashboard_payloads: true
+  repair_issue_metadata_absent_from_dashboard_payloads: true
+  durable_token_storage_written: true
+  durable_token_storage_loaded: true
+  automatic_token_restore_called: true
+  automatic_token_repair_execution_called: false
+  setup_time_token_generation_called: false
+  home_assistant_history_read: false
+  semantic_memory_called: false
+  home_assistant_service_or_state_mutation_called: false
+  config_entry_options_written: false
+  recorder_called: false
+  worker_render_called: false
+  worker_health_call: false
+  model_provider_called: false
+  chart_rendering_called: false
+  chart_artifact_written: false
+  durable_retry_storage_written: false
+  scheduler_called: false
+  dashboard_command_registered: false

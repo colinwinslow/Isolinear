@@ -3,6 +3,8 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from evidence import print_case
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -101,6 +103,22 @@ def main():
     )
     validate_contract("validation-result", validation_result, repo_root=REPO_ROOT)
 
+    print_case(
+        "missing_overlay_validation",
+        given={
+            "chart_spec": chart_spec,
+            "render_metadata": render_result["render_metadata"],
+        },
+        when={
+            "operation": "validate_chart_job",
+            "expected_start": start.isoformat(timespec="seconds"),
+            "expected_end": now.isoformat(timespec="seconds"),
+        },
+        then={
+            "validation_status": validation_result["status"],
+            "overlay_check": overlay_check,
+        },
+    )
     print("PASS missing_overlay_validation")
 
 

@@ -1,0 +1,39 @@
+id: home_assistant_model_provider_health_diagnostics_scaffold
+summary: The Home Assistant integration owns a config-entry-scoped model-provider health diagnostics scaffold that explicitly probes a configured Ollama-compatible planner, records schema-valid internal health metadata, and keeps provider details out of dashboard-card payloads.
+executable_eval: evals/home_assistant_model_provider_health_diagnostics_scaffold.py
+fixtures:
+  integration_model_provider_health_module: custom_components/isolinear/model_provider_health.py
+  integration_model_provider_module: custom_components/isolinear/model_provider.py
+  integration_setup: custom_components/isolinear/__init__.py
+  model_provider_health_request_schema: docs/schemas/model-provider-health-request.schema.json
+  integration_model_provider_health_schema: docs/schemas/integration-model-provider-health.schema.json
+  fake_hass: in-code fake Home Assistant config entries, WebSocket registry, Ollama-compatible provider endpoints, and fake provider health clients
+expect:
+  ready_provider_health_probe_records_metadata: true
+  not_ready_provider_health_response_records_internal_state: true
+  transport_failure_records_unavailable_health: true
+  malformed_accepted_health_response_fails_before_storage: true
+  secret_bearing_health_response_fails_before_storage: true
+  unconfigured_entry_rejected_before_provider_call: true
+  unknown_config_entry_rejected_before_provider_call: true
+  per_config_entry_isolation: true
+  provider_endpoint_absent_from_dashboard_card_payloads: true
+  internal_health_metadata_absent_from_dashboard_card_payloads: true
+  model_provider_health_request_valid: true
+  integration_model_provider_health_schema_valid: true
+  health_probe_only_explicit: true
+  provider_health_bookkeeping_written: true
+  model_provider_planning_called: false
+  model_provider_retry_policy_written: false
+  worker_called: false
+  worker_health_called: false
+  home_assistant_history_read: false
+  semantic_memory_called: false
+  home_assistant_service_or_state_mutation_called: false
+  chart_rendering_called: false
+  chart_artifact_written: false
+  durable_storage_written: false
+  retry_or_backoff_policy_called: false
+  scheduler_called: false
+  automatic_retry_called: false
+  automatic_progress_task_called: false

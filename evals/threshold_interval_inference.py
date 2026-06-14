@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+from evidence import print_case
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -62,6 +64,21 @@ def main():
     validate_contract("planner-result", planner_result, repo_root=REPO_ROOT)
     validate_contract("clarification-question", question, repo_root=REPO_ROOT)
 
+    print_case(
+        "threshold_interval_inference",
+        given={
+            "prompt": "Mark when the dishwasher was running over the last day",
+            "entity_catalog": catalog,
+        },
+        when={
+            "operation": "create_deterministic_planner_result",
+        },
+        then={
+            "planner_status": planner_result["status"],
+            "chart_spec": planner_result["chart_spec"],
+            "clarification_question": question,
+        },
+    )
     print("PASS threshold_interval_inference")
 
 

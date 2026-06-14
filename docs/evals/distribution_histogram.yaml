@@ -1,0 +1,20 @@
+id: distribution_histogram
+summary: Selected trusted renderer follow-up renders numeric entity history as a deterministic value-frequency histogram without codegen.
+fixtures:
+  chart_spec: in-code fixture from evals/distribution_histogram.py
+  history: in-code dishwasher power numeric history
+expect:
+  selected_family: distribution_histogram
+  chart_type: histogram
+  source_type: entity
+  series_render_as:
+    - histogram
+  history_kind:
+    - numeric
+  bin_count: 6
+  render_status: success
+  image_created: true
+  series_plotted:
+    - dishwasher_power_distribution
+  validation_status: pass
+  codegen_attempts: 0

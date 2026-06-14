@@ -1,0 +1,299 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/integration-worker-token-lifecycle-state.schema.json",
+  "title": "IntegrationWorkerTokenLifecycleState",
+  "type": "object",
+  "required": [
+    "lifecycle_id",
+    "type",
+    "config_entry_id",
+    "status",
+    "code",
+    "token",
+    "repair_issue",
+    "validation",
+    "warnings",
+    "orchestration"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "lifecycle_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "type": {
+      "const": "isolinear_worker_token_lifecycle"
+    },
+    "config_entry_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "not_ready",
+        "disabled"
+      ]
+    },
+    "code": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "token": {
+      "type": "object",
+      "required": [
+        "present",
+        "persisted",
+        "restored",
+        "source",
+        "authorization"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "persisted": {
+          "type": "boolean"
+        },
+        "restored": {
+          "type": "boolean"
+        },
+        "source": {
+          "enum": [
+            "integration_owned",
+            "missing",
+            "invalid"
+          ]
+        },
+        "authorization": {
+          "enum": [
+            "Bearer <redacted>",
+            "<missing>"
+          ]
+        }
+      }
+    },
+    "repair_issue": {
+      "type": "object",
+      "required": [
+        "present",
+        "issue_id",
+        "surface",
+        "severity",
+        "suggested_action",
+        "translation_key"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "issue_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "surface": {
+          "enum": [
+            "home_assistant_repairs_scaffold",
+            "none"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "warning",
+            "none"
+          ]
+        },
+        "suggested_action": {
+          "enum": [
+            "manual_token_repair",
+            "configure_worker_endpoint",
+            "none"
+          ]
+        },
+        "translation_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary",
+        "checks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "pass"
+        },
+        "summary": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "status": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            }
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "orchestration": {
+      "type": "object",
+      "required": [
+        "durable_token_storage_loaded",
+        "durable_token_storage_written",
+        "durable_token_storage_deleted",
+        "in_memory_token_restored",
+        "token_generated",
+        "token_stored",
+        "setup_time_token_generation_called",
+        "automatic_token_restore_called",
+        "automatic_token_repair_execution_called",
+        "repair_issue_created",
+        "repair_issue_deleted",
+        "readiness_bookkeeping_written",
+        "worker_renderer_setup_gated",
+        "home_assistant_history_read",
+        "semantic_memory_called",
+        "home_assistant_service_or_state_mutation_called",
+        "config_entry_options_written",
+        "recorder_called",
+        "worker_render_called",
+        "worker_health_call",
+        "model_provider_called",
+        "chart_rendering_called",
+        "chart_artifact_written",
+        "durable_retry_storage_written",
+        "external_queue_or_database_called",
+        "scheduler_called",
+        "automatic_rotation_called",
+        "dashboard_command_registered",
+        "token_leaked_to_card",
+        "token_leaked_to_model_provider"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "durable_token_storage_loaded": {
+          "type": "boolean"
+        },
+        "durable_token_storage_written": {
+          "type": "boolean"
+        },
+        "durable_token_storage_deleted": {
+          "type": "boolean"
+        },
+        "in_memory_token_restored": {
+          "type": "boolean"
+        },
+        "token_generated": {
+          "type": "boolean"
+        },
+        "token_stored": {
+          "type": "boolean"
+        },
+        "setup_time_token_generation_called": {
+          "type": "boolean"
+        },
+        "automatic_token_restore_called": {
+          "type": "boolean"
+        },
+        "automatic_token_repair_execution_called": {
+          "type": "boolean"
+        },
+        "repair_issue_created": {
+          "type": "boolean"
+        },
+        "repair_issue_deleted": {
+          "type": "boolean"
+        },
+        "readiness_bookkeeping_written": {
+          "type": "boolean"
+        },
+        "worker_renderer_setup_gated": {
+          "type": "boolean"
+        },
+        "home_assistant_history_read": {
+          "type": "boolean"
+        },
+        "semantic_memory_called": {
+          "type": "boolean"
+        },
+        "home_assistant_service_or_state_mutation_called": {
+          "type": "boolean"
+        },
+        "config_entry_options_written": {
+          "type": "boolean"
+        },
+        "recorder_called": {
+          "type": "boolean"
+        },
+        "worker_render_called": {
+          "type": "boolean"
+        },
+        "worker_health_call": {
+          "type": "boolean"
+        },
+        "model_provider_called": {
+          "type": "boolean"
+        },
+        "chart_rendering_called": {
+          "type": "boolean"
+        },
+        "chart_artifact_written": {
+          "type": "boolean"
+        },
+        "durable_retry_storage_written": {
+          "type": "boolean"
+        },
+        "external_queue_or_database_called": {
+          "type": "boolean"
+        },
+        "scheduler_called": {
+          "type": "boolean"
+        },
+        "automatic_rotation_called": {
+          "type": "boolean"
+        },
+        "dashboard_command_registered": {
+          "type": "boolean"
+        },
+        "token_leaked_to_card": {
+          "type": "boolean"
+        },
+        "token_leaked_to_model_provider": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+id: home_assistant_job_state_scaffold
+summary: The Home Assistant integration owns a deterministic config-entry-scoped in-memory job state scaffold behind the registered Isolinear WebSocket commands while preserving non-orchestration boundaries.
+executable_eval: evals/home_assistant_job_state_scaffold.py
+fixtures:
+  integration_job_state_module: custom_components/isolinear/job_state.py
+  integration_websocket_module: custom_components/isolinear/websocket_api.py
+  integration_setup: custom_components/isolinear/__init__.py
+  integration_commands: transport/auth sample IntegrationWsCommand messages plus generated lifecycle commands
+  fake_hass: in-code fake Home Assistant WebSocket command registry and config entries
+expect:
+  deterministic_job_ids: true
+  deterministic_snapshot_ids: true
+  config_entry_scoped_store: true
+  start_job_returns_schema_valid_snapshot: true
+  get_snapshot_returns_latest_snapshot: true
+  retry_appends_snapshot: true
+  clarification_answer_appends_snapshot: true
+  subscribe_records_callback_shape: true
+  unknown_job_rejected_before_orchestration: true
+  cross_config_entry_job_rejected_before_orchestration: true
+  malformed_snapshot_rejected_before_storage: true
+  unload_removes_job_state: true
+  worker_called: false
+  model_provider_called: false
+  home_assistant_history_called: false
+  semantic_memory_called: false
+  home_assistant_service_or_state_mutation_called: false
+  token_generated: false
+  chart_artifact_written: false
+  job_orchestration_called: false

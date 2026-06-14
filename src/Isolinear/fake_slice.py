@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import struct
 import zlib
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,78 @@ from Isolinear.contracts import ContractValidationError, validate_contract
 TEMPERATURE_UNIT = "\u00b0F"
 POWER_UNIT = "W"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+TRUSTED_RENDERER_PRIMITIVE_SCOPE = {
+    "chart_types": ["time_series", "timeline", "bar", "heatmap", "histogram", "scatter"],
+    "series_kinds": ["numeric", "binary_state", "categorical_state", "event"],
+    "series_render_as": ["line", "step", "bar", "heatmap", "histogram", "scatter"],
+    "series_source_types": ["entity", "aggregate"],
+    "series_transforms": ["none"],
+    "overlay_render_as": ["shaded_intervals", "markers"],
+    "time_series": {
+        "series_kinds": ["numeric"],
+        "series_render_as": ["line"],
+        "series_source_types": ["entity"],
+        "series_transforms": ["none"],
+        "overlay_render_as": ["shaded_intervals", "markers"],
+        "marker_source_types": ["entity"],
+        "marker_source_kinds": ["binary_state", "categorical_state", "event"],
+        "marker_threshold_source_kinds": ["numeric"],
+    },
+    "timeline": {
+        "series_kinds": ["binary_state", "categorical_state"],
+        "series_render_as": ["step"],
+        "series_source_types": ["entity"],
+        "series_transforms": ["none"],
+        "overlay_render_as": [],
+        "interval_source": "derived_intervals",
+    },
+    "bar": {
+        "series_kinds": ["numeric"],
+        "series_render_as": ["bar"],
+        "series_source_types": ["aggregate"],
+        "series_transforms": ["none"],
+        "overlay_render_as": [],
+        "aggregate_operations": ["mean", "min", "max", "sum", "count"],
+        "bar_grouping": "entity",
+    },
+    "heatmap": {
+        "series_kinds": ["numeric"],
+        "series_render_as": ["heatmap"],
+        "series_source_types": ["entity"],
+        "series_transforms": ["none"],
+        "overlay_render_as": [],
+        "x_group_by": ["hour"],
+        "y_group_by": ["weekday"],
+        "cell_aggregation": ["mean"],
+    },
+    "histogram": {
+        "series_kinds": ["numeric"],
+        "series_render_as": ["histogram"],
+        "series_source_types": ["entity"],
+        "series_transforms": ["none"],
+        "overlay_render_as": [],
+        "series_count": 1,
+        "bin_count_min": 4,
+        "bin_count_max": 64,
+        "default_bin_count": 8,
+    },
+    "scatter": {
+        "series_kinds": ["numeric"],
+        "series_render_as": ["scatter"],
+        "series_source_types": ["entity"],
+        "series_transforms": ["none"],
+        "overlay_render_as": [],
+        "series_count": 2,
+        "pair_join": "exact_timestamp",
+        "axis_source": "explicit_series_ids",
+    },
+    "output_formats": ["png"],
+    "fallback_to_codegen": False,
+}
+
+
+def get_trusted_renderer_primitive_scope() -> dict[str, Any]:
+    return deepcopy(TRUSTED_RENDERER_PRIMITIVE_SCOPE)
 
 
 def iso_timestamp(timestamp: datetime) -> str:
@@ -467,6 +540,19 @@ def create_deterministic_planner_result(
             "warnings": ["threshold_confirmation_required"],
         }
 
+    if threshold_prompt:
+        return {
+            "status": "cannot_resolve",
+            "chart_spec": None,
+            "clarification_question": None,
+            "memory_proposals": [],
+            "reasoning_summary": (
+                "The fake planner could not find an approved dishwasher power "
+                "entity to derive the running interval."
+            ),
+            "warnings": ["missing_dishwasher_power_entity"],
+        }
+
     supported_prompt = (
         re.search(r"compare", prompt, re.IGNORECASE)
         and re.search(r"upstairs", prompt, re.IGNORECASE)
@@ -560,7 +646,13 @@ def create_deterministic_planner_result(
     }
 
 
-def _new_render_failure(request_id: str, code: str, message: str) -> dict[str, Any]:
+def _new_render_failure(
+    request_id: str,
+    code: str,
+    message: str,
+    *,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
         "request_id": request_id,
         "status": "failed",
@@ -570,7 +662,7 @@ def _new_render_failure(request_id: str, code: str, message: str) -> dict[str, A
         "error": {
             "code": code,
             "message": message,
-            "details": {},
+            "details": {} if details is None else details,
         },
         "render_metadata": {
             "title": None,
@@ -586,6 +678,296 @@ def _new_render_failure(request_id: str, code: str, message: str) -> dict[str, A
 
 def _history_series_map(history_series: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {series["series_id"]: series for series in history_series}
+
+
+def _history_series_entity_map(history_series: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {
+        series["entity_id"]: series
+        for series in history_series
+        if series.get("entity_id") is not None
+    }
+
+
+def _transform_operation(transform: dict[str, Any] | None) -> str:
+    if transform is None:
+        return "none"
+
+    return str(transform.get("operation", "none"))
+
+
+def _unsupported_trusted_renderer_primitives(
+    *,
+    render_request: dict[str, Any],
+    history_map: dict[str, dict[str, Any]],
+) -> list[dict[str, str]]:
+    chart_spec = render_request["chart_spec"]
+    output = render_request.get("output") or {}
+    history_entity_map = _history_series_entity_map(render_request["history_series"])
+    unsupported = []
+
+    output_format = output.get("format", "png")
+    if output_format not in TRUSTED_RENDERER_PRIMITIVE_SCOPE["output_formats"]:
+        unsupported.append(
+            {
+                "path": "$.output.format",
+                "value": str(output_format),
+                "reason": "trusted_renderer_supports_png_only",
+            }
+        )
+
+    chart_type = chart_spec.get("chart_type")
+    if chart_type not in TRUSTED_RENDERER_PRIMITIVE_SCOPE["chart_types"]:
+        unsupported.append(
+            {
+                "path": "$.chart_spec.chart_type",
+                "value": str(chart_type),
+                "reason": "unsupported_chart_type",
+            }
+        )
+
+    chart_family_scope = TRUSTED_RENDERER_PRIMITIVE_SCOPE.get(chart_type, {})
+
+    if chart_type in {"heatmap", "histogram", "scatter"}:
+        supported_series_count = chart_family_scope.get("series_count", 1)
+        if len(chart_spec.get("series", [])) != supported_series_count:
+            unsupported.append(
+                {
+                    "path": "$.chart_spec.series",
+                    "value": str(len(chart_spec.get("series", []))),
+                    "reason": f"unsupported_{chart_type}_series_count",
+                }
+            )
+
+    if chart_type == "heatmap":
+        x_group_by = chart_spec.get("x_axis", {}).get("group_by")
+        if x_group_by not in chart_family_scope.get("x_group_by", []):
+            unsupported.append(
+                {
+                    "path": "$.chart_spec.x_axis.group_by",
+                    "value": str(x_group_by),
+                    "reason": "unsupported_heatmap_x_group_by",
+                }
+            )
+
+        y_group_by = chart_spec.get("y_axis", {}).get("group_by")
+        if y_group_by not in chart_family_scope.get("y_group_by", []):
+            unsupported.append(
+                {
+                    "path": "$.chart_spec.y_axis.group_by",
+                    "value": str(y_group_by),
+                    "reason": "unsupported_heatmap_y_group_by",
+                }
+            )
+    elif chart_type == "histogram":
+        bin_count = chart_spec.get("x_axis", {}).get(
+            "bin_count",
+            chart_family_scope.get("default_bin_count"),
+        )
+        if (
+            not isinstance(bin_count, int)
+            or isinstance(bin_count, bool)
+            or bin_count < chart_family_scope.get("bin_count_min", 1)
+            or bin_count > chart_family_scope.get("bin_count_max", 1000)
+        ):
+            unsupported.append(
+                {
+                    "path": "$.chart_spec.x_axis.bin_count",
+                    "value": str(bin_count),
+                    "reason": "unsupported_histogram_bin_count",
+                }
+            )
+    elif chart_type == "scatter":
+        scatter_series_ids = [
+            series_spec.get("series_id")
+            for series_spec in chart_spec.get("series", [])
+        ]
+        if len(scatter_series_ids) == 2:
+            x_source_series_id = chart_spec.get("x_axis", {}).get("source_series_id")
+            y_source_series_id = chart_spec.get("y_axis", {}).get("source_series_id")
+            if x_source_series_id != scatter_series_ids[0]:
+                unsupported.append(
+                    {
+                        "path": "$.chart_spec.x_axis.source_series_id",
+                        "value": str(x_source_series_id),
+                        "reason": "unsupported_scatter_x_source_series",
+                    }
+                )
+            if y_source_series_id != scatter_series_ids[1]:
+                unsupported.append(
+                    {
+                        "path": "$.chart_spec.y_axis.source_series_id",
+                        "value": str(y_source_series_id),
+                        "reason": "unsupported_scatter_y_source_series",
+                    }
+                )
+
+    for series_index, series_spec in enumerate(chart_spec.get("series", [])):
+        series_id = series_spec.get("series_id", f"series_{series_index}")
+        source_type = series_spec.get("source", {}).get("type")
+        allowed_source_types = chart_family_scope.get(
+            "series_source_types",
+            TRUSTED_RENDERER_PRIMITIVE_SCOPE["series_source_types"],
+        )
+        if source_type not in allowed_source_types:
+            unsupported.append(
+                {
+                    "path": f"$.chart_spec.series[{series_index}].source.type",
+                    "value": str(source_type),
+                    "reason": "unsupported_series_source",
+                }
+            )
+
+        render_as = series_spec.get("render_as", "line")
+        if render_as not in chart_family_scope.get("series_render_as", []):
+            unsupported.append(
+                {
+                    "path": f"$.chart_spec.series[{series_index}].render_as",
+                    "value": str(render_as),
+                    "reason": "unsupported_series_render_as",
+                }
+            )
+
+        transform_operation = _transform_operation(series_spec.get("transform"))
+        allowed_transforms = chart_family_scope.get(
+            "series_transforms",
+            TRUSTED_RENDERER_PRIMITIVE_SCOPE["series_transforms"],
+        )
+        if transform_operation not in allowed_transforms:
+            unsupported.append(
+                {
+                    "path": f"$.chart_spec.series[{series_index}].transform.operation",
+                    "value": transform_operation,
+                    "reason": "unsupported_series_transform",
+                }
+            )
+
+        if chart_type == "bar":
+            source = series_spec.get("source", {})
+            operation = source.get("operation")
+            if operation not in chart_family_scope.get("aggregate_operations", []):
+                unsupported.append(
+                    {
+                        "path": f"$.chart_spec.series[{series_index}].source.operation",
+                        "value": str(operation),
+                        "reason": "unsupported_aggregate_operation",
+                    }
+                )
+
+            for entity_id in source.get("entity_ids", []):
+                history_series = history_entity_map.get(entity_id)
+                if history_series is None:
+                    continue
+                history_kind = history_series.get("kind")
+                if history_kind not in chart_family_scope.get("series_kinds", []):
+                    unsupported.append(
+                        {
+                            "path": f"$.history_series[{entity_id}].kind",
+                            "value": str(history_kind),
+                            "reason": "unsupported_history_series_kind",
+                        }
+                    )
+        elif chart_type in {"heatmap", "histogram", "scatter"}:
+            entity_id = series_spec.get("source", {}).get("entity_id")
+            history_series = history_entity_map.get(entity_id)
+            if history_series is not None:
+                history_kind = history_series.get("kind")
+                if history_kind not in chart_family_scope.get("series_kinds", []):
+                    unsupported.append(
+                        {
+                            "path": f"$.history_series[{entity_id}].kind",
+                            "value": str(history_kind),
+                            "reason": "unsupported_history_series_kind",
+                        }
+                    )
+        else:
+            history_series = history_map.get(series_id)
+            if history_series is not None:
+                history_kind = history_series.get("kind")
+                if history_kind not in chart_family_scope.get("series_kinds", []):
+                    unsupported.append(
+                        {
+                            "path": f"$.history_series[{series_id}].kind",
+                            "value": str(history_kind),
+                            "reason": "unsupported_history_series_kind",
+                        }
+                    )
+
+    for overlay_index, overlay_spec in enumerate(chart_spec.get("overlays", [])):
+        render_as = overlay_spec.get("render_as")
+        if render_as not in chart_family_scope.get("overlay_render_as", []):
+            unsupported.append(
+                {
+                    "path": f"$.chart_spec.overlays[{overlay_index}].render_as",
+                    "value": str(render_as),
+                    "reason": "unsupported_overlay_render_as",
+                }
+            )
+            continue
+
+        if render_as != "markers":
+            continue
+
+        source = overlay_spec.get("source", {})
+        source_type = source.get("type")
+        if source_type not in chart_family_scope.get("marker_source_types", []):
+            unsupported.append(
+                {
+                    "path": f"$.chart_spec.overlays[{overlay_index}].source.type",
+                    "value": str(source_type),
+                    "reason": "unsupported_marker_source",
+                }
+            )
+            continue
+
+        has_active_values = bool(overlay_spec.get("active_values"))
+        has_threshold = overlay_spec.get("threshold") is not None
+        if has_active_values and has_threshold:
+            unsupported.append(
+                {
+                    "path": f"$.chart_spec.overlays[{overlay_index}]",
+                    "value": "active_values,threshold",
+                    "reason": "ambiguous_marker_rule",
+                }
+            )
+            continue
+
+        entity_id = source.get("entity_id")
+        history_series = history_entity_map.get(entity_id)
+        history_kind = history_series.get("kind") if history_series is not None else None
+        if has_threshold:
+            if history_series is not None and history_kind not in chart_family_scope.get(
+                "marker_threshold_source_kinds",
+                [],
+            ):
+                unsupported.append(
+                    {
+                        "path": f"$.history_series[{entity_id}].kind",
+                        "value": str(history_kind),
+                        "reason": "unsupported_marker_threshold_history_kind",
+                    }
+                )
+        elif has_active_values:
+            if history_series is not None and history_kind not in chart_family_scope.get(
+                "marker_source_kinds",
+                [],
+            ):
+                unsupported.append(
+                    {
+                        "path": f"$.history_series[{entity_id}].kind",
+                        "value": str(history_kind),
+                        "reason": "unsupported_marker_history_kind",
+                    }
+                )
+        elif history_series is not None and history_kind != "event":
+            unsupported.append(
+                {
+                    "path": f"$.chart_spec.overlays[{overlay_index}]",
+                    "value": render_as,
+                    "reason": "missing_marker_rule",
+                }
+            )
+
+    return unsupported
 
 
 def _numeric_extent(series_to_plot: list[dict[str, Any]]) -> dict[str, Any]:
@@ -720,9 +1102,9 @@ def _write_time_series_png(
     width: int,
     height: int,
 ) -> dict[str, str]:
-    extent = _numeric_extent(series_to_plot)
-    value_min = float(extent["value_min"])
-    value_max = float(extent["value_max"])
+    numeric_extent = _numeric_extent(series_to_plot)
+    value_min = float(numeric_extent["value_min"])
+    value_max = float(numeric_extent["value_max"])
 
     if value_min == value_max:
         value_min -= 1
@@ -732,8 +1114,14 @@ def _write_time_series_png(
         value_min -= padding
         value_max += padding
 
-    x_min = extent["x_min"]
-    x_max = extent["x_max"]
+    absolute_extent = _absolute_time_range_extent(chart_spec)
+    if absolute_extent is None:
+        x_min = numeric_extent["x_min"]
+        x_max = numeric_extent["x_max"]
+    else:
+        x_min, x_max = absolute_extent
+    if x_max <= x_min:
+        x_max = x_min + timedelta(seconds=1)
     total_seconds = (x_max - x_min).total_seconds() or 1
 
     plot_left = 76
@@ -749,11 +1137,14 @@ def _write_time_series_png(
     grid_color = (224, 228, 235)
     title_color = (30, 36, 45)
     overlay_color = (245, 232, 190)
+    marker_color = (189, 75, 89)
     palette = [(32, 121, 199), (222, 112, 34)]
 
     canvas.draw_rect(28, 24, min(width - 28, 28 + (len(chart_spec["title"]) * 7)), 29, title_color)
 
     for overlay in overlays_to_plot:
+        if "derived_interval" not in overlay:
+            continue
         for interval in overlay["derived_interval"].get("intervals", []):
             interval_start = datetime.fromisoformat(interval["start"])
             interval_end = datetime.fromisoformat(interval["end"])
@@ -780,6 +1171,16 @@ def _write_time_series_png(
         thickness=2,
     )
 
+    for overlay in overlays_to_plot:
+        for marker_event in overlay.get("marker_events", []):
+            marker_timestamp = marker_event["timestamp"]
+            if marker_timestamp < x_min or marker_timestamp > x_max:
+                continue
+
+            x = plot_left + int(((marker_timestamp - x_min).total_seconds() / total_seconds) * plot_width)
+            canvas.draw_line(x, plot_top, x, height - plot_bottom, marker_color, thickness=2)
+            canvas.draw_disc(x, plot_top + 12, 5, marker_color)
+
     for series_index, series in enumerate(series_to_plot):
         color = palette[series_index % len(palette)]
         projected_points: list[tuple[int, int]] = []
@@ -789,6 +1190,9 @@ def _write_time_series_png(
                 continue
 
             timestamp = datetime.fromisoformat(point["ts"])
+            if timestamp < x_min or timestamp > x_max:
+                continue
+
             x = plot_left + int(((timestamp - x_min).total_seconds() / total_seconds) * plot_width)
             y = plot_top + int(((value_max - float(point["value"])) / value_range) * plot_height)
             projected_points.append((x, y))
@@ -814,10 +1218,825 @@ def _write_time_series_png(
     }
 
 
+def _absolute_time_range_extent(chart_spec: dict[str, Any]) -> tuple[datetime, datetime] | None:
+    time_range = chart_spec.get("time_range", {})
+    if time_range.get("type") != "absolute":
+        return None
+
+    return (
+        datetime.fromisoformat(time_range["start"]),
+        datetime.fromisoformat(time_range["end"]),
+    )
+
+
+def _timeline_interval_extent(timeline_tracks: list[dict[str, Any]]) -> tuple[datetime, datetime]:
+    timestamps = []
+    for track in timeline_tracks:
+        for interval in track["derived_interval"].get("intervals", []):
+            timestamps.append(datetime.fromisoformat(interval["start"]))
+            timestamps.append(datetime.fromisoformat(interval["end"]))
+
+    if not timestamps:
+        raise ValueError("No derived intervals are available to render.")
+
+    return min(timestamps), max(timestamps)
+
+
+def _write_timeline_png(
+    *,
+    chart_spec: dict[str, Any],
+    timeline_tracks: list[dict[str, Any]],
+    image_path: Path,
+    width: int,
+    height: int,
+) -> dict[str, str]:
+    extent = _absolute_time_range_extent(chart_spec)
+    if extent is None:
+        extent = _timeline_interval_extent(timeline_tracks)
+
+    x_min, x_max = extent
+    if x_max <= x_min:
+        x_max = x_min + timedelta(seconds=1)
+
+    total_seconds = (x_max - x_min).total_seconds() or 1
+    plot_left = 92
+    plot_top = 72
+    plot_right = 36
+    plot_bottom = 54
+    plot_width = max(1, width - plot_left - plot_right)
+    plot_height = max(1, height - plot_top - plot_bottom)
+    track_count = max(1, len(timeline_tracks))
+    track_gap = 12
+    track_height = max(12, int((plot_height - (track_gap * (track_count - 1))) / track_count))
+
+    canvas = _Canvas(width, height, (255, 255, 255))
+    axis_color = (80, 88, 100)
+    grid_color = (224, 228, 235)
+    title_color = (30, 36, 45)
+    label_color = (76, 86, 99)
+    row_color = (241, 244, 248)
+    palette = [(32, 121, 199), (222, 112, 34), (72, 166, 116)]
+
+    canvas.draw_rect(28, 24, min(width - 28, 28 + (len(chart_spec["title"]) * 7)), 29, title_color)
+
+    for grid_index in range(5):
+        x = int(plot_left + ((plot_width / 4) * grid_index))
+        canvas.draw_line(x, plot_top, x, height - plot_bottom, grid_color)
+
+    canvas.draw_line(plot_left, plot_top, plot_left, height - plot_bottom, axis_color, thickness=2)
+    canvas.draw_line(
+        plot_left,
+        height - plot_bottom,
+        width - plot_right,
+        height - plot_bottom,
+        axis_color,
+        thickness=2,
+    )
+
+    for track_index, track in enumerate(timeline_tracks):
+        color = palette[track_index % len(palette)]
+        row_top = plot_top + (track_index * (track_height + track_gap))
+        row_bottom = min(height - plot_bottom - 1, row_top + track_height)
+        row_mid = int(row_top + ((row_bottom - row_top) / 2))
+
+        canvas.draw_rect(plot_left, row_top, width - plot_right, row_bottom, row_color)
+        canvas.draw_rect(28, row_mid - 3, plot_left - 16, row_mid + 2, label_color)
+
+        for interval in track["derived_interval"].get("intervals", []):
+            interval_start = datetime.fromisoformat(interval["start"])
+            interval_end = datetime.fromisoformat(interval["end"])
+            if interval_end < x_min or interval_start > x_max:
+                continue
+
+            clipped_start = max(interval_start, x_min)
+            clipped_end = min(interval_end, x_max)
+            x0 = plot_left + int(((clipped_start - x_min).total_seconds() / total_seconds) * plot_width)
+            x1 = plot_left + int(((clipped_end - x_min).total_seconds() / total_seconds) * plot_width)
+            canvas.draw_rect(x0, row_top + 4, max(x0 + 2, x1), row_bottom - 4, color)
+
+    _write_png(image_path, canvas)
+
+    return {
+        "x_min": iso_timestamp(x_min),
+        "x_max": iso_timestamp(x_max),
+    }
+
+
+def _numeric_values_in_window(
+    history_series: dict[str, Any],
+    time_window: tuple[datetime, datetime] | None,
+) -> tuple[list[float], list[datetime]]:
+    values = []
+    timestamps = []
+
+    for point in history_series.get("points", []):
+        timestamp = datetime.fromisoformat(point["ts"])
+        if time_window is not None:
+            x_min, x_max = time_window
+            if timestamp < x_min or timestamp > x_max:
+                continue
+
+        value = point.get("value")
+        if value is None:
+            continue
+
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            continue
+
+        values.append(numeric_value)
+        timestamps.append(timestamp)
+
+    return values, timestamps
+
+
+def _point_state_text(point: dict[str, Any]) -> str | None:
+    value = point.get("value")
+    if value is None:
+        value = point.get("raw_state")
+    if value is None:
+        return None
+    return str(value)
+
+
+def _marker_matches_point(
+    *,
+    point: dict[str, Any],
+    overlay_spec: dict[str, Any],
+    history_kind: str,
+) -> bool:
+    threshold = overlay_spec.get("threshold")
+    if threshold is not None:
+        value = point.get("value")
+        if value is None:
+            return False
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            return False
+        return _threshold_matches(
+            numeric_value,
+            threshold["operator"],
+            float(threshold["value"]),
+        )
+
+    active_values = overlay_spec.get("active_values") or []
+    if active_values:
+        state_text = _point_state_text(point)
+        return state_text in {str(value) for value in active_values}
+
+    return history_kind == "event"
+
+
+def _marker_events_from_history(
+    *,
+    history_series: dict[str, Any],
+    overlay_spec: dict[str, Any],
+    time_window: tuple[datetime, datetime] | None,
+) -> list[dict[str, Any]]:
+    history_kind = history_series.get("kind")
+    events = []
+    was_matching = False
+    points = sorted(
+        history_series.get("points", []),
+        key=lambda point: datetime.fromisoformat(point["ts"]),
+    )
+
+    for point in points:
+        timestamp = datetime.fromisoformat(point["ts"])
+        matches = _marker_matches_point(
+            point=point,
+            overlay_spec=overlay_spec,
+            history_kind=history_kind,
+        )
+        if not matches:
+            was_matching = False
+            continue
+
+        should_emit = history_kind == "event" or not was_matching
+        was_matching = True
+        if not should_emit:
+            continue
+
+        if time_window is not None:
+            x_min, x_max = time_window
+            if timestamp < x_min or timestamp > x_max:
+                continue
+
+        events.append(
+            {
+                "timestamp": timestamp,
+                "state": point.get("value", point.get("raw_state")),
+            }
+        )
+
+    return events
+
+
+def _aggregate_numeric_values(values: list[float], operation: str) -> float:
+    if operation == "mean":
+        return sum(values) / len(values)
+    if operation == "min":
+        return min(values)
+    if operation == "max":
+        return max(values)
+    if operation == "sum":
+        return sum(values)
+    if operation == "count":
+        return float(len(values))
+
+    raise ValueError(f"Unsupported aggregate operation: {operation}")
+
+
+def _aggregate_bar_extent(
+    chart_spec: dict[str, Any],
+    aggregate_bar_series: list[dict[str, Any]],
+) -> tuple[datetime, datetime]:
+    extent = _absolute_time_range_extent(chart_spec)
+    if extent is not None:
+        return extent
+
+    timestamps = []
+    for series in aggregate_bar_series:
+        for bar in series["bars"]:
+            timestamps.extend(bar["timestamps"])
+
+    if not timestamps:
+        raise ValueError("No numeric points are available to render aggregate bars.")
+
+    return min(timestamps), max(timestamps)
+
+
+def _write_bar_png(
+    *,
+    chart_spec: dict[str, Any],
+    aggregate_bar_series: list[dict[str, Any]],
+    image_path: Path,
+    width: int,
+    height: int,
+) -> dict[str, str]:
+    x_min, x_max = _aggregate_bar_extent(chart_spec, aggregate_bar_series)
+    if x_max <= x_min:
+        x_max = x_min + timedelta(seconds=1)
+
+    bars = []
+    for series in aggregate_bar_series:
+        for bar in series["bars"]:
+            bars.append(
+                {
+                    "series_id": series["series_id"],
+                    "entity_id": bar["entity_id"],
+                    "label": bar["label"],
+                    "value": bar["value"],
+                }
+            )
+
+    if not bars:
+        raise ValueError("No aggregate bars are available to render.")
+
+    raw_min = min(bar["value"] for bar in bars)
+    raw_max = max(bar["value"] for bar in bars)
+    value_min = min(0.0, raw_min)
+    value_max = max(0.0, raw_max)
+    if value_min == value_max:
+        value_min -= 1.0
+        value_max += 1.0
+    else:
+        padding = (value_max - value_min) * 0.12
+        value_min -= padding
+        value_max += padding
+
+    plot_left = 84
+    plot_top = 68
+    plot_right = 36
+    plot_bottom = 92
+    plot_width = max(1, width - plot_left - plot_right)
+    plot_height = max(1, height - plot_top - plot_bottom)
+    value_range = value_max - value_min
+
+    def project_y(value: float) -> int:
+        return plot_top + int(((value_max - value) / value_range) * plot_height)
+
+    canvas = _Canvas(width, height, (255, 255, 255))
+    axis_color = (80, 88, 100)
+    grid_color = (224, 228, 235)
+    title_color = (30, 36, 45)
+    label_color = (76, 86, 99)
+    palette = [(32, 121, 199), (222, 112, 34), (72, 166, 116), (142, 92, 180)]
+
+    canvas.draw_rect(28, 24, min(width - 28, 28 + (len(chart_spec["title"]) * 7)), 29, title_color)
+
+    for grid_index in range(5):
+        y = int(plot_top + ((plot_height / 4) * grid_index))
+        canvas.draw_line(plot_left, y, width - plot_right, y, grid_color)
+
+    zero_y = project_y(0.0)
+    canvas.draw_line(plot_left, plot_top, plot_left, height - plot_bottom, axis_color, thickness=2)
+    canvas.draw_line(plot_left, zero_y, width - plot_right, zero_y, axis_color, thickness=2)
+
+    slot_width = plot_width / max(1, len(bars))
+    bar_width = max(8, int(slot_width * 0.58))
+
+    for bar_index, bar in enumerate(bars):
+        color = palette[bar_index % len(palette)]
+        center_x = int(plot_left + (slot_width * bar_index) + (slot_width / 2))
+        left = center_x - (bar_width // 2)
+        right = center_x + (bar_width // 2)
+        value_y = project_y(bar["value"])
+        top = min(value_y, zero_y)
+        bottom = max(value_y, zero_y)
+        canvas.draw_rect(left, top, right, max(top + 2, bottom), color)
+        canvas.draw_rect(
+            max(plot_left, left),
+            height - plot_bottom + 18,
+            min(width - plot_right, right),
+            height - plot_bottom + 23,
+            label_color,
+        )
+
+    _write_png(image_path, canvas)
+
+    return {
+        "x_min": iso_timestamp(x_min),
+        "x_max": iso_timestamp(x_max),
+    }
+
+
+def _heatmap_cells_from_history(
+    history_series: dict[str, Any],
+    time_window: tuple[datetime, datetime] | None,
+) -> tuple[list[dict[str, Any]], list[datetime]]:
+    values, timestamps = _numeric_values_in_window(history_series, time_window)
+    buckets: dict[tuple[int, int], list[float]] = {}
+
+    for value, timestamp in zip(values, timestamps):
+        bucket_key = (timestamp.weekday(), timestamp.hour)
+        buckets.setdefault(bucket_key, []).append(value)
+
+    cells = [
+        {
+            "weekday": weekday,
+            "hour": hour,
+            "value": _aggregate_numeric_values(bucket_values, "mean"),
+            "count": len(bucket_values),
+        }
+        for (weekday, hour), bucket_values in sorted(buckets.items())
+    ]
+
+    return cells, timestamps
+
+
+def _heatmap_extent(
+    chart_spec: dict[str, Any],
+    heatmap_series: list[dict[str, Any]],
+) -> tuple[datetime, datetime]:
+    extent = _absolute_time_range_extent(chart_spec)
+    if extent is not None:
+        return extent
+
+    timestamps = []
+    for series in heatmap_series:
+        timestamps.extend(series["timestamps"])
+
+    if not timestamps:
+        raise ValueError("No numeric points are available to render heatmap cells.")
+
+    return min(timestamps), max(timestamps)
+
+
+def _write_heatmap_png(
+    *,
+    chart_spec: dict[str, Any],
+    heatmap_series: list[dict[str, Any]],
+    image_path: Path,
+    width: int,
+    height: int,
+) -> dict[str, str]:
+    x_min, x_max = _heatmap_extent(chart_spec, heatmap_series)
+    if x_max <= x_min:
+        x_max = x_min + timedelta(seconds=1)
+
+    cells = []
+    for series in heatmap_series:
+        for cell in series["cells"]:
+            cells.append(cell)
+
+    if not cells:
+        raise ValueError("No heatmap cells are available to render.")
+
+    value_min = min(cell["value"] for cell in cells)
+    value_max = max(cell["value"] for cell in cells)
+    value_range = value_max - value_min
+
+    plot_left = 92
+    plot_top = 72
+    plot_right = 36
+    plot_bottom = 56
+    plot_width = max(1, width - plot_left - plot_right)
+    plot_height = max(1, height - plot_top - plot_bottom)
+    column_count = 24
+    row_count = 7
+    cell_width = max(1, int(plot_width / column_count))
+    cell_height = max(1, int(plot_height / row_count))
+
+    canvas = _Canvas(width, height, (255, 255, 255))
+    axis_color = (80, 88, 100)
+    grid_color = (224, 228, 235)
+    title_color = (30, 36, 45)
+    label_color = (76, 86, 99)
+    empty_cell_color = (241, 244, 248)
+
+    canvas.draw_rect(28, 24, min(width - 28, 28 + (len(chart_spec["title"]) * 7)), 29, title_color)
+
+    for row_index in range(row_count):
+        top = plot_top + (row_index * cell_height)
+        bottom = plot_top + ((row_index + 1) * cell_height) - 2
+        canvas.draw_rect(28, top + (cell_height // 2) - 2, plot_left - 16, top + (cell_height // 2) + 2, label_color)
+        for column_index in range(column_count):
+            left = plot_left + (column_index * cell_width)
+            right = plot_left + ((column_index + 1) * cell_width) - 2
+            canvas.draw_rect(left, top, right, bottom, empty_cell_color)
+
+    for cell in cells:
+        row_index = int(cell["weekday"])
+        column_index = int(cell["hour"])
+        if row_index < 0 or row_index >= row_count or column_index < 0 or column_index >= column_count:
+            continue
+
+        if value_range == 0:
+            intensity = 0.68
+        else:
+            intensity = (float(cell["value"]) - value_min) / value_range
+
+        color = (
+            245 - int(135 * intensity),
+            247 - int(75 * intensity),
+            250 - int(175 * intensity),
+        )
+        left = plot_left + (column_index * cell_width)
+        top = plot_top + (row_index * cell_height)
+        right = plot_left + ((column_index + 1) * cell_width) - 2
+        bottom = plot_top + ((row_index + 1) * cell_height) - 2
+        canvas.draw_rect(left, top, right, bottom, color)
+
+    for column_index in range(0, column_count + 1, 6):
+        x = plot_left + (column_index * cell_width)
+        canvas.draw_line(x, plot_top, x, plot_top + (row_count * cell_height), grid_color)
+        if column_index < column_count:
+            canvas.draw_rect(x, height - plot_bottom + 18, x + 18, height - plot_bottom + 23, label_color)
+
+    for row_index in range(row_count + 1):
+        y = plot_top + (row_index * cell_height)
+        canvas.draw_line(plot_left, y, plot_left + (column_count * cell_width), y, grid_color)
+
+    canvas.draw_line(plot_left, plot_top, plot_left, plot_top + (row_count * cell_height), axis_color, thickness=2)
+    canvas.draw_line(
+        plot_left,
+        plot_top + (row_count * cell_height),
+        plot_left + (column_count * cell_width),
+        plot_top + (row_count * cell_height),
+        axis_color,
+        thickness=2,
+    )
+
+    _write_png(image_path, canvas)
+
+    return {
+        "x_min": iso_timestamp(x_min),
+        "x_max": iso_timestamp(x_max),
+    }
+
+
+def _histogram_bin_count(chart_spec: dict[str, Any]) -> int:
+    return int(
+        chart_spec.get("x_axis", {}).get(
+            "bin_count",
+            TRUSTED_RENDERER_PRIMITIVE_SCOPE["histogram"]["default_bin_count"],
+        )
+    )
+
+
+def _histogram_bins_from_history(
+    history_series: dict[str, Any],
+    time_window: tuple[datetime, datetime] | None,
+    bin_count: int,
+) -> tuple[list[dict[str, Any]], list[datetime]]:
+    values, timestamps = _numeric_values_in_window(history_series, time_window)
+    if not values:
+        return [], timestamps
+
+    value_min = min(values)
+    value_max = max(values)
+    if value_min == value_max:
+        value_min -= 0.5
+        value_max += 0.5
+
+    value_range = value_max - value_min
+    bin_width = value_range / bin_count
+    bins = [
+        {
+            "low": value_min + (bin_width * index),
+            "high": value_min + (bin_width * (index + 1)),
+            "count": 0,
+        }
+        for index in range(bin_count)
+    ]
+
+    for value in values:
+        if value == value_max:
+            bin_index = bin_count - 1
+        else:
+            bin_index = int((value - value_min) / bin_width)
+        bins[max(0, min(bin_count - 1, bin_index))]["count"] += 1
+
+    return bins, timestamps
+
+
+def _histogram_extent(
+    chart_spec: dict[str, Any],
+    histogram_series: list[dict[str, Any]],
+) -> tuple[datetime, datetime]:
+    extent = _absolute_time_range_extent(chart_spec)
+    if extent is not None:
+        return extent
+
+    timestamps = []
+    for series in histogram_series:
+        timestamps.extend(series["timestamps"])
+
+    if not timestamps:
+        raise ValueError("No numeric points are available to render histogram bins.")
+
+    return min(timestamps), max(timestamps)
+
+
+def _write_histogram_png(
+    *,
+    chart_spec: dict[str, Any],
+    histogram_series: list[dict[str, Any]],
+    image_path: Path,
+    width: int,
+    height: int,
+) -> dict[str, str]:
+    x_min, x_max = _histogram_extent(chart_spec, histogram_series)
+    if x_max <= x_min:
+        x_max = x_min + timedelta(seconds=1)
+
+    bins = []
+    for series in histogram_series:
+        bins.extend(series["bins"])
+
+    if not bins:
+        raise ValueError("No histogram bins are available to render.")
+
+    max_count = max(bin_item["count"] for bin_item in bins)
+    if max_count <= 0:
+        raise ValueError("No histogram bin counts are available to render.")
+
+    plot_left = 84
+    plot_top = 68
+    plot_right = 36
+    plot_bottom = 82
+    plot_width = max(1, width - plot_left - plot_right)
+    plot_height = max(1, height - plot_top - plot_bottom)
+
+    canvas = _Canvas(width, height, (255, 255, 255))
+    axis_color = (80, 88, 100)
+    grid_color = (224, 228, 235)
+    title_color = (30, 36, 45)
+    label_color = (76, 86, 99)
+    bar_color = (44, 132, 116)
+
+    canvas.draw_rect(28, 24, min(width - 28, 28 + (len(chart_spec["title"]) * 7)), 29, title_color)
+
+    for grid_index in range(5):
+        y = int(plot_top + ((plot_height / 4) * grid_index))
+        canvas.draw_line(plot_left, y, width - plot_right, y, grid_color)
+
+    canvas.draw_line(plot_left, plot_top, plot_left, height - plot_bottom, axis_color, thickness=2)
+    canvas.draw_line(
+        plot_left,
+        height - plot_bottom,
+        width - plot_right,
+        height - plot_bottom,
+        axis_color,
+        thickness=2,
+    )
+
+    slot_width = plot_width / max(1, len(bins))
+    bar_width = max(8, int(slot_width * 0.82))
+    baseline = height - plot_bottom
+
+    for bin_index, bin_item in enumerate(bins):
+        center_x = int(plot_left + (slot_width * bin_index) + (slot_width / 2))
+        left = center_x - (bar_width // 2)
+        right = center_x + (bar_width // 2)
+        bar_height = int((bin_item["count"] / max_count) * plot_height)
+        top = baseline - max(2, bar_height)
+        canvas.draw_rect(left, top, right, baseline, bar_color)
+        if bin_index % max(1, int(len(bins) / 6)) == 0:
+            canvas.draw_rect(
+                max(plot_left, left),
+                baseline + 18,
+                min(width - plot_right, right),
+                baseline + 23,
+                label_color,
+            )
+
+    _write_png(image_path, canvas)
+
+    return {
+        "x_min": iso_timestamp(x_min),
+        "x_max": iso_timestamp(x_max),
+    }
+
+
+def _numeric_values_by_timestamp(
+    history_series: dict[str, Any],
+    time_window: tuple[datetime, datetime] | None,
+) -> dict[datetime, float]:
+    values_by_timestamp = {}
+
+    for point in sorted(
+        history_series.get("points", []),
+        key=lambda item: datetime.fromisoformat(item["ts"]),
+    ):
+        timestamp = datetime.fromisoformat(point["ts"])
+        if time_window is not None:
+            x_min, x_max = time_window
+            if timestamp < x_min or timestamp > x_max:
+                continue
+
+        value = point.get("value")
+        if value is None:
+            continue
+
+        try:
+            values_by_timestamp[timestamp] = float(value)
+        except (TypeError, ValueError):
+            continue
+
+    return values_by_timestamp
+
+
+def _scatter_pairs_from_history(
+    *,
+    x_history_series: dict[str, Any],
+    y_history_series: dict[str, Any],
+    time_window: tuple[datetime, datetime] | None,
+) -> tuple[list[dict[str, Any]], list[datetime]]:
+    x_values = _numeric_values_by_timestamp(x_history_series, time_window)
+    y_values = _numeric_values_by_timestamp(y_history_series, time_window)
+    paired_timestamps = sorted(set(x_values) & set(y_values))
+
+    pairs = [
+        {
+            "timestamp": timestamp,
+            "x": x_values[timestamp],
+            "y": y_values[timestamp],
+        }
+        for timestamp in paired_timestamps
+    ]
+
+    return pairs, paired_timestamps
+
+
+def _scatter_extent(
+    chart_spec: dict[str, Any],
+    scatter_series: list[dict[str, Any]],
+) -> tuple[datetime, datetime]:
+    extent = _absolute_time_range_extent(chart_spec)
+    if extent is not None:
+        return extent
+
+    timestamps = []
+    for series in scatter_series:
+        timestamps.extend(series["timestamps"])
+
+    if not timestamps:
+        raise ValueError("No paired numeric points are available to render a scatter chart.")
+
+    return min(timestamps), max(timestamps)
+
+
+def _write_scatter_png(
+    *,
+    chart_spec: dict[str, Any],
+    scatter_series: list[dict[str, Any]],
+    image_path: Path,
+    width: int,
+    height: int,
+) -> dict[str, str]:
+    x_min, x_max = _scatter_extent(chart_spec, scatter_series)
+    if x_max <= x_min:
+        x_max = x_min + timedelta(seconds=1)
+
+    pairs = []
+    for series in scatter_series:
+        pairs.extend(series["pairs"])
+
+    if not pairs:
+        raise ValueError("No scatter points are available to render.")
+
+    x_values = [pair["x"] for pair in pairs]
+    y_values = [pair["y"] for pair in pairs]
+    value_x_min = min(x_values)
+    value_x_max = max(x_values)
+    value_y_min = min(y_values)
+    value_y_max = max(y_values)
+
+    if value_x_min == value_x_max:
+        value_x_min -= 1
+        value_x_max += 1
+    else:
+        x_padding = (value_x_max - value_x_min) * 0.12
+        value_x_min -= x_padding
+        value_x_max += x_padding
+
+    if value_y_min == value_y_max:
+        value_y_min -= 1
+        value_y_max += 1
+    else:
+        y_padding = (value_y_max - value_y_min) * 0.12
+        value_y_min -= y_padding
+        value_y_max += y_padding
+
+    plot_left = 84
+    plot_top = 68
+    plot_right = 48
+    plot_bottom = 82
+    plot_width = max(1, width - plot_left - plot_right)
+    plot_height = max(1, height - plot_top - plot_bottom)
+    x_value_range = value_x_max - value_x_min
+    y_value_range = value_y_max - value_y_min
+
+    canvas = _Canvas(width, height, (255, 255, 255))
+    axis_color = (80, 88, 100)
+    grid_color = (224, 228, 235)
+    title_color = (30, 36, 45)
+    label_color = (76, 86, 99)
+    point_color = (32, 121, 199)
+    accent_color = (222, 112, 34)
+
+    canvas.draw_rect(28, 24, min(width - 28, 28 + (len(chart_spec["title"]) * 7)), 29, title_color)
+
+    for grid_index in range(5):
+        y = int(plot_top + ((plot_height / 4) * grid_index))
+        x = int(plot_left + ((plot_width / 4) * grid_index))
+        canvas.draw_line(plot_left, y, width - plot_right, y, grid_color)
+        canvas.draw_line(x, plot_top, x, height - plot_bottom, grid_color)
+
+    canvas.draw_line(plot_left, plot_top, plot_left, height - plot_bottom, axis_color, thickness=2)
+    canvas.draw_line(
+        plot_left,
+        height - plot_bottom,
+        width - plot_right,
+        height - plot_bottom,
+        axis_color,
+        thickness=2,
+    )
+
+    for pair in pairs:
+        x = plot_left + int(((pair["x"] - value_x_min) / x_value_range) * plot_width)
+        y = plot_top + int(((value_y_max - pair["y"]) / y_value_range) * plot_height)
+        canvas.draw_disc(x, y, 5, point_color)
+        canvas.draw_disc(x, y, 2, accent_color)
+
+    legend_x = max(plot_left + 8, width - 340)
+    legend_y = 30
+    canvas.draw_rect(legend_x, legend_y, legend_x + 16, legend_y + 5, point_color)
+    canvas.draw_rect(legend_x + 24, legend_y - 2, legend_x + 190, legend_y + 3, label_color)
+    canvas.draw_rect(plot_left, height - 38, width - plot_right, height - 33, label_color)
+    canvas.draw_rect(26, plot_top, 31, height - plot_bottom, label_color)
+
+    _write_png(image_path, canvas)
+
+    return {
+        "x_min": iso_timestamp(x_min),
+        "x_max": iso_timestamp(x_max),
+    }
+
+
 def invoke_trusted_renderer(
     render_request: dict[str, Any],
     output_directory: Path,
 ) -> dict[str, Any]:
+    try:
+        validate_contract("render-request", render_request)
+        validate_contract("chart-spec", render_request["chart_spec"])
+        for series in render_request["history_series"]:
+            validate_contract("history-series", series)
+        for interval in render_request.get("derived_intervals", []):
+            validate_contract("derived-interval", interval)
+    except ContractValidationError as exc:
+        return _new_render_failure(
+            request_id=str(render_request.get("request_id", "invalid-render-request")),
+            code="invalid_request",
+            message="Render request failed schema validation.",
+            details={"error": str(exc)},
+        )
+
     if render_request["render_mode"] not in {"safe", "auto"}:
         return _new_render_failure(
             request_id=render_request["request_id"],
@@ -825,47 +2044,405 @@ def invoke_trusted_renderer(
             message="The fake trusted renderer supports only safe or auto render mode.",
         )
 
-    if render_request["chart_spec"]["chart_type"] != "time_series":
+    history_map = _history_series_map(render_request["history_series"])
+    unsupported_primitives = _unsupported_trusted_renderer_primitives(
+        render_request=render_request,
+        history_map=history_map,
+    )
+
+    if unsupported_primitives:
         return _new_render_failure(
             request_id=render_request["request_id"],
             code="unsupported_chart_spec",
-            message="The trusted fake renderer supports only time_series charts.",
+            message="The trusted renderer cannot render one or more requested primitives in its current trusted scope.",
+            details={
+                "supported_scope": get_trusted_renderer_primitive_scope(),
+                "unsupported_primitives": unsupported_primitives,
+            },
         )
 
-    history_map = _history_series_map(render_request["history_series"])
-    series_to_plot = []
     derived_interval_map = {
         interval["interval_id"]: interval
         for interval in render_request.get("derived_intervals", [])
     }
+    series_to_plot = []
     overlays_to_plot = []
+    timeline_tracks = []
+    aggregate_bar_series = []
+    heatmap_series = []
+    histogram_series = []
+    scatter_series = []
     warnings = []
 
-    for series_spec in render_request["chart_spec"]["series"]:
-        series_id = series_spec["series_id"]
-        if series_id in history_map:
-            series_to_plot.append(history_map[series_id])
-        else:
-            warnings.append(f"Missing history for series '{series_id}'.")
+    chart_spec = render_request["chart_spec"]
+    chart_type = chart_spec["chart_type"]
+    history_entity_map = _history_series_entity_map(render_request["history_series"])
 
-    for overlay_spec in render_request["chart_spec"].get("overlays", []):
-        overlay_id = overlay_spec["overlay_id"]
-        if overlay_spec["render_as"] == "shaded_intervals" and overlay_id in derived_interval_map:
-            overlays_to_plot.append(
+    if chart_type == "timeline":
+        source_mismatches = []
+        for series_spec in chart_spec["series"]:
+            series_id = series_spec["series_id"]
+            history_series = history_map.get(series_id)
+            derived_interval = derived_interval_map.get(series_id)
+            if history_series is None:
+                warnings.append(f"Missing history for timeline track '{series_id}'.")
+            if derived_interval is None:
+                warnings.append(f"Missing derived intervals for timeline track '{series_id}'.")
+            else:
+                expected_entity_id = series_spec.get("source", {}).get("entity_id")
+                actual_entity_id = derived_interval.get("source_entity_id")
+                if actual_entity_id != expected_entity_id:
+                    source_mismatches.append(
+                        {
+                            "series_id": series_id,
+                            "expected_entity_id": expected_entity_id,
+                            "actual_entity_id": actual_entity_id,
+                        }
+                    )
+                    continue
+            if history_series is not None and derived_interval is not None:
+                timeline_tracks.append(
+                    {
+                        "series_id": series_id,
+                        "series_spec": series_spec,
+                        "history_series": history_series,
+                        "derived_interval": derived_interval,
+                    }
+                )
+
+        if source_mismatches:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="derived_interval_source_mismatch",
+                message="Timeline derived intervals must match their chart series source entity.",
+                details={"source_mismatches": source_mismatches},
+            )
+
+        if not timeline_tracks:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_derived_intervals",
+                message="No matching derived intervals were available for the timeline chart spec.",
+                details={"warnings": warnings},
+            )
+    elif chart_type == "bar":
+        time_window = _absolute_time_range_extent(chart_spec)
+        missing_aggregate_sources = []
+
+        for series_spec in chart_spec["series"]:
+            source = series_spec["source"]
+            operation = source["operation"]
+            bars = []
+
+            for entity_id in source["entity_ids"]:
+                history_series = history_entity_map.get(entity_id)
+                if history_series is None:
+                    missing_aggregate_sources.append(
+                        {
+                            "series_id": series_spec["series_id"],
+                            "entity_id": entity_id,
+                            "reason": "missing_history_series",
+                        }
+                    )
+                    continue
+
+                values, timestamps = _numeric_values_in_window(history_series, time_window)
+                if not values:
+                    missing_aggregate_sources.append(
+                        {
+                            "series_id": series_spec["series_id"],
+                            "entity_id": entity_id,
+                            "reason": "no_numeric_points",
+                        }
+                    )
+                    continue
+
+                bars.append(
+                    {
+                        "entity_id": entity_id,
+                        "label": history_series.get("label", entity_id),
+                        "value": _aggregate_numeric_values(values, operation),
+                        "timestamps": timestamps,
+                    }
+                )
+
+            if bars:
+                aggregate_bar_series.append(
+                    {
+                        "series_id": series_spec["series_id"],
+                        "series_spec": series_spec,
+                        "operation": operation,
+                        "bars": bars,
+                    }
+                )
+
+        if missing_aggregate_sources:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="Aggregate bar charts require numeric history for every source entity.",
+                details={"missing_aggregate_sources": missing_aggregate_sources},
+            )
+
+        if not aggregate_bar_series:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="No aggregate source history was available for the bar chart spec.",
+            )
+    elif chart_type == "heatmap":
+        time_window = _absolute_time_range_extent(chart_spec)
+        missing_heatmap_sources = []
+
+        for series_spec in chart_spec["series"]:
+            series_id = series_spec["series_id"]
+            source = series_spec["source"]
+            entity_id = source["entity_id"]
+            history_series = history_entity_map.get(entity_id)
+
+            if history_series is None:
+                missing_heatmap_sources.append(
+                    {
+                        "series_id": series_id,
+                        "entity_id": entity_id,
+                        "reason": "missing_history_series",
+                    }
+                )
+                continue
+
+            cells, timestamps = _heatmap_cells_from_history(history_series, time_window)
+            if not cells:
+                missing_heatmap_sources.append(
+                    {
+                        "series_id": series_id,
+                        "entity_id": entity_id,
+                        "reason": "no_numeric_points",
+                    }
+                )
+                continue
+
+            heatmap_series.append(
                 {
-                    "overlay_id": overlay_id,
-                    "derived_interval": derived_interval_map[overlay_id],
+                    "series_id": series_id,
+                    "series_spec": series_spec,
+                    "history_series": history_series,
+                    "cells": cells,
+                    "timestamps": timestamps,
                 }
             )
-        else:
-            warnings.append(f"Missing derived intervals for overlay '{overlay_id}'.")
 
-    if not series_to_plot:
-        return _new_render_failure(
-            request_id=render_request["request_id"],
-            code="missing_history_series",
-            message="No matching history series were available for the chart spec.",
-        )
+        if missing_heatmap_sources:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="Heatmaps require numeric history for every source entity.",
+                details={"missing_heatmap_sources": missing_heatmap_sources},
+            )
+
+        if not heatmap_series:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="No heatmap source history was available for the chart spec.",
+            )
+    elif chart_type == "histogram":
+        time_window = _absolute_time_range_extent(chart_spec)
+        missing_histogram_sources = []
+
+        for series_spec in chart_spec["series"]:
+            series_id = series_spec["series_id"]
+            source = series_spec["source"]
+            entity_id = source["entity_id"]
+            history_series = history_entity_map.get(entity_id)
+
+            if history_series is None:
+                missing_histogram_sources.append(
+                    {
+                        "series_id": series_id,
+                        "entity_id": entity_id,
+                        "reason": "missing_history_series",
+                    }
+                )
+                continue
+
+            bins, timestamps = _histogram_bins_from_history(
+                history_series,
+                time_window,
+                _histogram_bin_count(chart_spec),
+            )
+            if not bins:
+                missing_histogram_sources.append(
+                    {
+                        "series_id": series_id,
+                        "entity_id": entity_id,
+                        "reason": "no_numeric_points",
+                    }
+                )
+                continue
+
+            histogram_series.append(
+                {
+                    "series_id": series_id,
+                    "series_spec": series_spec,
+                    "history_series": history_series,
+                    "bins": bins,
+                    "timestamps": timestamps,
+                }
+            )
+
+        if missing_histogram_sources:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="Histograms require numeric history for every source entity.",
+                details={"missing_histogram_sources": missing_histogram_sources},
+            )
+
+        if not histogram_series:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="No histogram source history was available for the chart spec.",
+            )
+    elif chart_type == "scatter":
+        time_window = _absolute_time_range_extent(chart_spec)
+        missing_scatter_sources = []
+        scatter_histories = []
+
+        for series_spec in chart_spec["series"]:
+            series_id = series_spec["series_id"]
+            source = series_spec["source"]
+            entity_id = source["entity_id"]
+            history_series = history_entity_map.get(entity_id)
+
+            if history_series is None:
+                missing_scatter_sources.append(
+                    {
+                        "series_id": series_id,
+                        "entity_id": entity_id,
+                        "reason": "missing_history_series",
+                    }
+                )
+                continue
+
+            scatter_histories.append(
+                {
+                    "series_id": series_id,
+                    "series_spec": series_spec,
+                    "history_series": history_series,
+                }
+            )
+
+        if len(scatter_histories) == 2:
+            pairs, timestamps = _scatter_pairs_from_history(
+                x_history_series=scatter_histories[0]["history_series"],
+                y_history_series=scatter_histories[1]["history_series"],
+                time_window=time_window,
+            )
+            if not pairs:
+                missing_scatter_sources.append(
+                    {
+                        "series_ids": [series["series_id"] for series in scatter_histories],
+                        "reason": "no_paired_numeric_points",
+                    }
+                )
+            else:
+                scatter_series.append(
+                    {
+                        "series_ids": [series["series_id"] for series in scatter_histories],
+                        "series_specs": [series["series_spec"] for series in scatter_histories],
+                        "history_series": [series["history_series"] for series in scatter_histories],
+                        "pairs": pairs,
+                        "timestamps": timestamps,
+                    }
+                )
+
+        if missing_scatter_sources:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="Scatter charts require paired numeric history for both source entities.",
+                details={"missing_scatter_sources": missing_scatter_sources},
+            )
+
+        if not scatter_series:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="No paired scatter source history was available for the chart spec.",
+            )
+    else:
+        time_window = _absolute_time_range_extent(chart_spec)
+        missing_marker_sources = []
+        for series_spec in chart_spec["series"]:
+            series_id = series_spec["series_id"]
+            if series_id in history_map:
+                series_to_plot.append(history_map[series_id])
+            else:
+                warnings.append(f"Missing history for series '{series_id}'.")
+
+        for overlay_spec in chart_spec.get("overlays", []):
+            overlay_id = overlay_spec["overlay_id"]
+            if overlay_spec["render_as"] == "shaded_intervals" and overlay_id in derived_interval_map:
+                overlays_to_plot.append(
+                    {
+                        "overlay_id": overlay_id,
+                        "derived_interval": derived_interval_map[overlay_id],
+                    }
+                )
+            elif overlay_spec["render_as"] == "markers":
+                source = overlay_spec["source"]
+                entity_id = source["entity_id"]
+                history_series = history_entity_map.get(entity_id)
+                if history_series is None:
+                    missing_marker_sources.append(
+                        {
+                            "overlay_id": overlay_id,
+                            "entity_id": entity_id,
+                            "reason": "missing_history_series",
+                        }
+                    )
+                    continue
+
+                marker_events = _marker_events_from_history(
+                    history_series=history_series,
+                    overlay_spec=overlay_spec,
+                    time_window=time_window,
+                )
+                if not marker_events:
+                    missing_marker_sources.append(
+                        {
+                            "overlay_id": overlay_id,
+                            "entity_id": entity_id,
+                            "reason": "no_matching_marker_events",
+                        }
+                    )
+                    continue
+
+                overlays_to_plot.append(
+                    {
+                        "overlay_id": overlay_id,
+                        "history_series": history_series,
+                        "marker_events": marker_events,
+                    }
+                )
+            else:
+                warnings.append(f"Missing derived intervals for overlay '{overlay_id}'.")
+
+        if not series_to_plot:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_history_series",
+                message="No matching history series were available for the chart spec.",
+            )
+
+        if missing_marker_sources:
+            return _new_render_failure(
+                request_id=render_request["request_id"],
+                code="missing_marker_events",
+                message="Marker overlays require matching source history and at least one marker event.",
+                details={"missing_marker_sources": missing_marker_sources},
+            )
 
     output_directory.mkdir(parents=True, exist_ok=True)
     image_id = f"{render_request['request_id']}.png"
@@ -876,20 +2453,78 @@ def invoke_trusted_renderer(
     height = output.get("height", 600)
 
     try:
-        extent_metadata = _write_time_series_png(
-            chart_spec=render_request["chart_spec"],
-            series_to_plot=series_to_plot,
-            overlays_to_plot=overlays_to_plot,
-            image_path=image_path,
-            width=width,
-            height=height,
-        )
+        if chart_type == "timeline":
+            extent_metadata = _write_timeline_png(
+                chart_spec=chart_spec,
+                timeline_tracks=timeline_tracks,
+                image_path=image_path,
+                width=width,
+                height=height,
+            )
+        elif chart_type == "bar":
+            extent_metadata = _write_bar_png(
+                chart_spec=chart_spec,
+                aggregate_bar_series=aggregate_bar_series,
+                image_path=image_path,
+                width=width,
+                height=height,
+            )
+        elif chart_type == "heatmap":
+            extent_metadata = _write_heatmap_png(
+                chart_spec=chart_spec,
+                heatmap_series=heatmap_series,
+                image_path=image_path,
+                width=width,
+                height=height,
+            )
+        elif chart_type == "histogram":
+            extent_metadata = _write_histogram_png(
+                chart_spec=chart_spec,
+                histogram_series=histogram_series,
+                image_path=image_path,
+                width=width,
+                height=height,
+            )
+        elif chart_type == "scatter":
+            extent_metadata = _write_scatter_png(
+                chart_spec=chart_spec,
+                scatter_series=scatter_series,
+                image_path=image_path,
+                width=width,
+                height=height,
+            )
+        else:
+            extent_metadata = _write_time_series_png(
+                chart_spec=chart_spec,
+                series_to_plot=series_to_plot,
+                overlays_to_plot=overlays_to_plot,
+                image_path=image_path,
+                width=width,
+                height=height,
+            )
     except Exception as exc:  # pragma: no cover - defensive result shaping
         return _new_render_failure(
             request_id=render_request["request_id"],
             code="render_failed",
             message=str(exc),
         )
+
+    if chart_type == "timeline":
+        series_plotted = [track["series_id"] for track in timeline_tracks]
+    elif chart_type == "bar":
+        series_plotted = [series["series_id"] for series in aggregate_bar_series]
+    elif chart_type == "heatmap":
+        series_plotted = [series["series_id"] for series in heatmap_series]
+    elif chart_type == "histogram":
+        series_plotted = [series["series_id"] for series in histogram_series]
+    elif chart_type == "scatter":
+        series_plotted = [
+            series_id
+            for paired_series in scatter_series
+            for series_id in paired_series["series_ids"]
+        ]
+    else:
+        series_plotted = [series["series_id"] for series in series_to_plot]
 
     return {
         "request_id": render_request["request_id"],
@@ -899,8 +2534,8 @@ def invoke_trusted_renderer(
         "image_path": str(image_path),
         "error": None,
         "render_metadata": {
-            "title": render_request["chart_spec"]["title"],
-            "series_plotted": [series["series_id"] for series in series_to_plot],
+            "title": chart_spec["title"],
+            "series_plotted": series_plotted,
             "overlays_plotted": [overlay["overlay_id"] for overlay in overlays_to_plot],
             "x_min": extent_metadata["x_min"],
             "x_max": extent_metadata["x_max"],
@@ -1062,11 +2697,7 @@ def validate_chart_job(
         for item in entity_catalog
         if item.get("visible_to_agent")
     }
-    referenced_entity_ids = [
-        series["source"]["entity_id"]
-        for series in chart_spec.get("series", [])
-        if series.get("source", {}).get("type") == "entity"
-    ]
+    referenced_entity_ids = _referenced_entity_ids(chart_spec)
     missing_entity_ids = [
         entity_id
         for entity_id in referenced_entity_ids
@@ -1295,38 +2926,46 @@ def invoke_fake_prompt_to_chart(
     output_directory: Path,
     now: datetime | None = None,
     semantic_aliases: list[dict[str, Any]] | None = None,
+    entity_catalog: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if now is None:
         now = datetime.now(timezone.utc)
 
+    catalog = get_fake_approved_entity_catalog() if entity_catalog is None else entity_catalog
+    history = get_fake_normalized_history(now=now)
     semantic_aliases = [] if semantic_aliases is None else semantic_aliases
+    invalid_semantic_aliases = []
     for alias in semantic_aliases:
-        natural_names = {name.lower() for name in alias.get("natural_names", [])}
-        meaning = alias.get("meaning", {})
-        if (
-            alias.get("enabled", True)
-            and "dishwasher running" in natural_names
-            and meaning.get("type") == "threshold_interval"
-            and re.search(r"dishwasher", prompt, re.IGNORECASE)
-            and re.search(r"running", prompt, re.IGNORECASE)
-        ):
+        if _matches_dishwasher_running_threshold_alias(alias=alias, prompt=prompt):
+            invalid_alias_entities = _invalid_semantic_alias_entities(
+                alias=alias,
+                entity_catalog=catalog,
+            )
+            if invalid_alias_entities:
+                invalid_semantic_aliases.extend(invalid_alias_entities)
+                continue
+
             result = invoke_threshold_confirmation_use_once(
                 prompt=prompt,
-                confirmation_value=meaning,
+                confirmation_value=alias["meaning"],
                 output_directory=output_directory,
                 now=now,
+                entity_catalog=catalog,
             )
             result["planner_result"]["reasoning_summary"] = (
                 "Reused saved semantic alias 'dishwasher_running' for the "
                 "dishwasher running threshold."
             )
+            result["invalid_semantic_aliases"] = invalid_semantic_aliases
             return result
 
-    catalog = get_fake_approved_entity_catalog()
-    history = get_fake_normalized_history(now=now)
     planner_result = create_deterministic_planner_result(
         prompt=prompt,
         entity_catalog=catalog,
+    )
+    _append_invalid_semantic_alias_warnings(
+        planner_result=planner_result,
+        invalid_semantic_aliases=invalid_semantic_aliases,
     )
 
     render_request = None
@@ -1353,7 +2992,87 @@ def invoke_fake_prompt_to_chart(
         "render_request": render_request,
         "render_result": render_result,
         "validation_result": validation_result,
+        "invalid_semantic_aliases": invalid_semantic_aliases,
     }
+
+
+def create_semantic_memory_store(
+    *,
+    aliases: list[dict[str, Any]],
+    config_entry_id: str = "fake-config-entry",
+    now: datetime | None = None,
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    store = {
+        "store_version": 1,
+        "config_entry_id": config_entry_id,
+        "created_at": iso_timestamp(now),
+        "updated_at": iso_timestamp(now),
+        "aliases": aliases,
+    }
+    validate_contract("semantic-memory-store", store, repo_root=repo_root)
+    _validate_semantic_memory_store_alias_ids(store)
+    return store
+
+
+def prepare_semantic_memory_for_planning(
+    *,
+    semantic_memory_store: dict[str, Any],
+    entity_catalog: list[dict[str, Any]],
+    repo_root: Path | None = None,
+) -> dict[str, Any]:
+    try:
+        validate_contract("semantic-memory-store", semantic_memory_store, repo_root=repo_root)
+        _validate_semantic_memory_store_alias_ids(semantic_memory_store)
+    except ContractValidationError as exc:
+        return {
+            "valid_semantic_aliases": [],
+            "invalid_semantic_aliases": [],
+            "store_error": {
+                "code": "semantic_memory_store_invalid",
+                "message": str(exc),
+            },
+        }
+
+    valid_aliases = []
+    invalid_aliases = []
+    for alias in semantic_memory_store["aliases"]:
+        if not alias.get("enabled", True):
+            continue
+
+        invalid_entities = _invalid_semantic_alias_entities(
+            alias=alias,
+            entity_catalog=entity_catalog,
+        )
+        if invalid_entities:
+            invalid_aliases.extend(invalid_entities)
+            continue
+
+        valid_aliases.append(alias)
+
+    return {
+        "valid_semantic_aliases": valid_aliases,
+        "invalid_semantic_aliases": invalid_aliases,
+        "store_error": None,
+    }
+
+
+def _validate_semantic_memory_store_alias_ids(store: dict[str, Any]) -> None:
+    seen_alias_ids = set()
+    duplicate_alias_ids = set()
+
+    for alias in store["aliases"]:
+        alias_id = alias["alias_id"]
+        if alias_id in seen_alias_ids:
+            duplicate_alias_ids.add(alias_id)
+        seen_alias_ids.add(alias_id)
+
+    if duplicate_alias_ids:
+        duplicate_list = ", ".join(sorted(duplicate_alias_ids))
+        raise ContractValidationError(f"Duplicate semantic alias IDs: {duplicate_list}.")
 
 
 def invoke_threshold_confirmation_use_once(
@@ -1362,6 +3081,7 @@ def invoke_threshold_confirmation_use_once(
     confirmation_value: dict[str, Any],
     output_directory: Path,
     now: datetime | None = None,
+    entity_catalog: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if now is None:
         now = datetime.now(timezone.utc)
@@ -1371,7 +3091,7 @@ def invoke_threshold_confirmation_use_once(
     if confirmation_value.get("entity_id") != "sensor.dishwasher_power":
         raise ValueError("The fake use-once threshold path supports only sensor.dishwasher_power.")
 
-    catalog = get_fake_approved_entity_catalog()
+    catalog = get_fake_approved_entity_catalog() if entity_catalog is None else entity_catalog
     history = get_fake_normalized_history(now=now)
     threshold = {
         "operator": confirmation_value["operator"],
@@ -1490,6 +3210,86 @@ def _alias_id_from_name(alias_name: str) -> str:
     if not alias_id:
         raise ValueError("alias_name must contain at least one alphanumeric character.")
     return alias_id
+
+
+def _semantic_alias_entity_ids(alias: dict[str, Any]) -> list[str]:
+    meaning = alias.get("meaning", {})
+    if meaning.get("type") == "aggregate":
+        return [
+            entity_id
+            for entity_id in meaning.get("entity_ids", [])
+            if isinstance(entity_id, str)
+        ]
+
+    entity_id = meaning.get("entity_id")
+    if isinstance(entity_id, str):
+        return [entity_id]
+    return []
+
+
+def _invalid_semantic_alias_entities(
+    *,
+    alias: dict[str, Any],
+    entity_catalog: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    by_entity_id = {item["entity_id"]: item for item in entity_catalog}
+    invalid_entities = []
+
+    for entity_id in _semantic_alias_entity_ids(alias):
+        entity = by_entity_id.get(entity_id)
+        if entity is None:
+            reason = "entity_unavailable"
+        elif not entity.get("visible_to_agent"):
+            reason = "entity_not_allowlisted"
+        else:
+            continue
+
+        invalid_entities.append(
+            {
+                "alias_id": alias.get("alias_id", ""),
+                "entity_id": entity_id,
+                "reason": reason,
+            }
+        )
+
+    return invalid_entities
+
+
+def _matches_dishwasher_running_threshold_alias(
+    *,
+    alias: dict[str, Any],
+    prompt: str,
+) -> bool:
+    natural_names = {name.lower() for name in alias.get("natural_names", [])}
+    meaning = alias.get("meaning", {})
+    return (
+        alias.get("enabled", True)
+        and "dishwasher running" in natural_names
+        and meaning.get("type") == "threshold_interval"
+        and re.search(r"dishwasher", prompt, re.IGNORECASE)
+        and re.search(r"running", prompt, re.IGNORECASE)
+    )
+
+
+def _append_invalid_semantic_alias_warnings(
+    *,
+    planner_result: dict[str, Any],
+    invalid_semantic_aliases: list[dict[str, str]],
+) -> None:
+    if not invalid_semantic_aliases:
+        return
+
+    planner_result["warnings"] = [
+        "semantic_alias_invalid",
+        *planner_result.get("warnings", []),
+    ]
+    alias_ids = ", ".join(
+        sorted({alias["alias_id"] for alias in invalid_semantic_aliases})
+    )
+    planner_result["reasoning_summary"] = (
+        f"Ignored invalid saved semantic alias(es): {alias_ids}. "
+        f"{planner_result.get('reasoning_summary') or ''}"
+    ).strip()
 
 
 def invoke_threshold_confirmation_use_and_remember(

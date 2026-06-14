@@ -28,6 +28,19 @@ Feature: Semantic memory
     And the chart spec should use the saved threshold without asking the same clarification again
     And the chart job should continue
 
+  Scenario Outline: Do not reuse invalid threshold interval aliases
+    Given a semantic alias named "dishwasher running" references "<entity_id>"
+    And that entity is "<entity_state>"
+    When the user prompts "Mark when the dishwasher was running over the last day"
+    Then the planner should not reuse the saved semantic alias
+    And the planner should ask for clarification or return cannot_resolve
+    And no chart should be rendered from stale memory
+
+    Examples:
+      | entity_id                       | entity_state          |
+      | sensor.retired_dishwasher_power | unavailable           |
+      | sensor.dishwasher_power         | no longer allowlisted |
+
   Scenario: Do not save memory without confirmation
     Given the model proposes a new semantic alias
     When the user selects "Use once"

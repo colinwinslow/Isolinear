@@ -1,69 +1,138 @@
-# AGENTS.md
+# AGENTS.md — Isolinear Agent Contract
 
-## Project identity
+> This file is the working contract for any coding agent (Codex, Claude Code, etc.) operating in this repo. Codex reads `AGENTS.md` automatically on session start. Keep it short — it is loaded every session.
 
-You are working on Isolinear, a local-first Home Assistant visualization assistant. The product turns natural-language questions into validated charts using approved Home Assistant entity history.
+## Identity
 
-## Engineering workflow
+**Isolinear** is a local-first Home Assistant visualization assistant. The product turns natural-language questions into validated charts using approved Home Assistant entity history.
 
-This repo follows this sequence:
+Isolinear runs as a Home Assistant custom integration (ADR-0001) paired with an isolated worker service (ADR-0001). It uses schema-first design (ADR-0005), deterministic validation (ADR-0006), and semantic memory (ADR-0009) to deliver safe, reproducible visualizations. The MVP is read-only and sandboxed (ADR-0008).
 
-1. ADR
-2. Spec
-3. BDD
-4. Red-Green TDD
-5. Eval
+This project is developed **agentically**. The human provides direction and oversight; the agent does the implementation. Work is reviewed by reading commits, decision records (ADRs), specs, and the inspectable evidence that tests produce.
+
+## Session start
+
+On session start, run `/startup` (see `codex/startup.md`). The required read set is **`STATUS.md` + `HANDOFF.md`**. `STATUS.md` is the single source for the current bounded packet and rolling session log. `HANDOFF.md` carries the current project phase, architectural direction, implementation status, and unresolved design details.
+
+Do not load other docs unless the work requires them. The doc map below tells you when to load what.
+
+## Doc map
+
+| Question | Read |
+|---|---|
+| What's the current state of the project? | `STATUS.md` |
+| What is Isolinear, architecturally? | `HANDOFF.md` + relevant ADRs in `docs/decisions/` |
+| Why did we decide X? | `docs/decisions/NNNN-*.md` (one ADR per decision) |
+| What does feature Y do? | `docs/specs/<feature>.md` (one spec per shippable feature) |
+| What are the scenarios for feature Y? | `docs/bdd/<feature>/` or `docs/bdd/<feature>.feature` |
+| Is Z still an open question? | `docs/research/<topic>.md` |
+| What are the JSON Schema contracts? | `docs/schemas/*.json` |
+| What's the implementation plan for slice N? | Current `STATUS.md` active work + the spec's "Proof requirements" |
+| How does the project build/test? | This file, "Build & test" |
+| What session commands exist? | `codex/` (startup, closeout, adr, spec, research, review passes) |
+
+If the question doesn't fit the table, ask. Don't guess.
+
+## Invariants (load-bearing; do not violate)
+
+These are the non-negotiable rules of Isolinear. Every diff is checked against them; review passes verify compliance. Cite the ADR for the reasoning.
+
+1. **Entity allowlist enforcement** — Plans and generated code reference only approved entities from the configured allowlist. Ambiguous entity prompts trigger clarification, never silent guesses. (ADR-0003, ADR-0008)
+
+2. **No Home Assistant mutation** — The MVP does not mutate Home Assistant state, devices, automations, scenes, or configuration. Read-only operations only. (ADR-0008)
+
+3. **Sandboxed execution** — All generated Python (matplotlib codegen, etc.) runs in a sandboxed subprocess with no access to HA tokens, secrets, arbitrary files, local network resources, or internet. (ADR-0008)
+
+4. **Schema validation first** — All major data (ChartSpec, HistorySeries, ClarificationQuestion, SemanticAlias, etc.) must validate against JSON Schema (docs/schemas/) before rendering or storage. (ADR-0005)
+
+5. **Deterministic plan validation** — Plans pass a validation gate (pre-render) that checks schema validity and entity allowlist membership. Invalid or hidden-entity plans return a clear failure, not a render attempt. (ADR-0006)
+
+6. **Chart-spec-first rendering** — Prefer rendering through the trusted chart-spec renderer. Sandboxed codegen is an opt-in advanced path, not the default. Generated code must implement a validated ChartSpec, use a fixed entry point and output path, pass static safety checks, and cap retry loops. (ADR-0004, ADR-0008)
+
+7. **Semantic memory is deterministic** — Saved aliases (SemanticAlias records) are deterministic and reusable. Invalidated aliases (entity unavailable, no longer allowlisted) do not silently reuse; they trigger clarification or a `cannot_resolve` result. (ADR-0009)
+
+8. **No silent architecture decisions** — New external services, databases, queues, frameworks, or storage mechanisms require an ADR before implementation. No speculative generality. (ADR-0008)
+
+## Workflow
+
+### BDD before implementation
+
+Every implementation slice begins with a small, inspectable BDD that defines the artifact proving success. Tests derive from the BDD; code makes the tests pass. Scaffold a spec + paired BDD with `/spec <slug>` (see `codex/spec.md`).
+
+The engineering sequence is:
+
+1. **ADR** — Decide the architecture (if a decision is needed).
+2. **Spec** — Define the contract surface and observable behavior.
+3. **BDD** — Write scenarios that pin down "done"; create the evidence file scaffold.
+4. **Red-Green-Refactor TDD** — Anchor artifact first; supporting code second; tests drive correctness.
+5. **Eval** — Run evaluation scripts to validate deterministic behavior against specifications.
 
 Do not skip directly to implementation when an ADR, spec, BDD, schema, or eval is missing for the requested behavior.
 
-## Required startup behavior
+### Three layers of correctness proof
 
-At the start of each coding session:
+| Layer | Owns | When | Format |
+|---|---|---|---|
+| **Unit tests (red/green TDD)** | Failure paths, edge cases, regression net | Every code change; failing tests block commit | Test runner output |
+| **BDD evidence** | User-facing happy path + catastrophic/irreversible failures | After feature work; human reviews | Markdown evidence file referenced from the BDD |
+| **Anchor artifact** | The simplest concrete observable version of the thing | Built first, before supporting code | Whatever the feature *is* (a CLI output, a file, a JSON row) |
 
-1. Read this file.
-2. Read `HANDOFF.md`.
-3. Read relevant ADRs in `docs/adr/`.
-4. Read relevant specs in `docs/specs/`.
-5. Read relevant BDDs in `docs/bdd/`.
-6. Read relevant schemas in `docs/schemas/`.
-7. Read relevant eval outlines in `docs/evals/`.
-8. Summarize the current task and expected verification before editing files.
+### Verify on disk
 
-## Safety rules
+A slice is not done until the real artifact has been verified on disk (read the changed files back; confirm the expected content is present). "Tests pass" is necessary but not sufficient.
 
-- Do not expose all Home Assistant entities to the model. Use only the configured allowlist.
-- Do not let generated Python access Home Assistant tokens, secrets, arbitrary files, local network resources, or the internet.
-- Do not allow generated Python to call Home Assistant services.
-- Do not mutate Home Assistant state, devices, automations, scenes, or configuration in the MVP.
-- Do not save semantic memory unless the user explicitly confirms saving it.
-- Do not silently choose among multiple plausible entity mappings when the choice changes meaning.
-- Do not add a new external service, database, queue, or framework without an ADR.
+### Anchor-artifact discipline
 
-## Rendering rules
+Build the simplest concrete observable version of the thing **first**, before supporting infrastructure. If you're building plumbing before anything visible exists, stop and reorder.
 
-- Prefer chart-spec rendering through the trusted renderer.
-- Use sandboxed codegen only through the defined render contract.
-- Generated code must implement a validated `ChartSpec`.
-- Generated code must use a fixed entry point and a fixed output path.
-- Generated code must pass static safety checks before execution.
-- Codegen retry loops must be capped.
+## Session commands
 
-## Testing rules
+> **Codex does not have native slash commands the way Claude Code does.** Treat these as **repo-local protocols**: when the user types `/startup`, read `codex/startup.md` and follow it. They are not magic — they are documented procedures.
 
-- Use Red-Green-Refactor for behavior changes.
-- Add or update tests for every behavior change.
-- Add regression tests for every bug fix.
-- Run the smallest relevant test set before broad test runs.
-- Do not mark work complete if tests or evals are skipped without saying exactly why.
+| Command | Protocol file | Purpose |
+|---|---|---|
+| `/startup` | `codex/startup.md` | Drift-check + read STATUS/HANDOFF + identify next bounded packet + confirm proof |
+| `/closeout` | `codex/closeout.md` | Update STATUS rolling log + sync doc indexes + run review passes + commit |
+| `/adr <slug>` | `codex/adr.md` | Scaffold a new ADR with auto-numbering |
+| `/spec <slug>` | `codex/spec.md` | Scaffold a new spec + paired BDD |
+| `/research <slug>` | `codex/research.md` | Scaffold a new research note |
 
-## Closeout report format
+## Review passes
 
-Every completed task should report:
+| Review | Protocol file | When | How to run |
+|---|---|---|---|
+| Architecture review | `codex/review-architecture.md` | Before completing a non-trivial implementation | Standalone `codex exec` run for a fresh, un-anchored read of the diff against the invariants |
+| BDD-evidence review | `codex/review-bdd-evidence.md` | After a test run on a feature with BDD scenarios | Inline pass at `/closeout` (it verifies evidence you just produced) |
 
-1. Files changed.
-2. Behavior implemented.
-3. Tests run.
-4. Evals run.
-5. Any skipped checks.
-6. Any assumptions or open questions.
-7. Whether specs, ADRs, BDDs, schemas, or evals need updates.
+## Build & test
+
+```bash
+C:\Users\c.winslow\AppData\Local\Python\bin\python.exe -m pytest tests/     # run unit tests
+C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals/<eval>.py     # run a single eval script
+```
+
+> **Note:** The Windows Store `python.exe` launcher appears first on PATH and fails. Use the full path above until PATH is adjusted, or alias the full path in your shell profile.
+
+**Current test posture:** All unit tests and evals passing (see `STATUS.md` for latest session log and current verification status, and `HANDOFF.md` for current implementation status).
+
+## Commit norms
+
+- One commit per coherent change. Messages describe **why**, not just what.
+- ADR commits: `[ADR-NNNN]` prefix. Spec commits: `[spec:<feature>]` prefix.
+- Never skip hooks (`--no-verify`) unless the user explicitly asks. If a hook fails, fix the underlying issue and create a NEW commit; do not amend.
+- Stage specific files. Never blanket `git add -A` / `git add .`.
+- At `/closeout`, include a completion report in the commit body (see `codex/closeout.md` for format).
+- Ask before pushing. Default is commit-only.
+
+## What is out of scope (now)
+
+- Home Assistant custom integration implementation (deferred until MVP design phase closes)
+- Persistent semantic-memory storage-helper implementation, migrations, and repair UI beyond the completed envelope contract
+- Exact dashboard card implementation technology
+- Exact worker API transport and authentication
+- Exact sandbox implementation details for Raspberry Pi compatibility
+- Which chart primitives are included in the first trusted renderer release
+
+## When in doubt
+
+Ask the human. Direction is the human's call; implementation details are yours. If a spec is ambiguous, surface the ambiguity in chat and write the resolution into the spec before coding.

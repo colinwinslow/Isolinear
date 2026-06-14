@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/history-series.schema.json",
+  "title": "HistorySeries",
+  "type": "object",
+  "required": [
+    "series_id",
+    "label",
+    "kind"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "series_id": {
+      "type": "string"
+    },
+    "entity_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "label": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "numeric",
+        "binary_state",
+        "categorical_state",
+        "event"
+      ]
+    },
+    "unit": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "points": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "required": [
+          "ts"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "value": {
+            "type": [
+              "number",
+              "string",
+              "boolean",
+              "null"
+            ]
+          },
+          "raw_state": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "quality": {
+            "enum": [
+              "ok",
+              "unknown",
+              "unavailable",
+              "invalid",
+              "missing"
+            ]
+          }
+        }
+      }
+    },
+    "source_entity_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    }
+  }
+}

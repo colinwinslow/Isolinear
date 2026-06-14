@@ -1,0 +1,34 @@
+id: trusted_renderer_primitives
+summary: Trusted renderer supports scoped line, shaded-interval, selected timeline, aggregate bar, calendar hour heatmap, event marker, histogram, and scatter primitives while rejecting unsupported safe-mode primitives without codegen.
+fixtures:
+  chart_spec: in-code fixtures from evals/trusted_renderer_primitives.py
+  history: in-code fake normalized history
+  derived_intervals: in-code dishwasher_running interval
+expect:
+  supported_scope:
+    chart_types:
+      - time_series
+      - timeline
+      - bar
+      - heatmap
+      - histogram
+      - scatter
+    series_render_as:
+      - line
+      - step
+      - bar
+      - heatmap
+      - histogram
+      - scatter
+    overlays_render_as:
+      - shaded_intervals
+      - markers
+    scatter_axis_source: explicit_series_ids
+    output_format: png
+    fallback_to_codegen: false
+  line_render_status: success
+  shaded_interval_render_status: success
+  unsupported_render_status: failed
+  unsupported_error_code: unsupported_chart_spec
+  unsupported_codegen_attempts: 0
+  unsupported_image_created: false

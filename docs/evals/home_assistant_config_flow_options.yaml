@@ -1,0 +1,28 @@
+id: home_assistant_config_flow_options
+summary: The Home Assistant integration exposes a config flow and options flow that persist validated local-first setup data without orchestration side effects.
+executable_eval: evals/home_assistant_config_flow_options.py
+fixtures:
+  manifest: custom_components/isolinear/manifest.json
+  config_flow: custom_components/isolinear/config_flow.py
+  config_defaults: in-code Isolinear scaffold defaults
+  options_defaults: in-code Isolinear scaffold defaults
+  invalid_inputs: in-code credential, secret-like, unsupported render mode, duplicate allowlist, and malformed allowlist examples
+expect:
+  manifest_config_flow: true
+  config_flow_file_present: true
+  config_flow_step: user
+  options_flow_step: init
+  blank_optional_models_normalized_to_null: true
+  allowlist_text_normalized_to_entity_list: true
+  credential_endpoint_urls_rejected: true
+  secret_like_config_values_rejected: true
+  unsupported_render_modes_rejected: true
+  duplicate_allowlist_rejected: true
+  malformed_allowlist_rejected: true
+  worker_called: false
+  model_provider_called: false
+  home_assistant_history_called: false
+  semantic_memory_called: false
+  home_assistant_mutation_called: false
+  token_generated: false
+  dashboard_resource_registered: false

@@ -1,0 +1,173 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/integration-artifact-metadata.schema.json",
+  "title": "IntegrationArtifactMetadata",
+  "type": "object",
+  "required": [
+    "artifact_id",
+    "config_entry_id",
+    "job_id",
+    "source_snapshot_id",
+    "artifact_kind",
+    "status",
+    "title",
+    "image_url",
+    "time_range",
+    "series",
+    "overlays",
+    "render_metadata",
+    "validation",
+    "warnings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "artifact_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "config_entry_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "job_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "source_snapshot_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "artifact_kind": {
+      "const": "chart_image"
+    },
+    "status": {
+      "enum": [
+        "placeholder",
+        "rendered"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "image_url": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "time_range": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "series": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/chartItem"
+      }
+    },
+    "overlays": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/chartItem"
+      }
+    },
+    "render_metadata": {
+      "type": "object",
+      "required": [
+        "renderer",
+        "render_attempted",
+        "worker_called",
+        "chart_rendering_called"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "renderer": {
+          "enum": [
+            "artifact_storage_scaffold",
+            "in_process_matplotlib",
+            "worker_renderer"
+          ]
+        },
+        "render_attempted": {
+          "type": "boolean"
+        },
+        "worker_called": {
+          "type": "boolean"
+        },
+        "chart_rendering_called": {
+          "type": "boolean"
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary",
+        "checks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "pass"
+        },
+        "summary": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "status": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            }
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "chartItem": {
+      "type": "object",
+      "required": [
+        "label",
+        "entity_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "series_id": {
+          "type": "string"
+        },
+        "overlay_id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "entity_id": {
+          "type": "string",
+          "pattern": "\\S"
+        }
+      }
+    }
+  }
+}

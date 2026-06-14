@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Isolinear Long-Running Smoke</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #eef3f8;
+        color: #1d2633;
+        font-family: Arial, sans-serif;
+        display: grid;
+        grid-template-columns: minmax(280px, 720px);
+        justify-content: center;
+        align-content: start;
+        gap: 16px;
+        padding: 24px;
+      }
+
+      #smoke-evidence {
+        background: #ffffff;
+        border: 1px solid #c9d3df;
+        border-radius: 6px;
+        overflow: auto;
+        padding: 12px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body data-smoke-status="running">
+    <isolinear-card id="card"></isolinear-card>
+    <pre id="smoke-evidence">{ "status": "running" }</pre>
+    <script type="module" src="./long-running-smoke.js"></script>
+  </body>
+</html>

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/worker-health-request.schema.json",
+  "title": "WorkerHealthRequest",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "method",
+    "path",
+    "headers"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "const": 1
+    },
+    "method": {
+      "const": "GET"
+    },
+    "path": {
+      "const": "/v1/health"
+    },
+    "headers": {
+      "type": "object",
+      "required": [
+        "accept",
+        "x_isolinear_worker_api_version",
+        "authorization"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "accept": {
+          "const": "application/json"
+        },
+        "x_isolinear_worker_api_version": {
+          "const": "1"
+        },
+        "authorization": {
+          "type": "string",
+          "pattern": "^Bearer [A-Za-z0-9._~-]+$"
+        }
+      }
+    }
+  }
+}

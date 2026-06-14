@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/integration-render-plan.schema.json",
+  "title": "IntegrationRenderPlan",
+  "type": "object",
+  "required": [
+    "render_plan_id",
+    "config_entry_id",
+    "job_id",
+    "source_snapshot_id",
+    "artifact_id",
+    "status",
+    "render_mode",
+    "renderer",
+    "chart_spec",
+    "history_entity_ids",
+    "output",
+    "validation",
+    "warnings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "render_plan_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "config_entry_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "job_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "source_snapshot_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "artifact_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "status": {
+      "const": "planned"
+    },
+    "render_mode": {
+      "const": "safe"
+    },
+    "renderer": {
+      "const": "trusted_chart_spec"
+    },
+    "chart_spec": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "history_entity_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "\\S"
+      }
+    },
+    "output": {
+      "type": "object",
+      "required": [
+        "format",
+        "width",
+        "height"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "png"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 320,
+          "maximum": 4096
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 240,
+          "maximum": 4096
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary",
+        "checks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "pass"
+        },
+        "summary": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "status": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            }
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

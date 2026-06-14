@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/worker-transport-request.schema.json",
+  "title": "WorkerTransportRequest",
+  "type": "object",
+  "required": [
+    "protocol_version",
+    "method",
+    "path",
+    "headers",
+    "body"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "protocol_version": {
+      "const": 1
+    },
+    "method": {
+      "const": "POST"
+    },
+    "path": {
+      "const": "/v1/render"
+    },
+    "headers": {
+      "type": "object",
+      "required": [
+        "content_type",
+        "x_isolinear_worker_api_version",
+        "authorization"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "content_type": {
+          "const": "application/json"
+        },
+        "x_isolinear_worker_api_version": {
+          "const": "1"
+        },
+        "authorization": {
+          "type": "string",
+          "pattern": "^Bearer [A-Za-z0-9._~-]+$"
+        }
+      }
+    },
+    "body": {
+      "type": "object",
+      "required": [
+        "version",
+        "operation",
+        "request_id",
+        "render_request"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "operation": {
+          "const": "render_chart"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "render_request": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}

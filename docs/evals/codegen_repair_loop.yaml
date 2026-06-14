@@ -1,8 +1,9 @@
 id: codegen_repair_loop
 summary: Broken generated matplotlib code should trigger a capped repair loop and never bypass safety checks.
+executable_eval: evals/codegen_sandbox.py
 fixtures:
-  chart_spec: fixtures/chart_specs/two_series_with_overlay.json
-  generated_code: fixtures/generated_code/matplotlib_missing_import.py
+  chart_spec: in-code fixture from Isolinear.codegen_sandbox_anchor.sample_codegen_render_request
+  generated_code: in-code fixtures from Isolinear.codegen_sandbox_anchor
 expect:
   initial_runtime_error: true
   repair_loop_runs: true

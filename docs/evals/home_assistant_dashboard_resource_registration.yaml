@@ -1,0 +1,26 @@
+id: home_assistant_dashboard_resource_registration
+summary: The Home Assistant integration serves and registers the Isolinear dashboard card module idempotently without orchestration side effects.
+executable_eval: evals/home_assistant_dashboard_resource_registration.py
+fixtures:
+  card_bundle: frontend/dist/isolinear-card.js
+  integration_resource_module: custom_components/isolinear/dashboard_resource.py
+  integration_setup: custom_components/isolinear/__init__.py
+  fake_hass: in-code fake Home Assistant resource collection
+expect:
+  static_path_url: /api/isolinear/static
+  resource_url: /api/isolinear/static/isolinear-card.js
+  resource_type: module
+  config_entry_scoped_result: true
+  repeated_setup_duplicate_count: 0
+  preexisting_resource_reused: true
+  missing_bundle_rejected: true
+  unavailable_resource_collection_rejected: true
+  worker_called: false
+  model_provider_called: false
+  home_assistant_history_called: false
+  semantic_memory_called: false
+  home_assistant_service_or_state_mutation_called: false
+  token_generated: false
+  job_orchestration_called: false
+  websocket_command_registered: false
+  dashboard_resource_metadata_written_or_reused: true

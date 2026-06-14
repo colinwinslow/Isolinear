@@ -1,0 +1,49 @@
+id: home_assistant_worker_transport_failure_retry_classification_scaffold
+summary: The Home Assistant integration records schema-valid, redacted worker transport failure retry classification metadata for accepted-false worker client responses while preserving fail-closed worker dispatch boundaries and avoiding automatic retry behavior.
+executable_eval: evals/home_assistant_worker_transport_failure_retry_classification_scaffold.py
+fixtures:
+  integration_job_orchestration_module: custom_components/isolinear/job_orchestration.py
+  integration_worker_renderer_module: custom_components/isolinear/worker_renderer.py
+  integration_job_state_module: custom_components/isolinear/job_state.py
+  integration_websocket_module: custom_components/isolinear/websocket_api.py
+  integration_setup: custom_components/isolinear/__init__.py
+  worker_transport_failure_classification_schema: docs/schemas/integration-worker-transport-failure-classification.schema.json
+  worker_retry_policy_schema: docs/schemas/integration-worker-retry-policy.schema.json
+  worker_transport_request_schema: docs/schemas/worker-transport-request.schema.json
+  render_request_schema: docs/schemas/render-request.schema.json
+  render_result_schema: docs/schemas/render-result.schema.json
+  fake_hass: in-code fake Home Assistant config entries, job state, WebSocket registry, start commands, snapshot commands, and fake worker render clients
+expect:
+  snapshot_command_routed_to_orchestration: true
+  configured_worker_called_for_eligible_scaffold_ready_job: true
+  connection_transport_failure_records_classification: true
+  http_transport_failure_records_classification: true
+  malformed_response_transport_failure_records_classification: true
+  worker_transport_failure_classification_schema_valid: true
+  worker_transport_request_schema_valid: true
+  render_request_schema_valid: true
+  worker_transport_failure_family_mapping_deterministic: true
+  worker_authorization_redacted_in_classification_and_evidence: true
+  worker_failure_code_and_message_sanitized: true
+  transport_failure_does_not_store_dispatch_render_plan_artifact_progress_retry_policy_or_complete_snapshot: true
+  unknown_job_rejected_before_worker_call: true
+  cross_config_entry_job_rejected_before_worker_call: true
+  per_config_entry_isolation: true
+  worker_transport_failure_classification_bookkeeping_written: true
+  worker_called_only_for_eligible_configured_jobs: true
+  approved_home_assistant_history_read_during_worker_transport_classification: false
+  semantic_memory_called: false
+  home_assistant_service_or_state_mutation_called: false
+  token_generated: false
+  token_rotation_called: false
+  token_leaked_to_card: false
+  token_leaked_to_model_provider: false
+  chart_artifact_written: false
+  durable_retry_storage_written: false
+  worker_health_check_called: false
+  automatic_retry_called: false
+  scheduler_called: false
+  automatic_progress_task_called: false
+  new_worker_transport_added: false
+  worker_render_result_retry_policy_changed: false
+  job_orchestration_called: false

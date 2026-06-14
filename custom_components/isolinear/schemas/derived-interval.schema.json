@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/derived-interval.schema.json",
+  "title": "DerivedInterval",
+  "type": "object",
+  "required": [
+    "interval_id",
+    "label",
+    "source_entity_id",
+    "intervals"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "interval_id": {
+      "type": "string"
+    },
+    "label": {
+      "type": "string"
+    },
+    "source_entity_id": {
+      "type": "string"
+    },
+    "source_attribute": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "intervals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "start",
+          "end"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "state": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    }
+  }
+}

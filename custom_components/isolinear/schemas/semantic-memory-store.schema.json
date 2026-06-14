@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/semantic-memory-store.schema.json",
+  "title": "SemanticMemoryStore",
+  "type": "object",
+  "required": [
+    "store_version",
+    "config_entry_id",
+    "created_at",
+    "updated_at",
+    "aliases"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "store_version": {
+      "const": 1
+    },
+    "config_entry_id": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/semanticAlias"
+      }
+    }
+  },
+  "$defs": {
+    "semanticAlias": {
+      "type": "object",
+      "required": [
+        "alias_id",
+        "natural_names",
+        "meaning",
+        "source",
+        "created_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "alias_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_\\-]+$"
+        },
+        "natural_names": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "meaning": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "operation",
+                "entity_ids"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "aggregate"
+                },
+                "operation": {
+                  "enum": [
+                    "mean",
+                    "min",
+                    "max",
+                    "sum",
+                    "count"
+                  ]
+                },
+                "entity_ids": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "entity_id",
+                "active_values"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "state_interval"
+                },
+                "entity_id": {
+                  "type": "string"
+                },
+                "attribute": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "active_values": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "entity_id",
+                "operator",
+                "value"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "threshold_interval"
+                },
+                "entity_id": {
+                  "type": "string"
+                },
+                "operator": {
+                  "enum": [
+                    ">",
+                    ">=",
+                    "<",
+                    "<=",
+                    "==",
+                    "!="
+                  ]
+                },
+                "value": {
+                  "type": "number"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "entity_id"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "entity"
+                },
+                "entity_id": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "source": {
+          "enum": [
+            "user_confirmed"
+          ]
+        },
+        "created_from_prompt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_used_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  }
+}

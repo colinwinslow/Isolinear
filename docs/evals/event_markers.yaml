@@ -1,0 +1,24 @@
+id: event_markers
+summary: Selected trusted renderer follow-up renders point-in-time event markers over numeric time-series history without codegen.
+fixtures:
+  chart_spec: in-code fixture from evals/event_markers.py
+  history: in-code upstairs temperature history plus dishwasher binary-state marker history
+expect:
+  selected_family: event_markers
+  chart_type: time_series
+  source_type: entity
+  series_render_as:
+    - line
+  overlay_render_as:
+    - markers
+  marker_rule:
+    active_values:
+      - "on"
+  render_status: success
+  image_created: true
+  series_plotted:
+    - upstairs_temperature
+  overlays_plotted:
+    - dishwasher_started
+  validation_status: pass
+  codegen_attempts: 0

@@ -3,6 +3,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from evidence import print_case
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -67,6 +69,25 @@ def main():
     validate_contract("render-result", result["render_result"], repo_root=REPO_ROOT)
     validate_contract("validation-result", result["validation_result"], repo_root=REPO_ROOT)
 
+    print_case(
+        "threshold_interval_alias_reuse",
+        given={
+            "prompt": "Mark when the dishwasher was running over the last day",
+            "semantic_alias": saved_alias,
+            "time_anchor": now.isoformat(timespec="seconds"),
+        },
+        when={
+            "operation": "invoke_fake_prompt_to_chart",
+        },
+        then={
+            "planner_status": planner_result["status"],
+            "clarification_question": planner_result["clarification_question"],
+            "chart_id": planner_result["chart_spec"]["chart_id"],
+            "render_status": result["render_result"]["status"],
+            "overlays_plotted": result["render_result"]["render_metadata"]["overlays_plotted"],
+            "validation_status": result["validation_result"]["status"],
+        },
+    )
     print("PASS threshold_interval_alias_reuse")
 
 

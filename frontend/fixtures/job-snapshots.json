@@ -1,0 +1,138 @@
+{
+  "idle": {
+    "snapshot_id": "fixture-idle",
+    "job_id": null,
+    "status": "idle",
+    "prompt": "",
+    "state_label": "Idle",
+    "message": "Ready for an approved Home Assistant history question.",
+    "validation": {
+      "status": "not_run",
+      "summary": "Waiting for prompt."
+    },
+    "warnings": []
+  },
+  "planning": {
+    "snapshot_id": "fixture-planning",
+    "job_id": "job-planning-001",
+    "status": "planning",
+    "prompt": "Compare upstairs and downstairs temperatures",
+    "state_label": "Planning",
+    "progress": {
+      "stage": "planning",
+      "message": "Resolving approved entities and drafting a chart spec."
+    },
+    "validation": {
+      "status": "pending",
+      "summary": "Plan validation has not completed."
+    },
+    "warnings": []
+  },
+  "clarification_needed": {
+    "snapshot_id": "fixture-clarification",
+    "job_id": "job-clarify-001",
+    "status": "clarification_needed",
+    "prompt": "Show upstairs temperature for the last day",
+    "state_label": "Clarification needed",
+    "clarification": {
+      "question_id": "clarify_upstairs_temperature",
+      "message": "I found three upstairs temperature sensors. Should I average them and call that upstairs temperature?",
+      "reason": "Multiple approved entities matched the prompt.",
+      "options": [
+        {
+          "option_id": "average_upstairs_temperature",
+          "label": "Average upstairs sensors",
+          "description": "Use the approved upstairs temperature sensors as one series.",
+          "can_remember": true
+        }
+      ]
+    },
+    "validation": {
+      "status": "blocked",
+      "summary": "Waiting for a clarification answer before validation."
+    },
+    "warnings": ["clarification_required"]
+  },
+  "complete": {
+    "snapshot_id": "fixture-complete",
+    "job_id": "job-complete-001",
+    "status": "complete",
+    "prompt": "Compare upstairs and downstairs temperatures",
+    "state_label": "Complete",
+    "chart": {
+      "title": "Upstairs vs Downstairs Temperature",
+      "image_url": "../fixtures/fake-temperature-chart.svg",
+      "time_range": "Last 24 hours",
+      "series": [
+        {
+          "series_id": "upstairs_temperature",
+          "label": "Upstairs Temperature",
+          "entity_id": "sensor.upstairs_temperature"
+        },
+        {
+          "series_id": "downstairs_temperature",
+          "label": "Downstairs Temperature",
+          "entity_id": "sensor.downstairs_temperature"
+        }
+      ],
+      "overlays": []
+    },
+    "entities": [
+      {
+        "entity_id": "sensor.upstairs_temperature",
+        "label": "Upstairs Temperature"
+      },
+      {
+        "entity_id": "sensor.downstairs_temperature",
+        "label": "Downstairs Temperature"
+      }
+    ],
+    "aliases": [
+      {
+        "name": "upstairs temperature",
+        "meaning": "sensor.upstairs_temperature"
+      },
+      {
+        "name": "downstairs temperature",
+        "meaning": "sensor.downstairs_temperature"
+      }
+    ],
+    "validation": {
+      "status": "pass",
+      "summary": "Chart spec, allowlist, image artifact, and render metadata passed.",
+      "checks": [
+        {
+          "name": "chart_spec_schema",
+          "status": "pass"
+        },
+        {
+          "name": "allowlisted_entities",
+          "status": "pass"
+        },
+        {
+          "name": "image_artifact",
+          "status": "pass"
+        }
+      ]
+    },
+    "warnings": []
+  },
+  "failed": {
+    "snapshot_id": "fixture-failed",
+    "job_id": "job-failed-001",
+    "status": "failed",
+    "prompt": "Render unsupported energy histogram",
+    "state_label": "Failed",
+    "failure": {
+      "stage": "rendering",
+      "code": "unsupported_chart_spec",
+      "message": "The trusted renderer rejected an unsupported chart primitive."
+    },
+    "retry_allowed": true,
+    "validation": {
+      "status": "fail",
+      "summary": "Rendering stopped before a chart image was produced."
+    },
+    "warnings": ["unsupported_chart_spec"]
+  }
+}

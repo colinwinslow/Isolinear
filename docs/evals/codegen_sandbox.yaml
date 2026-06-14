@@ -1,0 +1,19 @@
+id: codegen_sandbox
+summary: Optional generated Python rendering must run through the fixed-entry sandbox and fail closed for unsafe code, secret access, oversized output, and capped repair attempts.
+executable_eval: evals/codegen_sandbox.py
+fixtures:
+  sandbox_policy: in-code default policy from Isolinear.codegen_sandbox_anchor
+  render_request: in-code fixture from sample_codegen_render_request
+  generated_code: in-code safe, unsafe, oversized-output, and repair-loop fixtures
+expect:
+  policy_strategy: isolated_subprocess
+  entry_point: render_chart
+  fixed_output_path_only: true
+  matplotlib_backend: Agg
+  unsafe_code_rejected_before_execution: true
+  arbitrary_file_read_denied: true
+  network_access_denied: true
+  output_size_limit_enforced: true
+  max_repair_attempts: 2
+  static_checks_rerun_on_repair: true
+  evidence_redacts_secrets: true

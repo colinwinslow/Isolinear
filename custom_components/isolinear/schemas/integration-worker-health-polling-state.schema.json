@@ -1,0 +1,403 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/integration-worker-health-polling-state.schema.json",
+  "title": "IntegrationWorkerHealthPollingState",
+  "type": "object",
+  "required": [
+    "polling_id",
+    "type",
+    "version",
+    "config_entry_id",
+    "status",
+    "code",
+    "health",
+    "scheduler",
+    "repair",
+    "storage",
+    "validation",
+    "warnings",
+    "orchestration"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "polling_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "type": {
+      "const": "isolinear_worker_health_polling_state"
+    },
+    "version": {
+      "const": 1
+    },
+    "config_entry_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "status": {
+      "enum": [
+        "scheduled",
+        "ready",
+        "not_ready",
+        "unavailable",
+        "blocked",
+        "disabled",
+        "cancelled"
+      ]
+    },
+    "code": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "health": {
+      "type": "object",
+      "required": [
+        "status",
+        "code",
+        "message",
+        "failure_family",
+        "last_health_id",
+        "capabilities"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "ready",
+            "not_ready",
+            "unavailable",
+            null
+          ]
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "failure_family": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "none",
+            "worker_not_ready",
+            "connection",
+            "http",
+            "malformed_response",
+            "unavailable",
+            "unknown",
+            null
+          ]
+        },
+        "last_health_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "capabilities": {
+          "type": "object",
+          "required": [
+            "rendering"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "rendering": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "scheduler": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "post_setup_poll_enqueued",
+        "single_flight",
+        "poll_in_flight",
+        "last_poll_at",
+        "next_poll_not_before",
+        "ready_cadence_seconds",
+        "backoff_seconds",
+        "consecutive_failures",
+        "stale",
+        "disabled_reason",
+        "cancelled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "post_setup_poll_enqueued": {
+          "type": "boolean"
+        },
+        "single_flight": {
+          "const": true
+        },
+        "poll_in_flight": {
+          "type": "boolean"
+        },
+        "last_poll_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "next_poll_not_before": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "ready_cadence_seconds": {
+          "const": 300
+        },
+        "backoff_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 900
+        },
+        "consecutive_failures": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "disabled_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cancelled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "repair": {
+      "type": "object",
+      "required": [
+        "recommendation",
+        "automatic_repair_scheduled"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "recommendation": {
+          "enum": [
+            "none",
+            "manual_probe",
+            "check_worker",
+            "token_repair_available"
+          ]
+        },
+        "automatic_repair_scheduled": {
+          "const": false
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "required": [
+        "helper_key",
+        "version",
+        "config_entry_scoped"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "helper_key": {
+          "const": "isolinear_worker_health_polling"
+        },
+        "version": {
+          "const": 1
+        },
+        "config_entry_scoped": {
+          "const": true
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary",
+        "checks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "pass"
+        },
+        "summary": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "status": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            }
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "orchestration": {
+      "type": "object",
+      "required": [
+        "durable_health_storage_written",
+        "scheduler_bookkeeping_written",
+        "post_setup_poll_enqueued",
+        "worker_health_check_called",
+        "worker_health_request_validated",
+        "worker_health_response_validated",
+        "single_flight_guard_checked",
+        "home_assistant_history_read",
+        "semantic_memory_called",
+        "home_assistant_service_or_state_mutation_called",
+        "token_generated",
+        "token_rotation_called",
+        "token_repair_called",
+        "worker_render_called",
+        "model_provider_called",
+        "chart_rendering_called",
+        "chart_artifact_written",
+        "durable_retry_storage_written",
+        "recorder_called",
+        "config_entry_options_written",
+        "external_queue_called",
+        "automatic_retry_called",
+        "automatic_progress_task_called",
+        "automatic_repair_called",
+        "worker_endpoint_leaked_to_card",
+        "token_leaked_to_card",
+        "polling_metadata_leaked_to_card"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "durable_health_storage_written": {
+          "type": "boolean"
+        },
+        "scheduler_bookkeeping_written": {
+          "type": "boolean"
+        },
+        "post_setup_poll_enqueued": {
+          "type": "boolean"
+        },
+        "worker_health_check_called": {
+          "type": "boolean"
+        },
+        "worker_health_request_validated": {
+          "type": "boolean"
+        },
+        "worker_health_response_validated": {
+          "type": "boolean"
+        },
+        "single_flight_guard_checked": {
+          "type": "boolean"
+        },
+        "home_assistant_history_read": {
+          "type": "boolean"
+        },
+        "semantic_memory_called": {
+          "type": "boolean"
+        },
+        "home_assistant_service_or_state_mutation_called": {
+          "type": "boolean"
+        },
+        "token_generated": {
+          "type": "boolean"
+        },
+        "token_rotation_called": {
+          "type": "boolean"
+        },
+        "token_repair_called": {
+          "type": "boolean"
+        },
+        "worker_render_called": {
+          "type": "boolean"
+        },
+        "model_provider_called": {
+          "type": "boolean"
+        },
+        "chart_rendering_called": {
+          "type": "boolean"
+        },
+        "chart_artifact_written": {
+          "type": "boolean"
+        },
+        "durable_retry_storage_written": {
+          "type": "boolean"
+        },
+        "recorder_called": {
+          "type": "boolean"
+        },
+        "config_entry_options_written": {
+          "type": "boolean"
+        },
+        "external_queue_called": {
+          "type": "boolean"
+        },
+        "automatic_retry_called": {
+          "type": "boolean"
+        },
+        "automatic_progress_task_called": {
+          "type": "boolean"
+        },
+        "automatic_repair_called": {
+          "type": "boolean"
+        },
+        "worker_endpoint_leaked_to_card": {
+          "type": "boolean"
+        },
+        "token_leaked_to_card": {
+          "type": "boolean"
+        },
+        "polling_metadata_leaked_to_card": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

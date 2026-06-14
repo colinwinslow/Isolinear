@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/integration-worker-health.schema.json",
+  "title": "IntegrationWorkerHealth",
+  "type": "object",
+  "required": [
+    "health_id",
+    "type",
+    "config_entry_id",
+    "status",
+    "code",
+    "worker",
+    "request",
+    "response",
+    "validation",
+    "warnings",
+    "orchestration"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "health_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "type": {
+      "const": "isolinear_worker_health"
+    },
+    "config_entry_id": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "not_ready",
+        "unavailable"
+      ]
+    },
+    "code": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "worker": {
+      "type": "object",
+      "required": [
+        "type",
+        "role",
+        "endpoint_url",
+        "api_version",
+        "health_path",
+        "authorization"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "http_json_worker"
+        },
+        "role": {
+          "const": "renderer"
+        },
+        "endpoint_url": {
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "api_version": {
+          "const": 1
+        },
+        "health_path": {
+          "const": "/v1/health"
+        },
+        "authorization": {
+          "const": "Bearer <redacted>"
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "protocol_version",
+        "method",
+        "path",
+        "headers"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "protocol_version": {
+          "const": 1
+        },
+        "method": {
+          "const": "GET"
+        },
+        "path": {
+          "const": "/v1/health"
+        },
+        "headers": {
+          "type": "object",
+          "required": [
+            "accept",
+            "x_isolinear_worker_api_version",
+            "authorization"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "accept": {
+              "const": "application/json"
+            },
+            "x_isolinear_worker_api_version": {
+              "const": "1"
+            },
+            "authorization": {
+              "const": "Bearer <redacted>"
+            }
+          }
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": [
+        "accepted",
+        "status",
+        "code",
+        "message",
+        "checks",
+        "capabilities"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "ready",
+            "not_ready",
+            "unavailable"
+          ]
+        },
+        "code": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "message": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "status": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            }
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "required": [
+            "rendering"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "rendering": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "required": [
+        "status",
+        "summary",
+        "checks"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "pass"
+        },
+        "summary": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "\\S"
+              },
+              "status": {
+                "type": "string",
+                "pattern": "\\S"
+              }
+            }
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "orchestration": {
+      "type": "object",
+      "required": [
+        "worker_health_check_called",
+        "worker_health_bookkeeping_written",
+        "worker_health_request_validated",
+        "worker_health_response_validated",
+        "home_assistant_history_read",
+        "semantic_memory_called",
+        "home_assistant_service_or_state_mutation_called",
+        "token_generated",
+        "token_rotation_called",
+        "worker_render_called",
+        "chart_rendering_called",
+        "chart_artifact_written",
+        "durable_storage_written",
+        "durable_retry_storage_written",
+        "retry_behavior_called",
+        "scheduler_called",
+        "automatic_retry_called",
+        "automatic_progress_task_called",
+        "new_worker_transport_added",
+        "token_leaked_to_card",
+        "token_leaked_to_model_provider"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "worker_health_check_called": {
+          "type": "boolean"
+        },
+        "worker_health_bookkeeping_written": {
+          "type": "boolean"
+        },
+        "worker_health_request_validated": {
+          "type": "boolean"
+        },
+        "worker_health_response_validated": {
+          "type": "boolean"
+        },
+        "home_assistant_history_read": {
+          "type": "boolean"
+        },
+        "semantic_memory_called": {
+          "type": "boolean"
+        },
+        "home_assistant_service_or_state_mutation_called": {
+          "type": "boolean"
+        },
+        "token_generated": {
+          "type": "boolean"
+        },
+        "token_rotation_called": {
+          "type": "boolean"
+        },
+        "worker_render_called": {
+          "type": "boolean"
+        },
+        "chart_rendering_called": {
+          "type": "boolean"
+        },
+        "chart_artifact_written": {
+          "type": "boolean"
+        },
+        "durable_storage_written": {
+          "type": "boolean"
+        },
+        "durable_retry_storage_written": {
+          "type": "boolean"
+        },
+        "retry_behavior_called": {
+          "type": "boolean"
+        },
+        "scheduler_called": {
+          "type": "boolean"
+        },
+        "automatic_retry_called": {
+          "type": "boolean"
+        },
+        "automatic_progress_task_called": {
+          "type": "boolean"
+        },
+        "new_worker_transport_added": {
+          "type": "boolean"
+        },
+        "token_leaked_to_card": {
+          "type": "boolean"
+        },
+        "token_leaked_to_model_provider": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

@@ -3,6 +3,8 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from evidence import print_case
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -116,6 +118,45 @@ def main():
     validate_contract("render-result", render_result, repo_root=REPO_ROOT)
     validate_contract("validation-result", validation_result, repo_root=REPO_ROOT)
 
+    print_case(
+        "shaded_interval_rendering",
+        given={
+            "chart_spec": {
+                "chart_id": chart_spec["chart_id"],
+                "chart_type": chart_spec["chart_type"],
+                "title": chart_spec["title"],
+                "time_range": chart_spec["time_range"],
+                "series": [
+                    {
+                        "series_id": series["series_id"],
+                        "label": series["label"],
+                        "source": series["source"],
+                        "role": series["role"],
+                        "render_as": series["render_as"],
+                        "unit": series["unit"],
+                    }
+                    for series in chart_spec["series"]
+                ],
+                "overlays": chart_spec["overlays"],
+            },
+            "derived_interval": derived_interval,
+            "output": render_request["output"],
+        },
+        when={
+            "operation": "invoke_trusted_renderer_then_validate_chart_job",
+            "request_id": render_request["request_id"],
+        },
+        then={
+            "render_status": render_result["status"],
+            "image_mime_type": render_result["image_mime_type"],
+            "render_metadata": render_result["render_metadata"],
+            "validation_status": validation_result["status"],
+            "validation_checks": [
+                {"name": check["name"], "status": check["status"]}
+                for check in validation_result["checks"]
+            ],
+        },
+    )
     print("PASS shaded_interval_rendering")
 
 

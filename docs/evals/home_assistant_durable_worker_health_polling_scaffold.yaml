@@ -1,0 +1,52 @@
+id: home_assistant_durable_worker_health_polling_scaffold
+summary: The Home Assistant integration owns a durable worker health polling scaffold that stores schema-valid redacted config-entry-scoped polling state, enqueues post-setup polling without setup-time worker calls, runs eligible scheduled health probes through ADR-0014, applies deterministic ready cadence and bounded failure backoff, removes state on unload, and keeps polling internals out of dashboard-card payloads.
+executable_eval: evals/home_assistant_durable_worker_health_polling_scaffold.py
+fixtures:
+  integration_worker_health_polling_module: custom_components/isolinear/worker_health_polling.py
+  integration_worker_health_module: custom_components/isolinear/worker_health.py
+  integration_worker_readiness_module: custom_components/isolinear/worker_readiness.py
+  integration_setup: custom_components/isolinear/__init__.py
+  integration_worker_health_polling_state_schema: docs/schemas/integration-worker-health-polling-state.schema.json
+  fake_hass: in-code fake Home Assistant config entries, storage-helper surface, scheduler bookkeeping, deterministic tokens, and fake worker health clients
+expect:
+  setup_enqueues_post_setup_poll_without_worker_call: true
+  home_assistant_timer_schedules_post_setup_and_next_poll: true
+  scheduled_health_probe_uses_executor_job: true
+  scheduled_ready_poll_records_300_second_cadence: true
+  scheduled_poll_does_not_write_explicit_health_state: true
+  lost_preconditions_block_before_not_due_shortcut: true
+  not_ready_and_unavailable_results_use_bounded_backoff: true
+  missing_preconditions_block_before_worker_call: true
+  single_flight_guard_prevents_overlapping_poll: true
+  unload_removes_entry_durable_polling_state: true
+  same_entry_reload_race_ignored: true
+  worker_context_change_clears_in_flight_state: true
+  per_config_entry_isolation: true
+  setup_resumes_persisted_polling_cadence: true
+  invalid_persisted_cadence_skipped_before_merge: true
+  cancelled_persisted_polling_state_skipped_before_merge: true
+  polling_state_schema_valid: true
+  worker_authorization_absent_from_polling_state_and_evidence: true
+  worker_endpoint_absent_from_polling_state_and_dashboard_payloads: true
+  durable_polling_metadata_absent_from_dashboard_payloads: true
+  setup_worker_health_call: false
+  eligible_poll_worker_health_call: true
+  durable_health_storage_written: true
+  scheduler_bookkeeping_written: true
+  home_assistant_history_read: false
+  semantic_memory_called: false
+  home_assistant_service_or_state_mutation_called: false
+  token_generation_called: false
+  token_rotation_called: false
+  token_repair_called: false
+  worker_render_called: false
+  model_provider_called: false
+  chart_rendering_called: false
+  chart_artifact_written: false
+  durable_retry_storage_written: false
+  recorder_called: false
+  config_entry_options_written: false
+  external_queue_or_database_called: false
+  automatic_retry_called: false
+  automatic_progress_task_called: false
+  automatic_repair_called: false

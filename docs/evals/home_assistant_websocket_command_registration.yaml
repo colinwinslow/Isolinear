@@ -1,0 +1,31 @@
+id: home_assistant_websocket_command_registration
+summary: The Home Assistant integration registers the Isolinear card-facing WebSocket command set idempotently while preserving scaffold validation and non-orchestration boundaries.
+executable_eval: evals/home_assistant_websocket_command_registration.py
+fixtures:
+  integration_websocket_module: custom_components/isolinear/websocket_api.py
+  integration_setup: custom_components/isolinear/__init__.py
+  integration_commands: transport/auth sample IntegrationWsCommand messages
+  invalid_commands: in-code wrong-version, leaky, mutating, and missing-config-entry examples
+  fake_hass: in-code fake Home Assistant WebSocket command registry
+expect:
+  websocket_namespace: isolinear/v1/
+  websocket_command_version: 1
+  command_count: 5
+  registered_via_async_register_command: true
+  handlers_have_command_schema: true
+  config_entry_scoped_result: true
+  accepted_results_include_schema_valid_snapshot: true
+  wrong_version_rejected_before_orchestration: true
+  leaky_commands_rejected_before_orchestration: true
+  mutation_commands_rejected_before_orchestration: true
+  missing_config_entry_rejected_before_orchestration: true
+  repeated_setup_duplicate_count: 0
+  worker_called: false
+  model_provider_called: false
+  home_assistant_history_called: false
+  semantic_memory_called: false
+  home_assistant_service_or_state_mutation_called: false
+  token_generated: false
+  job_orchestration_called: false
+  dashboard_resource_metadata_written_or_reused: false
+  websocket_command_registered: true

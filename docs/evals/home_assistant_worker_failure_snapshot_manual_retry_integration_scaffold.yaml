@@ -1,0 +1,46 @@
+id: home_assistant_worker_failure_snapshot_manual_retry_integration_scaffold
+summary: The Home Assistant integration turns already-validated worker render and transport failures into card-facing failed IntegrationJobSnapshot payloads with safe manual retry affordance metadata, while preserving worker redaction and bounded side effects.
+executable_eval: evals/home_assistant_worker_failure_snapshot_manual_retry_integration_scaffold.py
+fixtures:
+  integration_job_orchestration_module: custom_components/isolinear/job_orchestration.py
+  integration_worker_renderer_module: custom_components/isolinear/worker_renderer.py
+  integration_job_state_module: custom_components/isolinear/job_state.py
+  integration_websocket_module: custom_components/isolinear/websocket_api.py
+  integration_setup: custom_components/isolinear/__init__.py
+  integration_job_snapshot_schema: docs/schemas/integration-job-snapshot.schema.json
+  worker_retry_policy_schema: docs/schemas/integration-worker-retry-policy.schema.json
+  worker_transport_failure_classification_schema: docs/schemas/integration-worker-transport-failure-classification.schema.json
+  fake_hass: in-code fake Home Assistant config entries, job state, WebSocket registry, start commands, snapshot commands, retry commands, and fake worker render clients
+expect:
+  snapshot_command_routed_to_orchestration: true
+  worker_render_failure_returns_failed_snapshot: true
+  worker_transport_failure_returns_failed_snapshot: true
+  failed_snapshot_schema_valid: true
+  worker_retry_policy_schema_valid: true
+  worker_transport_failure_classification_schema_valid: true
+  manual_retry_allowed_for_retry_safe_worker_failures: true
+  manual_retry_resumes_retryable_worker_failure_snapshot: true
+  non_retry_safe_transport_failure_rejects_manual_retry: true
+  card_payload_excludes_worker_endpoint_request_token_policy_classification_render_plan_artifact_and_dispatch: true
+  worker_authorization_redacted_in_internal_metadata_and_evidence: true
+  unknown_job_rejected_before_worker_call_or_failed_snapshot: true
+  cross_config_entry_job_rejected_before_worker_call_failed_snapshot_or_retry: true
+  per_config_entry_isolation: true
+  worker_called_only_for_eligible_configured_jobs: true
+  failed_snapshot_bookkeeping_written_for_worker_failures: true
+  approved_home_assistant_history_read_during_worker_failure_snapshot: false
+  approved_home_assistant_history_read_during_user_triggered_manual_retry: true
+  semantic_memory_called: false
+  home_assistant_service_or_state_mutation_called: false
+  token_generated: false
+  token_rotation_called: false
+  token_leaked_to_card: false
+  token_leaked_to_model_provider: false
+  chart_artifact_written: false
+  durable_retry_storage_written: false
+  worker_health_check_called: false
+  automatic_retry_called: false
+  scheduler_called: false
+  automatic_progress_task_called: false
+  new_worker_transport_added: false
+  worker_metadata_exposed_to_card: false

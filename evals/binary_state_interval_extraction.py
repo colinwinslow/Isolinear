@@ -3,6 +3,8 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from evidence import print_case
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -118,6 +120,23 @@ def main():
     validate_contract("render-result", render_result, repo_root=REPO_ROOT)
     validate_contract("validation-result", validation_result, repo_root=REPO_ROOT)
 
+    print_case(
+        "binary_state_interval_extraction",
+        given={
+            "history_series": dishwasher_history,
+            "active_values": ["on"],
+        },
+        when={
+            "operation": "extract_state_intervals_then_render",
+            "range_end": now.isoformat(timespec="seconds"),
+        },
+        then={
+            "derived_interval": derived_interval,
+            "render_status": render_result["status"],
+            "overlays_plotted": render_result["render_metadata"]["overlays_plotted"],
+            "validation_status": validation_result["status"],
+        },
+    )
     print("PASS binary_state_interval_extraction")
 
 

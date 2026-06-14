@@ -1,0 +1,22 @@
+id: calendar_hour_heatmap
+summary: Selected trusted renderer follow-up renders numeric entity history as a weekday-by-hour heatmap without codegen.
+fixtures:
+  chart_spec: in-code fixture from evals/calendar_hour_heatmap.py
+  history: in-code dishwasher power numeric history
+expect:
+  selected_family: calendar_hour_heatmap
+  chart_type: heatmap
+  source_type: entity
+  series_render_as:
+    - heatmap
+  history_kind:
+    - numeric
+  x_group_by: hour
+  y_group_by: weekday
+  cell_aggregation: mean
+  render_status: success
+  image_created: true
+  series_plotted:
+    - dishwasher_power_heatmap
+  validation_status: pass
+  codegen_attempts: 0

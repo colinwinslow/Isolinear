@@ -1,0 +1,20 @@
+id: state_interval_timeline
+summary: Selected trusted renderer follow-up renders a binary-state interval timeline without codegen.
+fixtures:
+  chart_spec: in-code fixture from evals/state_interval_timeline.py
+  history: in-code dishwasher binary-state history
+  derived_intervals: in-code dishwasher_state interval
+expect:
+  selected_family: state_interval_timeline
+  chart_type: timeline
+  series_render_as:
+    - step
+  history_kind:
+    - binary_state
+    - categorical_state
+  render_status: success
+  image_created: true
+  series_plotted:
+    - dishwasher_state
+  validation_status: pass
+  codegen_attempts: 0

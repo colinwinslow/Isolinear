@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="520" viewBox="0 0 960 520" role="img" aria-labelledby="title desc">
+  <title id="title">Upstairs vs Downstairs Temperature</title>
+  <desc id="desc">A deterministic fixture chart with two temperature lines over the last 24 hours.</desc>
+  <rect width="960" height="520" fill="#f7f9fb"/>
+  <rect x="72" y="48" width="816" height="360" fill="#ffffff" stroke="#d8dee8"/>
+  <g stroke="#edf1f5" stroke-width="1">
+    <line x1="72" y1="348" x2="888" y2="348"/>
+    <line x1="72" y1="288" x2="888" y2="288"/>
+    <line x1="72" y1="228" x2="888" y2="228"/>
+    <line x1="72" y1="168" x2="888" y2="168"/>
+    <line x1="72" y1="108" x2="888" y2="108"/>
+  </g>
+  <g fill="#596579" font-family="Arial, sans-serif" font-size="18">
+    <text x="72" y="30">Upstairs vs Downstairs Temperature</text>
+    <text x="24" y="354">68</text>
+    <text x="24" y="294">69</text>
+    <text x="24" y="234">70</text>
+    <text x="24" y="174">71</text>
+    <text x="24" y="114">72</text>
+    <text x="72" y="444">-24h</text>
+    <text x="450" y="444">-12h</text>
+    <text x="838" y="444">now</text>
+  </g>
+  <polyline fill="none" stroke="#2563eb" stroke-width="5" points="72,180 276,144 480,108 684,132 888,174"/>
+  <polyline fill="none" stroke="#059669" stroke-width="5" points="72,294 276,258 480,216 684,228 888,270"/>
+  <g font-family="Arial, sans-serif" font-size="18">
+    <rect x="620" y="458" width="20" height="8" fill="#2563eb"/>
+    <text x="650" y="468" fill="#2f3a4a">Upstairs</text>
+    <rect x="760" y="458" width="20" height="8" fill="#059669"/>
+    <text x="790" y="468" fill="#2f3a4a">Downstairs</text>
+  </g>
+</svg>

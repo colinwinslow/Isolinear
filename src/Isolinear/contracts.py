@@ -9,15 +9,37 @@ from typing import Any
 
 SCHEMA_NAMES = {
     "chart-spec": "chart-spec.schema.json",
+    "codegen-sandbox-policy": "codegen-sandbox-policy.schema.json",
     "clarification-question": "clarification-question.schema.json",
     "derived-interval": "derived-interval.schema.json",
     "entity-catalog-item": "entity-catalog-item.schema.json",
     "history-series": "history-series.schema.json",
+    "integration-artifact-metadata": "integration-artifact-metadata.schema.json",
+    "integration-job-snapshot": "integration-job-snapshot.schema.json",
+    "integration-model-provider-health": "integration-model-provider-health.schema.json",
+    "integration-model-provider-plan": "integration-model-provider-plan.schema.json",
+    "integration-model-provider-retry-policy": "integration-model-provider-retry-policy.schema.json",
+    "integration-render-plan": "integration-render-plan.schema.json",
+    "integration-worker-health": "integration-worker-health.schema.json",
+    "integration-worker-health-polling-state": "integration-worker-health-polling-state.schema.json",
+    "integration-worker-token-lifecycle-state": "integration-worker-token-lifecycle-state.schema.json",
+    "integration-worker-readiness": "integration-worker-readiness.schema.json",
+    "integration-worker-dispatch": "integration-worker-dispatch.schema.json",
+    "integration-worker-progress": "integration-worker-progress.schema.json",
+    "integration-worker-retry-policy": "integration-worker-retry-policy.schema.json",
+    "integration-worker-transport-failure-classification": (
+        "integration-worker-transport-failure-classification.schema.json"
+    ),
+    "integration-ws-command": "integration-ws-command.schema.json",
+    "model-provider-health-request": "model-provider-health-request.schema.json",
     "planner-result": "planner-result.schema.json",
     "render-request": "render-request.schema.json",
     "render-result": "render-result.schema.json",
     "semantic-alias": "semantic-alias.schema.json",
+    "semantic-memory-store": "semantic-memory-store.schema.json",
     "validation-result": "validation-result.schema.json",
+    "worker-health-request": "worker-health-request.schema.json",
+    "worker-transport-request": "worker-transport-request.schema.json",
 }
 
 

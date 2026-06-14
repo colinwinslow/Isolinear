@@ -1,0 +1,30 @@
+id: home_assistant_approved_entity_catalog_scaffold
+summary: The Home Assistant integration owns a config-entry-scoped approved entity catalog scaffold that exposes only schema-valid allowlisted entity metadata without orchestration side effects.
+executable_eval: evals/home_assistant_approved_entity_catalog_scaffold.py
+fixtures:
+  entity_catalog_schema: docs/schemas/entity-catalog-item.schema.json
+  integration_entity_catalog_module: custom_components/isolinear/entity_catalog.py
+  integration_setup: custom_components/isolinear/__init__.py
+  fake_hass: in-code fake Home Assistant entity and state metadata
+expect:
+  allowlisted_entities_only: true
+  schema_valid_entity_catalog_items: true
+  visible_to_agent: true
+  config_entry_scoped_store: true
+  per_config_entry_isolation: true
+  unknown_allowlisted_entity_rejected: true
+  rejected_rebuild_clears_existing_catalog: true
+  malformed_allowlist_rejected_without_crash: true
+  malformed_catalog_item_rejected_before_storage: true
+  home_assistant_entity_metadata_read: true
+  entity_catalog_scaffold_written: true
+  worker_called: false
+  model_provider_called: false
+  home_assistant_history_called: false
+  semantic_memory_called: false
+  home_assistant_service_or_state_mutation_called: false
+  token_generated: false
+  chart_artifact_written: false
+  job_orchestration_called: false
+  websocket_command_registered: false
+  dashboard_resource_metadata_written_or_reused: false
