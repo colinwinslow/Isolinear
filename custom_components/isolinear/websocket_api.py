@@ -230,6 +230,18 @@ def handle_registered_ws_command(
             orchestration=job_result.get("orchestration"),
         )
 
+    job_orchestration = {
+        "run": job_result.get("run"),
+        "progress_event": job_result.get("progress_event"),
+        "model_provider_plan": job_result.get("model_provider_plan"),
+        "artifact": job_result.get("artifact"),
+        "render_plan": job_result.get("render_plan"),
+        "worker_dispatch": _without_local_render_paths(job_result.get("worker_dispatch")),
+    }
+    in_process_render = _without_local_render_paths(job_result.get("in_process_render"))
+    if in_process_render is not None:
+        job_orchestration["in_process_render"] = in_process_render
+
     return {
         "accepted": True,
         "code": "registered_job_state_command_accepted",
@@ -242,15 +254,7 @@ def handle_registered_ws_command(
             "job_id": job_result["job_id"],
             "subscription": job_result.get("subscription"),
         },
-        "job_orchestration": {
-            "run": job_result.get("run"),
-            "progress_event": job_result.get("progress_event"),
-            "model_provider_plan": job_result.get("model_provider_plan"),
-            "artifact": job_result.get("artifact"),
-            "render_plan": job_result.get("render_plan"),
-            "worker_dispatch": _without_local_render_paths(job_result.get("worker_dispatch")),
-            "in_process_render": _without_local_render_paths(job_result.get("in_process_render")),
-        },
+        "job_orchestration": job_orchestration,
         "orchestration": job_result["orchestration"],
     }
 
@@ -264,6 +268,7 @@ def _without_local_render_paths(payload: Any) -> Any:
     render_result = safe_payload.get("render_result")
     if isinstance(render_result, dict):
         render_result.pop("image_path", None)
+        render_result.pop("image_bytes_base64", None)
     return safe_payload
 
 

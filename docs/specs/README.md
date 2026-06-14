@@ -35,6 +35,7 @@ implementing slice produces an evidence file proving each scenario was hit.
 - `home-assistant-dashboard-card-long-running-smoke.md` — Dashboard card active-job polling smoke against versioned WebSocket snapshots
 - `home-assistant-first-real-vertical-slice.md` — First real Home Assistant metadata/history plus Ollama planner plus in-process matplotlib PNG slice
 - `home-assistant-production-artifact-serving.md` — Production serving for rendered chart PNG artifacts
+- `home-assistant-worker-rendered-artifact-serving.md` — Worker-rendered real-slice PNG bytes written to the served artifact store
 - `home-assistant-integration-scaffold-spec.md` — First production Home Assistant custom integration scaffold
 - `home-assistant-job-orchestration-clarification-continuation-scaffold-spec.md` — Config-entry-scoped clarification-answer continuation behind `clarification/answer`
 - `home-assistant-job-orchestration-artifact-storage-scaffold-spec.md` — Config-entry-scoped artifact bookkeeping behind `job/snapshot`

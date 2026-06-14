@@ -36,6 +36,14 @@
         "null"
       ]
     },
+    "image_bytes_base64": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "contentEncoding": "base64",
+      "maxLength": 2667000
+    },
     "error": {
       "type": [
         "object",

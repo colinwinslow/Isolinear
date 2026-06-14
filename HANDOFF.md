@@ -67,6 +67,20 @@ WebSocket responses expose the served URL without local artifact filesystem
 paths. The dashboard-card long-running smoke now expects and renders the served
 artifact URL.
 
+The worker-rendered artifact-serving hardening packet is complete. When the
+real-slice planner path has a configured worker renderer, the integration sends
+the same schema-valid render request through the ADR-0012 worker transport,
+requires a successful PNG `RenderResult` with bounded base64 image bytes,
+validates the payload, writes it to the existing served artifact store, and
+stores rendered artifact metadata plus redacted worker dispatch metadata.
+Worker tokens, worker-local paths, local artifact filesystem paths, and base64
+image bytes are stripped from registered WebSocket responses. Missing worker
+image bytes fail before artifact, render-plan, dispatch, complete-snapshot, or
+file storage, oversized image bytes fail the shared schema `maxLength` gate
+before decode, and post-write progress rejection removes the just-written PNG
+plus artifact-write metadata. The older worker dispatch scaffold still proves
+no-file placeholder behavior when the real-slice model-provider plan is absent.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -79,7 +93,7 @@ Isolinear lets a user ask natural-language questions about approved Home Assista
 - Standalone worker mode should remain possible for Home Assistant installs that cannot use add-ons.
 - Model provider should be Ollama-compatible, with local-first defaults and optional stronger providers later.
 - Trusted chart-spec renderer is the default path.
-- The first real prompt-to-chart route renders trusted ChartSpecs in-process and returns a same-origin served PNG artifact URL before reintroducing the worker/add-on split.
+- The first real prompt-to-chart route renders trusted ChartSpecs either in-process or through the configured worker renderer and returns a same-origin served PNG artifact URL.
 - Sandboxed matplotlib codegen is an advanced path.
 
 ## Open implementation status
@@ -101,7 +115,12 @@ The focused pytest proves the served PNG URL and on-disk PNG signature,
 hidden-entity rejection before rendering/artifact storage, rollback on failed
 complete-snapshot validation, idempotent completed-snapshot reuse, no local
 filesystem paths in registered WebSocket render details, and no worker
-dispatch. The manual
+dispatch for the in-process route. A follow-up worker-rendered artifact pytest
+now proves the same served URL contract when a configured worker returns
+validated PNG bytes, including idempotence, missing-byte failure before storage,
+oversized-byte schema rejection, progress-failure rollback, worker render
+failure handling, bearer redaction, and path-safe registered WebSocket
+responses. The manual
 evidence proves real recorder history plus `gemma4:e4b` can complete the same
 route with only the allowlisted entity; the production hardening packet replaces
 that temporary data URL output with the served artifact URL contract.

@@ -83,14 +83,15 @@
         "renderer": {
           "enum": [
             "artifact_storage_scaffold",
-            "in_process_matplotlib"
+            "in_process_matplotlib",
+            "worker_renderer"
           ]
         },
         "render_attempted": {
           "type": "boolean"
         },
         "worker_called": {
-          "const": false
+          "type": "boolean"
         },
         "chart_rendering_called": {
           "type": "boolean"

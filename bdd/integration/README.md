@@ -95,6 +95,10 @@ custom integration implementation slices.
   `/api/isolinear/artifacts`, writes trusted-renderer PNG bytes to
   integration-owned files, and returns served chart URLs to the dashboard card
   while preserving hidden-entity rejection and no worker dispatch.
+- **Home Assistant worker-rendered artifact serving** - the integration sends
+  the verified real-slice render request through the configured worker
+  boundary, writes validated worker PNG bytes to the served artifact store, and
+  keeps worker tokens plus local paths out of card-facing responses.
 
 ## Validation
 
@@ -174,3 +178,6 @@ custom integration implementation slices.
 - `tests/test_first_real_vertical_slice.py` - production artifact serving
   proof that the first real slice returns a served PNG artifact URL whose file
   exists on disk.
+- `tests/test_worker_rendered_artifact_serving.py` - worker-rendered
+  real-slice proof for served PNG artifacts, idempotence, worker failure
+  handling, missing image-byte rejection, and path-safe WebSocket responses.

@@ -509,6 +509,10 @@ def _validate_array(
 
 
 def _validate_string(payload: str, schema: dict[str, Any], path: str) -> None:
+    max_length = schema.get("maxLength")
+    if isinstance(max_length, int) and len(payload) > max_length:
+        raise JobStateSnapshotValidationError(_schema_error(f"{path} must be at most {max_length} characters."))
+
     pattern = schema.get("pattern")
     if pattern is not None and re.search(pattern, payload) is None:
         raise JobStateSnapshotValidationError(_schema_error(f"{path} must match pattern {pattern!r}."))
