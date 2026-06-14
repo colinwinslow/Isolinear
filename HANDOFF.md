@@ -32,8 +32,12 @@ when restore is impossible.
 The reality-pivot implementation packet is now in place under accepted ADR-0017:
 the existing Home Assistant WebSocket job flow can use approved metadata,
 approved history, an Ollama-compatible planner result, and trusted in-process
-matplotlib rendering to return a real PNG data URL when the first-real-slice
-route is enabled and no worker dispatch is used. Manual verification has now
+matplotlib rendering when the first-real-slice route is enabled and no worker
+dispatch is used. ADR-0018 now replaces the temporary WebSocket data URL proof
+with production artifact serving: rendered PNG bytes are validated, written to
+integration-owned artifact storage, served from `/api/isolinear/artifacts`, and
+returned to the dashboard card as same-origin URLs while local filesystem paths
+stay server-side. Manual verification has now
 run against real Home Assistant core with a real SQLite recorder database and a
 network Ollama endpoint using `gemma4:e4b`. That live run closed two runtime
 drift issues: registered WebSocket commands now use Home Assistant's
@@ -51,6 +55,18 @@ result behavior, while the focused Python smoke proves the same command shapes
 complete through the registered WebSocket handler path with only the
 allowlisted entity and zero worker dispatches.
 
+The production artifact-serving hardening packet is complete. Config-entry
+setup now prepares integration-owned artifact storage and registers the static
+artifact path at `/api/isolinear/artifacts`. The first-real-slice
+trusted-renderer path validates the render request, render result, PNG payload,
+artifact metadata, and final job snapshot around the file write; repeated
+snapshot requests reuse the completed PNG and URL; hidden provider entities
+still fail before rendering; failed complete-snapshot validation rolls back the
+written PNG plus artifact/render/provider bookkeeping; and registered
+WebSocket responses expose the served URL without local artifact filesystem
+paths. The dashboard-card long-running smoke now expects and renders the served
+artifact URL.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -63,7 +79,7 @@ Isolinear lets a user ask natural-language questions about approved Home Assista
 - Standalone worker mode should remain possible for Home Assistant installs that cannot use add-ons.
 - Model provider should be Ollama-compatible, with local-first defaults and optional stronger providers later.
 - Trusted chart-spec renderer is the default path.
-- The first real prompt-to-chart proof renders trusted ChartSpecs in-process and returns a PNG data URL before reintroducing the worker/add-on split.
+- The first real prompt-to-chart route renders trusted ChartSpecs in-process and returns a same-origin served PNG artifact URL before reintroducing the worker/add-on split.
 - Sandboxed matplotlib codegen is an advanced path.
 
 ## Open implementation status
@@ -78,11 +94,17 @@ ChartSpecs, best-effort real Home Assistant registry/state metadata enrichment,
 best-effort recorder-history retrieval, an async-safe registered WebSocket
 bridge, an Ollama structured-output schema narrowed to the first-slice
 ChartSpec shape, and a first-real-slice route in the existing
-`isolinear/v1/job/start` -> `job/snapshot` flow. The focused pytest proves a
-PNG data URL, hidden-entity rejection before rendering/artifact storage,
-idempotent completed-snapshot reuse, and no worker dispatch. The manual
+`isolinear/v1/job/start` -> `job/snapshot` flow. The route now writes real PNG
+bytes to integration-owned artifact storage and returns
+`/api/isolinear/artifacts/<artifact_id>.png` through the card-facing snapshot.
+The focused pytest proves the served PNG URL and on-disk PNG signature,
+hidden-entity rejection before rendering/artifact storage, rollback on failed
+complete-snapshot validation, idempotent completed-snapshot reuse, no local
+filesystem paths in registered WebSocket render details, and no worker
+dispatch. The manual
 evidence proves real recorder history plus `gemma4:e4b` can complete the same
-route and return a PNG data URL referencing only the allowlisted entity.
+route with only the allowlisted entity; the production hardening packet replaces
+that temporary data URL output with the served artifact URL contract.
 
 Dashboard card implementation technology is decided in ADR-0011: the MVP card is a TypeScript Lit custom element loaded as `custom:isolinear-card`, bundled as an ES module, and kept as a thin client over integration-owned Home Assistant WebSocket commands. The card must not directly call the worker, model provider, Home Assistant history APIs, semantic-memory storage, mutation services, or browser local storage for Isolinear state.
 
@@ -743,9 +765,9 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 ## Next recommended packet
 
 Choose the next real-slice hardening packet before returning to additional
-scaffolds. Good candidates are replacing the temporary PNG data URL proof with
-production artifact serving or reintroducing the worker/add-on rendering
-boundary for the same verified real-slice route.
+scaffolds. The strongest next candidate is reintroducing the worker/add-on
+rendering boundary for the same verified real-slice route while preserving the
+served artifact URL contract.
 
 Preserve the known codegen sandbox matplotlib subprocess flake as a historical
 caveat; the first-real-slice closeout full Python suite passed cleanly

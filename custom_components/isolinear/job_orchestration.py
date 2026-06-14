@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .artifact_serving import prepare_png_artifact, remove_png_artifact, write_png_artifact
 from .const import DOMAIN, INTEGRATION_COMMAND_TYPES
 from .entity_catalog import DATA_ENTITY_CATALOG
 from .history_retrieval import (
@@ -1005,7 +1006,41 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
     worker_dispatch = planning_result.get("worker_dispatch")
     worker_progress_events = planning_result.get("worker_progress_events") or []
     in_process_render = planning_result.get("in_process_render")
-    complete_snapshot = _append_artifact_complete_snapshot(job, artifact, worker_dispatch=worker_dispatch)
+    try:
+        complete_snapshot = _append_artifact_complete_snapshot(job, artifact, worker_dispatch=worker_dispatch)
+    except JobStateSnapshotValidationError as exc:
+        rollback = None
+        if planning_result.get("chart_artifact_written"):
+            rollback = remove_png_artifact(hass, entry_id, artifact_id=artifact["artifact_id"])
+        _rollback_artifact_planning_records(
+            store,
+            artifact=artifact,
+            render_plan=render_plan,
+            model_provider_plan=model_provider_plan,
+            worker_dispatch=worker_dispatch,
+            worker_progress_events=worker_progress_events,
+        )
+        result = _orchestration_rejection(
+            "invalid_integration_job_snapshot",
+            job_id=command.get("job_id"),
+            orchestration=job_orchestration_side_effects(
+                model_provider_called=planning_result.get("model_provider_called", False),
+                worker_called=planning_result.get("worker_called", False),
+                chart_rendering_called=planning_result.get("chart_rendering_called", False),
+                chart_artifact_written=False,
+                artifact_metadata_bookkeeping_written=False,
+                render_plan_bookkeeping_written=False,
+                model_provider_plan_bookkeeping_written=False,
+                worker_dispatch_bookkeeping_written=False,
+                worker_progress_bookkeeping_written=False,
+                worker_progress_streaming_called=planning_result.get("worker_progress_streaming_called", False),
+                job_orchestration_written=True,
+            ),
+        )
+        result["validation"] = exc.result
+        if rollback is not None:
+            result["artifact_rollback"] = rollback
+        return result
     return _accepted_artifact_snapshot(
         "job_orchestration_artifact_storage_recorded",
         command,
@@ -1025,6 +1060,7 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
         model_provider_called=planning_result.get("model_provider_called", False),
         worker_called=planning_result.get("worker_called", False),
         chart_rendering_called=planning_result.get("chart_rendering_called", False),
+        chart_artifact_written=planning_result.get("chart_artifact_written", False),
         job_state_written=True,
         job_orchestration_written=True,
     )
@@ -1726,9 +1762,11 @@ def _record_artifact_and_render_plan(
                 "model_provider_called": model_provider_result.get("model_provider_called", False),
                 "worker_called": False,
                 "chart_rendering_called": in_process_render_result.get("chart_rendering_called", False),
+                "chart_artifact_written": in_process_render_result.get("chart_artifact_written", False),
                 "orchestration": job_orchestration_side_effects(
                     model_provider_called=model_provider_result.get("model_provider_called", False),
                     chart_rendering_called=in_process_render_result.get("chart_rendering_called", False),
+                    chart_artifact_written=in_process_render_result.get("chart_artifact_written", False),
                 ),
             }
 
@@ -1750,6 +1788,7 @@ def _record_artifact_and_render_plan(
             "model_provider_called": model_provider_result.get("model_provider_called", False),
             "worker_called": False,
             "chart_rendering_called": True,
+            "chart_artifact_written": in_process_render_result.get("chart_artifact_written", False),
             "worker_progress_streaming_called": False,
             "artifact_validation": in_process_render_result.get("artifact_validation"),
             "model_provider_validation": model_provider_result.get("validation"),
@@ -2020,10 +2059,41 @@ def _record_in_process_render(
             "in_process_render": render_response,
         }
 
+    prepared_artifact = prepare_png_artifact(
+        hass,
+        entry_id,
+        artifact_id=artifact["artifact_id"],
+        png_bytes=render_response.get("png_bytes"),
+    )
+    if not prepared_artifact["accepted"]:
+        return {
+            "enabled": True,
+            "accepted": False,
+            "code": prepared_artifact["code"],
+            "validation": prepared_artifact,
+            "chart_rendering_called": True,
+            "chart_artifact_written": False,
+            "in_process_render": render_response,
+        }
+
+    render_result = deepcopy(render_result)
+    render_result["image_path"] = prepared_artifact["artifact_path"]
+    render_result_validation = validate_render_result_contract(render_result)
+    if not render_result_validation["accepted"]:
+        return {
+            "enabled": True,
+            "accepted": False,
+            "code": "invalid_in_process_render_result",
+            "validation": render_result_validation,
+            "chart_rendering_called": True,
+            "chart_artifact_written": False,
+            "in_process_render": render_response,
+        }
+
     rendered_artifact = _build_in_process_artifact_metadata(
         artifact,
         render_result=render_result,
-        image_url=render_response["image_url"],
+        image_url=prepared_artifact["image_url"],
     )
     artifact_validation = validate_artifact_metadata_contract(rendered_artifact)
     if not artifact_validation["accepted"]:
@@ -2033,7 +2103,28 @@ def _record_in_process_render(
             "code": "invalid_in_process_artifact_metadata",
             "validation": artifact_validation,
             "chart_rendering_called": True,
+            "chart_artifact_written": False,
             "in_process_render": render_response,
+        }
+
+    artifact_write = write_png_artifact(
+        hass,
+        entry_id,
+        artifact_id=artifact["artifact_id"],
+        png_bytes=render_response.get("png_bytes"),
+    )
+    if not artifact_write["accepted"]:
+        return {
+            "enabled": True,
+            "accepted": False,
+            "code": artifact_write["code"],
+            "validation": artifact_write,
+            "chart_rendering_called": True,
+            "chart_artifact_written": False,
+            "in_process_render": {
+                **render_response,
+                "render_result": render_result,
+            },
         }
 
     return {
@@ -2047,9 +2138,12 @@ def _record_in_process_render(
             "renderer": render_response["renderer"],
             "render_result": render_result,
             "png_byte_count": render_response["png_byte_count"],
-            "image_url_prefix": "data:image/png;base64",
+            "image_url": artifact_write["image_url"],
+            "artifact_path": artifact_write["artifact_path"],
+            "image_url_prefix": "/api/isolinear/artifacts",
         },
         "chart_rendering_called": True,
+        "chart_artifact_written": True,
     }
 
 
@@ -2622,7 +2716,7 @@ def _build_in_process_artifact_metadata(
     rendered["warnings"] = [
         "first_real_vertical_slice",
         "in_process_matplotlib_renderer",
-        "chart_artifact_data_url",
+        "chart_artifact_served_url",
         *list(render_metadata.get("warnings", []) if isinstance(render_metadata, dict) else []),
     ]
     return rendered
@@ -3012,6 +3106,148 @@ def _store_validated_worker_progress_event(store: dict[str, Any], event: dict[st
     store["worker_progress_event_order"].append(event_id)
     store.setdefault("worker_progress_event_ids_by_job_id", {}).setdefault(event["job_id"], []).append(event_id)
     store["latest_worker_progress_event"] = deepcopy(event)
+
+
+def _rollback_artifact_planning_records(
+    store: dict[str, Any],
+    *,
+    artifact: dict[str, Any] | None,
+    render_plan: dict[str, Any] | None,
+    model_provider_plan: dict[str, Any] | None,
+    worker_dispatch: dict[str, Any] | None,
+    worker_progress_events: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Remove artifact-planning records whose final job snapshot could not be stored."""
+    return {
+        "artifact_metadata_removed": _remove_stored_artifact_metadata(store, artifact),
+        "render_plan_removed": _remove_stored_render_plan(store, render_plan),
+        "model_provider_plan_removed": _remove_stored_model_provider_plan(store, model_provider_plan),
+        "worker_dispatch_removed": _remove_stored_worker_dispatch(store, worker_dispatch),
+        "worker_progress_events_removed": _remove_stored_worker_progress_events(store, worker_progress_events or []),
+    }
+
+
+def _remove_stored_artifact_metadata(store: dict[str, Any], artifact: dict[str, Any] | None) -> bool:
+    if not isinstance(artifact, dict):
+        return False
+    artifact_id = artifact.get("artifact_id")
+    if not isinstance(artifact_id, str):
+        return False
+
+    removed = store.get("artifact_metadata", {}).pop(artifact_id, None) is not None
+    _remove_ordered_id(store.get("artifact_order", []), artifact_id)
+    if store.get("artifact_by_job_id", {}).get(artifact.get("job_id")) == artifact_id:
+        store.get("artifact_by_job_id", {}).pop(artifact.get("job_id"), None)
+    if _latest_record_id(store.get("latest_artifact"), "artifact_id") == artifact_id:
+        store["latest_artifact"] = _latest_stored_record(store, "artifact_metadata", "artifact_order")
+    return removed
+
+
+def _remove_stored_render_plan(store: dict[str, Any], render_plan: dict[str, Any] | None) -> bool:
+    if not isinstance(render_plan, dict):
+        return False
+    render_plan_id = render_plan.get("render_plan_id")
+    if not isinstance(render_plan_id, str):
+        return False
+
+    removed = store.get("render_plans", {}).pop(render_plan_id, None) is not None
+    _remove_ordered_id(store.get("render_plan_order", []), render_plan_id)
+    if store.get("render_plan_by_job_id", {}).get(render_plan.get("job_id")) == render_plan_id:
+        store.get("render_plan_by_job_id", {}).pop(render_plan.get("job_id"), None)
+    if _latest_record_id(store.get("latest_render_plan"), "render_plan_id") == render_plan_id:
+        store["latest_render_plan"] = _latest_stored_record(store, "render_plans", "render_plan_order")
+    return removed
+
+
+def _remove_stored_model_provider_plan(
+    store: dict[str, Any], provider_plan: dict[str, Any] | None
+) -> bool:
+    if not isinstance(provider_plan, dict):
+        return False
+    provider_plan_id = provider_plan.get("provider_plan_id")
+    if not isinstance(provider_plan_id, str):
+        return False
+
+    removed = store.get("model_provider_plans", {}).pop(provider_plan_id, None) is not None
+    _remove_ordered_id(store.get("model_provider_plan_order", []), provider_plan_id)
+    if store.get("model_provider_plan_by_job_id", {}).get(provider_plan.get("job_id")) == provider_plan_id:
+        store.get("model_provider_plan_by_job_id", {}).pop(provider_plan.get("job_id"), None)
+    if _latest_record_id(store.get("latest_model_provider_plan"), "provider_plan_id") == provider_plan_id:
+        store["latest_model_provider_plan"] = _latest_stored_record(
+            store,
+            "model_provider_plans",
+            "model_provider_plan_order",
+        )
+    return removed
+
+
+def _remove_stored_worker_dispatch(store: dict[str, Any], worker_dispatch: dict[str, Any] | None) -> bool:
+    if not isinstance(worker_dispatch, dict):
+        return False
+    dispatch_id = worker_dispatch.get("dispatch_id")
+    if not isinstance(dispatch_id, str):
+        return False
+
+    removed = store.get("worker_dispatches", {}).pop(dispatch_id, None) is not None
+    _remove_ordered_id(store.get("worker_dispatch_order", []), dispatch_id)
+    if store.get("worker_dispatch_by_job_id", {}).get(worker_dispatch.get("job_id")) == dispatch_id:
+        store.get("worker_dispatch_by_job_id", {}).pop(worker_dispatch.get("job_id"), None)
+    if _latest_record_id(store.get("latest_worker_dispatch"), "dispatch_id") == dispatch_id:
+        store["latest_worker_dispatch"] = _latest_stored_record(
+            store,
+            "worker_dispatches",
+            "worker_dispatch_order",
+        )
+    return removed
+
+
+def _remove_stored_worker_progress_events(
+    store: dict[str, Any],
+    worker_progress_events: list[dict[str, Any]],
+) -> int:
+    removed_count = 0
+    for event in worker_progress_events:
+        if not isinstance(event, dict):
+            continue
+        event_id = event.get("event_id")
+        if not isinstance(event_id, str):
+            continue
+        if store.get("worker_progress_events", {}).pop(event_id, None) is not None:
+            removed_count += 1
+        _remove_ordered_id(store.get("worker_progress_event_order", []), event_id)
+        job_id = event.get("job_id")
+        event_ids_by_job = store.get("worker_progress_event_ids_by_job_id", {})
+        if event_ids_by_job.get(job_id):
+            _remove_ordered_id(event_ids_by_job[job_id], event_id)
+            if not event_ids_by_job[job_id]:
+                event_ids_by_job.pop(job_id, None)
+
+    removed_ids = {event.get("event_id") for event in worker_progress_events if isinstance(event, dict)}
+    if _latest_record_id(store.get("latest_worker_progress_event"), "event_id") in removed_ids:
+        store["latest_worker_progress_event"] = _latest_stored_record(
+            store,
+            "worker_progress_events",
+            "worker_progress_event_order",
+        )
+    return removed_count
+
+
+def _remove_ordered_id(order: list[Any], value: str) -> None:
+    while value in order:
+        order.remove(value)
+
+
+def _latest_record_id(record: Any, id_key: str) -> str | None:
+    return record.get(id_key) if isinstance(record, dict) and isinstance(record.get(id_key), str) else None
+
+
+def _latest_stored_record(store: dict[str, Any], records_key: str, order_key: str) -> dict[str, Any] | None:
+    records = store.get(records_key, {})
+    for record_id in reversed(store.get(order_key, [])):
+        record = records.get(record_id)
+        if isinstance(record, dict):
+            return deepcopy(record)
+    return None
 
 
 def _record_worker_transport_failure_classification(
@@ -3762,6 +3998,7 @@ def _accepted_artifact_snapshot(
     worker_retry_policy_written: bool = False,
     worker_transport_failure_classification_written: bool = False,
     in_process_render: dict[str, Any] | None = None,
+    chart_artifact_written: bool = False,
 ) -> dict[str, Any]:
     result = {
         "accepted": True,
@@ -3775,6 +4012,7 @@ def _accepted_artifact_snapshot(
             worker_called=worker_called,
             model_provider_called=model_provider_called,
             chart_rendering_called=chart_rendering_called,
+            chart_artifact_written=chart_artifact_written,
             artifact_metadata_bookkeeping_written=artifact_metadata_written,
             render_plan_bookkeeping_written=render_plan_written,
             model_provider_plan_bookkeeping_written=model_provider_plan_written,
@@ -4196,7 +4434,7 @@ def _append_artifact_complete_snapshot(
                 [
                     "first_real_vertical_slice",
                     "in_process_matplotlib_renderer",
-                    "chart_artifact_data_url",
+                    "chart_artifact_served_url",
                     "worker_not_called",
                 ]
                 if in_process_rendered

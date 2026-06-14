@@ -8,6 +8,7 @@ depends-on-adrs:
   - 0011
   - 0012
   - 0017
+  - 0018
 ---
 
 # Home Assistant Dashboard Card: Long-Running Prompt Smoke
@@ -15,7 +16,7 @@ depends-on-adrs:
 ## Status
 
 Draft. Defines the automated dashboard-card long-running prompt smoke per
-ADR-0011, ADR-0012, and ADR-0017.
+ADR-0011, ADR-0012, ADR-0017, and ADR-0018.
 
 ## Related docs
 
@@ -28,10 +29,12 @@ ADR-0011, ADR-0012, and ADR-0017.
 
 The accepted first real vertical slice proves the registered
 `isolinear/v1/job/start` and `isolinear/v1/job/snapshot` handler path can return
-a real PNG data URL from approved history, a planner result, and trusted
-in-process matplotlib rendering. The dashboard card, however, only submitted
-`job/start`; if that command returned an active snapshot, the card could remain
-in planning until an external caller refreshed it.
+a real PNG from approved history, a planner result, and trusted in-process
+matplotlib rendering. ADR-0018 hardens delivery so the dashboard card receives
+a served artifact URL rather than a WebSocket data URL. The dashboard card,
+however, only submitted `job/start`; if that command returned an active
+snapshot, the card could remain in planning until an external caller refreshed
+it.
 
 This packet hardens the card-facing workflow by proving that a delayed active
 job can move from prompt submission to a chart result through repeated
@@ -60,7 +63,8 @@ The dashboard card must:
 
 The registered-command proof must also verify that the same start and snapshot
 command shapes accepted by the card are accepted by the production registered
-WebSocket handler path and return a PNG data URL for the first-real-slice route.
+WebSocket handler path and return a served PNG artifact URL for the
+first-real-slice route.
 
 ## Anchor artifact
 
@@ -84,7 +88,7 @@ path without adding a parallel verifier framework.
 1. Frontend smoke proves `job/start` is followed by automatic `job/snapshot`.
 2. Frontend smoke proves duplicate submit is disabled while the job is active.
 3. Frontend smoke proves the final card state is `complete`, uses chart-first
-   layout, and shows a PNG data URL.
+   layout, and shows a served PNG artifact URL.
 4. Python smoke proves the same registered command sequence returns a complete
    first-real-slice snapshot with a PNG signature.
 5. Python smoke proves the planner is called once with only the allowlisted
@@ -95,7 +99,6 @@ path without adding a parallel verifier framework.
 
 - Real Home Assistant browser automation against a live dashboard URL.
 - New worker/add-on rendering behavior.
-- Production artifact-serving endpoint.
 - Durable job or artifact persistence.
 - Automatic retries or subscription streaming changes.
 
@@ -104,6 +107,7 @@ path without adding a parallel verifier framework.
 - [docs/decisions/0011-dashboard-card-implementation-technology.md](../decisions/0011-dashboard-card-implementation-technology.md)
 - [docs/decisions/0012-worker-transport-and-authentication.md](../decisions/0012-worker-transport-and-authentication.md)
 - [docs/decisions/0017-first-real-vertical-slice.md](../decisions/0017-first-real-vertical-slice.md)
+- [docs/decisions/0018-production-artifact-serving.md](../decisions/0018-production-artifact-serving.md)
 - [frontend/src/isolinear-card.ts](../../frontend/src/isolinear-card.ts)
 - [frontend/src/isolinear-card.long-running-smoke.test.ts](../../frontend/src/isolinear-card.long-running-smoke.test.ts)
 - [tests/test_dashboard_card_long_running_smoke.py](../../tests/test_dashboard_card_long_running_smoke.py)

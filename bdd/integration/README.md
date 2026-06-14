@@ -87,8 +87,14 @@ custom integration implementation slices.
 - **Home Assistant first real vertical slice** - the integration routes an
   allowlisted prompt through approved Home Assistant metadata/history, an
   Ollama-compatible planner boundary, and trusted in-process matplotlib
-  rendering to return a real PNG data URL while preserving schema validation,
-  hidden-entity rejection, no worker dispatch, and no generated Python.
+  rendering to return a real PNG while preserving schema validation,
+  hidden-entity rejection, no worker dispatch, and no generated Python. The
+  accepted proof used a data URL; production artifact serving now covers served
+  PNG URLs.
+- **Home Assistant production artifact serving** - the integration registers
+  `/api/isolinear/artifacts`, writes trusted-renderer PNG bytes to
+  integration-owned files, and returns served chart URLs to the dashboard card
+  while preserving hidden-entity rejection and no worker dispatch.
 
 ## Validation
 
@@ -165,3 +171,6 @@ custom integration implementation slices.
 - `tests/test_first_real_vertical_slice.py` - focused pytest proof for a
   complete PNG-returning first real slice, hidden provider entity rejection,
   and idempotent completed-snapshot reuse without worker dispatch.
+- `tests/test_first_real_vertical_slice.py` - production artifact serving
+  proof that the first real slice returns a served PNG artifact URL whose file
+  exists on disk.

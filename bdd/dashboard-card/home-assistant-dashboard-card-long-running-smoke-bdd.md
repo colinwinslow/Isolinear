@@ -23,15 +23,17 @@ returns a delayed `planning` snapshot from `isolinear/v1/job/start`
 **And** the card should automatically send `isolinear/v1/job/snapshot` for the
 active job
 **And** the final card state should be `complete` with chart-first layout,
-validation status `pass`, and a PNG data URL image.
+validation status `pass`, and a served PNG artifact URL image.
 
-### Scenario B - integration path: registered commands return a PNG snapshot
+### Scenario B - integration path: registered commands return a served PNG snapshot
 
 **Given** the first-real-slice route is enabled for an entry allowlisting only
 `sensor.upstairs_temperature`
 **When** the same versioned `job/start` and `job/snapshot` command shapes are
 sent through the registered WebSocket command helper
-**Then** the snapshot should complete with a PNG data URL
+**Then** the snapshot should complete with a served PNG artifact URL
+**And** the referenced artifact file should exist on disk with PNG signature
+bytes
 **And** the planner should be called once with only the allowlisted entity
 **And** no worker dispatch should occur.
 

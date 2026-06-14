@@ -33,43 +33,37 @@ CARD_SMOKE_EVIDENCE {
   ],
   "final_status": "complete",
   "final_layout": "chart-first",
-  "chart_image_url_prefix": "data:image/png;base64,iVBORw0K",
+  "chart_image_url_prefix": "/api/isolinear/artifacts",
   "validation_status": "pass",
   "submit_disabled_during_active_job": true
 }
 
- ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > polls job/snapshot until a delayed prompt renders a PNG chart 58ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > polls job/snapshot until a delayed prompt renders a PNG chart 56ms
 
  Test Files  1 passed (1)
       Tests  1 passed (1)
-   Start at  11:06:32
-   Duration  2.38s (transform 101ms, setup 0ms, import 224ms, tests 59ms, environment 1.08s)
+   Start at  13:16:53
+   Duration  2.37s (transform 95ms, setup 0ms, import 209ms, tests 57ms, environment 1.09s)
 
 stderr | src/isolinear-card.long-running-smoke.test.ts
 Lit is in dev mode. Not recommended for production! See https://lit.dev/msg/dev-mode for more information.
 ```
 
-## Scenario B - registered commands return a PNG snapshot
+## Scenario B - registered commands return a served PNG snapshot
 
 Command:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_dashboard_card_long_running_smoke.py -s
+.\.venv\Scripts\python.exe -m pytest tests/test_dashboard_card_long_running_smoke.py -q -s
 ```
 
 Raw output:
 
 ```text
-============================= test session starts =============================
-platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
-rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 1 item
-
-tests\test_dashboard_card_long_running_smoke.py REGISTERED_WS_SMOKE_EVIDENCE
-{'prompt': 'Show sensor.upstairs_temperature for the last 24 hours', 'elapsed_ms': 2890, 'command_types': ['isolinear/v1/job/start', 'isolinear/v1/job/snapshot'], 'start_status': 'planning', 'snapshot_status': 'complete', 'png_signature': [137, 80, 78, 71, 13, 10, 26, 10], 'planner_call_count': 1, 'approved_entity_ids': ['sensor.upstairs_temperature'], 'orchestration': {'worker_called': False, 'model_provider_called': True, 'home_assistant_history_called': False, 'semantic_memory_called': False, 'home_assistant_service_or_state_mutation_called': False, 'token_generated': False, 'chart_artifact_written': False, 'chart_rendering_called': True, 'durable_storage_written': False, 'retry_behavior_called': False, 'subscription_progress_streaming_called': False, 'worker_progress_streaming_called': False, 'automatic_progress_task_called': False, 'job_orchestration_called': False, 'model_provider_retry_policy_bookkeeping_written': False, 'approved_entity_catalog_read': False, 'home_assistant_history_read': False, 'history_retrieval_scaffold_written': False, 'job_state_scaffold_written': True, 'job_orchestration_scaffold_written': True, 'subscription_bookkeeping_written': False, 'artifact_metadata_bookkeeping_written': True, 'render_plan_bookkeeping_written': True, 'model_provider_plan_bookkeeping_written': True, 'worker_dispatch_bookkeeping_written': False, 'worker_progress_bookkeeping_written': False, 'worker_retry_policy_bookkeeping_written': False, 'worker_transport_failure_classification_bookkeeping_written': False, 'websocket_command_registered': False}}
+REGISTERED_WS_SMOKE_EVIDENCE
+{'prompt': 'Show sensor.upstairs_temperature for the last 24 hours', 'elapsed_ms': 2114, 'command_types': ['isolinear/v1/job/start', 'isolinear/v1/job/snapshot'], 'start_status': 'planning', 'snapshot_status': 'complete', 'artifact_url': '/api/isolinear/artifacts/real-slice-entry-artifact-001.png', 'artifact_path': 'C:\\Users\\C12BA~1.WIN\\AppData\\Local\\Temp\\tmpdxwir9wr\\real-slice-entry-artifact-001.png', 'png_signature': [137, 80, 78, 71, 13, 10, 26, 10], 'planner_call_count': 1, 'approved_entity_ids': ['sensor.upstairs_temperature'], 'orchestration': {'worker_called': False, 'model_provider_called': True, 'home_assistant_history_called': False, 'semantic_memory_called': False, 'home_assistant_service_or_state_mutation_called': False, 'token_generated': False, 'chart_artifact_written': True, 'chart_rendering_called': True, 'durable_storage_written': False, 'retry_behavior_called': False, 'subscription_progress_streaming_called': False, 'worker_progress_streaming_called': False, 'automatic_progress_task_called': False, 'job_orchestration_called': False, 'model_provider_retry_policy_bookkeeping_written': False, 'approved_entity_catalog_read': False, 'home_assistant_history_read': False, 'history_retrieval_scaffold_written': False, 'job_state_scaffold_written': True, 'job_orchestration_scaffold_written': True, 'subscription_bookkeeping_written': False, 'artifact_metadata_bookkeeping_written': True, 'render_plan_bookkeeping_written': True, 'model_provider_plan_bookkeeping_written': True, 'worker_dispatch_bookkeeping_written': False, 'worker_progress_bookkeeping_written': False, 'worker_retry_policy_bookkeeping_written': False, 'worker_transport_failure_classification_bookkeeping_written': False, 'websocket_command_registered': False}}
 .
-
-============================== 1 passed in 3.08s ==============================
+1 passed in 2.30s
 ```
 
 ## Scenario C - browser remains a thin client
@@ -116,7 +110,7 @@ rendering chunks...
 computing gzip size...
 dist/isolinear-card.js  34.96 kB │ gzip: 10.64 kB
 
-✓ built in 75ms
+✓ built in 81ms
 ```
 
 Command:
@@ -140,6 +134,6 @@ npm: 11.13.0
 
  Test Files  2 passed (2)
       Tests  5 passed (5)
-   Start at  11:04:58
-   Duration  2.52s (transform 129ms, setup 0ms, import 280ms, tests 58ms, environment 1.20s)
+   Start at  13:15:01
+   Duration  2.69s (transform 135ms, setup 0ms, import 277ms, tests 64ms, environment 1.38s)
 ```

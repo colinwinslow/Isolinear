@@ -5,7 +5,7 @@ import { ISOLINEAR_COMMANDS, ISOLINEAR_WS_VERSION } from "./isolinear-api";
 import { IsolinearCard } from "./isolinear-card";
 import type { HomeAssistantLike, IsolinearJobSnapshot } from "./types";
 
-const PNG_DATA_URL = "data:image/png;base64,iVBORw0KGgo=";
+const SERVED_PNG_URL = "/api/isolinear/artifacts/smoke-artifact-001.png";
 
 const planningSnapshot: IsolinearJobSnapshot = {
   snapshot_id: "smoke-planning",
@@ -29,7 +29,7 @@ const completeSnapshot: IsolinearJobSnapshot = {
   state_label: "Complete",
   chart: {
     title: "Browser Smoke Upstairs Temperature",
-    image_url: PNG_DATA_URL,
+    image_url: SERVED_PNG_URL,
     time_range: "Last 24 hours",
     series: [
       {
@@ -132,7 +132,8 @@ describe("Isolinear mounted card long-running smoke", () => {
       final_layout: card.shadowRoot!.querySelector("article")!.getAttribute("data-layout"),
       chart_image_url_prefix: card
         .shadowRoot!.querySelector<HTMLImageElement>("[data-testid='chart-image']")!
-        .src.slice(0, 30),
+        .getAttribute("src")!
+        .slice(0, 24),
       validation_status: card.snapshot.validation.status,
       submit_disabled_during_active_job: submitDisabledDuringActiveJob,
     };
@@ -153,8 +154,8 @@ describe("Isolinear mounted card long-running smoke", () => {
       },
     ]);
     expect(card.shadowRoot!.querySelector("article")!.getAttribute("data-layout")).toBe("chart-first");
-    expect(card.shadowRoot!.querySelector<HTMLImageElement>("[data-testid='chart-image']")!.src).toBe(
-      PNG_DATA_URL,
+    expect(card.shadowRoot!.querySelector<HTMLImageElement>("[data-testid='chart-image']")!.getAttribute("src")).toBe(
+      SERVED_PNG_URL,
     );
     expect(card.snapshot.validation.status).toBe("pass");
   });

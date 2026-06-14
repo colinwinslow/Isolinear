@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
+from copy import deepcopy
 from functools import wraps
 from typing import Any
 
@@ -247,11 +248,23 @@ def handle_registered_ws_command(
             "model_provider_plan": job_result.get("model_provider_plan"),
             "artifact": job_result.get("artifact"),
             "render_plan": job_result.get("render_plan"),
-            "worker_dispatch": job_result.get("worker_dispatch"),
-            "in_process_render": job_result.get("in_process_render"),
+            "worker_dispatch": _without_local_render_paths(job_result.get("worker_dispatch")),
+            "in_process_render": _without_local_render_paths(job_result.get("in_process_render")),
         },
         "orchestration": job_result["orchestration"],
     }
+
+
+def _without_local_render_paths(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+
+    safe_payload = deepcopy(payload)
+    safe_payload.pop("artifact_path", None)
+    render_result = safe_payload.get("render_result")
+    if isinstance(render_result, dict):
+        render_result.pop("image_path", None)
+    return safe_payload
 
 
 def handle_scaffold_ws_command(command: dict[str, Any]) -> dict[str, Any]:

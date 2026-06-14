@@ -1,5 +1,6 @@
 import sys
 import time
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -15,6 +16,10 @@ from custom_components.isolinear.const import (  # noqa: E402
     DOMAIN,
     INTEGRATION_WS_VERSION,
 )
+from custom_components.isolinear.artifact_serving import (  # noqa: E402
+    ARTIFACT_STATIC_URL_PATH,
+    setup_artifact_serving,
+)
 from custom_components.isolinear.entity_catalog import setup_entity_catalog  # noqa: E402
 from custom_components.isolinear.history_retrieval import (  # noqa: E402
     DATA_HISTORY_SOURCE,
@@ -22,7 +27,6 @@ from custom_components.isolinear.history_retrieval import (  # noqa: E402
 )
 from custom_components.isolinear.in_process_renderer import (  # noqa: E402
     DATA_FIRST_REAL_VERTICAL_SLICE_ENABLED,
-    png_signature_from_data_url,
 )
 from custom_components.isolinear.job_orchestration import setup_job_orchestration  # noqa: E402
 from custom_components.isolinear.job_state import ensure_job_state_store  # noqa: E402
@@ -118,7 +122,11 @@ class SlowSmokePlanner:
         }
 
 
-def configured_real_slice_hass(*, planner: SlowSmokePlanner) -> tuple[FakeHass, FakeEntry]:
+def configured_real_slice_hass(
+    *,
+    planner: SlowSmokePlanner,
+    artifact_dir: Path,
+) -> tuple[FakeHass, FakeEntry]:
     hass = FakeHass()
     entry = FakeEntry("real-slice-entry")
     entry_data = hass.data[DOMAIN].setdefault(entry.entry_id, {})
@@ -148,6 +156,7 @@ def configured_real_slice_hass(*, planner: SlowSmokePlanner) -> tuple[FakeHass, 
     )
     setup_history_retrieval(hass, entry)
     ensure_job_state_store(hass, entry.entry_id)
+    setup_artifact_serving(hass, entry, artifact_dir=artifact_dir)
     setup_job_orchestration(hass, entry)
     return hass, entry
 
@@ -168,52 +177,60 @@ def _history_records(entity_id: str) -> list[dict[str, Any]]:
 class DashboardCardLongRunningSmokeTests(unittest.TestCase):
     def test_registered_websocket_start_then_snapshot_returns_png_for_card_polling(self):
         planner = SlowSmokePlanner()
-        hass, entry = configured_real_slice_hass(planner=planner)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(planner=planner, artifact_dir=artifact_dir)
 
-        start_message = {
-            "id": 1,
-            "type": COMMAND_START_JOB,
-            "version": INTEGRATION_WS_VERSION,
-            "config_entry_id": entry.entry_id,
-            "prompt": PROMPT,
-        }
-        start = handle_registered_ws_command(hass, start_message)
+            start_message = {
+                "id": 1,
+                "type": COMMAND_START_JOB,
+                "version": INTEGRATION_WS_VERSION,
+                "config_entry_id": entry.entry_id,
+                "prompt": PROMPT,
+            }
+            start = handle_registered_ws_command(hass, start_message)
 
-        started_at = time.perf_counter()
-        snapshot_message = {
-            "id": 2,
-            "type": COMMAND_GET_SNAPSHOT,
-            "version": INTEGRATION_WS_VERSION,
-            "config_entry_id": entry.entry_id,
-            "job_id": start["snapshot"]["job_id"],
-        }
-        snapshot = handle_registered_ws_command(hass, snapshot_message)
-        elapsed_ms = round((time.perf_counter() - started_at) * 1000)
+            started_at = time.perf_counter()
+            snapshot_message = {
+                "id": 2,
+                "type": COMMAND_GET_SNAPSHOT,
+                "version": INTEGRATION_WS_VERSION,
+                "config_entry_id": entry.entry_id,
+                "job_id": start["snapshot"]["job_id"],
+            }
+            snapshot = handle_registered_ws_command(hass, snapshot_message)
+            elapsed_ms = round((time.perf_counter() - started_at) * 1000)
+            image_url = snapshot["snapshot"]["chart"]["image_url"]
+            artifact_id = snapshot["job_orchestration"]["artifact"]["artifact_id"]
+            artifact_path = artifact_dir / f"{artifact_id}.png"
 
-        evidence = {
-            "prompt": PROMPT,
-            "elapsed_ms": elapsed_ms,
-            "command_types": [start_message["type"], snapshot_message["type"]],
-            "start_status": start["snapshot"]["status"],
-            "snapshot_status": snapshot["snapshot"]["status"],
-            "png_signature": list(png_signature_from_data_url(snapshot["snapshot"]["chart"]["image_url"])),
-            "planner_call_count": len(planner.calls),
-            "approved_entity_ids": planner.calls[0]["approved_entity_ids"],
-            "orchestration": snapshot["orchestration"],
-        }
-        print("REGISTERED_WS_SMOKE_EVIDENCE")
-        print(evidence)
+            evidence = {
+                "prompt": PROMPT,
+                "elapsed_ms": elapsed_ms,
+                "command_types": [start_message["type"], snapshot_message["type"]],
+                "start_status": start["snapshot"]["status"],
+                "snapshot_status": snapshot["snapshot"]["status"],
+                "artifact_url": image_url,
+                "artifact_path": str(artifact_path),
+                "png_signature": list(artifact_path.read_bytes()[:8]),
+                "planner_call_count": len(planner.calls),
+                "approved_entity_ids": planner.calls[0]["approved_entity_ids"],
+                "orchestration": snapshot["orchestration"],
+            }
+            print("REGISTERED_WS_SMOKE_EVIDENCE")
+            print(evidence)
 
-        self.assertTrue(start["accepted"], start)
-        self.assertTrue(snapshot["accepted"], snapshot)
-        self.assertEqual(evidence["command_types"], [COMMAND_START_JOB, COMMAND_GET_SNAPSHOT])
-        self.assertEqual(evidence["start_status"], "planning")
-        self.assertEqual(evidence["snapshot_status"], "complete")
-        self.assertEqual(bytes(evidence["png_signature"]), PNG_SIGNATURE)
-        self.assertGreaterEqual(evidence["elapsed_ms"], 50)
-        self.assertEqual(evidence["planner_call_count"], 1)
-        self.assertEqual(evidence["approved_entity_ids"], ["sensor.upstairs_temperature"])
-        self.assertFalse(snapshot["orchestration"]["worker_called"])
+            self.assertTrue(start["accepted"], start)
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(evidence["command_types"], [COMMAND_START_JOB, COMMAND_GET_SNAPSHOT])
+            self.assertEqual(evidence["start_status"], "planning")
+            self.assertEqual(evidence["snapshot_status"], "complete")
+            self.assertTrue(evidence["artifact_url"].startswith(f"{ARTIFACT_STATIC_URL_PATH}/"))
+            self.assertEqual(bytes(evidence["png_signature"]), PNG_SIGNATURE)
+            self.assertGreaterEqual(evidence["elapsed_ms"], 50)
+            self.assertEqual(evidence["planner_call_count"], 1)
+            self.assertEqual(evidence["approved_entity_ids"], ["sensor.upstairs_temperature"])
+            self.assertFalse(snapshot["orchestration"]["worker_called"])
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .artifact_serving import async_setup_artifact_serving
 from .const import DOMAIN
 from .dashboard_resource import async_register_dashboard_resource
 from .entity_catalog import setup_entity_catalog
@@ -45,6 +46,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
     entry_data["worker_renderer_setup"] = setup_worker_renderer(hass, entry)
     entry_data["worker_health_setup"] = setup_worker_health(hass, entry)
     entry_data["job_orchestration_setup"] = setup_job_orchestration(hass, entry)
+    entry_data["artifact_serving"] = await async_setup_artifact_serving(hass, entry)
     entry_data["dashboard_resource"] = await async_register_dashboard_resource(hass, entry)
     entry_data["websocket_api"] = await async_register_websocket_api(hass, entry=entry)
     entry_data["worker_health_polling_setup"] = await async_setup_worker_health_polling(hass, entry)
