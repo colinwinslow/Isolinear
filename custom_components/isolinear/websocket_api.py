@@ -9,6 +9,7 @@ from functools import wraps
 from typing import Any
 
 from .const import (
+    CONFIG_ENTRY_AUTO,
     DATA_WEBSOCKET_COMMANDS,
     DOMAIN,
     INTEGRATION_COMMAND_TYPES,
@@ -138,6 +139,9 @@ ERROR_MESSAGES = {
     "forbidden_card_boundary_content": "The command included content that cannot cross the card boundary.",
     "invalid_integration_job_snapshot": "The Isolinear job snapshot failed schema validation.",
     "invalid_integration_ws_command": "The Isolinear WebSocket command payload is invalid.",
+    "ambiguous_config_entry": (
+        "More than one Isolinear config entry exists. Choose the entry in the card configuration."
+    ),
     "unknown_job": "The requested Isolinear job was not found for this config entry.",
     "unknown_config_entry": "The Isolinear config entry was not found for this command.",
     "unknown_integration_ws_command": "Unknown Isolinear WebSocket command.",
@@ -208,6 +212,10 @@ def handle_registered_ws_command(
     scope = validate_config_entry_scope(hass, command["config_entry_id"])
     if not scope["accepted"]:
         return _registered_rejection(scope["code"], config_entry_id=command["config_entry_id"])
+    command = {
+        **command,
+        "config_entry_id": scope["config_entry_id"],
+    }
 
     orchestration_enabled = has_enabled_job_orchestration(hass, command["config_entry_id"])
     if command["type"] == INTEGRATION_COMMAND_TYPES["start_job"] and orchestration_enabled:
@@ -303,12 +311,35 @@ def command_payload_from_ws_message(message: dict[str, Any]) -> dict[str, Any]:
 def validate_config_entry_scope(hass: Any, config_entry_id: str) -> dict[str, Any]:
     """Validate that the command targets a configured Isolinear entry."""
     domain_data = getattr(hass, "data", {}).get(DOMAIN, {})
+    if config_entry_id == CONFIG_ENTRY_AUTO:
+        entry_ids = sorted(
+            entry_id
+            for entry_id, entry_data in domain_data.items()
+            if isinstance(entry_id, str)
+            and isinstance(entry_data, dict)
+            and "entry" in entry_data
+        )
+        if len(entry_ids) == 1:
+            return {
+                "accepted": True,
+                "code": "accepted",
+                "config_entry_id": entry_ids[0],
+                "requested_config_entry_id": config_entry_id,
+                "auto_resolved": True,
+                "orchestration": websocket_registration_side_effects(False),
+            }
+        if len(entry_ids) > 1:
+            return _registered_rejection("ambiguous_config_entry", config_entry_id=config_entry_id)
+        return _registered_rejection("unknown_config_entry", config_entry_id=config_entry_id)
+
     entry_data = domain_data.get(config_entry_id)
     if isinstance(entry_data, dict) and "entry" in entry_data:
         return {
             "accepted": True,
             "code": "accepted",
             "config_entry_id": config_entry_id,
+            "requested_config_entry_id": config_entry_id,
+            "auto_resolved": False,
             "orchestration": websocket_registration_side_effects(False),
         }
     return _registered_rejection("unknown_config_entry", config_entry_id=config_entry_id)

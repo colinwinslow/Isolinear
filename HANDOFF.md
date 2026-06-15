@@ -116,6 +116,20 @@ now `0.1.1` in both `manifest.json` and the integration constant, and future
 completed implementation packets default to bumping the patch version unless
 the human says otherwise.
 
+The live dashboard-card config-entry usability regression is closed in the
+repository and is ready for HACS retest. Recreating the card from the picker
+previously left `config_entry_id: fake-config-entry`, so clicking **Ask** could
+look inert because Home Assistant rejected the command as
+`unknown_config_entry` and the card did not surface the rejection. The card now
+defaults to `config_entry_id: auto`, the registered WebSocket boundary resolves
+`auto` to the only configured Isolinear entry before job state, history,
+planner, renderer, or worker code can run, and zero or multiple entries fail
+closed with a clear config-entry error. Start-command WebSocket rejections now
+render visible failed snapshots instead of leaving the card idle. The visible
+package version is now `0.1.2`, the packaged dashboard card bundle has been
+rebuilt, bundled schema byte parity is green, and the README documents the
+explicit `/config/.storage/core.config_entries` fallback for older builds.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -820,12 +834,14 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 ## Next recommended packet
 
 Install Isolinear into a live Home Assistant dev instance through HACS as a
-custom repository, redownload/restart to pick up version `0.1.1`, then run the
-worker-rendered served-artifact path against real recorder-backed sensor
-history and the configured Ollama planner. Capture evidence that HACS
-redownload/restart updates the integration, the options flow persists a real
-entity allowlist without `must_be_object`, the card loads from
-`/api/isolinear/static/isolinear-card.js`, the job returns
+custom repository, redownload/restart to pick up version `0.1.2`, then recreate
+or update the dashboard card with `config_entry_id: auto` and run the
+served-artifact prompt path against real recorder-backed sensor history and the
+configured Ollama planner. Capture evidence that HACS redownload/restart
+updates the integration, the options flow persists a real entity allowlist
+without `must_be_object`, the card loads from
+`/api/isolinear/static/isolinear-card.js`, `auto` resolves to the single
+configured Isolinear entry, the job returns
 `/api/isolinear/artifacts/<artifact_id>.png`, and no worker token, worker-local
 path, local artifact path, or base64 image bytes leak to card-facing WebSocket
 responses.

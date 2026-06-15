@@ -19,8 +19,16 @@ from Isolinear.websocket_command_registration_anchor import (  # noqa: E402
     verify_setup_entry_websocket_registration,
     verify_websocket_command_registration_anchor,
 )
-from custom_components.isolinear.const import DOMAIN, INTEGRATION_COMMAND_TYPES, INTEGRATION_WS_VERSION  # noqa: E402
-from custom_components.isolinear.websocket_api import registered_websocket_handlers  # noqa: E402
+from custom_components.isolinear.const import (  # noqa: E402
+    CONFIG_ENTRY_AUTO,
+    DOMAIN,
+    INTEGRATION_COMMAND_TYPES,
+    INTEGRATION_WS_VERSION,
+)
+from custom_components.isolinear.websocket_api import (  # noqa: E402
+    handle_registered_ws_command,
+    registered_websocket_handlers,
+)
 
 
 class SchedulingHass:
@@ -109,6 +117,39 @@ class WebSocketCommandRegistrationAnchorTests(unittest.TestCase):
             "unknown_config_entry",
         )
         self.assertEqual(result["dispatch_result"]["connection"]["results"], [])
+
+    def test_auto_config_entry_resolves_when_exactly_one_entry_exists(self):
+        hass = SchedulingHass()
+        message = {
+            "id": 61,
+            "type": INTEGRATION_COMMAND_TYPES["start_job"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": CONFIG_ENTRY_AUTO,
+            "prompt": "Show the family room temperature",
+        }
+
+        result = handle_registered_ws_command(hass, message)
+
+        self.assertTrue(result["accepted"], result)
+        self.assertEqual(result["config_entry_id"], "fake-config-entry")
+        self.assertEqual(result["snapshot"]["status"], "planning")
+
+    def test_auto_config_entry_fails_closed_when_multiple_entries_exist(self):
+        hass = SchedulingHass()
+        hass.data[DOMAIN]["second-config-entry"] = {"entry": FakeConfigEntry("second-config-entry")}
+        message = {
+            "id": 62,
+            "type": INTEGRATION_COMMAND_TYPES["start_job"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": CONFIG_ENTRY_AUTO,
+            "prompt": "Show the family room temperature",
+        }
+
+        result = handle_registered_ws_command(hass, message)
+
+        self.assertFalse(result["accepted"], result)
+        self.assertEqual(result["code"], "ambiguous_config_entry")
+        self.assertEqual(result["config_entry_id"], CONFIG_ENTRY_AUTO)
 
     def test_repeated_setup_does_not_duplicate_command_registration(self):
         result = verify_idempotent_command_registration()

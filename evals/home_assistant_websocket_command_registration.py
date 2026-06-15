@@ -100,6 +100,21 @@ def main():
     )
 
     print_case(
+        "auto_config_entry_resolves_only_when_unambiguous",
+        given={
+            "config_entry_id": "auto",
+            "single_entry": result["auto_resolution"]["single_entry"]["known_config_entries"],
+            "multiple_entries": result["auto_resolution"]["multiple_entries"]["known_config_entries"],
+        },
+        when={
+            "operation": "dispatch_registered_command",
+        },
+        then={
+            "auto_resolution": result["auto_resolution"],
+        },
+    )
+
+    print_case(
         "repeated_setup_does_not_duplicate_commands",
         given={
             "entry_id": result["setup_entry"]["entry_id"],

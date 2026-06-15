@@ -64,6 +64,7 @@ class DashboardCardAnchorTests(unittest.TestCase):
             config_behavior["valid_config"]["config_entry_id"],
             VALID_CARD_CONFIG["config_entry_id"],
         )
+        self.assertEqual(config_behavior["valid_default_config"]["config_entry_id"], "auto")
         self.assertTrue(
             all(not result["accepted"] for result in config_behavior["invalid_configs"])
         )

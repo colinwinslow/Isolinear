@@ -42,7 +42,8 @@ Every command includes:
 
 - `type` - exact command name.
 - `version` - integer `1`.
-- `config_entry_id` - Home Assistant config entry owning the Isolinear setup.
+- `config_entry_id` - Home Assistant config entry owning the Isolinear setup,
+  or the sentinel string `auto`.
 
 The command set is:
 
@@ -59,6 +60,11 @@ history, generated code, generated images, or semantic-memory records.
 Home Assistant authenticates the WebSocket session. The integration then
 validates the command schema, validates the config-entry scope, and returns
 `IntegrationJobSnapshot` records to the card.
+
+When `config_entry_id` is `auto`, the integration resolves the command to the
+only configured Isolinear entry before job state, history, planner, renderer,
+or worker code can run. If no Isolinear entry exists, or more than one exists,
+the command fails closed with a card-facing configuration error.
 
 ### Worker-Facing Transport
 

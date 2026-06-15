@@ -23,7 +23,7 @@ class IntegrationScaffoldAnchorTests(unittest.TestCase):
         self.assertTrue(result["domain_matches"], result)
         self.assertTrue(result["version_present"], result)
         self.assertTrue(result["const_version_matches_manifest"], result)
-        self.assertEqual(result["manifest"]["version"], "0.1.1")
+        self.assertEqual(result["manifest"]["version"], "0.1.2")
         self.assertTrue(result["requirements_empty"], result)
         self.assertTrue(result["all_scaffold_files_present"], result["files"])
         self.assertEqual(result["manifest"]["domain"], "isolinear")

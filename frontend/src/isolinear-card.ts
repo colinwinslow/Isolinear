@@ -35,23 +35,41 @@ const ACTIVE_JOB_STATUSES = new Set<IsolinearJobSnapshot["status"]>([
   "validating",
 ]);
 
+const CONFIG_ENTRY_AUTO = "auto";
 const SNAPSHOT_POLL_INTERVAL_MS = 1000;
 
 function validateConfig(config: Partial<IsolinearCardConfig> | undefined): IsolinearCardConfig {
   if (!config || config.type !== "custom:isolinear-card") {
     throw new Error("Isolinear card config requires type custom:isolinear-card.");
   }
-  if (typeof config.config_entry_id !== "string" || config.config_entry_id.trim() === "") {
+  const configEntryId = config.config_entry_id ?? CONFIG_ENTRY_AUTO;
+  if (typeof configEntryId !== "string" || configEntryId.trim() === "") {
     throw new Error("Isolinear card config requires config_entry_id.");
   }
 
   return {
     type: "custom:isolinear-card",
-    config_entry_id: config.config_entry_id,
+    config_entry_id: configEntryId,
     title: config.title ?? "Isolinear",
     density: config.density ?? "comfortable",
     render_preference: config.render_preference ?? "trusted",
   };
+}
+
+function messageFromError(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  if (typeof error === "object" && error !== null) {
+    const maybe = error as { code?: unknown; message?: unknown };
+    if (typeof maybe.message === "string" && maybe.message.trim()) {
+      return maybe.message;
+    }
+    if (typeof maybe.code === "string" && maybe.code.trim()) {
+      return maybe.code;
+    }
+  }
+  return fallback;
 }
 
 function statusLayout(status: IsolinearJobSnapshot["status"]): string {
@@ -90,7 +108,7 @@ export class IsolinearCard extends LitElement {
   public static getStubConfig(): IsolinearCardConfig {
     return {
       type: "custom:isolinear-card",
-      config_entry_id: "fake-config-entry",
+      config_entry_id: CONFIG_ENTRY_AUTO,
       title: "Isolinear",
     };
   }
@@ -277,7 +295,20 @@ export class IsolinearCard extends LitElement {
     }
 
     this.cancelSnapshotPolling();
-    this.snapshot = await createIsolinearApi(this.hass, this.config).startJob(this.prompt.trim());
+    try {
+      this.snapshot = await createIsolinearApi(this.hass, this.config).startJob(this.prompt.trim());
+    } catch (error) {
+      this.snapshot = this.dashboardCommandFailure(
+        "job-start-failed",
+        null,
+        this.prompt.trim(),
+        "job_start_failed",
+        "The dashboard card could not start the Isolinear job.",
+        error,
+      );
+      this.notifyCallsChanged();
+      return;
+    }
     this.notifyCallsChanged();
     this.startSnapshotPollingIfActive();
   }
@@ -372,25 +403,41 @@ export class IsolinearCard extends LitElement {
   }
 
   private snapshotPollingFailure(error: unknown): IsolinearJobSnapshot {
-    const message = error instanceof Error ? error.message : "Snapshot polling failed.";
+    return this.dashboardCommandFailure(
+      "dashboard-poll-failed",
+      this.snapshot.job_id,
+      this.snapshot.prompt,
+      "snapshot_poll_failed",
+      "The dashboard card could not refresh the job snapshot.",
+      error,
+    );
+  }
 
+  private dashboardCommandFailure(
+    snapshotSuffix: string,
+    jobId: string | null,
+    prompt: string,
+    code: string,
+    summary: string,
+    error: unknown,
+  ): IsolinearJobSnapshot {
     return {
-      snapshot_id: `${this.snapshot.job_id ?? "job"}-dashboard-poll-failed`,
-      job_id: this.snapshot.job_id,
+      snapshot_id: `${jobId ?? "job"}-${snapshotSuffix}`,
+      job_id: jobId,
       status: "failed",
-      prompt: this.snapshot.prompt,
+      prompt,
       state_label: "Failed",
       failure: {
         stage: "dashboard_card",
-        code: "snapshot_poll_failed",
-        message,
+        code,
+        message: messageFromError(error, summary),
       },
-      retry_allowed: true,
+      retry_allowed: jobId !== null,
       validation: {
         status: "fail",
-        summary: "The dashboard card could not refresh the job snapshot.",
+        summary,
       },
-      warnings: ["snapshot_poll_failed"],
+      warnings: [code],
     };
   }
 

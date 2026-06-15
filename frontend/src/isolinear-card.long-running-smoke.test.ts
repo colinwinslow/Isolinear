@@ -90,9 +90,27 @@ function createDelayedHass() {
   return { hass, calls };
 }
 
+function createRejectingHass() {
+  const calls: Array<Record<string, unknown>> = [];
+  const hass: HomeAssistantLike = {
+    connection: {
+      async sendMessagePromise(message: Record<string, unknown>) {
+        calls.push(message);
+        throw { code: "unknown_config_entry", message: "The Isolinear config entry was not found." };
+      },
+    },
+  };
+
+  return { hass, calls };
+}
+
 describe("Isolinear mounted card long-running smoke", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
+  });
+
+  it("uses automatic config-entry resolution in the picker stub config", () => {
+    expect(IsolinearCard.getStubConfig().config_entry_id).toBe("auto");
   });
 
   it("polls job/snapshot until a delayed prompt renders a PNG chart", async () => {
@@ -158,5 +176,37 @@ describe("Isolinear mounted card long-running smoke", () => {
       SERVED_PNG_URL,
     );
     expect(card.snapshot.validation.status).toBe("pass");
+  });
+
+  it("shows a visible failure when prompt submission is rejected", async () => {
+    const { hass, calls } = createRejectingHass();
+    const card = new IsolinearCard();
+    document.body.append(card);
+    card.setConfig(IsolinearCard.getStubConfig());
+    card.hass = hass;
+    await card.updateComplete;
+
+    const input = card.shadowRoot!.querySelector<HTMLTextAreaElement>("[data-testid='prompt-input']")!;
+    input.value = "Show sensor.family_room_sensor_temperature";
+    input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    await card.updateComplete;
+
+    const form = card.shadowRoot!.querySelector<HTMLFormElement>("[data-testid='composer']")!;
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true, composed: true }));
+
+    await waitFor(() => card.snapshot.status === "failed");
+    await card.updateComplete;
+
+    expect(calls).toEqual([
+      {
+        type: ISOLINEAR_COMMANDS.startJob,
+        version: ISOLINEAR_WS_VERSION,
+        config_entry_id: "auto",
+        prompt: "Show sensor.family_room_sensor_temperature",
+      },
+    ]);
+    expect(card.snapshot.failure?.code).toBe("job_start_failed");
+    expect(card.snapshot.failure?.message).toContain("config entry");
+    expect(card.shadowRoot!.querySelector("[data-testid='failure-details']")).not.toBeNull();
   });
 });

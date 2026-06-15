@@ -61,6 +61,12 @@ The integration package is self-contained for HACS: runtime schemas live under
 `custom_components/isolinear/frontend/dist/isolinear-card.js`. The public
 dashboard resource URL remains `/api/isolinear/static/isolinear-card.js`.
 
+The dashboard card targets `config_entry_id: auto` by default. In a normal
+single-Isolinear-entry install, the integration resolves that automatically.
+If a development build still requires the explicit id, open the Home Assistant
+host's `/config/.storage/core.config_entries`, find the object whose
+`domain` is `isolinear`, and copy its `entry_id` into the card configuration.
+
 When changing frontend code, run:
 
 ```powershell

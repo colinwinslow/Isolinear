@@ -47,6 +47,13 @@ Feature: Dashboard card
     Then the card should send a versioned Isolinear request to the Home Assistant integration
     And the card should not call the worker, model provider, Home Assistant history API, or semantic-memory storage directly
 
+  Scenario: Card auto-selects the only Isolinear config entry
+    Given Home Assistant has exactly one configured Isolinear integration entry
+    And the card is configured with config entry "auto"
+    When the user submits "Show the family room temperature"
+    Then the integration should resolve the command to the configured Isolinear entry
+    And the card should not require the user to copy a Home Assistant config entry id
+
   Scenario: Card commands match the integration API schema
     Given the card is configured with an Isolinear integration config entry
     When the user submits a prompt, answers clarification, retries, retrieves a snapshot, and subscribes to job updates

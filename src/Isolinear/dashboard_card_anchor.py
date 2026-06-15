@@ -16,7 +16,7 @@ REQUIRED_SNAPSHOT_STATES = [
 
 VALID_CARD_CONFIG = {
     "type": "custom:isolinear-card",
-    "config_entry_id": "fake-config-entry",
+    "config_entry_id": "auto",
     "title": "Isolinear",
 }
 
@@ -73,7 +73,7 @@ def load_frontend_texts(root: Path | None = None) -> dict[str, str]:
 def validate_card_config(config: dict[str, Any] | None) -> dict[str, Any]:
     if not config or config.get("type") != "custom:isolinear-card":
         raise ValueError("Isolinear card config requires type custom:isolinear-card.")
-    config_entry_id = config.get("config_entry_id")
+    config_entry_id = config.get("config_entry_id", "auto")
     if not isinstance(config_entry_id, str) or config_entry_id.strip() == "":
         raise ValueError("Isolinear card config requires config_entry_id.")
 
@@ -116,6 +116,7 @@ def observed_config_behavior() -> dict[str, Any]:
 
     return {
         "valid_config": validate_card_config(VALID_CARD_CONFIG),
+        "valid_default_config": validate_card_config({"type": "custom:isolinear-card"}),
         "invalid_configs": invalid_results,
     }
 

@@ -7,6 +7,7 @@ from typing import Any
 
 from custom_components.isolinear import async_setup_entry
 from custom_components.isolinear.const import (
+    CONFIG_ENTRY_AUTO,
     DATA_WEBSOCKET_COMMANDS,
     DOMAIN,
     INTEGRATION_COMMAND_TYPES,
@@ -22,6 +23,7 @@ from custom_components.isolinear.websocket_api import (
     DATA_WEBSOCKET_REGISTRATION,
     NO_WEBSOCKET_ORCHESTRATION_CALLS,
     async_register_websocket_api,
+    handle_registered_ws_command,
     invalid_command_examples,
     websocket_registration_side_effects,
 )
@@ -305,6 +307,38 @@ def verify_missing_config_entry_rejection() -> dict[str, Any]:
     }
 
 
+def verify_auto_config_entry_resolution() -> dict[str, Any]:
+    websocket_api_module = FakeWebSocketApiModule()
+    single_hass = FakeHass(websocket_api_module)
+    single_command = {
+        "id": 51,
+        "type": INTEGRATION_COMMAND_TYPES["start_job"],
+        "version": INTEGRATION_WS_VERSION,
+        "config_entry_id": CONFIG_ENTRY_AUTO,
+        "prompt": "Show the family room temperature",
+    }
+    single_result = handle_registered_ws_command(single_hass, single_command)
+
+    multi_hass = FakeHass(websocket_api_module)
+    multi_hass.data[DOMAIN]["second-config-entry"] = {
+        "entry": FakeConfigEntry("second-config-entry"),
+    }
+    multi_result = handle_registered_ws_command(multi_hass, single_command)
+
+    return {
+        "single_entry": {
+            "known_config_entries": ["fake-config-entry"],
+            "command": single_command,
+            "result": single_result,
+        },
+        "multiple_entries": {
+            "known_config_entries": ["fake-config-entry", "second-config-entry"],
+            "command": single_command,
+            "result": multi_result,
+        },
+    }
+
+
 def verify_idempotent_command_registration() -> dict[str, Any]:
     websocket_api_module = FakeWebSocketApiModule()
     hass = FakeHass(websocket_api_module, include_entry=False)
@@ -332,6 +366,7 @@ def verify_websocket_registration_side_effects() -> dict[str, Any]:
     callbacks = verify_registered_callback_snapshots()["dispatch_results"]
     invalid = verify_invalid_registered_commands_fail_closed()["dispatch_results"]
     missing_scope = verify_missing_config_entry_rejection()["dispatch_result"]
+    auto_resolution = verify_auto_config_entry_resolution()
 
     observed = [{"name": "command_registration", **registered}]
     observed.extend(
@@ -343,6 +378,18 @@ def verify_websocket_registration_side_effects() -> dict[str, Any]:
         for name, result in invalid.items()
     )
     observed.append({"name": "missing_config_entry", **missing_scope["orchestration"]})
+    observed.append(
+        {
+            "name": "auto_single_config_entry",
+            **auto_resolution["single_entry"]["result"]["orchestration"],
+        }
+    )
+    observed.append(
+        {
+            "name": "auto_multiple_config_entries",
+            **auto_resolution["multiple_entries"]["result"]["orchestration"],
+        }
+    )
 
     forbidden_aggregate = {
         key: any(item.get(key) for item in observed)
@@ -372,6 +419,7 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
     callbacks = verify_registered_callback_snapshots(root)
     invalid = verify_invalid_registered_commands_fail_closed()
     missing_scope = verify_missing_config_entry_rejection()
+    auto_resolution = verify_auto_config_entry_resolution()
     idempotence = verify_idempotent_command_registration()
     side_effects = verify_websocket_registration_side_effects()
 
@@ -392,6 +440,10 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
         failures.append("One or more invalid registered commands were accepted.")
     if missing_scope["dispatch_result"]["accepted"]:
         failures.append("A command for a missing config entry was accepted.")
+    if not auto_resolution["single_entry"]["result"]["accepted"]:
+        failures.append("The auto config-entry sentinel did not resolve the only configured entry.")
+    if auto_resolution["multiple_entries"]["result"]["accepted"]:
+        failures.append("The auto config-entry sentinel accepted an ambiguous multi-entry setup.")
     if idempotence["duplicate_count"] != 0:
         failures.append("Repeated setup duplicated WebSocket command registration.")
     if any(side_effects["forbidden_aggregate"].values()):
@@ -408,6 +460,7 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
         "callbacks": callbacks,
         "invalid": invalid,
         "missing_scope": missing_scope,
+        "auto_resolution": auto_resolution,
         "idempotence": idempotence,
         "side_effects": side_effects,
     }

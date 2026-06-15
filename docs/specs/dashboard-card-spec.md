@@ -83,12 +83,16 @@ The card must not directly:
 Prompt submission, clarification answers, retry, snapshot retrieval, and future
 job subscriptions go through integration-owned, versioned Home Assistant
 WebSocket commands. Exact command schemas belong to the integration API slice.
+When the card sends `config_entry_id: "auto"`, the integration must resolve it
+only if exactly one Isolinear config entry is configured; zero or multiple
+entries fail closed with a visible card-facing error.
 
 ## Card configuration
 
 The card configuration may include:
 
-- Isolinear config entry ID or selector value.
+- Isolinear config entry ID or selector value. The default value is `auto`,
+  which asks the integration to target the only configured Isolinear entry.
 - Default card title.
 - Display density or detail level.
 - Optional render preference if the integration exposes it as a safe display
