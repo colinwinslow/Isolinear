@@ -68,6 +68,18 @@ def test_manifest_has_hacs_required_metadata() -> None:
     assert manifest["issue_tracker"].endswith("/issues")
 
 
+def test_brand_icons_are_packaged() -> None:
+    brand_dir = PACKAGE_DIR / "brand"
+    icon = brand_dir / "icon.png"
+    high_density_icon = brand_dir / "icon@2x.png"
+
+    assert brand_dir.is_dir()
+    assert icon.is_file()
+    assert high_density_icon.is_file()
+    assert icon.stat().st_size > 0
+    assert high_density_icon.stat().st_size > icon.stat().st_size
+
+
 def test_runtime_schema_paths_are_packaged_and_in_sync() -> None:
     root_schemas = REPO_ROOT / "docs" / "schemas"
     packaged_schema_names = sorted(path.name for path in SCHEMAS_DIR.glob("*.json"))

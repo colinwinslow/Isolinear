@@ -33,14 +33,22 @@ assets after each small update.
 **Then** the manifest should include `domain`, `name`, `version`,
 `documentation`, `issue_tracker`, and `codeowners`
 
-### Scenario C - happy path: runtime schemas are bundled
+### Scenario C - happy path: brand icons are bundled
+
+**Given** HACS installs only `custom_components/isolinear`
+**When** Home Assistant resolves local brand images for the integration
+**Then** the integration package should include
+`custom_components/isolinear/brand/icon.png`
+**And** it should include a high-density `icon@2x.png` companion
+
+### Scenario D - happy path: runtime schemas are bundled
 
 **Given** HACS installs only `custom_components/isolinear`
 **When** Isolinear validation code resolves JSON Schemas
 **Then** schema paths should point inside `custom_components/isolinear/schemas`
 **And** every packaged schema should match the repo-root authoring schema
 
-### Scenario D - happy path: dashboard card is bundled
+### Scenario E - happy path: dashboard card is bundled
 
 **Given** HACS installs only `custom_components/isolinear`
 **When** Isolinear registers the dashboard card static path
@@ -51,7 +59,7 @@ assets after each small update.
 **And** Lovelace resource metadata should use the package-versioned card URL
 for cache busting
 
-### Scenario E - maintenance path: frontend builds refresh the packaged card
+### Scenario F - maintenance path: frontend builds refresh the packaged card
 
 **Given** a developer rebuilds the frontend bundle
 **When** the repo-local frontend build helper succeeds

@@ -2,6 +2,7 @@ summary: HACS custom-repository packaging installs Isolinear as a self-contained
 scenarios:
   - repository_is_hacs_shaped
   - manifest_is_hacs_ready
+  - brand_icons_are_packaged
   - runtime_schemas_are_bundled
   - dashboard_card_is_bundled
   - frontend_build_refreshes_packaged_card
@@ -9,6 +10,8 @@ expected:
   hacs_json_present: true
   single_custom_component: isolinear
   manifest_has_issue_tracker: true
+  brand_icon_packaged: true
+  brand_high_density_icon_packaged: true
   runtime_schemas_packaged: true
   packaged_schemas_match_authoring_schemas: true
   dashboard_card_bundle_packaged: true

@@ -86,7 +86,8 @@ a HACS custom integration repository with root `hacs.json`, manifest
 `issue_tracker` metadata, and exactly one packaged Home Assistant integration
 under `custom_components/isolinear`. Runtime JSON Schemas are bundled under
 `custom_components/isolinear/schemas`, the dashboard card bundle is bundled
-under `custom_components/isolinear/frontend/dist`, and runtime validators plus
+under `custom_components/isolinear/frontend/dist`, local brand icons are
+bundled under `custom_components/isolinear/brand`, and runtime validators plus
 dashboard resource registration resolve package-local assets so HACS installs
 do not require separately copying repo-root `docs/schemas` or `frontend/dist`.
 `scripts/frontend.ps1 build` refreshes the packaged card bundle after frontend
@@ -154,6 +155,19 @@ config-entry registry when runtime `hass.data[DOMAIN]` entry data is not
 available yet. Zero or multiple candidate entries still fail closed before job
 state, history, planning, rendering, worker dispatch, or mutation-capable code
 can run.
+
+The live `0.1.3` HACS retest narrowed the dashboard-card issue further:
+Home Assistant had the correct single Lovelace resource URL
+`/api/isolinear/static/isolinear-card.js?v=0.1.3`, but the card editor still
+received the obsolete `config_entry_id: fake-config-entry` value. The
+repository is now ready for live HACS retest as version `0.1.4`. The dashboard
+card normalizes that legacy placeholder to `auto` before the graphical editor
+displays it or any versioned WebSocket command is sent, and mounted-card tests
+prove both paths. The package also now includes Home Assistant brand icons at
+`custom_components/isolinear/brand/icon.png` and `icon@2x.png`; HACS packaging
+tests and eval evidence prove those assets ship with the integration. Lovelace
+resource metadata now resolves to
+`/api/isolinear/static/isolinear-card.js?v=0.1.4`.
 
 ## Product summary
 
@@ -858,14 +872,17 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Run the live HACS `0.1.3` dashboard verification. Redownload Isolinear through
+Run the live HACS `0.1.4` dashboard verification. Redownload Isolinear through
 HACS, restart Home Assistant, recreate the dashboard card, and confirm the
-registered Lovelace resource URL includes `?v=0.1.3` while the picker default
-is `config_entry_id: auto`. Then run the served-artifact prompt path against
-real Home Assistant sensor history and the configured Ollama planner, using the
-new WebSocket decision observability to capture accept/reject evidence if the
-card cannot start a job. Confirm no worker token, worker-local path, local
-artifact path, or base64 image bytes leak to card-facing WebSocket responses.
+registered Lovelace resource URL includes `?v=0.1.4` while the picker/editor
+shows `config_entry_id: auto`, including when Home Assistant had previously
+handed the card the old `fake-config-entry` placeholder. Confirm the
+integration icon appears where Home Assistant surfaces custom integration brand
+assets. Then run the served-artifact prompt path against real Home Assistant
+sensor history and the configured Ollama planner, using the WebSocket decision
+observability to capture accept/reject evidence if the card cannot start a job.
+Confirm no worker token, worker-local path, local artifact path, or base64
+image bytes leak to card-facing WebSocket responses.
 
 Preserve the known codegen sandbox matplotlib subprocess flake as a historical
 caveat; the first-real-slice closeout full Python suite passed cleanly

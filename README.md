@@ -57,7 +57,8 @@ For normal development updates, push the repo changes, then use HACS
 **Redownload** for the Isolinear repository and restart Home Assistant.
 
 The integration package is self-contained for HACS: runtime schemas live under
-`custom_components/isolinear/schemas/`, and the dashboard card bundle lives at
+`custom_components/isolinear/schemas/`, local brand icons live under
+`custom_components/isolinear/brand/`, and the dashboard card bundle lives at
 `custom_components/isolinear/frontend/dist/isolinear-card.js`. The static card
 asset is served from `/api/isolinear/static/isolinear-card.js`; Lovelace
 resource metadata adds the package version as a query string so a HACS

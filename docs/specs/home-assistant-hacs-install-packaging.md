@@ -44,6 +44,8 @@ The package must:
 - Keep exactly one integration under `custom_components/`: `isolinear`.
 - Include a Home Assistant `manifest.json` with HACS-required metadata,
   including `issue_tracker`.
+- Include local Home Assistant brand icons under
+  `custom_components/isolinear/brand/`, with at least `icon.png`.
 - Bundle the JSON Schemas used by the runtime validators under
   `custom_components/isolinear/schemas/`.
 - Bundle the dashboard card module under
@@ -67,6 +69,7 @@ The anchor artifact is a HACS-shaped repository tree:
 
 - `hacs.json`
 - `custom_components/isolinear/manifest.json`
+- `custom_components/isolinear/brand/icon.png`
 - `custom_components/isolinear/schemas/*.schema.json`
 - `custom_components/isolinear/frontend/dist/isolinear-card.js`
 - package-local path resolution in `custom_components/isolinear/_paths.py`
@@ -75,17 +78,18 @@ The anchor artifact is a HACS-shaped repository tree:
 
 1. Add this spec and paired BDD/evidence scaffold.
 2. Add HACS metadata and package-local runtime paths.
-3. Copy runtime schemas and the dashboard card bundle into the integration
+3. Add package-local brand icons.
+4. Copy runtime schemas and the dashboard card bundle into the integration
    package.
-4. Update the frontend build helper to refresh the packaged card bundle.
-5. Add focused pytest and a thin eval for the HACS packaging contract.
-6. Verify the files on disk.
+5. Update the frontend build helper to refresh the packaged card bundle.
+6. Add focused pytest and a thin eval for the HACS packaging contract.
+7. Verify the files on disk.
 
 ## Proof Requirements
 
 1. Focused pytest proves HACS metadata, one-integration repository shape,
-   manifest metadata, package-local schema paths, bundled schema parity, and
-   bundled card asset path.
+   manifest metadata, package-local brand icons, package-local schema paths,
+   bundled schema parity, and bundled card asset path.
 2. Eval evidence maps the same checks to the BDD scenarios.
 3. Existing dashboard resource tests remain green with the bundled card path.
 4. Existing first-real-slice and worker-rendered artifact tests remain green

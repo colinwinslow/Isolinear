@@ -1,6 +1,6 @@
 # Home Assistant Dashboard Resource Registration Evidence
 
-Run timestamp: 2026-06-15T17:55:27+00:00
+Run timestamp: 2026-06-15T18:59:26+00:00
 
 BDD file:
 `bdd/integration/home-assistant-dashboard-resource-registration-bdd.md`
@@ -51,12 +51,12 @@ Raw observed output excerpts:
 CASE card_bundle_served_from_integration_static_path
 "bundle_path": "...\\custom_components\\isolinear\\frontend\\dist\\isolinear-card.js"
 "static_path_url": "/api/isolinear/static"
-"resource_url": "/api/isolinear/static/isolinear-card.js?v=0.1.3"
+"resource_url": "/api/isolinear/static/isolinear-card.js?v=0.1.4"
 PASS card_bundle_served_from_integration_static_path
 
 CASE config_entry_setup_registers_resource_metadata
 "setup_accepted": true
-"resources": [{"id": "resource-001", "type": "module", "url": "/api/isolinear/static/isolinear-card.js?v=0.1.3"}]
+"resources": [{"id": "resource-001", "type": "module", "url": "/api/isolinear/static/isolinear-card.js?v=0.1.4"}]
 PASS config_entry_setup_registers_resource_metadata
 
 CASE repeated_setup_does_not_duplicate_metadata
@@ -73,13 +73,13 @@ PASS preexisting_matching_metadata_is_reused
 
 CASE stale_isolinear_resource_is_updated
 "legacy_resource_url": "/api/isolinear/static/isolinear-card.js"
-"resource_url": "/api/isolinear/static/isolinear-card.js?v=0.1.3"
+"resource_url": "/api/isolinear/static/isolinear-card.js?v=0.1.4"
 "code": "dashboard_resource_updated"
 "resource_updated": true
 "resource_created": false
 "create_call_count": 0
 "update_call_count": 1
-"resources": [{"id": "resource-stale", "type": "module", "url": "/api/isolinear/static/isolinear-card.js?v=0.1.3"}]
+"resources": [{"id": "resource-stale", "type": "module", "url": "/api/isolinear/static/isolinear-card.js?v=0.1.4"}]
 PASS stale_isolinear_resource_is_updated
 
 CASE missing_bundle_fails_closed

@@ -113,6 +113,54 @@ describe("Isolinear mounted card long-running smoke", () => {
     expect(IsolinearCard.getStubConfig().config_entry_id).toBe("auto");
   });
 
+  it("normalizes the legacy fake config entry placeholder to auto", async () => {
+    const { hass, calls } = createRejectingHass();
+    const card = new IsolinearCard();
+    document.body.append(card);
+    card.setConfig({
+      type: "custom:isolinear-card",
+      config_entry_id: "fake-config-entry",
+      title: "Isolinear",
+    });
+    card.hass = hass;
+    await card.updateComplete;
+
+    const input = card.shadowRoot!.querySelector<HTMLTextAreaElement>("[data-testid='prompt-input']")!;
+    input.value = "Show sensor.family_room_sensor_temperature";
+    input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    await card.updateComplete;
+
+    const form = card.shadowRoot!.querySelector<HTMLFormElement>("[data-testid='composer']")!;
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true, composed: true }));
+
+    await waitFor(() => card.snapshot.status === "failed");
+
+    expect(calls).toEqual([
+      {
+        type: ISOLINEAR_COMMANDS.startJob,
+        version: ISOLINEAR_WS_VERSION,
+        config_entry_id: "auto",
+        prompt: "Show sensor.family_room_sensor_temperature",
+      },
+    ]);
+  });
+
+  it("shows auto in the editor when Home Assistant passes the legacy fake config entry placeholder", async () => {
+    const editor = IsolinearCard.getConfigElement() as HTMLElement & {
+      setConfig(config: Record<string, unknown>): void;
+      updateComplete: Promise<unknown>;
+    };
+    document.body.append(editor);
+    editor.setConfig({
+      type: "custom:isolinear-card",
+      config_entry_id: "fake-config-entry",
+      title: "Isolinear",
+    });
+    await editor.updateComplete;
+
+    expect(editor.shadowRoot!.querySelector<HTMLInputElement>("input")!.value).toBe("auto");
+  });
+
   it("polls job/snapshot until a delayed prompt renders a PNG chart", async () => {
     const { hass, calls } = createDelayedHass();
     const card = new IsolinearCard();

@@ -54,6 +54,7 @@ def main() -> int:
     cases = [
         repository_is_hacs_shaped(),
         manifest_is_hacs_ready(),
+        brand_icons_are_packaged(),
         runtime_schemas_are_bundled(),
         dashboard_card_is_bundled(),
         frontend_build_refreshes_packaged_card(),
@@ -104,6 +105,36 @@ def manifest_is_hacs_ready() -> dict[str, Any]:
             "domain": manifest.get("domain"),
             "issue_tracker": manifest.get("issue_tracker"),
             "passed": not missing and manifest.get("domain") == "isolinear",
+        },
+    }
+
+
+def brand_icons_are_packaged() -> dict[str, Any]:
+    brand_dir = PACKAGE_DIR / "brand"
+    icon = brand_dir / "icon.png"
+    high_density_icon = brand_dir / "icon@2x.png"
+    return {
+        "case_id": "brand_icons_are_packaged",
+        "given": {"brand_dir": str(brand_dir)},
+        "when": {"operation": "inspect_package_local_brand_assets"},
+        "then": {
+            "icon": {
+                "path": str(icon),
+                "exists": icon.is_file(),
+                "bytes": icon.stat().st_size if icon.is_file() else 0,
+            },
+            "high_density_icon": {
+                "path": str(high_density_icon),
+                "exists": high_density_icon.is_file(),
+                "bytes": high_density_icon.stat().st_size if high_density_icon.is_file() else 0,
+            },
+            "passed": (
+                brand_dir.is_dir()
+                and icon.is_file()
+                and high_density_icon.is_file()
+                and icon.stat().st_size > 0
+                and high_density_icon.stat().st_size > icon.stat().st_size
+            ),
         },
     }
 

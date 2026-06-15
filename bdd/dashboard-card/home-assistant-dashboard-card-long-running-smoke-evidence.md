@@ -4,6 +4,7 @@ Paired BDD:
 `bdd/dashboard-card/home-assistant-dashboard-card-long-running-smoke-bdd.md`
 
 Run date: 2026-06-13
+Regression addendum: 2026-06-15
 
 ## Scenario A - delayed card prompt reaches chart result
 
@@ -87,6 +88,54 @@ tests\test_dashboard_card_anchor.py .......                              [100%]
 ============================== 7 passed in 0.14s ==============================
 ```
 
+## Scenario D - legacy picker placeholder normalizes to auto
+
+Command:
+
+```powershell
+.\scripts\frontend.ps1 test -- --reporter=verbose src/isolinear-card.long-running-smoke.test.ts
+```
+
+Raw output:
+
+```text
+Node: v24.16.0
+npm: 11.13.0
+
+> test
+> vitest run --reporter=verbose src/isolinear-card.long-running-smoke.test.ts
+
+
+ RUN  v4.1.8 C:/Users/c.winslow/OneDrive - Kagwerks/Documents/Repos/Isolinear/frontend
+
+stdout | src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > polls job/snapshot until a delayed prompt renders a PNG chart
+CARD_SMOKE_EVIDENCE {
+  "command_types": [
+    "isolinear/v1/job/start",
+    "isolinear/v1/job/snapshot"
+  ],
+  "final_status": "complete",
+  "final_layout": "chart-first",
+  "chart_image_url_prefix": "/api/isolinear/artifacts",
+  "validation_status": "pass",
+  "submit_disabled_during_active_job": true
+}
+
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > uses automatic config-entry resolution in the picker stub config 1ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > normalizes the legacy fake config entry placeholder to auto 27ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > shows auto in the editor when Home Assistant passes the legacy fake config entry placeholder 2ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > polls job/snapshot until a delayed prompt renders a PNG chart 36ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > shows a visible failure when prompt submission is rejected 12ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  11:57:36
+   Duration  2.80s (transform 108ms, setup 0ms, import 237ms, tests 79ms, environment 1.45s)
+
+stderr | src/isolinear-card.long-running-smoke.test.ts
+Lit is in dev mode. Not recommended for production! See https://lit.dev/msg/dev-mode for more information.
+```
+
 ## Build and broader frontend verification
 
 Command:
@@ -108,9 +157,9 @@ vite v8.0.16 building client environment for production...
 transforming...✓ 21 modules transformed.
 rendering chunks...
 computing gzip size...
-dist/isolinear-card.js  34.96 kB │ gzip: 10.64 kB
+dist/isolinear-card.js  35.55 kB │ gzip: 10.80 kB
 
-✓ built in 81ms
+✓ built in 86ms
 ```
 
 Command:
@@ -133,7 +182,7 @@ npm: 11.13.0
 
 
  Test Files  2 passed (2)
-      Tests  5 passed (5)
-   Start at  13:15:01
-   Duration  2.69s (transform 135ms, setup 0ms, import 277ms, tests 64ms, environment 1.38s)
+      Tests  9 passed (9)
+   Start at  11:54:59
+   Duration  3.53s (transform 180ms, setup 0ms, import 389ms, tests 111ms, environment 2.04s)
 ```

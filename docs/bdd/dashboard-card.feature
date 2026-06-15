@@ -54,6 +54,12 @@ Feature: Dashboard card
     Then the integration should resolve the command to the configured Isolinear entry
     And the card should not require the user to copy a Home Assistant config entry id
 
+  Scenario: Card ignores the obsolete fake config entry placeholder
+    Given Home Assistant passes the card a legacy config entry placeholder "fake-config-entry"
+    When the graphical card editor opens
+    Then the editor should show config entry "auto"
+    And prompt submission should send config entry "auto"
+
   Scenario: Card commands match the integration API schema
     Given the card is configured with an Isolinear integration config entry
     When the user submits a prompt, answers clarification, retries, retrieves a snapshot, and subscribes to job updates

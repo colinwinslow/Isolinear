@@ -36,13 +36,16 @@ const ACTIVE_JOB_STATUSES = new Set<IsolinearJobSnapshot["status"]>([
 ]);
 
 const CONFIG_ENTRY_AUTO = "auto";
+const LEGACY_CONFIG_ENTRY_PLACEHOLDER = "fake-config-entry";
 const SNAPSHOT_POLL_INTERVAL_MS = 1000;
 
 function validateConfig(config: Partial<IsolinearCardConfig> | undefined): IsolinearCardConfig {
   if (!config || config.type !== "custom:isolinear-card") {
     throw new Error("Isolinear card config requires type custom:isolinear-card.");
   }
-  const configEntryId = config.config_entry_id ?? CONFIG_ENTRY_AUTO;
+  const providedConfigEntryId = config.config_entry_id ?? CONFIG_ENTRY_AUTO;
+  const configEntryId =
+    providedConfigEntryId === LEGACY_CONFIG_ENTRY_PLACEHOLDER ? CONFIG_ENTRY_AUTO : providedConfigEntryId;
   if (typeof configEntryId !== "string" || configEntryId.trim() === "") {
     throw new Error("Isolinear card config requires config_entry_id.");
   }

@@ -93,6 +93,8 @@ The card configuration may include:
 
 - Isolinear config entry ID or selector value. The default value is `auto`,
   which asks the integration to target the only configured Isolinear entry.
+  The obsolete shipped placeholder value `fake-config-entry` must normalize to
+  `auto` before the editor displays it or the card sends WebSocket commands.
 - Default card title.
 - Display density or detail level.
 - Optional render preference if the integration exposes it as a safe display

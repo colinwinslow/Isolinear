@@ -47,6 +47,15 @@ commands
 history APIs, mutation services, semantic-memory storage, local storage, or
 token-bearing endpoints directly.
 
+### Scenario D - regression: legacy picker placeholder normalizes to auto
+
+**Given** Home Assistant passes the card the obsolete `fake-config-entry`
+placeholder from an earlier dashboard-card bundle
+**When** the graphical editor renders and the user submits a prompt
+**Then** the editor should display `auto`
+**And** the card should send `config_entry_id: auto` through the versioned
+WebSocket command instead of preserving the obsolete placeholder.
+
 ## Evidence
 
 The implementing slice produces an evidence file at
