@@ -6,6 +6,7 @@ fixtures:
   config_flow: custom_components/isolinear/config_flow.py
   config_defaults: in-code Isolinear scaffold defaults
   options_defaults: in-code Isolinear scaffold defaults
+  live_allowlist_inputs: plain entity text and JSON-style pasted list text for sensor.family_room_sensor_temperature
   invalid_inputs: in-code credential, secret-like, unsupported render mode, duplicate allowlist, and malformed allowlist examples
 expect:
   manifest_config_flow: true
@@ -14,6 +15,9 @@ expect:
   options_flow_step: init
   blank_optional_models_normalized_to_null: true
   allowlist_text_normalized_to_entity_list: true
+  single_entity_text_normalized_to_entity_list: true
+  json_style_allowlist_text_normalized_to_entity_list: true
+  options_flow_retains_passed_config_entry: true
   credential_endpoint_urls_rejected: true
   secret_like_config_values_rejected: true
   unsupported_render_modes_rejected: true

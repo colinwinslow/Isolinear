@@ -54,6 +54,8 @@ Feature: Home Assistant integration anchors
     When the options-flow validator receives render-mode, repair-attempt, and entity-allowlist input
     Then the result should be accepted
     And user-facing allowlist text should become a deterministic entity ID list
+    And live plain entity text and JSON-style pasted list text should normalize to the same entity ID list
+    And the options flow should retain the Home Assistant config entry passed to it
 
   Scenario: Invalid setup flow input fails closed
     Given config-flow or options-flow input contains invalid or secret-bearing material

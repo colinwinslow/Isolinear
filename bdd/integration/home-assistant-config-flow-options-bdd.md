@@ -44,6 +44,17 @@ entity-allowlist input
 **And** the user-facing allowlist text should become a deterministic entity ID
 list
 
+### Scenario C2 - regression path: live allowlist input variants are accepted
+
+**Given** a user reports allowlisting `sensor.family_room_sensor_temperature`
+through a HACS-installed integration
+**When** the options-flow validator receives the value as plain entity text or
+JSON-style pasted list text
+**Then** both inputs should be accepted
+**And** both inputs should normalize to the same deterministic entity ID list
+**And** the options flow should retain the Home Assistant config entry passed
+to `async_get_options_flow`
+
 ### Scenario D - failure path: invalid config flow input fails closed
 
 **Given** config-flow input contains a credential-bearing endpoint or
