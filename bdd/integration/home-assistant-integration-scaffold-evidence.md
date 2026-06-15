@@ -1,6 +1,9 @@
 # Home Assistant Integration Scaffold Evidence
 
-Run timestamp: 2026-06-07T23:16:23+00:00
+Run timestamps:
+
+- Baseline eval transcript: 2026-06-07T23:16:23+00:00
+- Package-version refresh: 2026-06-15T15:52:34+00:00
 
 BDD file:
 `bdd/integration/home-assistant-integration-scaffold-bdd.md`
@@ -64,6 +67,8 @@ CASE scaffold_package_is_visible_to_home_assistant
     },
     "manifest": {
       "all_scaffold_files_present": true,
+      "const_version": "0.1.1",
+      "const_version_matches_manifest": true,
       "domain_matches": true,
       "files": {
         "custom_components/isolinear/__init__.py": true,
@@ -74,15 +79,16 @@ CASE scaffold_package_is_visible_to_home_assistant
       },
       "manifest": {
         "codeowners": [],
-        "config_flow": false,
+        "config_flow": true,
         "dependencies": [],
         "documentation": "https://github.com/kagwerks/isolinear",
         "domain": "isolinear",
         "integration_type": "hub",
         "iot_class": "local_polling",
+        "issue_tracker": "https://github.com/kagwerks/isolinear/issues",
         "name": "Isolinear",
         "requirements": [],
-        "version": "0.1.0"
+        "version": "0.1.1"
       },
       "requirements_empty": true,
       "version_present": true

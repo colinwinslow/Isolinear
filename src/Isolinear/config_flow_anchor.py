@@ -175,6 +175,33 @@ def verify_options_flow_uses_passed_config_entry() -> dict[str, Any]:
     }
 
 
+def verify_options_flow_tolerates_missing_config_entry_data() -> dict[str, Any]:
+    config_entry = SimpleNamespace(
+        data=None,
+        options={
+            "default_render_mode": "safe",
+            "max_codegen_repair_attempts": 1,
+            "entity_allowlist": [],
+        },
+    )
+    flow = IsolinearConfigFlow.async_get_options_flow(config_entry)
+    result = asyncio.run(
+        flow.async_step_init(
+            {
+                "default_render_mode": "safe",
+                "max_codegen_repair_attempts": 1,
+                "entity_allowlist": "sensor.family_room_sensor_temperature",
+            }
+        )
+    )
+    return {
+        "accepted": result.get("type") == "create_entry",
+        "flow_class": type(flow).__name__,
+        "retains_passed_config_entry": getattr(flow, "_fallback_config_entry", None) is config_entry,
+        "result": result,
+    }
+
+
 def verify_invalid_flow_inputs() -> dict[str, Any]:
     examples = invalid_flow_input_examples()
     config_results = {
@@ -219,6 +246,7 @@ def verify_config_flow_anchor(root: Path | None = None) -> dict[str, Any]:
     options_flow = verify_options_flow_path()
     live_allowlist_variants = verify_live_allowlist_input_variants()
     options_flow_config_entry = verify_options_flow_uses_passed_config_entry()
+    missing_config_entry_data = verify_options_flow_tolerates_missing_config_entry_data()
     invalid_inputs = verify_invalid_flow_inputs()
     non_orchestration = verify_non_orchestration()
 
@@ -246,6 +274,8 @@ def verify_config_flow_anchor(root: Path | None = None) -> dict[str, Any]:
         failures.append("Options flow did not retain the Home Assistant config entry.")
     if options_flow_config_entry["result"].get("type") != "create_entry":
         failures.append("Options flow did not persist options through the passed config entry.")
+    if not missing_config_entry_data["accepted"]:
+        failures.append("Options flow rejected allowlist edits when config-entry data was missing.")
     if not all(not item["accepted"] for item in invalid_inputs["config"].values()):
         failures.append("One or more invalid config-flow examples were accepted.")
     if not all(not item["accepted"] for item in invalid_inputs["options"].values()):
@@ -261,6 +291,7 @@ def verify_config_flow_anchor(root: Path | None = None) -> dict[str, Any]:
         "options_flow": options_flow,
         "live_allowlist_variants": live_allowlist_variants,
         "options_flow_config_entry": options_flow_config_entry,
+        "missing_config_entry_data": missing_config_entry_data,
         "invalid_inputs": invalid_inputs,
         "non_orchestration": non_orchestration,
     }

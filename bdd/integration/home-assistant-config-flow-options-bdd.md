@@ -55,6 +55,16 @@ JSON-style pasted list text
 **And** the options flow should retain the Home Assistant config entry passed
 to `async_get_options_flow`
 
+### Scenario C3 - regression path: missing stored setup data does not block options edits
+
+**Given** an existing config entry reaches the options flow with missing stored
+setup data
+**When** the user submits `sensor.family_room_sensor_temperature` as an
+allowlist edit
+**Then** the options flow should accept the edit
+**And** validation should use safe local-first defaults instead of returning a
+base-level `must_be_object` error
+
 ### Scenario D - failure path: invalid config flow input fails closed
 
 **Given** config-flow input contains a credential-bearing endpoint or

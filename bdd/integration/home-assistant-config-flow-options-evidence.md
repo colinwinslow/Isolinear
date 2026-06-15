@@ -4,6 +4,7 @@ Run timestamps:
 
 - Baseline eval transcript: 2026-06-08T00:13:46+00:00
 - Live allowlist regression refresh: 2026-06-15T00:49:15+00:00
+- Live missing config-entry data and package-version refresh: 2026-06-15T15:52:36+00:00
 
 BDD file:
 `bdd/integration/home-assistant-config-flow-options-bdd.md`
@@ -16,6 +17,7 @@ Overall result: PASS
 - Scenario B: user config flow creates validated local-first data -> `CASE user_config_flow_creates_validated_local_first_data`
 - Scenario C: options flow persists safe options -> `CASE options_flow_persists_safe_options`
 - Scenario C2: live allowlist input variants are accepted -> `CASE options_flow_accepts_live_allowlist_input_variants`
+- Scenario C3: missing stored config-entry data survives options edit -> `CASE options_flow_survives_missing_config_entry_data`
 - Scenario D: invalid config flow input fails closed -> `CASE invalid_config_flow_input_fails_closed`
 - Scenario E: invalid options flow input fails closed -> `CASE invalid_options_flow_input_fails_closed`
 - Scenario F: setup flow remains non-orchestrating -> `CASE setup_flow_remains_non_orchestrating`
@@ -34,11 +36,11 @@ Raw output:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 8 items
+collected 9 items
 
-tests\test_config_flow_options_anchor.py ........                        [100%]
+tests\test_config_flow_options_anchor.py .........                       [100%]
 
-============================== 8 passed in 0.23s ==============================
+============================== 9 passed in 0.20s ==============================
 ```
 
 ## Regression Evidence: Live Allowlist Variants
@@ -114,6 +116,35 @@ CASE options_flow_accepts_live_allowlist_input_variants
   }
 }
 PASS options_flow_accepts_live_allowlist_input_variants
+CASE options_flow_survives_missing_config_entry_data
+{
+  "case_id": "options_flow_survives_missing_config_entry_data",
+  "given": {
+    "existing_config_entry_data": null,
+    "reported_entity_id": "sensor.family_room_sensor_temperature"
+  },
+  "then": {
+    "missing_config_entry_data": {
+      "accepted": true,
+      "flow_class": "IsolinearOptionsFlow",
+      "result": {
+        "data": {
+          "default_render_mode": "safe",
+          "entity_allowlist": [
+            "sensor.family_room_sensor_temperature"
+          ],
+          "max_codegen_repair_attempts": 1
+        },
+        "type": "create_entry"
+      },
+      "retains_passed_config_entry": true
+    }
+  },
+  "when": {
+    "operation": "submit_options_flow_allowlist_edit"
+  }
+}
+PASS options_flow_survives_missing_config_entry_data
 PASS home_assistant_config_flow_options
 ```
 
@@ -158,7 +189,7 @@ CASE config_flow_is_visible_to_home_assistant
         "iot_class": "local_polling",
         "name": "Isolinear",
         "requirements": [],
-        "version": "0.1.0"
+        "version": "0.1.1"
       },
       "manifest_config_flow_enabled": true,
       "metadata": {

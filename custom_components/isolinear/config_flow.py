@@ -266,8 +266,9 @@ def validate_options_flow_user_input(
     current_options: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Normalize and validate options input without touching Home Assistant."""
+    normalized_config_data = normalize_existing_config_entry_data(config_data)
     options_data = normalize_options_user_input(user_input, current_options=current_options)
-    validation = validate_config_and_options(config_data, options_data)
+    validation = validate_config_and_options(normalized_config_data, options_data)
     if not validation["accepted"]:
         return _flow_rejection(validation)
 
@@ -298,6 +299,15 @@ def normalize_config_user_input(user_input: Any) -> Any:
     if not config_data.get("model_provider_type"):
         config_data["model_provider_type"] = MODEL_PROVIDER_OLLAMA_COMPATIBLE
     return config_data
+
+
+def normalize_existing_config_entry_data(config_data: Any) -> Any:
+    """Normalize existing config-entry data for options-only edits."""
+    if config_data is None:
+        return default_config_data()
+    if not isinstance(config_data, Mapping):
+        return config_data
+    return normalize_config_user_input({**default_config_data(), **dict(config_data)})
 
 
 def normalize_options_user_input(

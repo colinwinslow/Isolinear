@@ -81,6 +81,20 @@ def main():
     )
 
     print_case(
+        "options_flow_survives_missing_config_entry_data",
+        given={
+            "reported_entity_id": "sensor.family_room_sensor_temperature",
+            "existing_config_entry_data": None,
+        },
+        when={
+            "operation": "submit_options_flow_allowlist_edit",
+        },
+        then={
+            "missing_config_entry_data": result["missing_config_entry_data"],
+        },
+    )
+
+    print_case(
         "invalid_config_flow_input_fails_closed",
         given={
             "invalid_examples": list(result["invalid_inputs"]["config"]),

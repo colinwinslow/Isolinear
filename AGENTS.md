@@ -119,6 +119,11 @@ C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals/<eval>.py     # run
 
 - One commit per coherent change. Messages describe **why**, not just what.
 - ADR commits: `[ADR-NNNN]` prefix. Spec commits: `[spec:<feature>]` prefix.
+- For every completed implementation packet, increment the patch component of
+  the visible integration package version in both
+  `custom_components/isolinear/manifest.json` and
+  `custom_components/isolinear/const.py` unless the human explicitly says not
+  to.
 - Never skip hooks (`--no-verify`) unless the user explicitly asks. If a hook fails, fix the underlying issue and create a NEW commit; do not amend.
 - Stage specific files. Never blanket `git add -A` / `git add .`.
 - At `/closeout`, include a completion report in the commit body (see `codex/closeout.md` for format).

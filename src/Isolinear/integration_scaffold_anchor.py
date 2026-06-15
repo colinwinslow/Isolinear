@@ -15,6 +15,7 @@ from custom_components.isolinear.config_schema import (
 from custom_components.isolinear.const import (
     DOMAIN,
     INTEGRATION_COMMAND_TYPES,
+    INTEGRATION_VERSION,
     INTEGRATION_WS_NAMESPACE,
     INTEGRATION_WS_VERSION,
 )
@@ -56,6 +57,8 @@ def verify_manifest(root: Path | None = None) -> dict[str, Any]:
         "files": files,
         "domain_matches": manifest.get("domain") == DOMAIN,
         "version_present": isinstance(manifest.get("version"), str) and bool(manifest["version"]),
+        "const_version": INTEGRATION_VERSION,
+        "const_version_matches_manifest": manifest.get("version") == INTEGRATION_VERSION,
         "requirements_empty": manifest.get("requirements") == [],
         "all_scaffold_files_present": all(files.values()),
     }
@@ -150,6 +153,8 @@ def verify_integration_scaffold_anchor(root: Path | None = None) -> dict[str, An
         failures.append("Manifest domain does not match the Isolinear domain constant.")
     if not manifest_result["version_present"]:
         failures.append("Manifest does not include a version.")
+    if not manifest_result["const_version_matches_manifest"]:
+        failures.append("Manifest version does not match the integration version constant.")
     if not manifest_result["requirements_empty"]:
         failures.append("Scaffold introduced Home Assistant integration requirements.")
     if not manifest_result["all_scaffold_files_present"]:

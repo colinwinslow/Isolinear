@@ -104,6 +104,18 @@ string and JSON-style pasted list text before the existing schema validation
 gate, and the config-flow/options spec, BDD, eval outline, eval, and evidence
 capture the regression.
 
+The follow-up live HACS-installed options-flow regression is also closed. A
+redownload/restart confirmed the previous commit was installed, but options
+editing still returned base-level `must_be_object` when the existing config
+entry reached the options flow with missing stored setup data. Options-only
+edits now normalize missing config-entry data to the local-first safe defaults
+before validation, so `sensor.family_room_sensor_temperature` is accepted from
+the same options form while explicitly malformed or secret-bearing config data
+continues to fail closed. The visible HACS/Home Assistant package version is
+now `0.1.1` in both `manifest.json` and the integration constant, and future
+completed implementation packets default to bumping the patch version unless
+the human says otherwise.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -808,11 +820,11 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 ## Next recommended packet
 
 Install Isolinear into a live Home Assistant dev instance through HACS as a
-custom repository, redownload/restart to pick up the allowlist options-flow
-regression fix, then run the worker-rendered served-artifact path against real
-recorder-backed sensor history and the configured Ollama planner. Capture
-evidence that HACS redownload/restart updates the integration, the options flow
-persists a real entity allowlist, the card loads from
+custom repository, redownload/restart to pick up version `0.1.1`, then run the
+worker-rendered served-artifact path against real recorder-backed sensor
+history and the configured Ollama planner. Capture evidence that HACS
+redownload/restart updates the integration, the options flow persists a real
+entity allowlist without `must_be_object`, the card loads from
 `/api/isolinear/static/isolinear-card.js`, the job returns
 `/api/isolinear/artifacts/<artifact_id>.png`, and no worker token, worker-local
 path, local artifact path, or base64 image bytes leak to card-facing WebSocket

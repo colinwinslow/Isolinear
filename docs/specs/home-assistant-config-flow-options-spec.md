@@ -72,6 +72,12 @@ Assistant passes to `async_get_options_flow`, so options validation always has
 the existing local-first config-entry data shape available and does not collapse
 to a base-level object-shape error while editing the allowlist.
 
+If a live or legacy config entry reaches the options flow with missing stored
+setup data, options-only edits must validate against the local-first safe
+defaults instead of returning a base-level `must_be_object` error. Explicit
+malformed or secret-bearing config-entry data must still fail closed through the
+same deterministic validation gate.
+
 The flow anchor must remain non-orchestrating. It must not call the worker,
 model provider, Home Assistant history APIs, semantic-memory storage helpers,
 Home Assistant services, or Home Assistant mutation APIs.
@@ -105,7 +111,9 @@ options data, invalid-input rejection, and non-orchestration behavior.
 6. Live-reported allowlist inputs for
    `sensor.family_room_sensor_temperature` normalize from both plain entity
    text and JSON-style pasted list text, and the options flow uses the passed
-   config entry while creating the updated options entry.
+   config entry while creating the updated options entry. A live/legacy config
+   entry with missing stored setup data also accepts the same allowlist edit
+   without returning base-level `must_be_object`.
 7. Invalid and secret-bearing config/options inputs fail closed with structured
    field errors.
 8. Evidence confirms no worker, model-provider, Home Assistant history,

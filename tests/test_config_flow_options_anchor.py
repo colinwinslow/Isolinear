@@ -14,6 +14,7 @@ from Isolinear.config_flow_anchor import (  # noqa: E402
     verify_invalid_flow_inputs,
     verify_live_allowlist_input_variants,
     verify_non_orchestration,
+    verify_options_flow_tolerates_missing_config_entry_data,
     verify_options_flow_uses_passed_config_entry,
     verify_options_flow_path,
 )
@@ -81,6 +82,16 @@ class ConfigFlowOptionsAnchorTests(unittest.TestCase):
         result = verify_options_flow_uses_passed_config_entry()
 
         self.assertTrue(result["retains_passed_config_entry"], result)
+        self.assertEqual(result["result"]["type"], "create_entry")
+        self.assertEqual(
+            result["result"]["data"]["entity_allowlist"],
+            ["sensor.family_room_sensor_temperature"],
+        )
+
+    def test_options_flow_tolerates_missing_config_entry_data(self):
+        result = verify_options_flow_tolerates_missing_config_entry_data()
+
+        self.assertTrue(result["accepted"], result)
         self.assertEqual(result["result"]["type"], "create_entry")
         self.assertEqual(
             result["result"]["data"]["entity_allowlist"],
