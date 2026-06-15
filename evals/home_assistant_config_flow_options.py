@@ -66,6 +66,21 @@ def main():
     )
 
     print_case(
+        "options_flow_accepts_live_allowlist_input_variants",
+        given={
+            "reported_entity_id": "sensor.family_room_sensor_temperature",
+            "input_variants": list(result["live_allowlist_variants"]["variants"]),
+        },
+        when={
+            "operation": "validate_live_allowlist_input_variants",
+        },
+        then={
+            "allowlist_variants": result["live_allowlist_variants"],
+            "options_flow_config_entry": result["options_flow_config_entry"],
+        },
+    )
+
+    print_case(
         "invalid_config_flow_input_fails_closed",
         given={
             "invalid_examples": list(result["invalid_inputs"]["config"]),

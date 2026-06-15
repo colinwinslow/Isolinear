@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from typing import Any
@@ -102,7 +103,7 @@ class IsolinearConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry):
         """Create the Isolinear options flow."""
-        return IsolinearOptionsFlow()
+        return IsolinearOptionsFlow(config_entry)
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         """Handle the initial user setup step."""
@@ -306,6 +307,12 @@ def normalize_options_user_input(
 ) -> Any:
     """Normalize form values into the options data shape."""
     if not isinstance(user_input, Mapping):
+        if isinstance(user_input, str):
+            options_data: dict[str, Any] = default_options_data()
+            if isinstance(current_options, Mapping):
+                options_data.update(dict(current_options))
+            options_data["entity_allowlist"] = _normalize_allowlist_value(user_input)
+            return options_data
         return user_input
 
     options_data: dict[str, Any] = default_options_data()
@@ -338,9 +345,17 @@ def options_to_form_data(options_data: Mapping[str, Any]) -> dict[str, Any]:
 
 def _normalize_allowlist_value(value: Any) -> Any:
     if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.startswith("["):
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                return _normalize_allowlist_value(parsed)
         return [
             item.strip()
-            for item in re.split(r"[\n,]+", value)
+            for item in re.split(r"[\n,]+", stripped)
             if item.strip()
         ]
     if isinstance(value, tuple):

@@ -60,8 +60,17 @@ They must reject malformed URLs, unsupported render modes, malformed entity
 IDs, duplicate entity IDs, credential-bearing endpoint URLs, forbidden secret
 keys, and secret-like values before setup or options persistence continues.
 
-The options flow may normalize a user-facing entity allowlist string into the
-validated list shape. Blank optional model fields are normalized to `null`.
+The options flow may normalize user-facing entity allowlist text into the
+validated list shape. Newline-separated text, comma-separated text, a single
+entity ID submitted as the options payload, and JSON-style pasted list text such
+as `["sensor.family_room_sensor_temperature"]` must all normalize to the same
+deterministic entity ID list before validation. Blank optional model fields are
+normalized to `null`.
+
+The Home Assistant options-flow factory must retain the config entry that Home
+Assistant passes to `async_get_options_flow`, so options validation always has
+the existing local-first config-entry data shape available and does not collapse
+to a base-level object-shape error while editing the allowlist.
 
 The flow anchor must remain non-orchestrating. It must not call the worker,
 model provider, Home Assistant history APIs, semantic-memory storage helpers,
@@ -93,9 +102,13 @@ options data, invalid-input rejection, and non-orchestration behavior.
 4. Valid config-flow input produces the validated config-entry data shape.
 5. Valid options-flow input produces the validated options data shape with a
    deterministic entity allowlist.
-6. Invalid and secret-bearing config/options inputs fail closed with structured
+6. Live-reported allowlist inputs for
+   `sensor.family_room_sensor_temperature` normalize from both plain entity
+   text and JSON-style pasted list text, and the options flow uses the passed
+   config entry while creating the updated options entry.
+7. Invalid and secret-bearing config/options inputs fail closed with structured
    field errors.
-7. Evidence confirms no worker, model-provider, Home Assistant history,
+8. Evidence confirms no worker, model-provider, Home Assistant history,
    semantic-memory, service-mutation, token-generation, or dashboard-resource
    registration calls occur in this packet.
 

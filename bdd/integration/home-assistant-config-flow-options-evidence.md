@@ -1,6 +1,9 @@
 # Home Assistant Config Flow and Options Evidence
 
-Run timestamp: 2026-06-08T00:13:46+00:00
+Run timestamps:
+
+- Baseline eval transcript: 2026-06-08T00:13:46+00:00
+- Live allowlist regression refresh: 2026-06-15T00:49:15+00:00
 
 BDD file:
 `bdd/integration/home-assistant-config-flow-options-bdd.md`
@@ -12,6 +15,7 @@ Overall result: PASS
 - Scenario A: config flow is visible to Home Assistant -> `CASE config_flow_is_visible_to_home_assistant`
 - Scenario B: user config flow creates validated local-first data -> `CASE user_config_flow_creates_validated_local_first_data`
 - Scenario C: options flow persists safe options -> `CASE options_flow_persists_safe_options`
+- Scenario C2: live allowlist input variants are accepted -> `CASE options_flow_accepts_live_allowlist_input_variants`
 - Scenario D: invalid config flow input fails closed -> `CASE invalid_config_flow_input_fails_closed`
 - Scenario E: invalid options flow input fails closed -> `CASE invalid_options_flow_input_fails_closed`
 - Scenario F: setup flow remains non-orchestrating -> `CASE setup_flow_remains_non_orchestrating`
@@ -30,14 +34,90 @@ Raw output:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 5 items
+collected 8 items
 
-tests\test_config_flow_options_anchor.py .....                           [100%]
+tests\test_config_flow_options_anchor.py ........                        [100%]
 
-============================== 5 passed in 0.10s ==============================
+============================== 8 passed in 0.23s ==============================
 ```
 
-## Eval Verification
+## Regression Evidence: Live Allowlist Variants
+
+Raw command:
+
+```powershell
+C:\Users\c.winslow\AppData\Local\Python\bin\python.exe evals/home_assistant_config_flow_options.py
+```
+
+Condensed raw output excerpt:
+
+```text
+CASE options_flow_accepts_live_allowlist_input_variants
+{
+  "case_id": "options_flow_accepts_live_allowlist_input_variants",
+  "given": {
+    "input_variants": [
+      "plain_entity_text",
+      "json_array_text"
+    ],
+    "reported_entity_id": "sensor.family_room_sensor_temperature"
+  },
+  "then": {
+    "allowlist_variants": {
+      "expected_entity_allowlist": [
+        "sensor.family_room_sensor_temperature"
+      ],
+      "variants": {
+        "json_array_text": {
+          "accepted": true,
+          "code": "accepted",
+          "field_errors": {},
+          "options_data": {
+            "default_render_mode": "safe",
+            "entity_allowlist": [
+              "sensor.family_room_sensor_temperature"
+            ],
+            "max_codegen_repair_attempts": 1
+          }
+        },
+        "plain_entity_text": {
+          "accepted": true,
+          "code": "accepted",
+          "field_errors": {},
+          "options_data": {
+            "default_render_mode": "safe",
+            "entity_allowlist": [
+              "sensor.family_room_sensor_temperature"
+            ],
+            "max_codegen_repair_attempts": 1
+          }
+        }
+      }
+    },
+    "options_flow_config_entry": {
+      "flow_class": "IsolinearOptionsFlow",
+      "result": {
+        "data": {
+          "default_render_mode": "safe",
+          "entity_allowlist": [
+            "sensor.family_room_sensor_temperature"
+          ],
+          "max_codegen_repair_attempts": 1
+        },
+        "type": "create_entry"
+      },
+      "retains_passed_config_entry": true
+    }
+  },
+  "when": {
+    "operation": "validate_live_allowlist_input_variants"
+  }
+}
+PASS options_flow_accepts_live_allowlist_input_variants
+PASS home_assistant_config_flow_options
+```
+
+## Baseline Eval Verification
 
 Raw command:
 

@@ -93,6 +93,17 @@ do not require separately copying repo-root `docs/schemas` or `frontend/dist`.
 builds, and the README now documents the HACS custom-repository install and
 redownload update loop.
 
+A live HACS-installed options-flow regression has been closed. When editing
+the entity allowlist, plain entity text for
+`sensor.family_room_sensor_temperature` could surface a base-level
+`must_be_object` if the options flow did not retain the Home Assistant config
+entry, while JSON-style pasted list text was validated as a literal malformed
+entity ID. The options-flow factory now passes the config entry into
+`IsolinearOptionsFlow`, the allowlist normalizer accepts a raw single entity
+string and JSON-style pasted list text before the existing schema validation
+gate, and the config-flow/options spec, BDD, eval outline, eval, and evidence
+capture the regression.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -797,10 +808,12 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 ## Next recommended packet
 
 Install Isolinear into a live Home Assistant dev instance through HACS as a
-custom repository, then run the worker-rendered served-artifact path against
-real recorder-backed sensor history and the configured Ollama planner. Capture
-evidence that HACS redownload/restart updates the integration, the card loads
-from `/api/isolinear/static/isolinear-card.js`, the job returns
+custom repository, redownload/restart to pick up the allowlist options-flow
+regression fix, then run the worker-rendered served-artifact path against real
+recorder-backed sensor history and the configured Ollama planner. Capture
+evidence that HACS redownload/restart updates the integration, the options flow
+persists a real entity allowlist, the card loads from
+`/api/isolinear/static/isolinear-card.js`, the job returns
 `/api/isolinear/artifacts/<artifact_id>.png`, and no worker token, worker-local
 path, local artifact path, or base64 image bytes leak to card-facing WebSocket
 responses.

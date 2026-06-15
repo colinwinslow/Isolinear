@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from custom_components.isolinear.config_flow import (
     CONFIG_FLOW_STEP,
+    IsolinearConfigFlow,
     NO_FLOW_ORCHESTRATION_CALLS,
     OPTIONS_FLOW_STEP,
     config_flow_field_metadata,
@@ -124,6 +127,54 @@ def verify_options_flow_path() -> dict[str, Any]:
     )
 
 
+def verify_live_allowlist_input_variants() -> dict[str, Any]:
+    valid_config = default_config_data()
+    variants = {
+        "plain_entity_text": validate_options_flow_user_input(
+            valid_config,
+            "sensor.family_room_sensor_temperature",
+        ),
+        "json_array_text": validate_options_flow_user_input(
+            valid_config,
+            {
+                "default_render_mode": "safe",
+                "max_codegen_repair_attempts": 1,
+                "entity_allowlist": '["sensor.family_room_sensor_temperature"]',
+            },
+        ),
+    }
+    return {
+        "expected_entity_allowlist": ["sensor.family_room_sensor_temperature"],
+        "variants": variants,
+    }
+
+
+def verify_options_flow_uses_passed_config_entry() -> dict[str, Any]:
+    config_entry = SimpleNamespace(
+        data=default_config_data(),
+        options={
+            "default_render_mode": "safe",
+            "max_codegen_repair_attempts": 1,
+            "entity_allowlist": [],
+        },
+    )
+    flow = IsolinearConfigFlow.async_get_options_flow(config_entry)
+    result = asyncio.run(
+        flow.async_step_init(
+            {
+                "default_render_mode": "safe",
+                "max_codegen_repair_attempts": 1,
+                "entity_allowlist": "sensor.family_room_sensor_temperature",
+            }
+        )
+    )
+    return {
+        "flow_class": type(flow).__name__,
+        "retains_passed_config_entry": getattr(flow, "_fallback_config_entry", None) is config_entry,
+        "result": result,
+    }
+
+
 def verify_invalid_flow_inputs() -> dict[str, Any]:
     examples = invalid_flow_input_examples()
     config_results = {
@@ -166,6 +217,8 @@ def verify_config_flow_anchor(root: Path | None = None) -> dict[str, Any]:
     manifest = verify_config_flow_manifest(root)
     config_flow = verify_config_flow_user_path()
     options_flow = verify_options_flow_path()
+    live_allowlist_variants = verify_live_allowlist_input_variants()
+    options_flow_config_entry = verify_options_flow_uses_passed_config_entry()
     invalid_inputs = verify_invalid_flow_inputs()
     non_orchestration = verify_non_orchestration()
 
@@ -184,6 +237,15 @@ def verify_config_flow_anchor(root: Path | None = None) -> dict[str, Any]:
         failures.append("Valid config-flow user input was rejected.")
     if not options_flow["accepted"]:
         failures.append("Valid options-flow user input was rejected.")
+    for name, result in live_allowlist_variants["variants"].items():
+        if not result["accepted"]:
+            failures.append(f"Live allowlist variant {name} was rejected.")
+        elif result["options_data"]["entity_allowlist"] != live_allowlist_variants["expected_entity_allowlist"]:
+            failures.append(f"Live allowlist variant {name} normalized to the wrong allowlist.")
+    if not options_flow_config_entry["retains_passed_config_entry"]:
+        failures.append("Options flow did not retain the Home Assistant config entry.")
+    if options_flow_config_entry["result"].get("type") != "create_entry":
+        failures.append("Options flow did not persist options through the passed config entry.")
     if not all(not item["accepted"] for item in invalid_inputs["config"].values()):
         failures.append("One or more invalid config-flow examples were accepted.")
     if not all(not item["accepted"] for item in invalid_inputs["options"].values()):
@@ -197,6 +259,8 @@ def verify_config_flow_anchor(root: Path | None = None) -> dict[str, Any]:
         "manifest": manifest,
         "config_flow": config_flow,
         "options_flow": options_flow,
+        "live_allowlist_variants": live_allowlist_variants,
+        "options_flow_config_entry": options_flow_config_entry,
         "invalid_inputs": invalid_inputs,
         "non_orchestration": non_orchestration,
     }

@@ -12,7 +12,9 @@ from Isolinear.config_flow_anchor import (  # noqa: E402
     verify_config_flow_manifest,
     verify_config_flow_user_path,
     verify_invalid_flow_inputs,
+    verify_live_allowlist_input_variants,
     verify_non_orchestration,
+    verify_options_flow_uses_passed_config_entry,
     verify_options_flow_path,
 )
 
@@ -55,6 +57,34 @@ class ConfigFlowOptionsAnchorTests(unittest.TestCase):
                 "sensor.downstairs_temperature",
                 "binary_sensor.office_window",
             ],
+        )
+
+    def test_options_flow_accepts_raw_single_allowlist_string(self):
+        result = verify_live_allowlist_input_variants()["variants"]["plain_entity_text"]
+
+        self.assertTrue(result["accepted"], result)
+        self.assertEqual(
+            result["options_data"]["entity_allowlist"],
+            ["sensor.family_room_sensor_temperature"],
+        )
+
+    def test_options_flow_accepts_json_style_allowlist_text(self):
+        result = verify_live_allowlist_input_variants()["variants"]["json_array_text"]
+
+        self.assertTrue(result["accepted"], result)
+        self.assertEqual(
+            result["options_data"]["entity_allowlist"],
+            ["sensor.family_room_sensor_temperature"],
+        )
+
+    def test_options_flow_uses_passed_config_entry(self):
+        result = verify_options_flow_uses_passed_config_entry()
+
+        self.assertTrue(result["retains_passed_config_entry"], result)
+        self.assertEqual(result["result"]["type"], "create_entry")
+        self.assertEqual(
+            result["result"]["data"]["entity_allowlist"],
+            ["sensor.family_room_sensor_temperature"],
         )
 
     def test_invalid_config_and_options_inputs_fail_closed(self):
