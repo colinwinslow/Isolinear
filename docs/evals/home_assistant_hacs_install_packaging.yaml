@@ -12,4 +12,5 @@ expected:
   runtime_schemas_packaged: true
   packaged_schemas_match_authoring_schemas: true
   dashboard_card_bundle_packaged: true
-  public_card_resource_url: /api/isolinear/static/isolinear-card.js
+  static_card_asset_path: /api/isolinear/static/isolinear-card.js
+  package_versioned_card_resource_url: /api/isolinear/static/isolinear-card.js?v=<integration_version>

@@ -105,12 +105,33 @@ def main():
             "config_entry_id": "auto",
             "single_entry": result["auto_resolution"]["single_entry"]["known_config_entries"],
             "multiple_entries": result["auto_resolution"]["multiple_entries"]["known_config_entries"],
+            "registry_single_entry": result["auto_resolution"]["registry_single_entry"]["known_config_entries"],
+            "registry_multiple_entries": result["auto_resolution"]["registry_multiple_entries"]["known_config_entries"],
         },
         when={
             "operation": "dispatch_registered_command",
         },
         then={
             "auto_resolution": result["auto_resolution"],
+        },
+    )
+
+    print_case(
+        "registered_websocket_decisions_are_observable",
+        given={
+            "observed_fields": [
+                "command_type",
+                "requested_config_entry_id",
+                "resolved_config_entry_id",
+                "accepted",
+                "code",
+            ],
+        },
+        when={
+            "operation": "dispatch_accepted_and_rejected_registered_commands",
+        },
+        then={
+            "observability": result["observability"],
         },
     )
 
@@ -135,6 +156,8 @@ def main():
                 "accepted_callbacks",
                 "invalid_callbacks",
                 "missing_config_entry_rejection",
+                "auto_config_entry_resolution",
+                "websocket_observability",
             ],
         },
         when={

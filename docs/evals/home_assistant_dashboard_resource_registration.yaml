@@ -8,11 +8,13 @@ fixtures:
   fake_hass: in-code fake Home Assistant resource collection
 expect:
   static_path_url: /api/isolinear/static
-  resource_url: /api/isolinear/static/isolinear-card.js
+  resource_url_pattern: /api/isolinear/static/isolinear-card.js?v=<integration_version>
   resource_type: module
   config_entry_scoped_result: true
   repeated_setup_duplicate_count: 0
   preexisting_resource_reused: true
+  stale_resource_updated: true
+  stale_resource_duplicate_count: 0
   missing_bundle_rejected: true
   unavailable_resource_collection_rejected: true
   worker_called: false
@@ -23,4 +25,4 @@ expect:
   token_generated: false
   job_orchestration_called: false
   websocket_command_registered: false
-  dashboard_resource_metadata_written_or_reused: true
+  dashboard_resource_metadata_created_reused_or_updated: true

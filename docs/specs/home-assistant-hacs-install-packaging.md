@@ -49,7 +49,9 @@ The package must:
 - Bundle the dashboard card module under
   `custom_components/isolinear/frontend/dist/isolinear-card.js`.
 - Serve the dashboard card from the bundled integration asset path while
-  preserving the public URL `/api/isolinear/static/isolinear-card.js`.
+  preserving the static asset path `/api/isolinear/static/isolinear-card.js`
+  and registering Lovelace metadata with a package-versioned query string for
+  cache busting.
 - Load runtime schemas from the installed integration package, not from repo
   root `docs/schemas`.
 - Keep the repo-root `docs/schemas` as the authoring source and prove packaged

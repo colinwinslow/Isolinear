@@ -58,14 +58,34 @@ payload
 **Then** the command should be rejected before orchestration
 **And** the error should identify the missing config-entry scope
 
-### Scenario F - idempotence path: repeated setup does not duplicate commands
+### Scenario F - scope path: auto config-entry resolution is deterministic
+
+**Given** a registered command uses `config_entry_id: auto`
+**When** exactly one Isolinear config entry exists in runtime setup data or the
+Home Assistant config-entry registry
+**Then** the command should resolve to that entry ID
+**And** when zero or multiple Isolinear entries exist, the command should fail
+closed before job state, history, planning, rendering, worker, or mutation
+capable code runs
+
+### Scenario G - observability path: registered command decisions are visible
+
+**Given** registered commands are accepted or rejected at the WebSocket
+boundary
+**When** the command handler records backend observability
+**Then** each decision should include command type, requested config-entry ID,
+resolved config-entry ID, accepted state, and decision code
+**And** prompts, tokens, endpoints, raw history, generated code, and generated
+image bytes should not be recorded
+
+### Scenario H - idempotence path: repeated setup does not duplicate commands
 
 **Given** the Isolinear WebSocket command set has already been registered
 **When** registration runs again in the same Home Assistant runtime
 **Then** no duplicate command handlers should be registered
 **And** the existing command registration metadata should be reused
 
-### Scenario G - boundary path: registration remains non-orchestrating
+### Scenario I - boundary path: registration remains non-orchestrating
 
 **Given** WebSocket registration has handled success and failure cases
 **When** the anchor aggregates observed side effects

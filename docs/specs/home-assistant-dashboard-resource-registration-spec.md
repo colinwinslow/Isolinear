@@ -52,12 +52,17 @@ The registration boundary must:
   Assistant.
 - Register exactly one Lovelace/dashboard resource metadata record for the card
   bundle URL with resource type `module`.
-- Use `/api/isolinear/static/isolinear-card.js` as the dashboard resource URL.
+- Serve the card asset from `/api/isolinear/static/isolinear-card.js`, while
+  using a package-versioned Lovelace resource URL such as
+  `/api/isolinear/static/isolinear-card.js?v=<version>`.
 - Run from `async_setup_entry`, store the registration result under the
   config-entry ID, and keep the resource metadata global because Home
   Assistant dashboard resources are global.
 - Reuse an existing resource metadata record with the same URL and type instead
   of creating a duplicate.
+- Update an existing Isolinear resource metadata record with the legacy
+  unversioned URL or an older version query to the current versioned URL instead
+  of silently reusing the stale URL or creating a duplicate.
 - Remain idempotent across repeated setup calls for the same config entry.
 - Fail closed with a structured code before registering resource metadata when
   the card bundle is missing or the Lovelace storage resource collection is not
@@ -66,15 +71,17 @@ The registration boundary must:
 Allowed side effects for this packet are limited to:
 
 - Static HTTP path registration for the card bundle directory.
-- Creation or reuse of Home Assistant dashboard resource metadata for the
-  Isolinear card module.
+- Creation, reuse, or in-place update of Home Assistant dashboard resource
+  metadata for the Isolinear card module. Updates are limited to Isolinear
+  module resources whose base URL matches the integration card resource.
 - Config-entry-scoped bookkeeping in `hass.data["isolinear"][entry_id]`.
 
 The registration boundary must report that no worker, model-provider, Home
 Assistant history, semantic-memory, Home Assistant service/device/state
 mutation, token-generation, job-orchestration, or WebSocket command handling
-call occurred. It must separately report dashboard resource metadata creation
-or reuse as the allowed Home Assistant metadata write for this packet.
+call occurred. It must separately report dashboard resource metadata creation,
+reuse, or stale-resource update as the allowed Home Assistant metadata write
+for this packet.
 
 ## Anchor Artifact
 
@@ -104,16 +111,19 @@ Assistant objects.
    evidence for the BDD scenarios.
 3. Evidence confirms the checked-in bundle exists and is served from the
    integration-owned static path.
-4. Evidence confirms the registered dashboard resource URL is
-   `/api/isolinear/static/isolinear-card.js` and the resource type is `module`.
+4. Evidence confirms the registered dashboard resource URL is the current
+   package-versioned `/api/isolinear/static/isolinear-card.js?v=<version>` URL
+   and the resource type is `module`.
 5. Evidence confirms repeated setup and pre-existing resource metadata do not
    create duplicates.
-6. Evidence confirms missing bundle and unavailable resource collection cases
+6. Evidence confirms stale Isolinear resource metadata is updated in place
+   rather than duplicated or silently reused.
+7. Evidence confirms missing bundle and unavailable resource collection cases
    fail closed before metadata creation.
-7. Evidence confirms no worker, model provider, Home Assistant history,
+8. Evidence confirms no worker, model provider, Home Assistant history,
    semantic-memory, Home Assistant service/device/state mutation, token-generation, job
    orchestration, or extra WebSocket command handling calls occur.
-8. Real artifacts are verified on disk: production resource module, integration
+9. Real artifacts are verified on disk: production resource module, integration
    setup call, BDD, eval outline, tests, eval, and evidence.
 
 ## Non-Goals
@@ -125,6 +135,7 @@ Assistant objects.
 - Semantic-memory persistence.
 - Job orchestration, subscriptions, streaming, retries, or artifact storage.
 - Creating, editing, or deleting Home Assistant dashboards or dashboard cards.
+- Editing unrelated dashboard resource metadata.
 - Removing dashboard resource metadata on config-entry unload.
 - Moving or rebuilding the frontend bundle.
 - YAML-mode resource editing beyond a structured fail-closed/manual-required

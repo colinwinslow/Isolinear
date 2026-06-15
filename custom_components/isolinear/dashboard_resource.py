@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from ._paths import frontend_dist_path
-from .const import DOMAIN
+from .const import DOMAIN, INTEGRATION_VERSION
 
 
 try:  # pragma: no cover - exercised by Home Assistant, not repo tests.
@@ -26,7 +26,8 @@ except ImportError:  # pragma: no cover - deterministic fallback for repo tests.
 
 CARD_BUNDLE_FILENAME = "isolinear-card.js"
 CARD_STATIC_URL_PATH = f"/api/{DOMAIN}/static"
-CARD_RESOURCE_URL = f"{CARD_STATIC_URL_PATH}/{CARD_BUNDLE_FILENAME}"
+CARD_LEGACY_RESOURCE_URL = f"{CARD_STATIC_URL_PATH}/{CARD_BUNDLE_FILENAME}"
+CARD_RESOURCE_URL = f"{CARD_LEGACY_RESOURCE_URL}?v={INTEGRATION_VERSION}"
 CARD_RESOURCE_TYPE = "module"
 
 DATA_DASHBOARD_RESOURCE = "dashboard_resource"
@@ -89,7 +90,8 @@ async def async_register_dashboard_resource(
             static_path=static_path,
         )
 
-    existing = await _find_existing_resource(collection)
+    existing_items = await _collection_items(collection)
+    existing = _find_current_resource(existing_items)
     if existing is not None:
         return _resource_success(
             "dashboard_resource_already_registered",
@@ -99,6 +101,28 @@ async def async_register_dashboard_resource(
             resource=existing,
             created=False,
             reused=True,
+            updated=False,
+        )
+
+    stale = _find_stale_isolinear_resource(existing_items)
+    if stale is not None:
+        updated = await _update_existing_resource(collection, stale)
+        if updated is None:
+            return _resource_rejection(
+                "lovelace_resource_update_unavailable",
+                entry_id=entry_id,
+                bundle_path=bundle_path,
+                static_path=static_path,
+            )
+        return _resource_success(
+            "dashboard_resource_updated",
+            entry_id=entry_id,
+            bundle_path=bundle_path,
+            static_path=static_path,
+            resource=updated,
+            created=False,
+            reused=False,
+            updated=True,
         )
 
     if not hasattr(collection, "async_create_item"):
@@ -122,6 +146,7 @@ async def async_register_dashboard_resource(
         resource=_normalize_resource_item(created),
         created=True,
         reused=False,
+        updated=False,
     )
 
 
@@ -181,8 +206,8 @@ async def _ensure_collection_loaded(collection: Any) -> None:
         collection.loaded = True
 
 
-async def _find_existing_resource(collection: Any) -> dict[str, Any] | None:
-    for item in await _collection_items(collection):
+def _find_current_resource(items: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for item in items:
         resource = _normalize_resource_item(item)
         if (
             resource.get("url") == CARD_RESOURCE_URL
@@ -190,6 +215,42 @@ async def _find_existing_resource(collection: Any) -> dict[str, Any] | None:
         ):
             return resource
     return None
+
+
+def _find_stale_isolinear_resource(items: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for item in items:
+        resource = _normalize_resource_item(item)
+        if (
+            _resource_base_url(resource.get("url")) == CARD_LEGACY_RESOURCE_URL
+            and resource.get("url") != CARD_RESOURCE_URL
+            and resource.get("type") == CARD_RESOURCE_TYPE
+        ):
+            return resource
+    return None
+
+
+async def _update_existing_resource(collection: Any, resource: dict[str, Any]) -> dict[str, Any] | None:
+    updater = getattr(collection, "async_update_item", None)
+    resource_id = resource.get("id")
+    if updater is None or resource_id is None:
+        return None
+
+    result = updater(
+        resource_id,
+        {
+            "url": CARD_RESOURCE_URL,
+            "res_type": CARD_RESOURCE_TYPE,
+        },
+    )
+    if inspect.isawaitable(result):
+        result = await result
+    if result is None:
+        result = {
+            **resource,
+            "url": CARD_RESOURCE_URL,
+            "type": CARD_RESOURCE_TYPE,
+        }
+    return _normalize_resource_item(result)
 
 
 async def _collection_items(collection: Any) -> list[dict[str, Any]]:
@@ -212,6 +273,12 @@ def _normalize_resource_item(item: Any) -> dict[str, Any]:
     }
 
 
+def _resource_base_url(url: Any) -> str | None:
+    if not isinstance(url, str):
+        return None
+    return url.split("?", 1)[0]
+
+
 def _resource_success(
     code: str,
     *,
@@ -221,6 +288,7 @@ def _resource_success(
     resource: dict[str, Any],
     created: bool,
     reused: bool,
+    updated: bool,
 ) -> dict[str, Any]:
     return {
         "accepted": True,
@@ -232,6 +300,7 @@ def _resource_success(
         "static_path": static_path,
         "resource_created": created,
         "resource_reused": reused,
+        "resource_updated": updated,
         "orchestration": dict(NO_RESOURCE_ORCHESTRATION_CALLS),
     }
 
@@ -252,6 +321,7 @@ def _resource_rejection(
         "resource": dashboard_resource_metadata(),
         "resource_created": False,
         "resource_reused": False,
+        "resource_updated": False,
         "orchestration": dict(NO_RESOURCE_ORCHESTRATION_CALLS),
     }
     if static_path is not None:

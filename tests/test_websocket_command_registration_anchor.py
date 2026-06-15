@@ -26,18 +26,27 @@ from custom_components.isolinear.const import (  # noqa: E402
     INTEGRATION_WS_VERSION,
 )
 from custom_components.isolinear.websocket_api import (  # noqa: E402
+    DATA_WEBSOCKET_OBSERVABILITY,
     handle_registered_ws_command,
     registered_websocket_handlers,
 )
 
 
+class FakeConfigEntries:
+    def __init__(self, entry_ids):
+        self._entries = [FakeConfigEntry(entry_id) for entry_id in entry_ids]
+
+    def async_entries(self, domain=None):
+        return list(self._entries)
+
+
 class SchedulingHass:
-    def __init__(self) -> None:
-        self.data = {
-            DOMAIN: {
-                "fake-config-entry": {"entry": FakeConfigEntry()},
-            },
-        }
+    def __init__(self, *, include_entry: bool = True, registry_entry_ids=None) -> None:
+        self.data = {DOMAIN: {}}
+        if include_entry:
+            self.data[DOMAIN]["fake-config-entry"] = {"entry": FakeConfigEntry()}
+        if registry_entry_ids is not None:
+            self.config_entries = FakeConfigEntries(registry_entry_ids)
         self.background_tasks = []
         self.executor_calls = []
 
@@ -134,6 +143,22 @@ class WebSocketCommandRegistrationAnchorTests(unittest.TestCase):
         self.assertEqual(result["config_entry_id"], "fake-config-entry")
         self.assertEqual(result["snapshot"]["status"], "planning")
 
+    def test_auto_config_entry_falls_back_to_config_entry_registry(self):
+        hass = SchedulingHass(include_entry=False, registry_entry_ids=["registry-entry-001"])
+        message = {
+            "id": 63,
+            "type": INTEGRATION_COMMAND_TYPES["start_job"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": CONFIG_ENTRY_AUTO,
+            "prompt": "Show the family room temperature",
+        }
+
+        result = handle_registered_ws_command(hass, message)
+
+        self.assertTrue(result["accepted"], result)
+        self.assertEqual(result["config_entry_id"], "registry-entry-001")
+        self.assertEqual(result["snapshot"]["status"], "planning")
+
     def test_auto_config_entry_fails_closed_when_multiple_entries_exist(self):
         hass = SchedulingHass()
         hass.data[DOMAIN]["second-config-entry"] = {"entry": FakeConfigEntry("second-config-entry")}
@@ -150,6 +175,60 @@ class WebSocketCommandRegistrationAnchorTests(unittest.TestCase):
         self.assertFalse(result["accepted"], result)
         self.assertEqual(result["code"], "ambiguous_config_entry")
         self.assertEqual(result["config_entry_id"], CONFIG_ENTRY_AUTO)
+
+    def test_auto_config_entry_registry_fallback_fails_closed_when_ambiguous(self):
+        hass = SchedulingHass(
+            include_entry=False,
+            registry_entry_ids=["registry-entry-001", "registry-entry-002"],
+        )
+        message = {
+            "id": 64,
+            "type": INTEGRATION_COMMAND_TYPES["start_job"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": CONFIG_ENTRY_AUTO,
+            "prompt": "Show the family room temperature",
+        }
+
+        result = handle_registered_ws_command(hass, message)
+
+        self.assertFalse(result["accepted"], result)
+        self.assertEqual(result["code"], "ambiguous_config_entry")
+        self.assertEqual(result["config_entry_id"], CONFIG_ENTRY_AUTO)
+
+    def test_registered_websocket_decisions_are_observable(self):
+        hass = SchedulingHass()
+        accepted_message = {
+            "id": 65,
+            "type": INTEGRATION_COMMAND_TYPES["start_job"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": CONFIG_ENTRY_AUTO,
+            "prompt": "Show the family room temperature",
+        }
+        rejected_message = {
+            "id": 66,
+            "type": INTEGRATION_COMMAND_TYPES["get_snapshot"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": "missing-config-entry",
+            "job_id": "job-001",
+        }
+
+        accepted = handle_registered_ws_command(hass, accepted_message)
+        rejected = handle_registered_ws_command(hass, rejected_message)
+        events = hass.data[DOMAIN][DATA_WEBSOCKET_OBSERVABILITY]
+
+        self.assertTrue(accepted["accepted"], accepted)
+        self.assertFalse(rejected["accepted"], rejected)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["command_type"], INTEGRATION_COMMAND_TYPES["start_job"])
+        self.assertEqual(events[0]["requested_config_entry_id"], CONFIG_ENTRY_AUTO)
+        self.assertEqual(events[0]["resolved_config_entry_id"], "fake-config-entry")
+        self.assertTrue(events[0]["accepted"])
+        self.assertEqual(events[0]["code"], "registered_job_state_command_accepted")
+        self.assertEqual(events[1]["command_type"], INTEGRATION_COMMAND_TYPES["get_snapshot"])
+        self.assertEqual(events[1]["requested_config_entry_id"], "missing-config-entry")
+        self.assertIsNone(events[1]["resolved_config_entry_id"])
+        self.assertFalse(events[1]["accepted"])
+        self.assertEqual(events[1]["code"], "unknown_config_entry")
 
     def test_repeated_setup_does_not_duplicate_command_registration(self):
         result = verify_idempotent_command_registration()

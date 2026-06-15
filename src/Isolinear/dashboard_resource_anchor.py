@@ -9,6 +9,7 @@ from typing import Any
 from custom_components.isolinear import async_setup_entry
 from custom_components.isolinear.dashboard_resource import (
     CARD_BUNDLE_FILENAME,
+    CARD_LEGACY_RESOURCE_URL,
     CARD_RESOURCE_TYPE,
     CARD_RESOURCE_URL,
     CARD_STATIC_URL_PATH,
@@ -46,6 +47,7 @@ class FakeLovelaceResources:
         self.loaded = True
         self._items = list(items or [])
         self.create_calls: list[dict[str, Any]] = []
+        self.update_calls: list[dict[str, Any]] = []
 
     def async_items(self) -> list[dict[str, Any]]:
         return list(self._items)
@@ -59,6 +61,15 @@ class FakeLovelaceResources:
         }
         self._items.append(item)
         return item
+
+    async def async_update_item(self, item_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        self.update_calls.append({"id": item_id, "data": dict(data)})
+        for item in self._items:
+            if item.get("id") == item_id:
+                item["url"] = data["url"]
+                item["type"] = data.get("type") or data.get("res_type")
+                return dict(item)
+        raise KeyError(item_id)
 
 
 class FakeHass:
@@ -164,6 +175,39 @@ def verify_preexisting_resource_reuse(root: Path | None = None) -> dict[str, Any
         "resources": resources.async_items(),
         "resource_count": _matching_resource_count(resources.async_items()),
         "create_call_count": len(resources.create_calls),
+        "update_call_count": len(resources.update_calls),
+        "static_path_call_count": len(hass.http.static_path_calls),
+    }
+
+
+def verify_stale_resource_update(root: Path | None = None) -> dict[str, Any]:
+    root = root or repo_root()
+    resources = FakeLovelaceResources(
+        [
+            {
+                "id": "resource-stale",
+                "url": CARD_LEGACY_RESOURCE_URL,
+                "type": CARD_RESOURCE_TYPE,
+            }
+        ]
+    )
+    hass = FakeHass(resources)
+    result = _run(
+        async_register_dashboard_resource(
+            hass,
+            FakeConfigEntry(),
+            bundle_dir=frontend_dist_path(root),
+        )
+    )
+    return {
+        "accepted": result["accepted"],
+        "result": result,
+        "resource_created": result["resource_created"],
+        "resource_updated": result["resource_updated"],
+        "resources": resources.async_items(),
+        "resource_count": _matching_resource_count(resources.async_items()),
+        "create_call_count": len(resources.create_calls),
+        "update_call_count": len(resources.update_calls),
         "static_path_call_count": len(hass.http.static_path_calls),
     }
 
@@ -218,6 +262,7 @@ def verify_resource_side_effects(root: Path | None = None) -> dict[str, Any]:
         {"name": "idempotent_registration_first", **verify_idempotent_registration(root)["first"]["orchestration"]},
         {"name": "idempotent_registration_second", **verify_idempotent_registration(root)["second"]["orchestration"]},
         {"name": "missing_bundle_rejection", **verify_missing_bundle_rejection(root)["result"]["orchestration"]},
+        {"name": "stale_resource_update", **verify_stale_resource_update(root)["result"]["orchestration"]},
     ]
     aggregate = {
         key: any(item.get(key) for item in observed_results)
@@ -229,7 +274,7 @@ def verify_resource_side_effects(root: Path | None = None) -> dict[str, Any]:
         "aggregate": aggregate,
         "allowed_side_effects": {
             "static_path_registered": True,
-            "dashboard_resource_metadata_written_or_reused": True,
+            "dashboard_resource_metadata_created_reused_or_updated": True,
         },
     }
 
@@ -256,6 +301,7 @@ def verify_dashboard_resource_anchor(root: Path | None = None) -> dict[str, Any]
     setup_entry = verify_setup_entry_registration(root)
     idempotence = verify_idempotent_registration(root)
     preexisting = verify_preexisting_resource_reuse(root)
+    stale_update = verify_stale_resource_update(root)
     missing_bundle = verify_missing_bundle_rejection(root)
     unavailable_collection = verify_unavailable_resource_collection_rejection(root)
     side_effects = verify_resource_side_effects(root)
@@ -275,6 +321,13 @@ def verify_dashboard_resource_anchor(root: Path | None = None) -> dict[str, Any]
         failures.append("Repeated registration was not idempotent.")
     if not preexisting["preexisting_reused"] or preexisting["create_call_count"] != 0:
         failures.append("Pre-existing dashboard resource metadata was not reused.")
+    if (
+        not stale_update["accepted"]
+        or not stale_update["resource_updated"]
+        or stale_update["create_call_count"] != 0
+        or stale_update["resource_count"] != 1
+    ):
+        failures.append("Stale dashboard resource metadata was not updated in place.")
     if missing_bundle["accepted"] or missing_bundle["create_call_count"] != 0:
         failures.append("Missing bundle did not fail closed before metadata creation.")
     if unavailable_collection["accepted"]:
@@ -290,6 +343,7 @@ def verify_dashboard_resource_anchor(root: Path | None = None) -> dict[str, Any]
         "setup_entry": setup_entry,
         "idempotence": idempotence,
         "preexisting": preexisting,
+        "stale_update": stale_update,
         "missing_bundle": missing_bundle,
         "unavailable_collection": unavailable_collection,
         "side_effects": side_effects,

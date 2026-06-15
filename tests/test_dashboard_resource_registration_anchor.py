@@ -14,8 +14,10 @@ from Isolinear.dashboard_resource_anchor import (  # noqa: E402
     verify_preexisting_resource_reuse,
     verify_setup_entry_registration,
     verify_static_path_registration,
+    verify_stale_resource_update,
     verify_unavailable_resource_collection_rejection,
 )
+from custom_components.isolinear.const import INTEGRATION_VERSION  # noqa: E402
 
 
 class DashboardResourceRegistrationAnchorTests(unittest.TestCase):
@@ -28,7 +30,7 @@ class DashboardResourceRegistrationAnchorTests(unittest.TestCase):
         self.assertEqual(result["static_path"]["cache_headers"], True)
         self.assertEqual(
             result["resource"]["url"],
-            "/api/isolinear/static/isolinear-card.js",
+            f"/api/isolinear/static/isolinear-card.js?v={INTEGRATION_VERSION}",
         )
         self.assertEqual(result["resource"]["type"], "module")
 
@@ -39,7 +41,10 @@ class DashboardResourceRegistrationAnchorTests(unittest.TestCase):
         self.assertTrue(result["entry_result"]["accepted"], result)
         self.assertEqual(result["entry_id"], "resource-entry-001")
         self.assertEqual(len(result["resources"]), 1)
-        self.assertEqual(result["resources"][0]["url"], "/api/isolinear/static/isolinear-card.js")
+        self.assertEqual(
+            result["resources"][0]["url"],
+            f"/api/isolinear/static/isolinear-card.js?v={INTEGRATION_VERSION}",
+        )
         self.assertEqual(result["resources"][0]["type"], "module")
         self.assertTrue(result["entry_result"]["config_entry_scoped"])
 
@@ -60,6 +65,21 @@ class DashboardResourceRegistrationAnchorTests(unittest.TestCase):
         self.assertEqual(result["resource_count"], 1)
         self.assertEqual(result["create_call_count"], 0)
         self.assertEqual(result["result"]["code"], "dashboard_resource_already_registered")
+
+    def test_stale_unversioned_resource_is_updated_not_duplicated(self):
+        result = verify_stale_resource_update(REPO_ROOT)
+
+        self.assertTrue(result["accepted"], result)
+        self.assertTrue(result["resource_updated"], result)
+        self.assertFalse(result["resource_created"], result)
+        self.assertEqual(result["create_call_count"], 0)
+        self.assertEqual(result["update_call_count"], 1)
+        self.assertEqual(result["resource_count"], 1)
+        self.assertEqual(
+            result["resources"][0]["url"],
+            f"/api/isolinear/static/isolinear-card.js?v={INTEGRATION_VERSION}",
+        )
+        self.assertEqual(result["resources"][0]["type"], "module")
 
     def test_missing_bundle_fails_closed_before_metadata_write(self):
         result = verify_missing_bundle_rejection(REPO_ROOT)

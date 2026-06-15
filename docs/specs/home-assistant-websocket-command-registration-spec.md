@@ -61,6 +61,18 @@ Registration must:
   schemas; Home Assistant's transport `id` is transport metadata and must not
   enter the internal command contract.
 - Validate config-entry scope before returning a scaffold snapshot.
+- Resolve `config_entry_id: auto` to exactly one configured Isolinear entry,
+  using runtime `hass.data[DOMAIN]` entry data and Home Assistant's
+  config-entry registry as a fallback when runtime entry data is not yet enough
+  to identify the entry.
+- Fail closed before job state, history, planning, rendering, worker dispatch,
+  or mutation-capable code can run when `auto` resolves to zero or multiple
+  Isolinear entries.
+- Record lightweight backend observability for registered command decisions,
+  including command type, requested config-entry ID, resolved config-entry ID,
+  accepted/rejected state, and rejection/acceptance code. This observability
+  must not include prompts, tokens, endpoints, raw history, generated code, or
+  generated image bytes.
 - Return the existing scaffold `IntegrationJobSnapshot` payload for accepted
   commands until a later orchestration packet replaces the scaffold behavior.
 - Send a structured WebSocket error for invalid command payloads, unsupported
@@ -70,6 +82,10 @@ Allowed side effects for this packet are limited to:
 
 - Global Home Assistant WebSocket command registration.
 - Config-entry-scoped bookkeeping in `hass.data["isolinear"][entry_id]`.
+- Capped, non-persistent WebSocket decision observability bookkeeping in
+  runtime `hass.data["isolinear"]` plus non-secret decision logging. This is a
+  diagnostic setup/runtime record only, not durable storage or a user-facing
+  observability surface.
 - Returning or erroring a WebSocket response for the current command.
 
 The registration boundary must report that no worker, model-provider, Home
@@ -112,13 +128,19 @@ side-effect boundaries against fake Home Assistant objects.
    `IntegrationJobSnapshot` payloads.
 6. Evidence confirms unknown, wrong-version, leaky, mutating, and
    missing-config-entry command cases fail closed before orchestration.
-7. Evidence confirms repeated setup does not duplicate WebSocket command
+7. Evidence confirms `config_entry_id: auto` resolves through runtime entry
+   data or the config-entry registry only when exactly one Isolinear entry
+   exists, and fails closed for zero or multiple entries before orchestration.
+8. Evidence confirms registered command accept/reject decisions are observable
+   with command type, requested config-entry ID, resolved config-entry ID, and
+   decision code.
+9. Evidence confirms repeated setup does not duplicate WebSocket command
    registration.
-8. Evidence confirms no worker, model provider, Home Assistant history,
+10. Evidence confirms no worker, model provider, Home Assistant history,
    semantic-memory, Home Assistant service/device/state mutation,
    token-generation, job orchestration, or dashboard-resource metadata write is
    part of this command registration boundary.
-9. Real artifacts are verified on disk: production WebSocket module,
+11. Real artifacts are verified on disk: production WebSocket module,
    integration setup call, BDD, eval outline, tests, eval, and evidence.
 
 ## Non-Goals

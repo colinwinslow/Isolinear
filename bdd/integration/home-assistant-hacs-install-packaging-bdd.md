@@ -46,8 +46,10 @@ assets after each small update.
 **When** Isolinear registers the dashboard card static path
 **Then** the bundled card file should exist inside
 `custom_components/isolinear/frontend/dist`
-**And** the public card URL should remain
+**And** the static card asset path should remain
 `/api/isolinear/static/isolinear-card.js`
+**And** Lovelace resource metadata should use the package-versioned card URL
+for cache busting
 
 ### Scenario E - maintenance path: frontend builds refresh the packaged card
 

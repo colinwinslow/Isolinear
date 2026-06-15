@@ -82,6 +82,20 @@ def main():
     )
 
     print_case(
+        "stale_isolinear_resource_is_updated",
+        given={
+            "legacy_resource_url": "/api/isolinear/static/isolinear-card.js",
+            "resource_url": result["files"]["resource_url"],
+        },
+        when={
+            "operation": "async_register_dashboard_resource_with_stale_item",
+        },
+        then={
+            "stale_update": result["stale_update"],
+        },
+    )
+
+    print_case(
         "missing_bundle_fails_closed",
         given={
             "bundle_path": result["missing_bundle"]["result"]["bundle_path"],
@@ -115,6 +129,7 @@ def main():
                 "setup_entry_registration",
                 "idempotent_registration",
                 "preexisting_resource_reuse",
+                "stale_resource_update",
                 "missing_bundle_rejection",
             ],
         },

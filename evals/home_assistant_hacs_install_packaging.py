@@ -20,6 +20,7 @@ from custom_components.isolinear import worker_health_polling_constants
 from custom_components.isolinear import worker_readiness
 from custom_components.isolinear import worker_token_lifecycle
 from custom_components.isolinear._paths import FRONTEND_DIST_DIR, PACKAGE_DIR, SCHEMAS_DIR
+from custom_components.isolinear.const import INTEGRATION_VERSION
 
 SCHEMA_PATH_CONSTANTS = (
     entity_catalog.ENTITY_CATALOG_SCHEMA_PATH,
@@ -141,6 +142,7 @@ def runtime_schemas_are_bundled() -> dict[str, Any]:
 def dashboard_card_is_bundled() -> dict[str, Any]:
     bundle_path = FRONTEND_DIST_DIR / dashboard_resource.CARD_BUNDLE_FILENAME
     root_bundle = REPO_ROOT / "frontend" / "dist" / dashboard_resource.CARD_BUNDLE_FILENAME
+    expected_resource_url = f"/api/isolinear/static/isolinear-card.js?v={INTEGRATION_VERSION}"
     return {
         "case_id": "dashboard_card_is_bundled",
         "given": {"root_bundle": str(root_bundle)},
@@ -150,10 +152,12 @@ def dashboard_card_is_bundled() -> dict[str, Any]:
             "bundle_exists": bundle_path.is_file(),
             "bundle_matches_root": bundle_path.is_file() and bundle_path.read_bytes() == root_bundle.read_bytes(),
             "resource": dashboard_resource.dashboard_resource_metadata(),
+            "expected_resource_url": expected_resource_url,
             "passed": (
                 bundle_path.is_file()
                 and bundle_path.read_bytes() == root_bundle.read_bytes()
                 and dashboard_resource.frontend_dist_path() == FRONTEND_DIST_DIR
+                and dashboard_resource.dashboard_resource_metadata()["url"] == expected_resource_url
             ),
         },
     }

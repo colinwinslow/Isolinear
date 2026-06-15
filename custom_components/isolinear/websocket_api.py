@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from collections.abc import Callable
 from copy import deepcopy
 from functools import wraps
@@ -114,7 +115,11 @@ STRING_COMMAND_FIELDS = {
 }
 
 DATA_WEBSOCKET_API_MODULE = "_websocket_api_module"
+DATA_WEBSOCKET_OBSERVABILITY = "websocket_observability"
 DATA_WEBSOCKET_REGISTRATION = "websocket_registration"
+MAX_WEBSOCKET_OBSERVABILITY_EVENTS = 50
+
+_LOGGER = logging.getLogger(__name__)
 
 NO_ORCHESTRATION_CALLS = {
     "worker_called": False,
@@ -204,14 +209,36 @@ def handle_registered_ws_command(
 ) -> dict[str, Any]:
     """Validate a Home Assistant WebSocket message and build a response result."""
     message_id = message.get("id") if isinstance(message, dict) else None
+    command_type = _message_field(message, "type")
+    requested_config_entry_id = _message_field(message, "config_entry_id")
     command = command_payload_from_ws_message(message)
     result = handle_scaffold_ws_command(command)
     if not result["accepted"]:
-        return _registered_rejection(result["code"])
+        rejection = _registered_rejection(result["code"])
+        decision = _record_websocket_decision(
+            hass,
+            command_type=command_type,
+            requested_config_entry_id=requested_config_entry_id,
+            resolved_config_entry_id=None,
+            accepted=False,
+            code=result["code"],
+        )
+        rejection["websocket_observability"] = decision
+        return rejection
 
     scope = validate_config_entry_scope(hass, command["config_entry_id"])
     if not scope["accepted"]:
-        return _registered_rejection(scope["code"], config_entry_id=command["config_entry_id"])
+        decision = _record_websocket_decision(
+            hass,
+            command_type=command["type"],
+            requested_config_entry_id=scope.get("requested_config_entry_id", command["config_entry_id"]),
+            resolved_config_entry_id=scope.get("resolved_config_entry_id"),
+            accepted=False,
+            code=scope["code"],
+        )
+        rejection = _registered_rejection(scope["code"], config_entry_id=command["config_entry_id"])
+        rejection["websocket_observability"] = decision
+        return rejection
     command = {
         **command,
         "config_entry_id": scope["config_entry_id"],
@@ -231,12 +258,23 @@ def handle_registered_ws_command(
     else:
         job_result = handle_job_state_ws_command(hass, command, message_id=message_id)
     if not job_result["accepted"]:
-        return _registered_rejection(
+        decision = _record_websocket_decision(
+            hass,
+            command_type=command["type"],
+            requested_config_entry_id=scope.get("requested_config_entry_id", command["config_entry_id"]),
+            resolved_config_entry_id=command["config_entry_id"],
+            accepted=False,
+            code=job_result["code"],
+            job_id=job_result.get("job_id"),
+        )
+        rejection = _registered_rejection(
             job_result["code"],
             config_entry_id=command["config_entry_id"],
             job_id=job_result.get("job_id"),
             orchestration=job_result.get("orchestration"),
         )
+        rejection["websocket_observability"] = decision
+        return rejection
 
     job_orchestration = {
         "run": job_result.get("run"),
@@ -250,11 +288,22 @@ def handle_registered_ws_command(
     if in_process_render is not None:
         job_orchestration["in_process_render"] = in_process_render
 
+    decision = _record_websocket_decision(
+        hass,
+        command_type=command["type"],
+        requested_config_entry_id=scope.get("requested_config_entry_id", command["config_entry_id"]),
+        resolved_config_entry_id=command["config_entry_id"],
+        accepted=True,
+        code="registered_job_state_command_accepted",
+        job_id=job_result.get("job_id"),
+    )
+
     return {
         "accepted": True,
         "code": "registered_job_state_command_accepted",
         "type": command["type"],
         "version": command["version"],
+        "requested_config_entry_id": scope.get("requested_config_entry_id", command["config_entry_id"]),
         "config_entry_id": command["config_entry_id"],
         "snapshot": job_result["snapshot"],
         "job_state": {
@@ -264,6 +313,7 @@ def handle_registered_ws_command(
         },
         "job_orchestration": job_orchestration,
         "orchestration": job_result["orchestration"],
+        "websocket_observability": decision,
     }
 
 
@@ -310,39 +360,129 @@ def command_payload_from_ws_message(message: dict[str, Any]) -> dict[str, Any]:
 
 def validate_config_entry_scope(hass: Any, config_entry_id: str) -> dict[str, Any]:
     """Validate that the command targets a configured Isolinear entry."""
-    domain_data = getattr(hass, "data", {}).get(DOMAIN, {})
+    domain_entry_ids = _configured_entry_ids_from_hass_data(hass)
+    registry_entry_ids = _configured_entry_ids_from_registry(hass)
+    known_entry_ids = sorted(domain_entry_ids | registry_entry_ids)
     if config_entry_id == CONFIG_ENTRY_AUTO:
-        entry_ids = sorted(
-            entry_id
-            for entry_id, entry_data in domain_data.items()
-            if isinstance(entry_id, str)
-            and isinstance(entry_data, dict)
-            and "entry" in entry_data
-        )
-        if len(entry_ids) == 1:
+        if len(known_entry_ids) == 1:
             return {
                 "accepted": True,
                 "code": "accepted",
-                "config_entry_id": entry_ids[0],
+                "config_entry_id": known_entry_ids[0],
                 "requested_config_entry_id": config_entry_id,
+                "resolved_config_entry_id": known_entry_ids[0],
                 "auto_resolved": True,
                 "orchestration": websocket_registration_side_effects(False),
             }
-        if len(entry_ids) > 1:
-            return _registered_rejection("ambiguous_config_entry", config_entry_id=config_entry_id)
-        return _registered_rejection("unknown_config_entry", config_entry_id=config_entry_id)
+        if len(known_entry_ids) > 1:
+            result = _registered_rejection("ambiguous_config_entry", config_entry_id=config_entry_id)
+            result["requested_config_entry_id"] = config_entry_id
+            result["resolved_config_entry_id"] = None
+            return result
+        result = _registered_rejection("unknown_config_entry", config_entry_id=config_entry_id)
+        result["requested_config_entry_id"] = config_entry_id
+        result["resolved_config_entry_id"] = None
+        return result
 
-    entry_data = domain_data.get(config_entry_id)
-    if isinstance(entry_data, dict) and "entry" in entry_data:
+    if config_entry_id in known_entry_ids:
         return {
             "accepted": True,
             "code": "accepted",
             "config_entry_id": config_entry_id,
             "requested_config_entry_id": config_entry_id,
+            "resolved_config_entry_id": config_entry_id,
             "auto_resolved": False,
             "orchestration": websocket_registration_side_effects(False),
         }
-    return _registered_rejection("unknown_config_entry", config_entry_id=config_entry_id)
+    result = _registered_rejection("unknown_config_entry", config_entry_id=config_entry_id)
+    result["requested_config_entry_id"] = config_entry_id
+    result["resolved_config_entry_id"] = None
+    return result
+
+
+def _configured_entry_ids_from_hass_data(hass: Any) -> set[str]:
+    domain_data = getattr(hass, "data", {}).get(DOMAIN, {})
+    if not isinstance(domain_data, dict):
+        return set()
+    return {
+        entry_id
+        for entry_id, entry_data in domain_data.items()
+        if isinstance(entry_id, str)
+        and isinstance(entry_data, dict)
+        and "entry" in entry_data
+    }
+
+
+def _configured_entry_ids_from_registry(hass: Any) -> set[str]:
+    registry = getattr(hass, "config_entries", None)
+    async_entries = getattr(registry, "async_entries", None)
+    if not callable(async_entries):
+        return set()
+    try:
+        entries = async_entries(DOMAIN)
+    except TypeError:
+        entries = async_entries()
+    if inspect.isawaitable(entries):
+        return set()
+    entry_ids: set[str] = set()
+    for entry in entries or []:
+        entry_id = getattr(entry, "entry_id", None)
+        domain = getattr(entry, "domain", DOMAIN)
+        if isinstance(entry_id, str) and domain == DOMAIN:
+            entry_ids.add(entry_id)
+    return entry_ids
+
+
+def _record_websocket_decision(
+    hass: Any,
+    *,
+    command_type: Any,
+    requested_config_entry_id: Any,
+    resolved_config_entry_id: Any,
+    accepted: bool,
+    code: str,
+    job_id: Any = None,
+) -> dict[str, Any]:
+    event = {
+        "command_type": command_type if isinstance(command_type, str) else None,
+        "requested_config_entry_id": (
+            requested_config_entry_id
+            if isinstance(requested_config_entry_id, str)
+            else None
+        ),
+        "resolved_config_entry_id": (
+            resolved_config_entry_id
+            if isinstance(resolved_config_entry_id, str)
+            else None
+        ),
+        "accepted": bool(accepted),
+        "code": code,
+    }
+    if isinstance(job_id, str):
+        event["job_id"] = job_id
+
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    events = domain_data.setdefault(DATA_WEBSOCKET_OBSERVABILITY, [])
+    events.append(event)
+    if len(events) > MAX_WEBSOCKET_OBSERVABILITY_EVENTS:
+        del events[:-MAX_WEBSOCKET_OBSERVABILITY_EVENTS]
+
+    _LOGGER.info(
+        "Isolinear WebSocket command %s: type=%s requested_config_entry_id=%s "
+        "resolved_config_entry_id=%s code=%s",
+        "accepted" if accepted else "rejected",
+        event["command_type"],
+        event["requested_config_entry_id"],
+        event["resolved_config_entry_id"],
+        code,
+    )
+    return event
+
+
+def _message_field(message: Any, key: str) -> Any:
+    if not isinstance(message, dict):
+        return None
+    return message.get(key)
 
 
 def validate_ws_command_payload(command: Any) -> dict[str, Any]:

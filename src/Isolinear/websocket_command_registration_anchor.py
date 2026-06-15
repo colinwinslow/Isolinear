@@ -20,6 +20,7 @@ from custom_components.isolinear.dashboard_resource import (
 )
 from custom_components.isolinear.websocket_api import (
     DATA_WEBSOCKET_API_MODULE,
+    DATA_WEBSOCKET_OBSERVABILITY,
     DATA_WEBSOCKET_REGISTRATION,
     NO_WEBSOCKET_ORCHESTRATION_CALLS,
     async_register_websocket_api,
@@ -44,6 +45,17 @@ WEBSOCKET_REGISTRATION_FILES = [
 @dataclass
 class FakeConfigEntry:
     entry_id: str = "fake-config-entry"
+    domain: str = DOMAIN
+
+
+class FakeConfigEntries:
+    def __init__(self, entry_ids: list[str]) -> None:
+        self._entries = [FakeConfigEntry(entry_id) for entry_id in entry_ids]
+
+    def async_entries(self, domain: str | None = None) -> list[FakeConfigEntry]:
+        if domain is None:
+            return list(self._entries)
+        return [entry for entry in self._entries if entry.domain == domain]
 
 
 class FakeConnection:
@@ -133,12 +145,15 @@ class FakeHass:
         websocket_api_module: FakeWebSocketApiModule | None = None,
         *,
         include_entry: bool = True,
+        registry_entry_ids: list[str] | None = None,
     ) -> None:
         self.data: dict[str, Any] = {
             DOMAIN: {},
             "lovelace": SimpleNamespace(resources=FakeLovelaceResources()),
         }
         self.http = FakeHttp()
+        if registry_entry_ids is not None:
+            self.config_entries = FakeConfigEntries(registry_entry_ids)
         if websocket_api_module is not None:
             self.data[DOMAIN][DATA_WEBSOCKET_API_MODULE] = websocket_api_module
         if include_entry:
@@ -325,6 +340,20 @@ def verify_auto_config_entry_resolution() -> dict[str, Any]:
     }
     multi_result = handle_registered_ws_command(multi_hass, single_command)
 
+    registry_hass = FakeHass(
+        websocket_api_module,
+        include_entry=False,
+        registry_entry_ids=["registry-entry-001"],
+    )
+    registry_result = handle_registered_ws_command(registry_hass, single_command)
+
+    registry_multi_hass = FakeHass(
+        websocket_api_module,
+        include_entry=False,
+        registry_entry_ids=["registry-entry-001", "registry-entry-002"],
+    )
+    registry_multi_result = handle_registered_ws_command(registry_multi_hass, single_command)
+
     return {
         "single_entry": {
             "known_config_entries": ["fake-config-entry"],
@@ -336,6 +365,43 @@ def verify_auto_config_entry_resolution() -> dict[str, Any]:
             "command": single_command,
             "result": multi_result,
         },
+        "registry_single_entry": {
+            "known_config_entries": ["registry-entry-001"],
+            "command": single_command,
+            "result": registry_result,
+        },
+        "registry_multiple_entries": {
+            "known_config_entries": ["registry-entry-001", "registry-entry-002"],
+            "command": single_command,
+            "result": registry_multi_result,
+        },
+    }
+
+
+def verify_websocket_observability() -> dict[str, Any]:
+    hass = FakeHass()
+    accepted_command = {
+        "id": 52,
+        "type": INTEGRATION_COMMAND_TYPES["start_job"],
+        "version": INTEGRATION_WS_VERSION,
+        "config_entry_id": CONFIG_ENTRY_AUTO,
+        "prompt": "Show the family room temperature",
+    }
+    rejected_command = {
+        "id": 53,
+        "type": INTEGRATION_COMMAND_TYPES["get_snapshot"],
+        "version": INTEGRATION_WS_VERSION,
+        "config_entry_id": "missing-config-entry",
+        "job_id": "job-001",
+    }
+    accepted_result = handle_registered_ws_command(hass, accepted_command)
+    rejected_result = handle_registered_ws_command(hass, rejected_command)
+    events = hass.data[DOMAIN].get(DATA_WEBSOCKET_OBSERVABILITY, [])
+    return {
+        "accepted_result": accepted_result,
+        "rejected_result": rejected_result,
+        "events": events,
+        "event_count": len(events),
     }
 
 
@@ -367,6 +433,7 @@ def verify_websocket_registration_side_effects() -> dict[str, Any]:
     invalid = verify_invalid_registered_commands_fail_closed()["dispatch_results"]
     missing_scope = verify_missing_config_entry_rejection()["dispatch_result"]
     auto_resolution = verify_auto_config_entry_resolution()
+    observability = verify_websocket_observability()
 
     observed = [{"name": "command_registration", **registered}]
     observed.extend(
@@ -390,6 +457,30 @@ def verify_websocket_registration_side_effects() -> dict[str, Any]:
             **auto_resolution["multiple_entries"]["result"]["orchestration"],
         }
     )
+    observed.append(
+        {
+            "name": "auto_registry_single_config_entry",
+            **auto_resolution["registry_single_entry"]["result"]["orchestration"],
+        }
+    )
+    observed.append(
+        {
+            "name": "auto_registry_multiple_config_entries",
+            **auto_resolution["registry_multiple_entries"]["result"]["orchestration"],
+        }
+    )
+    observed.append(
+        {
+            "name": "observability_accepted_command",
+            **observability["accepted_result"]["orchestration"],
+        }
+    )
+    observed.append(
+        {
+            "name": "observability_rejected_command",
+            **observability["rejected_result"]["orchestration"],
+        }
+    )
 
     forbidden_aggregate = {
         key: any(item.get(key) for item in observed)
@@ -407,6 +498,7 @@ def verify_websocket_registration_side_effects() -> dict[str, Any]:
         "allowed_aggregate": allowed_aggregate,
         "allowed_side_effects": {
             "websocket_command_registered": True,
+            "websocket_decision_observability_recorded": True,
         },
     }
 
@@ -420,6 +512,7 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
     invalid = verify_invalid_registered_commands_fail_closed()
     missing_scope = verify_missing_config_entry_rejection()
     auto_resolution = verify_auto_config_entry_resolution()
+    observability = verify_websocket_observability()
     idempotence = verify_idempotent_command_registration()
     side_effects = verify_websocket_registration_side_effects()
 
@@ -444,6 +537,12 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
         failures.append("The auto config-entry sentinel did not resolve the only configured entry.")
     if auto_resolution["multiple_entries"]["result"]["accepted"]:
         failures.append("The auto config-entry sentinel accepted an ambiguous multi-entry setup.")
+    if not auto_resolution["registry_single_entry"]["result"]["accepted"]:
+        failures.append("The auto config-entry sentinel did not resolve the registry fallback entry.")
+    if auto_resolution["registry_multiple_entries"]["result"]["accepted"]:
+        failures.append("The auto config-entry registry fallback accepted an ambiguous setup.")
+    if observability["event_count"] != 2:
+        failures.append("Registered WebSocket decisions were not recorded for observability.")
     if idempotence["duplicate_count"] != 0:
         failures.append("Repeated setup duplicated WebSocket command registration.")
     if any(side_effects["forbidden_aggregate"].values()):
@@ -461,6 +560,7 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
         "invalid": invalid,
         "missing_scope": missing_scope,
         "auto_resolution": auto_resolution,
+        "observability": observability,
         "idempotence": idempotence,
         "side_effects": side_effects,
     }

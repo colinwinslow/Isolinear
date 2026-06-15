@@ -14,6 +14,7 @@ from Isolinear.integration_scaffold_anchor import (  # noqa: E402
     verify_integration_scaffold_anchor,
     verify_manifest,
 )
+from custom_components.isolinear.const import INTEGRATION_VERSION  # noqa: E402
 
 
 class IntegrationScaffoldAnchorTests(unittest.TestCase):
@@ -23,7 +24,7 @@ class IntegrationScaffoldAnchorTests(unittest.TestCase):
         self.assertTrue(result["domain_matches"], result)
         self.assertTrue(result["version_present"], result)
         self.assertTrue(result["const_version_matches_manifest"], result)
-        self.assertEqual(result["manifest"]["version"], "0.1.2")
+        self.assertEqual(result["manifest"]["version"], INTEGRATION_VERSION)
         self.assertTrue(result["requirements_empty"], result)
         self.assertTrue(result["all_scaffold_files_present"], result["files"])
         self.assertEqual(result["manifest"]["domain"], "isolinear")

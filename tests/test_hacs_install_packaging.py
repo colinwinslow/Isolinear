@@ -13,6 +13,7 @@ from custom_components.isolinear import worker_health_polling_constants
 from custom_components.isolinear import worker_readiness
 from custom_components.isolinear import worker_token_lifecycle
 from custom_components.isolinear._paths import FRONTEND_DIST_DIR, PACKAGE_DIR, SCHEMAS_DIR
+from custom_components.isolinear.const import INTEGRATION_VERSION
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -90,7 +91,7 @@ def test_dashboard_card_bundle_is_packaged() -> None:
     assert bundle_path.is_file()
     assert bundle_path.read_bytes() == root_bundle.read_bytes()
     assert dashboard_resource.dashboard_resource_metadata() == {
-        "url": "/api/isolinear/static/isolinear-card.js",
+        "url": f"/api/isolinear/static/isolinear-card.js?v={INTEGRATION_VERSION}",
         "type": "module",
     }
 

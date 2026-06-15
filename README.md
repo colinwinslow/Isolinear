@@ -58,8 +58,10 @@ For normal development updates, push the repo changes, then use HACS
 
 The integration package is self-contained for HACS: runtime schemas live under
 `custom_components/isolinear/schemas/`, and the dashboard card bundle lives at
-`custom_components/isolinear/frontend/dist/isolinear-card.js`. The public
-dashboard resource URL remains `/api/isolinear/static/isolinear-card.js`.
+`custom_components/isolinear/frontend/dist/isolinear-card.js`. The static card
+asset is served from `/api/isolinear/static/isolinear-card.js`; Lovelace
+resource metadata adds the package version as a query string so a HACS
+redownload/restart does not keep loading an older card bundle.
 
 The dashboard card targets `config_entry_id: auto` by default. In a normal
 single-Isolinear-entry install, the integration resolves that automatically.

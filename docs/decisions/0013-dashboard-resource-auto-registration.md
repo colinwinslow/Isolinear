@@ -31,10 +31,14 @@ during config-entry setup by serving the checked-in bundle from an
 integration-owned static path and creating or reusing one Lovelace module
 resource metadata record.**
 
-The integration will use `/api/isolinear/static/isolinear-card.js` as the
-resource URL and `module` as the resource type. Registration is idempotent and
-fails closed before metadata creation if the bundle is missing or Home
-Assistant's storage-backed resource collection is unavailable.
+The integration serves the asset from
+`/api/isolinear/static/isolinear-card.js` and uses a package-versioned
+Lovelace resource URL such as
+`/api/isolinear/static/isolinear-card.js?v=<version>` with `module` as the
+resource type. Registration is idempotent, updates older Isolinear resource
+metadata in place when the stored URL is stale, and fails closed before
+metadata creation if the bundle is missing or Home Assistant's storage-backed
+resource collection is unavailable.
 
 ## Rationale
 
@@ -48,6 +52,9 @@ Assistant's storage-backed resource collection is unavailable.
   serving mechanism for integration-hosted assets.
 - Reusing existing resource metadata preserves user installations that already
   added the same module URL and keeps repeated setup idempotent.
+- Updating older Isolinear resource metadata prevents Home Assistant or the
+  browser from continuing to load a stale dashboard card bundle after HACS
+  redownload and restart.
 
 ## Consequences
 

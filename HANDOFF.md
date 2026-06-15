@@ -130,6 +130,31 @@ package version is now `0.1.2`, the packaged dashboard card bundle has been
 rebuilt, bundled schema byte parity is green, and the README documents the
 explicit `/config/.storage/core.config_entries` fallback for older builds.
 
+The live `0.1.2` HACS retest showed the repository fix did not yet translate
+into a reliable Home Assistant dashboard experience. After redownload/restart
+and card recreation, the picker still defaulted to
+`config_entry_id: fake-config-entry`; the committed `0.1.2` bundle no longer
+contains that string, so the next packet should treat stale dashboard resource
+delivery as the primary failure mode. Manually changing the card to
+`config_entry_id: auto` also did not produce useful Isolinear WebSocket log
+evidence, so the same packet should add lightweight registered-command
+observability and make `auto` resolution fall back to Home Assistant's
+config-entry registry rather than depending only on `hass.data[DOMAIN]`.
+
+That dashboard resource cache-busting packet is now closed in the repository
+and ready for live HACS retest as version `0.1.3`. Lovelace resource metadata
+now uses `/api/isolinear/static/isolinear-card.js?v=0.1.3` while the integration
+continues to serve the stable static asset path. Existing stale Isolinear
+Lovelace resource metadata is updated in place when the base URL matches the
+integration card module, avoiding both stale reuse and duplicate resource
+records. Registered WebSocket command decisions now write capped runtime-only
+observability records and non-secret logs for accepted/rejected command
+decisions, and `config_entry_id: auto` can resolve through Home Assistant's
+config-entry registry when runtime `hass.data[DOMAIN]` entry data is not
+available yet. Zero or multiple candidate entries still fail closed before job
+state, history, planning, rendering, worker dispatch, or mutation-capable code
+can run.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -833,18 +858,14 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Install Isolinear into a live Home Assistant dev instance through HACS as a
-custom repository, redownload/restart to pick up version `0.1.2`, then recreate
-or update the dashboard card with `config_entry_id: auto` and run the
-served-artifact prompt path against real recorder-backed sensor history and the
-configured Ollama planner. Capture evidence that HACS redownload/restart
-updates the integration, the options flow persists a real entity allowlist
-without `must_be_object`, the card loads from
-`/api/isolinear/static/isolinear-card.js`, `auto` resolves to the single
-configured Isolinear entry, the job returns
-`/api/isolinear/artifacts/<artifact_id>.png`, and no worker token, worker-local
-path, local artifact path, or base64 image bytes leak to card-facing WebSocket
-responses.
+Run the live HACS `0.1.3` dashboard verification. Redownload Isolinear through
+HACS, restart Home Assistant, recreate the dashboard card, and confirm the
+registered Lovelace resource URL includes `?v=0.1.3` while the picker default
+is `config_entry_id: auto`. Then run the served-artifact prompt path against
+real Home Assistant sensor history and the configured Ollama planner, using the
+new WebSocket decision observability to capture accept/reject evidence if the
+card cannot start a job. Confirm no worker token, worker-local path, local
+artifact path, or base64 image bytes leak to card-facing WebSocket responses.
 
 Preserve the known codegen sandbox matplotlib subprocess flake as a historical
 caveat; the first-real-slice closeout full Python suite passed cleanly

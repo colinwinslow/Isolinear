@@ -64,10 +64,10 @@ Feature: Home Assistant integration anchors
     And no worker, model-provider, history, semantic-memory, mutation, token-generation, or dashboard-resource registration call should occur
 
   Scenario: Card bundle is served from an integration static path
-    Given the checked-in Isolinear card bundle exists
+    Given the packaged Isolinear card bundle exists
     When the dashboard resource anchor registers static assets
     Then the integration should use an async static-path registration
-    And the dashboard resource URL should be "/api/isolinear/static/isolinear-card.js"
+    And the dashboard resource URL should be package-versioned for cache busting
 
   Scenario: Config entry setup registers dashboard resource metadata
     Given an Isolinear config entry is set up
@@ -79,6 +79,12 @@ Feature: Home Assistant integration anchors
     Given the Isolinear card resource metadata already exists
     When dashboard resource registration runs again
     Then the existing resource metadata should be reused
+    And no duplicate resource entry should be created
+
+  Scenario: Stale dashboard resource metadata is updated
+    Given the legacy unversioned Isolinear card resource metadata already exists
+    When dashboard resource registration runs again
+    Then the existing resource metadata should be updated to the current versioned URL
     And no duplicate resource entry should be created
 
   Scenario: Missing dashboard bundle fails closed

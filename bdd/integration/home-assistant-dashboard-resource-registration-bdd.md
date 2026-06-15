@@ -20,12 +20,13 @@ model, history, semantic-memory, token, or job-orchestration boundaries.
 
 ### Scenario A - happy path: card bundle is served from an integration static path
 
-**Given** the checked-in card bundle exists at `frontend/dist/isolinear-card.js`
+**Given** the packaged card bundle exists at
+`custom_components/isolinear/frontend/dist/isolinear-card.js`
 **When** the dashboard resource anchor registers static assets
 **Then** the bundle directory should be registered through the async static-path
 API
-**And** the dashboard resource URL should be
-`/api/isolinear/static/isolinear-card.js`
+**And** the dashboard resource URL should be the current package-versioned
+`/api/isolinear/static/isolinear-card.js?v=<version>` URL
 
 ### Scenario B - happy path: config entry setup registers resource metadata
 
@@ -51,7 +52,16 @@ URL
 **Then** the pre-existing resource metadata should be accepted
 **And** no create operation should be issued
 
-### Scenario E - failure path: missing bundle fails closed
+### Scenario E - update path: stale Isolinear metadata is updated in place
+
+**Given** Home Assistant already has a module resource for the legacy
+unversioned Isolinear card URL
+**When** dashboard resource registration runs
+**Then** the existing resource metadata should be updated to the current
+package-versioned Isolinear card URL
+**And** no duplicate resource entry should be created
+
+### Scenario F - failure path: missing bundle fails closed
 
 **Given** the Isolinear card bundle path is missing
 **When** dashboard resource registration validates the artifact
@@ -59,15 +69,15 @@ URL
 created
 **And** the rejection should include a structured failure code
 
-### Scenario F - boundary path: registration remains non-orchestrating
+### Scenario G - boundary path: registration remains non-orchestrating
 
 **Given** dashboard resource registration has handled success and failure cases
 **When** the anchor aggregates observed side effects
 **Then** no worker, model-provider, history, semantic-memory,
 service/device/state mutation, token-generation, job-orchestration, or extra
 WebSocket command handling call should occur
-**And** dashboard resource metadata creation or reuse should be reported as the
-allowed Home Assistant metadata write
+**And** dashboard resource metadata creation, reuse, or stale-resource update
+should be reported as the allowed Home Assistant metadata write
 
 ## Evidence
 

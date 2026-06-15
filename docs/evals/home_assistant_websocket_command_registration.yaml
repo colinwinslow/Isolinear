@@ -19,6 +19,24 @@ expect:
   leaky_commands_rejected_before_orchestration: true
   mutation_commands_rejected_before_orchestration: true
   missing_config_entry_rejected_before_orchestration: true
+  auto_config_entry_resolves_single_runtime_entry: true
+  auto_config_entry_resolves_single_registry_entry: true
+  auto_config_entry_rejects_multiple_runtime_entries: true
+  auto_config_entry_rejects_multiple_registry_entries: true
+  websocket_decision_observability:
+    fields:
+      - command_type
+      - requested_config_entry_id
+      - resolved_config_entry_id
+      - accepted
+      - code
+    excludes:
+      - prompt
+      - token
+      - endpoint
+      - raw_history
+      - generated_code
+      - generated_image
   repeated_setup_duplicate_count: 0
   worker_called: false
   model_provider_called: false
@@ -29,3 +47,4 @@ expect:
   job_orchestration_called: false
   dashboard_resource_metadata_written_or_reused: false
   websocket_command_registered: true
+  websocket_decision_observability_recorded: true
