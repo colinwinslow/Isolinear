@@ -237,6 +237,17 @@ next dashboard command. The attached live logs also showed setup-time schema
 that remains the existing separate event-loop cleanup item and was not the
 catalog-empty failure.
 
+The live `0.1.9` HACS retest then reached the next edge: an ambiguous
+temperature prompt correctly produced deterministic clarification options, but
+selecting one entity could complete with scaffold placeholder artifact metadata
+and a broken served image URL. The repository is now ready for live HACS retest
+as version `0.1.10`. Clarification-answer continuation with a configured
+planner is covered through the real first-slice path and writes a rendered
+served PNG for the selected entity. If the first-real render path has no
+configured model-provider planner, snapshot polling now records a card-facing
+failed snapshot with `model_provider_planner_not_configured` before artifact
+metadata or PNG storage, rather than returning scaffold placeholder success.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -940,9 +951,9 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Run the live HACS `0.1.9` dashboard verification. Redownload Isolinear through
+Run the live HACS `0.1.10` dashboard verification. Redownload Isolinear through
 HACS, restart Home Assistant, recreate the dashboard card, and confirm the
-registered Lovelace resource URL includes `?v=0.1.9` while the picker/editor
+registered Lovelace resource URL includes `?v=0.1.10` while the picker/editor
 shows `config_entry_id: auto`, including when Home Assistant had previously
 handed the card the old `fake-config-entry` placeholder. Confirm a stored
 allowlist reopens through the multi-entity selector with the exact selected
@@ -950,12 +961,16 @@ entity IDs and the dashboard route sees those approved entities without another
 restart. Confirm the integration icon appears both where Home Assistant
 surfaces custom integration brand assets and where HACS reads repository-root
 brand assets.
-Then run the served-artifact prompt path against real Home Assistant sensor
-history and the configured Ollama planner, using the WebSocket decision
-observability to capture accept/reject evidence if the card cannot start a job.
+Then run both the explicit served-artifact prompt path and the ambiguous
+clarification-answer path against real Home Assistant sensor history and the
+configured Ollama planner, using the WebSocket decision observability to
+capture accept/reject evidence if the card cannot start a job.
 If the card reports an approved-entity failure, inspect the configured
 allowlist, runtime options-update listener, and entity catalog setup result
 rather than treating it as a future-orchestration placeholder.
+If the card reports `model_provider_planner_not_configured`, inspect the
+config entry's Ollama-compatible planner settings before investigating
+artifact serving.
 Confirm no worker token, worker-local path, local artifact path, or base64
 image bytes leak to card-facing WebSocket responses.
 

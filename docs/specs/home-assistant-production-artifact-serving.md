@@ -64,6 +64,12 @@ The production artifact-serving slice must:
 - Preserve the existing hidden-entity failure path: planner output that
   references a non-allowlisted entity fails before rendering, artifact file
   write, artifact metadata storage, or complete snapshot storage.
+- Preserve clarification continuation: after a user selects one allowlisted
+  entity from a clarification prompt, the next snapshot request must either
+  call the configured planner and return a rendered served PNG artifact for
+  that selected entity, or fail before artifact metadata storage. It must not
+  complete with scaffold placeholder artifact metadata when the real render
+  path is active.
 
 Allowed side effects are limited to approved metadata/history reads, the
 configured planner call, trusted in-process rendering, writing the PNG artifact
@@ -111,7 +117,12 @@ served from `/api/isolinear/artifacts`.
    already-written PNG and related artifact/render/provider job indexes.
 8. The mounted dashboard-card smoke proves the card renders the served artifact
    URL as the chart image source.
-9. Evidence contains raw command/result snippets, artifact path/URL, and PNG
+9. Focused pytest proves clarification answer continuation returns a rendered
+   served PNG artifact URL for the selected entity, not scaffold placeholder
+   metadata.
+10. Focused pytest proves a missing planner on the real render path fails
+    before artifact metadata storage instead of creating placeholder success.
+11. Evidence contains raw command/result snippets, artifact path/URL, and PNG
    signature bytes.
 
 ## Non-goals

@@ -12,6 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from custom_components.isolinear.const import (  # noqa: E402
+    COMMAND_ANSWER_CLARIFICATION,
     COMMAND_GET_SNAPSHOT,
     COMMAND_START_JOB,
     DOMAIN,
@@ -60,7 +61,7 @@ class FakeHttp:
 
 
 class FakeEntry:
-    def __init__(self, entry_id: str) -> None:
+    def __init__(self, entry_id: str, *, entity_allowlist: list[str] | None = None) -> None:
         self.entry_id = entry_id
         self.data = {
             "model_provider_type": "ollama_compatible",
@@ -73,7 +74,7 @@ class FakeEntry:
         self.options = {
             "default_render_mode": "safe",
             "max_codegen_repair_attempts": 1,
-            "entity_allowlist": ["sensor.upstairs_temperature"],
+            "entity_allowlist": entity_allowlist or ["sensor.upstairs_temperature"],
         }
 
 
@@ -97,16 +98,27 @@ class FakePlanner:
         result_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.calls.append(request)
-        entity_id = "sensor.hidden_temperature" if self.hidden_entity else "sensor.upstairs_temperature"
+        approved_entity_ids = request.get("approved_entity_ids")
+        selected_entity_id = (
+            approved_entity_ids[0]
+            if (
+                isinstance(approved_entity_ids, list)
+                and approved_entity_ids
+                and isinstance(approved_entity_ids[0], str)
+            )
+            else "sensor.upstairs_temperature"
+        )
+        entity_id = "sensor.hidden_temperature" if self.hidden_entity else selected_entity_id
+        series_id = entity_id.replace(".", "_")
         chart_spec = {
             "chart_id": "real-slice-chart",
             "chart_type": "time_series",
-            "title": "Real Slice Upstairs Temperature",
+            "title": f"Real Slice {entity_id}",
             "time_range": {"type": "relative", "duration": "24h"},
             "series": [
                 {
-                    "series_id": "sensor_upstairs_temperature",
-                    "label": "Upstairs Temperature",
+                    "series_id": series_id,
+                    "label": entity_id,
                     "source": {
                         "type": "entity",
                         "entity_id": entity_id,
@@ -141,35 +153,40 @@ class FakePlanner:
 
 def configured_real_slice_hass(
     *,
-    planner: FakePlanner,
+    planner: FakePlanner | None,
     artifact_dir: Path | None = None,
+    extra_metadata_by_entity: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[FakeHass, FakeEntry]:
     hass = FakeHass()
-    entry = FakeEntry("real-slice-entry")
+    metadata_by_entity = {
+        "sensor.upstairs_temperature": {
+            "friendly_name": "Upstairs Temperature",
+            "device_class": "temperature",
+            "state_class": "measurement",
+            "unit_of_measurement": "degF",
+            "area": "Upstairs",
+            "attributes": {
+                "friendly_name": "Upstairs Temperature",
+                "unit_of_measurement": "degF",
+            },
+        }
+    }
+    metadata_by_entity.update(extra_metadata_by_entity or {})
+    entry = FakeEntry("real-slice-entry", entity_allowlist=list(metadata_by_entity))
     entry_data = hass.data[DOMAIN].setdefault(entry.entry_id, {})
     entry_data["entry"] = entry
     entry_data[DATA_FIRST_REAL_VERTICAL_SLICE_ENABLED] = True
-    entry_data[DATA_MODEL_PROVIDER_PLANNER] = planner
+    if planner is not None:
+        entry_data[DATA_MODEL_PROVIDER_PLANNER] = planner
     hass.data[DOMAIN][DATA_HISTORY_SOURCE] = {
-        "sensor.upstairs_temperature": _history_records("sensor.upstairs_temperature")
+        entity_id: _history_records(entity_id)
+        for entity_id in metadata_by_entity
     }
 
     setup_entity_catalog(
         hass,
         entry,
-        metadata_by_entity={
-            "sensor.upstairs_temperature": {
-                "friendly_name": "Upstairs Temperature",
-                "device_class": "temperature",
-                "state_class": "measurement",
-                "unit_of_measurement": "degF",
-                "area": "Upstairs",
-                "attributes": {
-                    "friendly_name": "Upstairs Temperature",
-                    "unit_of_measurement": "degF",
-                },
-            }
-        },
+        metadata_by_entity=metadata_by_entity,
     )
     setup_history_retrieval(hass, entry)
     ensure_job_state_store(hass, entry.entry_id)
@@ -192,7 +209,12 @@ def _history_records(entity_id: str) -> list[dict[str, Any]]:
     ]
 
 
-def _start_job(hass: FakeHass, entry: FakeEntry) -> dict[str, Any]:
+def _start_job(
+    hass: FakeHass,
+    entry: FakeEntry,
+    *,
+    prompt: str = "Show sensor.upstairs_temperature for the last 24 hours",
+) -> dict[str, Any]:
     return handle_registered_ws_command(
         hass,
         {
@@ -200,7 +222,31 @@ def _start_job(hass: FakeHass, entry: FakeEntry) -> dict[str, Any]:
             "type": COMMAND_START_JOB,
             "version": INTEGRATION_WS_VERSION,
             "config_entry_id": entry.entry_id,
-            "prompt": "Show sensor.upstairs_temperature for the last 24 hours",
+            "prompt": prompt,
+        },
+    )
+
+
+def _answer_clarification(
+    hass: FakeHass,
+    entry: FakeEntry,
+    snapshot: dict[str, Any],
+    option_id: str,
+    *,
+    message_id: int = 2,
+    remember: bool = False,
+) -> dict[str, Any]:
+    return handle_registered_ws_command(
+        hass,
+        {
+            "id": message_id,
+            "type": COMMAND_ANSWER_CLARIFICATION,
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": entry.entry_id,
+            "job_id": snapshot["job_id"],
+            "question_id": snapshot["clarification"]["question_id"],
+            "option_id": option_id,
+            "remember": remember,
         },
     )
 
@@ -295,6 +341,68 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             self.assertEqual(len(store["artifact_order"]), 1)
             self.assertEqual(len(store["worker_dispatch_order"]), 0)
 
+    def test_clarification_answer_returns_served_png_artifact_from_in_process_renderer(self):
+        planner = FakePlanner()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(
+                planner=planner,
+                artifact_dir=artifact_dir,
+                extra_metadata_by_entity={
+                    "sensor.downstairs_temperature": {
+                        "friendly_name": "Downstairs Temperature",
+                        "device_class": "temperature",
+                        "state_class": "measurement",
+                        "unit_of_measurement": "degF",
+                        "area": "Downstairs",
+                        "attributes": {
+                            "friendly_name": "Downstairs Temperature",
+                            "unit_of_measurement": "degF",
+                        },
+                    }
+                },
+            )
+
+            start = _start_job(hass, entry, prompt="Show me the temperature")
+            answer = _answer_clarification(
+                hass,
+                entry,
+                start["snapshot"],
+                "sensor_downstairs_temperature",
+            )
+            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"], message_id=3)
+
+            self.assertTrue(start["accepted"], start)
+            self.assertEqual(start["snapshot"]["status"], "clarification_needed")
+            self.assertTrue(answer["accepted"], answer)
+            self.assertEqual(answer["snapshot"]["status"], "planning")
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "complete")
+            image_url = snapshot["snapshot"]["chart"]["image_url"]
+            self.assertTrue(image_url.startswith(f"{ARTIFACT_STATIC_URL_PATH}/"), image_url)
+            self.assertTrue(image_url.endswith(".png"), image_url)
+            self.assertEqual(planner.calls[0]["approved_entity_ids"], ["sensor.downstairs_temperature"])
+            self.assertEqual(
+                snapshot["snapshot"]["chart"]["series"][0]["entity_id"],
+                "sensor.downstairs_temperature",
+            )
+            self.assertNotIn(
+                "placeholder chart metadata",
+                snapshot["snapshot"]["validation"]["summary"],
+            )
+            self.assertTrue(snapshot["orchestration"]["model_provider_called"])
+            self.assertTrue(snapshot["orchestration"]["chart_rendering_called"])
+            self.assertTrue(snapshot["orchestration"]["chart_artifact_written"])
+
+            store = _orchestration_store(hass, entry)
+            artifact = store["latest_artifact"]
+            artifact_path = artifact_dir / f"{artifact['artifact_id']}.png"
+            self.assertEqual(artifact["status"], "rendered")
+            self.assertEqual(artifact["render_metadata"]["renderer"], "in_process_matplotlib")
+            self.assertTrue(artifact_path.is_file(), artifact)
+            self.assertEqual(artifact_path.read_bytes()[:8], PNG_SIGNATURE)
+            self.assertEqual(len(store["artifact_order"]), 1)
+
     def test_hidden_provider_entity_fails_before_render_and_artifact_storage(self):
         planner = FakePlanner(hidden_entity=True)
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -307,6 +415,32 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             self.assertFalse(snapshot["accepted"], snapshot)
             self.assertEqual(snapshot["code"], "model_provider_chart_spec_hidden_entity")
             self.assertEqual(len(planner.calls), 1)
+            self.assertFalse(snapshot["orchestration"]["chart_rendering_called"])
+            self.assertFalse(snapshot["orchestration"]["chart_artifact_written"])
+            self.assertFalse(snapshot["orchestration"]["artifact_metadata_bookkeeping_written"])
+
+            store = _orchestration_store(hass, entry)
+            self.assertEqual(store["model_provider_plan_order"], [])
+            self.assertEqual(store["render_plan_order"], [])
+            self.assertEqual(store["artifact_order"], [])
+            self.assertEqual(list(artifact_dir.glob("*.png")), [])
+
+    def test_real_slice_missing_planner_fails_before_placeholder_artifact_storage(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(planner=None, artifact_dir=artifact_dir)
+
+            start = _start_job(hass, entry)
+            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+            self.assertTrue(start["accepted"], start)
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "failed")
+            self.assertEqual(
+                snapshot["snapshot"]["failure"]["code"],
+                "model_provider_planner_not_configured",
+            )
+            self.assertFalse(snapshot["orchestration"]["model_provider_called"])
             self.assertFalse(snapshot["orchestration"]["chart_rendering_called"])
             self.assertFalse(snapshot["orchestration"]["chart_artifact_written"])
             self.assertFalse(snapshot["orchestration"]["artifact_metadata_bookkeeping_written"])

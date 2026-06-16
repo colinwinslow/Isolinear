@@ -1484,6 +1484,14 @@ def _append_model_provider_failure_snapshot_from_planning_result(
     job: dict[str, Any],
     planning_result: dict[str, Any],
 ) -> dict[str, Any] | None:
+    if planning_result.get("code") == "model_provider_planner_not_configured":
+        return _append_model_provider_failure_snapshot(
+            job,
+            code="model_provider_planner_not_configured",
+            message="Model provider planner is not configured for this Isolinear entry.",
+            retry_allowed=False,
+        )
+
     retry_policy = planning_result.get("model_provider_retry_policy")
     if not isinstance(retry_policy, dict):
         return None
@@ -1895,6 +1903,19 @@ def _record_model_provider_plan(
 ) -> dict[str, Any]:
     planner = get_model_provider_planner(hass, entry_id)
     if planner is None:
+        if first_real_vertical_slice_enabled(hass, entry_id):
+            return {
+                "accepted": False,
+                "code": "model_provider_planner_not_configured",
+                "model_provider_called": False,
+                "model_provider_plan": None,
+                "chart_spec": None,
+                "validation": {
+                    "accepted": False,
+                    "code": "model_provider_planner_not_configured",
+                    "error": "The real render path requires a configured model-provider planner.",
+                },
+            }
         return {
             "accepted": True,
             "code": "model_provider_planner_not_configured",

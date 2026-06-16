@@ -3,7 +3,7 @@
 Paired BDD:
 `bdd/integration/home-assistant-production-artifact-serving-bdd.md`
 
-Run date: 2026-06-13
+Run date: 2026-06-16
 
 ## Scenario coverage map
 
@@ -20,8 +20,12 @@ Run date: 2026-06-13
   state: `test_complete_snapshot_validation_failure_rolls_back_png_file`
 - Scenario F - card path: mounted card renders the served artifact URL:
   mounted card Vitest smoke output
+- Scenario G - clarification path: selected entity renders a served PNG
+  artifact: `test_clarification_answer_returns_served_png_artifact_from_in_process_renderer`
+- Real-render guard - missing planner fails before placeholder artifact storage:
+  `test_real_slice_missing_planner_fails_before_placeholder_artifact_storage`
 
-## Scenarios A-E - static path, served PNG URL, idempotence, failure rollback
+## Scenarios A-E and G - static path, served PNG URL, clarification, idempotence, failure rollback
 
 Command:
 
@@ -36,17 +40,19 @@ Raw output:
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0 -- C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear\.venv\Scripts\python.exe
 cachedir: .pytest_cache
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collecting ... collected 7 items
+collecting ... collected 9 items
 
-tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_artifact_metadata_validation_failure_leaves_no_png_file PASSED [ 14%]
-tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_complete_snapshot_validation_failure_rolls_back_png_file PASSED [ 28%]
-tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_config_entry_setup_registers_artifact_static_path PASSED [ 42%]
-tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_hidden_provider_entity_fails_before_render_and_artifact_storage PASSED [ 57%]
-tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_ollama_structured_output_schema_embeds_chart_spec_contract PASSED [ 71%]
-tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_prompt_returns_served_png_artifact_from_in_process_renderer PASSED [ 85%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_artifact_metadata_validation_failure_leaves_no_png_file PASSED [ 11%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_clarification_answer_returns_served_png_artifact_from_in_process_renderer PASSED [ 22%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_complete_snapshot_validation_failure_rolls_back_png_file PASSED [ 33%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_config_entry_setup_registers_artifact_static_path PASSED [ 44%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_hidden_provider_entity_fails_before_render_and_artifact_storage PASSED [ 55%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_ollama_structured_output_schema_embeds_chart_spec_contract PASSED [ 66%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_prompt_returns_served_png_artifact_from_in_process_renderer PASSED [ 77%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_real_slice_missing_planner_fails_before_placeholder_artifact_storage PASSED [ 88%]
 tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_repeated_snapshot_reuses_completed_png_artifact PASSED [100%]
 
-============================== 7 passed in 3.62s ==============================
+============================== 9 passed in 5.03s ==============================
 ```
 
 The passing tests assert these raw values from the returned snapshot and on-disk
@@ -61,6 +67,17 @@ artifact:
   "artifact_status": "rendered",
   "artifact_renderer": "in_process_matplotlib",
   "png_signature": [137, 80, 78, 71, 13, 10, 26, 10],
+  "clarification_start_status": "clarification_needed",
+  "clarification_answer_status": "planning",
+  "clarification_selected_entity": "sensor.downstairs_temperature",
+  "clarification_planner_approved_entity_ids": ["sensor.downstairs_temperature"],
+  "clarification_artifact_status": "rendered",
+  "clarification_artifact_renderer": "in_process_matplotlib",
+  "clarification_validation_summary_contains_placeholder": false,
+  "missing_planner_snapshot_status": "failed",
+  "missing_planner_failure_code": "model_provider_planner_not_configured",
+  "missing_planner_artifact_order_count": 0,
+  "missing_planner_png_file_count": 0,
   "hidden_entity_failure_code": "model_provider_chart_spec_hidden_entity",
   "hidden_entity_png_file_count": 0,
   "forced_artifact_metadata_failure_code": "invalid_in_process_artifact_metadata",
@@ -92,9 +109,9 @@ Raw output:
 
 ```text
 REGISTERED_WS_SMOKE_EVIDENCE
-{'prompt': 'Show sensor.upstairs_temperature for the last 24 hours', 'elapsed_ms': 2114, 'command_types': ['isolinear/v1/job/start', 'isolinear/v1/job/snapshot'], 'start_status': 'planning', 'snapshot_status': 'complete', 'artifact_url': '/api/isolinear/artifacts/real-slice-entry-artifact-001.png', 'artifact_path': 'C:\\Users\\C12BA~1.WIN\\AppData\\Local\\Temp\\tmpdxwir9wr\\real-slice-entry-artifact-001.png', 'png_signature': [137, 80, 78, 71, 13, 10, 26, 10], 'planner_call_count': 1, 'approved_entity_ids': ['sensor.upstairs_temperature'], 'orchestration': {'worker_called': False, 'model_provider_called': True, 'home_assistant_history_called': False, 'semantic_memory_called': False, 'home_assistant_service_or_state_mutation_called': False, 'token_generated': False, 'chart_artifact_written': True, 'chart_rendering_called': True, 'durable_storage_written': False, 'retry_behavior_called': False, 'subscription_progress_streaming_called': False, 'worker_progress_streaming_called': False, 'automatic_progress_task_called': False, 'job_orchestration_called': False, 'model_provider_retry_policy_bookkeeping_written': False, 'approved_entity_catalog_read': False, 'home_assistant_history_read': False, 'history_retrieval_scaffold_written': False, 'job_state_scaffold_written': True, 'job_orchestration_scaffold_written': True, 'subscription_bookkeeping_written': False, 'artifact_metadata_bookkeeping_written': True, 'render_plan_bookkeeping_written': True, 'model_provider_plan_bookkeeping_written': True, 'worker_dispatch_bookkeeping_written': False, 'worker_progress_bookkeeping_written': False, 'worker_retry_policy_bookkeeping_written': False, 'worker_transport_failure_classification_bookkeeping_written': False, 'websocket_command_registered': False}}
+{'prompt': 'Show sensor.upstairs_temperature for the last 24 hours', 'elapsed_ms': 5196, 'command_types': ['isolinear/v1/job/start', 'isolinear/v1/job/snapshot'], 'start_status': 'planning', 'snapshot_status': 'complete', 'artifact_url': '/api/isolinear/artifacts/real-slice-entry-artifact-001.png', 'artifact_path': 'C:\\Users\\C12BA~1.WIN\\AppData\\Local\\Temp\\tmp1gbk9aj0\\real-slice-entry-artifact-001.png', 'png_signature': [137, 80, 78, 71, 13, 10, 26, 10], 'planner_call_count': 1, 'approved_entity_ids': ['sensor.upstairs_temperature'], 'orchestration': {'worker_called': False, 'model_provider_called': True, 'home_assistant_history_called': False, 'semantic_memory_called': False, 'home_assistant_service_or_state_mutation_called': False, 'token_generated': False, 'chart_artifact_written': True, 'chart_rendering_called': True, 'durable_storage_written': False, 'retry_behavior_called': False, 'subscription_progress_streaming_called': False, 'worker_progress_streaming_called': False, 'automatic_progress_task_called': False, 'job_orchestration_called': False, 'model_provider_retry_policy_bookkeeping_written': False, 'approved_entity_catalog_read': False, 'home_assistant_history_read': False, 'history_retrieval_scaffold_written': False, 'job_state_scaffold_written': True, 'job_orchestration_scaffold_written': True, 'subscription_bookkeeping_written': False, 'artifact_metadata_bookkeeping_written': True, 'render_plan_bookkeeping_written': True, 'model_provider_plan_bookkeeping_written': True, 'worker_dispatch_bookkeeping_written': False, 'worker_progress_bookkeeping_written': False, 'worker_retry_policy_bookkeeping_written': False, 'worker_transport_failure_classification_bookkeeping_written': False, 'websocket_command_registered': False}}
 .
-1 passed in 2.30s
+1 passed in 5.54s
 ```
 
 ## Scenario F - mounted card renders the served artifact URL
@@ -130,12 +147,16 @@ CARD_SMOKE_EVIDENCE {
   "submit_disabled_during_active_job": true
 }
 
- ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > polls job/snapshot until a delayed prompt renders a PNG chart 56ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > uses automatic config-entry resolution in the picker stub config 3ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > normalizes the legacy fake config entry placeholder to auto 40ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > shows auto in the editor when Home Assistant passes the legacy fake config entry placeholder 3ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > polls job/snapshot until a delayed prompt renders a PNG chart 50ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > shows a visible failure when prompt submission is rejected 23ms
 
  Test Files  1 passed (1)
-      Tests  1 passed (1)
-   Start at  13:16:53
-   Duration  2.37s (transform 95ms, setup 0ms, import 209ms, tests 57ms, environment 1.09s)
+      Tests  5 passed (5)
+   Start at  12:42:36
+   Duration  6.84s (transform 164ms, setup 0ms, import 501ms, tests 121ms, environment 4.91s)
 
 stderr | src/isolinear-card.long-running-smoke.test.ts
 Lit is in dev mode. Not recommended for production! See https://lit.dev/msg/dev-mode for more information.

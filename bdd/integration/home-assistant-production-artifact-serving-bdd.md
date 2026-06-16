@@ -62,6 +62,18 @@ a `complete` snapshot with a served artifact URL
 **Then** the final chart-first view uses the served artifact URL as the image
 source.
 
+### Scenario G - clarification path: selected entity renders a served PNG artifact
+
+**Given** a configured Isolinear entry with multiple allowlisted numeric
+entities, an Ollama-compatible planner, and approved history for each entity
+**When** the dashboard card receives `clarification_needed`, sends
+`isolinear/v1/clarification/answer`, and then polls
+`isolinear/v1/job/snapshot`
+**Then** the returned complete snapshot contains a rendered
+`/api/isolinear/artifacts/<artifact_id>.png` URL for the selected entity
+**And** the referenced file exists on disk with PNG signature bytes
+**And** the snapshot does not report scaffold placeholder artifact success.
+
 ## Evidence
 
 The implementing slice produces an evidence file at
