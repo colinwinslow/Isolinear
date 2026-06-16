@@ -64,6 +64,11 @@ The catalog boundary must:
 - Fail closed with structured errors when allowlist data is malformed,
   allowlisted entities are missing from metadata/state sources, or normalized
   catalog items do not satisfy schema.
+- Register a Home Assistant config-entry options update listener during setup
+  when the runtime provides that API. After an allowlist edit, the listener must
+  refresh the config-entry-scoped approved catalog plus the allowlist-derived
+  history and orchestration setup metadata before the next dashboard command
+  reads the catalog.
 
 Allowed side effects for this packet are limited to:
 
@@ -111,19 +116,22 @@ and side-effect boundaries against fake Home Assistant objects.
    `EntityCatalogItem` before storage/return.
 6. Evidence confirms `async_setup_entry` stores a config-entry-scoped catalog
    store and setup result.
-7. Evidence confirms two config entries receive isolated catalogs based on
+7. Evidence confirms an options update from an empty allowlist to two approved
+   entities rebuilds the runtime catalog, refreshes the allowlist-derived
+   orchestration setup metadata, and validates the new catalog items.
+8. Evidence confirms two config entries receive isolated catalogs based on
    their own allowlists.
-8. Evidence confirms unknown allowlisted entities fail closed before catalog
+9. Evidence confirms unknown allowlisted entities fail closed before catalog
    storage and clear any previous catalog for the entry.
-9. Evidence confirms malformed allowlist inputs fail closed without raising an
+10. Evidence confirms malformed allowlist inputs fail closed without raising an
    exception.
-10. Evidence confirms malformed normalized catalog items fail closed before
+11. Evidence confirms malformed normalized catalog items fail closed before
    storage.
-11. Evidence confirms no worker, model provider, Home Assistant history,
+12. Evidence confirms no worker, model provider, Home Assistant history,
     semantic-memory persistence, Home Assistant service/device/state mutation,
     token-generation, chart artifact write, WebSocket command registration,
     dashboard-resource metadata write, or real job orchestration occurs.
-12. Real artifacts are verified on disk: production catalog module,
+13. Real artifacts are verified on disk: production catalog module,
     integration setup wiring, BDD, eval outline, tests, eval, and evidence.
 
 ## Non-Goals

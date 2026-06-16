@@ -8,6 +8,7 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from Isolinear.config_flow_anchor import (  # noqa: E402
+    verify_allowlist_form_default_round_trip,
     verify_config_flow_anchor,
     verify_config_flow_manifest,
     verify_config_flow_user_path,
@@ -76,6 +77,32 @@ class ConfigFlowOptionsAnchorTests(unittest.TestCase):
         self.assertEqual(
             result["options_data"]["entity_allowlist"],
             ["sensor.family_room_sensor_temperature"],
+        )
+
+    def test_options_flow_accepts_two_entity_json_allowlist_text(self):
+        result = verify_live_allowlist_input_variants()["variants"]["json_array_two_entities"]
+
+        self.assertTrue(result["accepted"], result)
+        self.assertEqual(
+            result["options_data"]["entity_allowlist"],
+            [
+                "sensor.family_room_sensor_temperature",
+                "sensor.bathroom_sensor_temperature",
+            ],
+        )
+
+    def test_options_flow_redisplays_allowlist_with_separators(self):
+        result = verify_allowlist_form_default_round_trip()
+
+        self.assertEqual(
+            result["form_default"],
+            "sensor.family_room_sensor_temperature, sensor.bathroom_sensor_temperature",
+        )
+        self.assertFalse(result["fused_default"], result)
+        self.assertTrue(result["submitted"]["accepted"], result)
+        self.assertEqual(
+            result["submitted"]["options_data"]["entity_allowlist"],
+            result["stored_entity_allowlist"],
         )
 
     def test_options_flow_uses_passed_config_entry(self):

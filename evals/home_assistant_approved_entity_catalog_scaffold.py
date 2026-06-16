@@ -54,6 +54,24 @@ def main():
     )
 
     print_case(
+        "options_update_rebuilds_runtime_catalog",
+        given={
+            "entry_id": "options-update-catalog-entry",
+            "initial_allowlist": [],
+            "updated_allowlist": [
+                "sensor.upstairs_temperature",
+                "sensor.downstairs_temperature",
+            ],
+        },
+        when={
+            "operation": "invoke_registered_options_update_listener",
+        },
+        then={
+            "options_update": result["options_update"],
+        },
+    )
+
+    print_case(
         "config_entries_receive_isolated_catalogs",
         given={
             "entry_ids": ["entry-a", "entry-b"],

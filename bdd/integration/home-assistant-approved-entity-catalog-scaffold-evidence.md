@@ -1,6 +1,9 @@
 # Home Assistant Approved Entity Catalog Scaffold Evidence
 
-Run timestamp: 2026-06-08T13:56:06+00:00
+Run timestamps:
+
+- Baseline eval transcript: 2026-06-08T13:56:06+00:00
+- Options-update runtime catalog regression refresh: 2026-06-16T16:36:43+00:00
 
 BDD file:
 `bdd/integration/home-assistant-approved-entity-catalog-scaffold-bdd.md`
@@ -11,6 +14,7 @@ Overall result: PASS
 
 - Scenario A: allowlisted metadata becomes schema-valid catalog items -> `CASE allowlisted_metadata_builds_schema_valid_catalog`
 - Scenario B: setup stores a config-entry-scoped catalog -> `CASE setup_entry_stores_config_entry_scoped_catalog`
+- Scenario C2: options update rebuilds runtime catalog -> `CASE options_update_rebuilds_runtime_catalog`
 - Scenario C: config entries receive separate catalogs -> `CASE config_entries_receive_isolated_catalogs`
 - Scenario D: unknown allowlisted entities fail closed -> `CASE unknown_allowlisted_entities_fail_closed`
 - Scenario E: rejected rebuild clears existing catalog -> `CASE rejected_rebuild_clears_existing_catalog`
@@ -32,11 +36,11 @@ Raw output:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 9 items
+collected 10 items
 
-tests\test_approved_entity_catalog_scaffold_anchor.py .........          [100%]
+tests\test_approved_entity_catalog_scaffold_anchor.py ..........         [100%]
 
-============================== 9 passed in 0.23s ==============================
+============================= 10 passed in 0.42s ==============================
 ```
 
 ## Full Unit Verification
@@ -84,6 +88,8 @@ CASE allowlisted_metadata_builds_schema_valid_catalog
 PASS allowlisted_metadata_builds_schema_valid_catalog
 CASE setup_entry_stores_config_entry_scoped_catalog
 PASS setup_entry_stores_config_entry_scoped_catalog
+CASE options_update_rebuilds_runtime_catalog
+PASS options_update_rebuilds_runtime_catalog
 CASE config_entries_receive_isolated_catalogs
 PASS config_entries_receive_isolated_catalogs
 CASE unknown_allowlisted_entities_fail_closed
@@ -142,7 +148,12 @@ then.setup.entry_data_keys:
 - entity_catalog
 - entity_catalog_setup
 - entry
+- history_retrieval
+- history_retrieval_setup
+- job_orchestration
+- job_orchestration_setup
 - job_state
+- options_update_listener_registered
 - websocket_api
 then.setup.setup_result.accepted: true
 then.setup.setup_result.entry_id: setup-catalog-entry
@@ -152,6 +163,33 @@ then.setup.store.entity_ids:
 - binary_sensor.office_window
 then.setup.item_validation[0].accepted: true
 then.setup.item_validation[1].accepted: true
+```
+
+### Scenario C2
+
+```text
+case_id: options_update_rebuilds_runtime_catalog
+given.entry_id: options-update-catalog-entry
+given.initial_allowlist: []
+given.updated_allowlist:
+- sensor.upstairs_temperature
+- sensor.downstairs_temperature
+when.operation: invoke_registered_options_update_listener
+then.options_update.listener_registered: true
+then.options_update.store_before_update.entity_ids: []
+then.options_update.store_after_update.entity_ids:
+- sensor.upstairs_temperature
+- sensor.downstairs_temperature
+then.options_update.catalog_setup.accepted: true
+then.options_update.history_setup.approved_entity_ids:
+- sensor.upstairs_temperature
+- sensor.downstairs_temperature
+then.options_update.job_orchestration_setup.approved_entity_ids:
+- sensor.upstairs_temperature
+- sensor.downstairs_temperature
+then.options_update.job_orchestration_setup.enabled: true
+then.options_update.item_validation[0].accepted: true
+then.options_update.item_validation[1].accepted: true
 ```
 
 ### Scenario C

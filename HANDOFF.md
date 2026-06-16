@@ -195,6 +195,19 @@ registered commands route through orchestration even if the approved catalog is
 empty, so the card receives a deterministic approved-entity failure such as
 `no_approved_entities_available` rather than `orchestration_not_implemented`.
 
+The live `0.1.6` HACS retest then proved the orchestration gate was fixed, but
+exposed an options/catalog refresh bug. Pasting
+`["sensor.family_room_sensor_temperature","sensor.bathroom_sensor_temperature"]`
+into the allowlist was accepted, but reopening the options form displayed the
+stored list as fused text without quotes, brackets, comma, or newline. The
+dashboard then still saw an empty approved catalog and failed at
+`NO_APPROVED_ENTITIES_AVAILABLE`. The repository is now ready for live HACS
+retest as version `0.1.7`. Stored allowlists redisplay as comma-separated text
+that round-trips through the existing normalizer, and config-entry setup
+registers an options update listener that refreshes the runtime approved
+catalog plus allowlist-derived history/orchestration setup metadata before the
+next dashboard command.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -898,22 +911,24 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Run the live HACS `0.1.6` dashboard verification. Redownload Isolinear through
+Run the live HACS `0.1.7` dashboard verification. Redownload Isolinear through
 HACS, restart Home Assistant, recreate the dashboard card, and confirm the
-registered Lovelace resource URL includes `?v=0.1.6` while the picker/editor
+registered Lovelace resource URL includes `?v=0.1.7` while the picker/editor
 shows `config_entry_id: auto`, including when Home Assistant had previously
-handed the card the old `fake-config-entry` placeholder. Confirm the
-integration icon appears where Home Assistant surfaces custom integration brand
-assets. Then run the served-artifact prompt path against real Home Assistant
-sensor history and the configured Ollama planner, using the WebSocket decision
+handed the card the old `fake-config-entry` placeholder. Confirm a stored
+two-entity allowlist reopens with a visible separator and the dashboard route
+sees those approved entities without another restart. Confirm the integration
+icon appears where Home Assistant surfaces custom integration brand assets.
+Then run the served-artifact prompt path against real Home Assistant sensor
+history and the configured Ollama planner, using the WebSocket decision
 observability to capture accept/reject evidence if the card cannot start a job.
 If the card reports an approved-entity failure, inspect the configured
-allowlist and setup-time entity catalog result rather than treating it as a
-future-orchestration placeholder.
+allowlist, runtime options-update listener, and entity catalog setup result
+rather than treating it as a future-orchestration placeholder.
 Confirm no worker token, worker-local path, local artifact path, or base64
 image bytes leak to card-facing WebSocket responses.
 
-After the live `0.1.6` verification, a strong product-ergonomics follow-up is
+After the live `0.1.7` verification, a strong product-ergonomics follow-up is
 the options-flow allowlist picker packet: replace or supplement the raw
 `entity_allowlist` textarea with a Home Assistant-native picker suitable for
 dozens or hundreds of approved entities. The packet should keep explicit

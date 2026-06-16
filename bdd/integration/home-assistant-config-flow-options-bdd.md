@@ -48,12 +48,25 @@ list
 
 **Given** a user reports allowlisting `sensor.family_room_sensor_temperature`
 through a HACS-installed integration
-**When** the options-flow validator receives the value as plain entity text or
-JSON-style pasted list text
-**Then** both inputs should be accepted
-**And** both inputs should normalize to the same deterministic entity ID list
+**When** the options-flow validator receives the value as plain entity text,
+single-entity JSON-style pasted list text, or two-entity JSON-style pasted list
+text
+**Then** all inputs should be accepted
+**And** the two-entity JSON-style pasted list should normalize to both entity
+IDs
 **And** the options flow should retain the Home Assistant config entry passed
 to `async_get_options_flow`
+
+### Scenario C2b - regression path: stored allowlists redisplay with separators
+
+**Given** a stored allowlist contains
+`sensor.family_room_sensor_temperature` and
+`sensor.bathroom_sensor_temperature`
+**When** the options form is reopened
+**Then** the allowlist field should include an explicit separator between the
+entity IDs
+**And** submitting the redisplayed value should restore the same two-item list
+**And** the field should not contain fused entity ID text
 
 ### Scenario C3 - regression path: missing stored setup data does not block options edits
 

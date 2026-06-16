@@ -5,6 +5,7 @@ Run timestamps:
 - Baseline eval transcript: 2026-06-08T00:13:46+00:00
 - Live allowlist regression refresh: 2026-06-15T00:49:15+00:00
 - Live missing config-entry data and package-version refresh: 2026-06-15T15:52:36+00:00
+- Live two-entity redisplay regression refresh: 2026-06-16T16:36:42+00:00
 
 BDD file:
 `bdd/integration/home-assistant-config-flow-options-bdd.md`
@@ -17,6 +18,7 @@ Overall result: PASS
 - Scenario B: user config flow creates validated local-first data -> `CASE user_config_flow_creates_validated_local_first_data`
 - Scenario C: options flow persists safe options -> `CASE options_flow_persists_safe_options`
 - Scenario C2: live allowlist input variants are accepted -> `CASE options_flow_accepts_live_allowlist_input_variants`
+- Scenario C2b: stored allowlists redisplay with separators -> `CASE options_flow_accepts_live_allowlist_input_variants`
 - Scenario C3: missing stored config-entry data survives options edit -> `CASE options_flow_survives_missing_config_entry_data`
 - Scenario D: invalid config flow input fails closed -> `CASE invalid_config_flow_input_fails_closed`
 - Scenario E: invalid options flow input fails closed -> `CASE invalid_options_flow_input_fails_closed`
@@ -36,11 +38,41 @@ Raw output:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 9 items
+collected 11 items
 
-tests\test_config_flow_options_anchor.py .........                       [100%]
+tests\test_config_flow_options_anchor.py ...........                     [100%]
 
-============================== 9 passed in 0.20s ==============================
+============================= 11 passed in 0.22s ==============================
+```
+
+## Regression Evidence: Live Two-Entity Redisplay
+
+Raw command:
+
+```powershell
+.\.venv\Scripts\python.exe evals/home_assistant_config_flow_options.py
+```
+
+Condensed raw output excerpt:
+
+```text
+CASE options_flow_accepts_live_allowlist_input_variants
+then.allowlist_variants.expected_multi_entity_allowlist:
+- sensor.family_room_sensor_temperature
+- sensor.bathroom_sensor_temperature
+then.allowlist_variants.variants.json_array_two_entities.accepted: true
+then.allowlist_variants.variants.json_array_two_entities.options_data.entity_allowlist:
+- sensor.family_room_sensor_temperature
+- sensor.bathroom_sensor_temperature
+then.allowlist_variants.form_default_round_trip.form_default:
+  sensor.family_room_sensor_temperature, sensor.bathroom_sensor_temperature
+then.allowlist_variants.form_default_round_trip.fused_default: false
+then.allowlist_variants.form_default_round_trip.submitted.accepted: true
+then.allowlist_variants.form_default_round_trip.submitted.options_data.entity_allowlist:
+- sensor.family_room_sensor_temperature
+- sensor.bathroom_sensor_temperature
+PASS options_flow_accepts_live_allowlist_input_variants
+PASS home_assistant_config_flow_options
 ```
 
 ## Regression Evidence: Live Allowlist Variants

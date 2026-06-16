@@ -38,6 +38,20 @@ class FakeConfigEntry:
     entry_id: str = "catalog-entry-001"
     options: dict[str, Any] = field(default_factory=dict)
     data: dict[str, Any] = field(default_factory=dict)
+    update_listeners: list[Any] = field(default_factory=list)
+    unload_callbacks: list[Any] = field(default_factory=list)
+
+    def add_update_listener(self, listener: Any) -> Any:
+        self.update_listeners.append(listener)
+
+        def remove_listener() -> None:
+            if listener in self.update_listeners:
+                self.update_listeners.remove(listener)
+
+        return remove_listener
+
+    def async_on_unload(self, callback: Any) -> None:
+        self.unload_callbacks.append(callback)
 
 
 @dataclass
@@ -233,6 +247,44 @@ def verify_setup_entry_catalog_storage(root=None) -> dict[str, Any]:
     }
 
 
+def verify_options_update_rebuilds_runtime_catalog(root=None) -> dict[str, Any]:
+    root = root or repo_root()
+    hass = FakeHass(metadata_by_entity=fake_entity_metadata(), states=fake_states())
+    entry = FakeConfigEntry(
+        "options-update-catalog-entry",
+        options={"entity_allowlist": []},
+    )
+    setup_accepted = _run(async_setup_entry(hass, entry))
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    store_before_update = summarize_entity_catalog_store(entry_data[DATA_ENTITY_CATALOG])
+
+    entry.options = {
+        "entity_allowlist": [
+            "sensor.upstairs_temperature",
+            "sensor.downstairs_temperature",
+        ]
+    }
+    if entry.update_listeners:
+        _run(entry.update_listeners[-1](hass, entry))
+
+    updated_entry_data = hass.data[DOMAIN][entry.entry_id]
+    store_after_update = summarize_entity_catalog_store(updated_entry_data[DATA_ENTITY_CATALOG])
+    return {
+        "setup_accepted": setup_accepted,
+        "listener_registered": bool(entry.update_listeners),
+        "unload_callback_registered": bool(entry.unload_callbacks),
+        "store_before_update": store_before_update,
+        "store_after_update": store_after_update,
+        "catalog_setup": updated_entry_data[DATA_ENTITY_CATALOG_SETUP],
+        "history_setup": updated_entry_data["history_retrieval_setup"],
+        "job_orchestration_setup": updated_entry_data["job_orchestration_setup"],
+        "item_validation": _validate_catalog_items(
+            updated_entry_data[DATA_ENTITY_CATALOG]["items"],
+            root,
+        ),
+    }
+
+
 def verify_config_entry_catalog_isolation(root=None) -> dict[str, Any]:
     root = root or repo_root()
     hass = FakeHass(metadata_by_entity=fake_entity_metadata(), states=fake_states())
@@ -371,6 +423,7 @@ def verify_entity_catalog_scaffold_anchor(root=None) -> dict[str, Any]:
     files = verify_entity_catalog_scaffold_files(root)
     catalog = verify_allowlisted_metadata_catalog(root)
     setup = verify_setup_entry_catalog_storage(root)
+    options_update = verify_options_update_rebuilds_runtime_catalog(root)
     isolation = verify_config_entry_catalog_isolation(root)
     unknown = verify_unknown_allowlisted_entity_rejection()
     stale = verify_rejected_rebuild_clears_existing_catalog()
@@ -397,6 +450,22 @@ def verify_entity_catalog_scaffold_anchor(root=None) -> dict[str, Any]:
         "binary_sensor.office_window",
     ]:
         failures.append("async_setup_entry catalog store does not match the entry allowlist.")
+    if not options_update["setup_accepted"] or not options_update["listener_registered"]:
+        failures.append("async_setup_entry did not register an options update listener.")
+    if options_update["store_before_update"]["entity_ids"]:
+        failures.append("Options update regression did not start from an empty catalog.")
+    if options_update["store_after_update"]["entity_ids"] != [
+        "sensor.upstairs_temperature",
+        "sensor.downstairs_temperature",
+    ]:
+        failures.append("Options update did not rebuild the runtime catalog from the new allowlist.")
+    if options_update["job_orchestration_setup"]["approved_entity_ids"] != [
+        "sensor.upstairs_temperature",
+        "sensor.downstairs_temperature",
+    ]:
+        failures.append("Options update did not refresh orchestration approved entity metadata.")
+    if not all(item["accepted"] for item in options_update["item_validation"]):
+        failures.append("Options-updated catalog items failed EntityCatalogItem validation.")
     if isolation["entry_a_store"]["entity_ids"] != ["sensor.upstairs_temperature"]:
         failures.append("Entry A catalog isolation failed.")
     if isolation["entry_b_store"]["entity_ids"] != ["binary_sensor.office_window"]:
@@ -422,6 +491,7 @@ def verify_entity_catalog_scaffold_anchor(root=None) -> dict[str, Any]:
         "files": files,
         "catalog": catalog,
         "setup": setup,
+        "options_update": options_update,
         "isolation": isolation,
         "unknown": unknown,
         "stale": stale,

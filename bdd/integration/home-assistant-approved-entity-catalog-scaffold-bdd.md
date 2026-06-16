@@ -41,6 +41,16 @@ metadata containing additional non-allowlisted entities
 **Then** each catalog should contain only that entry's allowlisted entities
 **And** neither store should expose the other entry's entities
 
+### Scenario C2 - regression path: options update rebuilds runtime catalog
+
+**Given** an Isolinear config entry was set up with an empty allowlist
+**And** Home Assistant later updates options with two approved entities
+**When** the registered options update listener runs
+**Then** the config-entry-scoped approved catalog should contain the two new
+entity IDs
+**And** the allowlist-derived history and orchestration setup metadata should
+reflect the same approved entity IDs before the next dashboard command
+
 ### Scenario D - failure path: unknown allowlisted entities fail closed
 
 **Given** a config entry whose allowlist references an entity missing from fake

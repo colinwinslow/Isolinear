@@ -11,6 +11,9 @@ expect:
   schema_valid_entity_catalog_items: true
   visible_to_agent: true
   config_entry_scoped_store: true
+  options_update_listener_registered: true
+  options_update_rebuilds_runtime_catalog: true
+  options_update_refreshes_orchestration_approved_entities: true
   per_config_entry_isolation: true
   unknown_allowlisted_entity_rejected: true
   rejected_rebuild_clears_existing_catalog: true

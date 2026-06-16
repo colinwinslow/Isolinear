@@ -67,6 +67,14 @@ as `["sensor.family_room_sensor_temperature"]` must all normalize to the same
 deterministic entity ID list before validation. Blank optional model fields are
 normalized to `null`.
 
+Stored entity allowlists must redisplay in the options form with explicit
+separators between entity IDs. A stored two-entity allowlist such as
+`sensor.family_room_sensor_temperature` plus
+`sensor.bathroom_sensor_temperature` must not reopen as fused text like
+`sensor.family_room_sensor_temperaturesensor.bathroom_sensor_temperature`;
+the redisplayed value must round-trip through the same deterministic allowlist
+normalizer.
+
 The Home Assistant options-flow factory must retain the config entry that Home
 Assistant passes to `async_get_options_flow`, so options validation always has
 the existing local-first config-entry data shape available and does not collapse
@@ -110,10 +118,12 @@ options data, invalid-input rejection, and non-orchestration behavior.
    deterministic entity allowlist.
 6. Live-reported allowlist inputs for
    `sensor.family_room_sensor_temperature` normalize from both plain entity
-   text and JSON-style pasted list text, and the options flow uses the passed
-   config entry while creating the updated options entry. A live/legacy config
-   entry with missing stored setup data also accepts the same allowlist edit
-   without returning base-level `must_be_object`.
+   text and JSON-style pasted list text, two-entity JSON-style pasted list text
+   normalizes to both entity IDs, stored two-entity allowlists redisplay with a
+   separator and round-trip without fused IDs, and the options flow uses the
+   passed config entry while creating the updated options entry. A live/legacy
+   config entry with missing stored setup data also accepts the same allowlist
+   edit without returning base-level `must_be_object`.
 7. Invalid and secret-bearing config/options inputs fail closed with structured
    field errors.
 8. Evidence confirms no worker, model-provider, Home Assistant history,

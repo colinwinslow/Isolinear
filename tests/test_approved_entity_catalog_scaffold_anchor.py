@@ -14,6 +14,7 @@ from Isolinear.entity_catalog_scaffold_anchor import (  # noqa: E402
     verify_entity_catalog_side_effect_boundaries,
     verify_malformed_allowlist_rejected_without_crash,
     verify_malformed_catalog_item_rejected_before_storage,
+    verify_options_update_rebuilds_runtime_catalog,
     verify_rejected_rebuild_clears_existing_catalog,
     verify_setup_entry_catalog_storage,
     verify_unknown_allowlisted_entity_rejection,
@@ -49,6 +50,29 @@ class ApprovedEntityCatalogScaffoldAnchorTests(unittest.TestCase):
             [
                 "sensor.upstairs_temperature",
                 "binary_sensor.office_window",
+            ],
+        )
+        self.assertTrue(all(item["accepted"] for item in result["item_validation"]), result)
+
+    def test_options_update_rebuilds_runtime_catalog(self):
+        result = verify_options_update_rebuilds_runtime_catalog(REPO_ROOT)
+
+        self.assertTrue(result["setup_accepted"], result)
+        self.assertTrue(result["listener_registered"], result)
+        self.assertTrue(result["unload_callback_registered"], result)
+        self.assertEqual(result["store_before_update"]["entity_ids"], [])
+        self.assertEqual(
+            result["store_after_update"]["entity_ids"],
+            [
+                "sensor.upstairs_temperature",
+                "sensor.downstairs_temperature",
+            ],
+        )
+        self.assertEqual(
+            result["job_orchestration_setup"]["approved_entity_ids"],
+            [
+                "sensor.upstairs_temperature",
+                "sensor.downstairs_temperature",
             ],
         )
         self.assertTrue(all(item["accepted"] for item in result["item_validation"]), result)

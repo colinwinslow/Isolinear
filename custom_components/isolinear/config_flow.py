@@ -349,7 +349,7 @@ def options_to_form_data(options_data: Mapping[str, Any]) -> dict[str, Any]:
     form_data = dict(options_data)
     allowlist = form_data.get("entity_allowlist", [])
     if isinstance(allowlist, (list, tuple)):
-        form_data["entity_allowlist"] = "\n".join(str(item) for item in allowlist)
+        form_data["entity_allowlist"] = ", ".join(str(item) for item in allowlist)
     return form_data
 
 

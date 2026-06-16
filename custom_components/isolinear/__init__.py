@@ -50,6 +50,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
     entry_data["dashboard_resource"] = await async_register_dashboard_resource(hass, entry)
     entry_data["websocket_api"] = await async_register_websocket_api(hass, entry=entry)
     entry_data["worker_health_polling_setup"] = await async_setup_worker_health_polling(hass, entry)
+    entry_data["options_update_listener_registered"] = _register_options_update_listener(entry)
     return True
 
 
@@ -59,4 +60,26 @@ async def async_unload_entry(hass: Any, entry: Any) -> bool:
     entry_id = getattr(entry, "entry_id", "scaffold-entry")
     unload_worker_health_polling(hass, entry_id)
     domain_data.pop(entry_id, None)
+    return True
+
+
+async def _async_options_updated(hass: Any, entry: Any) -> None:
+    """Refresh runtime allowlist-derived stores after options edits."""
+    entry_id = getattr(entry, "entry_id", "scaffold-entry")
+    entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})
+    entry_data["entry"] = entry
+    entry_data["entity_catalog_setup"] = setup_entity_catalog(hass, entry)
+    entry_data["history_retrieval_setup"] = setup_history_retrieval(hass, entry)
+    entry_data["job_orchestration_setup"] = setup_job_orchestration(hass, entry)
+
+
+def _register_options_update_listener(entry: Any) -> bool:
+    add_update_listener = getattr(entry, "add_update_listener", None)
+    if not callable(add_update_listener):
+        return False
+
+    remove_listener = add_update_listener(_async_options_updated)
+    async_on_unload = getattr(entry, "async_on_unload", None)
+    if callable(async_on_unload) and callable(remove_listener):
+        async_on_unload(remove_listener)
     return True

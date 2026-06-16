@@ -1,6 +1,9 @@
 # Home Assistant Job State Scaffold Evidence
 
-Run timestamp: 2026-06-08T05:22:12+00:00
+Run timestamps:
+
+- Baseline eval transcript: 2026-06-08T05:22:12+00:00
+- Legacy job-state scaffold isolation refresh: 2026-06-16T16:47:07+00:00
 
 BDD file:
 `bdd/integration/home-assistant-job-state-scaffold-bdd.md`
@@ -36,7 +39,7 @@ collected 9 items
 
 tests\test_job_state_scaffold_anchor.py .........                        [100%]
 
-============================== 9 passed in 0.33s ==============================
+============================== 9 passed in 0.89s ==============================
 ```
 
 ## Full Unit Verification
@@ -53,19 +56,15 @@ Raw output:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 92 items
+collected 337 items
 
-tests\test_codegen_sandbox_anchor.py ..........                          [ 10%]
-tests\test_config_flow_options_anchor.py .....                           [ 16%]
-tests\test_dashboard_card_anchor.py .......                              [ 23%]
-tests\test_dashboard_resource_registration_anchor.py .......             [ 31%]
-tests\test_fake_vertical_slice.py .....................................  [ 71%]
-tests\test_integration_scaffold_anchor.py .....                          [ 77%]
-tests\test_job_state_scaffold_anchor.py .........                        [ 86%]
-tests\test_transport_auth_anchor.py .....                                [ 92%]
-tests\test_websocket_command_registration_anchor.py .......              [100%]
+tests\test_approved_entity_catalog_scaffold_anchor.py ..........         [  2%]
+...
+tests\test_job_state_scaffold_anchor.py .........                        [ 56%]
+...
+tests\test_worker_transport_failure_classification_anchor.py ..........  [100%]
 
-============================= 92 passed in 33.97s =============================
+======================= 337 passed in 68.71s (0:01:08) ========================
 ```
 
 ## Eval Verification
@@ -97,6 +96,11 @@ CASE job_state_remains_non_orchestrating
 PASS job_state_remains_non_orchestrating
 PASS home_assistant_job_state_scaffold
 ```
+
+Note: the job-state scaffold anchor intentionally removes modern
+`job_orchestration_setup` metadata from its registered fake entry before
+dispatch so this legacy scaffold proof remains isolated from the newer
+orchestration routing gate.
 
 ## Scenario Evidence Excerpts
 

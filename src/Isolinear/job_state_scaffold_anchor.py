@@ -11,6 +11,7 @@ from custom_components.isolinear.job_state import (
     store_validated_job_snapshot,
     summarize_job_state_store,
 )
+from custom_components.isolinear.job_orchestration import DATA_JOB_ORCHESTRATION_SETUP
 
 from .contracts import ContractValidationError, validate_contract
 from .dashboard_card_anchor import repo_root
@@ -327,6 +328,8 @@ def _setup_registered_hass(*entry_ids: str) -> tuple[FakeHass, FakeWebSocketApiM
     hass = FakeHass(websocket_api_module, include_entry=False)
     for entry_id in entry_ids:
         _run(async_setup_entry(hass, FakeConfigEntry(entry_id)))
+        # This anchor proves the legacy job-state scaffold, not orchestration.
+        hass.data[DOMAIN][entry_id].pop(DATA_JOB_ORCHESTRATION_SETUP, None)
     return hass, websocket_api_module
 
 

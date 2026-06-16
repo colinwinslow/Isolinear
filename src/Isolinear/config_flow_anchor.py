@@ -10,6 +10,7 @@ from custom_components.isolinear.config_flow import (
     IsolinearConfigFlow,
     NO_FLOW_ORCHESTRATION_CALLS,
     OPTIONS_FLOW_STEP,
+    build_options_flow_schema,
     config_flow_field_metadata,
     validate_config_flow_user_input,
     validate_options_flow_user_input,
@@ -129,6 +130,10 @@ def verify_options_flow_path() -> dict[str, Any]:
 
 def verify_live_allowlist_input_variants() -> dict[str, Any]:
     valid_config = default_config_data()
+    expected_multi_entity_allowlist = [
+        "sensor.family_room_sensor_temperature",
+        "sensor.bathroom_sensor_temperature",
+    ]
     variants = {
         "plain_entity_text": validate_options_flow_user_input(
             valid_config,
@@ -142,10 +147,53 @@ def verify_live_allowlist_input_variants() -> dict[str, Any]:
                 "entity_allowlist": '["sensor.family_room_sensor_temperature"]',
             },
         ),
+        "json_array_two_entities": validate_options_flow_user_input(
+            valid_config,
+            {
+                "default_render_mode": "safe",
+                "max_codegen_repair_attempts": 1,
+                "entity_allowlist": (
+                    '["sensor.family_room_sensor_temperature",'
+                    '"sensor.bathroom_sensor_temperature"]'
+                ),
+            },
+        ),
     }
+    round_trip = verify_allowlist_form_default_round_trip()
     return {
         "expected_entity_allowlist": ["sensor.family_room_sensor_temperature"],
+        "expected_multi_entity_allowlist": expected_multi_entity_allowlist,
         "variants": variants,
+        "form_default_round_trip": round_trip,
+    }
+
+
+def verify_allowlist_form_default_round_trip() -> dict[str, Any]:
+    entity_ids = [
+        "sensor.family_room_sensor_temperature",
+        "sensor.bathroom_sensor_temperature",
+    ]
+    stored_options = {
+        "default_render_mode": "safe",
+        "max_codegen_repair_attempts": 1,
+        "entity_allowlist": list(entity_ids),
+    }
+    schema = build_options_flow_schema(stored_options)
+    defaults = schema.get("defaults", {}) if isinstance(schema, dict) else {}
+    form_default = defaults.get("entity_allowlist")
+    submitted = validate_options_flow_user_input(
+        default_config_data(),
+        {
+            "default_render_mode": "safe",
+            "max_codegen_repair_attempts": 1,
+            "entity_allowlist": form_default,
+        },
+    )
+    return {
+        "stored_entity_allowlist": entity_ids,
+        "form_default": form_default,
+        "fused_default": form_default == "".join(entity_ids),
+        "submitted": submitted,
     }
 
 
@@ -268,8 +316,20 @@ def verify_config_flow_anchor(root: Path | None = None) -> dict[str, Any]:
     for name, result in live_allowlist_variants["variants"].items():
         if not result["accepted"]:
             failures.append(f"Live allowlist variant {name} was rejected.")
-        elif result["options_data"]["entity_allowlist"] != live_allowlist_variants["expected_entity_allowlist"]:
+        expected_allowlist = (
+            live_allowlist_variants["expected_multi_entity_allowlist"]
+            if name == "json_array_two_entities"
+            else live_allowlist_variants["expected_entity_allowlist"]
+        )
+        if result["accepted"] and result["options_data"]["entity_allowlist"] != expected_allowlist:
             failures.append(f"Live allowlist variant {name} normalized to the wrong allowlist.")
+    round_trip = live_allowlist_variants["form_default_round_trip"]
+    if round_trip["fused_default"]:
+        failures.append("Stored allowlist form default fused entity IDs together.")
+    if not round_trip["submitted"]["accepted"]:
+        failures.append("Stored allowlist form default did not round-trip through options validation.")
+    elif round_trip["submitted"]["options_data"]["entity_allowlist"] != round_trip["stored_entity_allowlist"]:
+        failures.append("Stored allowlist form default round-tripped to the wrong allowlist.")
     if not options_flow_config_entry["retains_passed_config_entry"]:
         failures.append("Options flow did not retain the Home Assistant config entry.")
     if options_flow_config_entry["result"].get("type") != "create_entry":
