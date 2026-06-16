@@ -60,6 +60,11 @@ Registration must:
 - Preserve the existing `IntegrationWsCommand` and `IntegrationJobSnapshot`
   schemas; Home Assistant's transport `id` is transport metadata and must not
   enter the internal command contract.
+- Register Home Assistant routing schemas that accept the full card transport
+  envelope (`id`, `type`, `version`, `config_entry_id`, and command-specific
+  payload fields) so Home Assistant does not reject valid Isolinear commands
+  as `extra keys not allowed` before the Isolinear validator can strip
+  transport metadata and run.
 - Validate config-entry scope before returning a scaffold snapshot.
 - Resolve `config_entry_id: auto` to exactly one configured Isolinear entry,
   using runtime `hass.data[DOMAIN]` entry data and Home Assistant's
@@ -128,19 +133,23 @@ side-effect boundaries against fake Home Assistant objects.
    `IntegrationJobSnapshot` payloads.
 6. Evidence confirms unknown, wrong-version, leaky, mutating, and
    missing-config-entry command cases fail closed before orchestration.
-7. Evidence confirms `config_entry_id: auto` resolves through runtime entry
+7. Evidence confirms Home Assistant's registered routing schema accepts a
+   card-sent start-job transport envelope with `id`, `version`,
+   `config_entry_id`, and `prompt`, while Isolinear's internal validator still
+   rejects unexpected card payload keys after routing.
+8. Evidence confirms `config_entry_id: auto` resolves through runtime entry
    data or the config-entry registry only when exactly one Isolinear entry
    exists, and fails closed for zero or multiple entries before orchestration.
-8. Evidence confirms registered command accept/reject decisions are observable
+9. Evidence confirms registered command accept/reject decisions are observable
    with command type, requested config-entry ID, resolved config-entry ID, and
    decision code.
-9. Evidence confirms repeated setup does not duplicate WebSocket command
+10. Evidence confirms repeated setup does not duplicate WebSocket command
    registration.
-10. Evidence confirms no worker, model provider, Home Assistant history,
+11. Evidence confirms no worker, model provider, Home Assistant history,
    semantic-memory, Home Assistant service/device/state mutation,
    token-generation, job orchestration, or dashboard-resource metadata write is
    part of this command registration boundary.
-11. Real artifacts are verified on disk: production WebSocket module,
+12. Real artifacts are verified on disk: production WebSocket module,
    integration setup call, BDD, eval outline, tests, eval, and evidence.
 
 ## Non-Goals

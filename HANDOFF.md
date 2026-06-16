@@ -169,6 +169,20 @@ tests and eval evidence prove those assets ship with the integration. Lovelace
 resource metadata now resolves to
 `/api/isolinear/static/isolinear-card.js?v=0.1.4`.
 
+The live `0.1.4` HACS retest then proved the placeholder/cache issue was
+closed in a fresh browser: `config_entry_id: auto` reached the dashboard card's
+WebSocket request. That exposed the next live boundary bug: Home Assistant's
+registered WebSocket routing schema only declared `type`, so Home Assistant
+rejected the card's valid `id`/`version`/`config_entry_id`/`prompt` transport
+envelope as `extra keys not allowed` before Isolinear could strip transport
+metadata and run its deterministic validator. The repository is now ready for
+live HACS retest as version `0.1.5`. Registered Isolinear WebSocket handlers
+now use a permissive Home Assistant routing schema (`type` plus extra transport
+fields) while preserving the strict internal `IntegrationWsCommand` validator:
+valid card envelopes route to Isolinear, Home Assistant transport `id` stays
+outside the internal command contract, and unexpected card payload keys still
+fail closed before orchestration.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -872,9 +886,9 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Run the live HACS `0.1.4` dashboard verification. Redownload Isolinear through
+Run the live HACS `0.1.5` dashboard verification. Redownload Isolinear through
 HACS, restart Home Assistant, recreate the dashboard card, and confirm the
-registered Lovelace resource URL includes `?v=0.1.4` while the picker/editor
+registered Lovelace resource URL includes `?v=0.1.5` while the picker/editor
 shows `config_entry_id: auto`, including when Home Assistant had previously
 handed the card the old `fake-config-entry` placeholder. Confirm the
 integration icon appears where Home Assistant surfaces custom integration brand

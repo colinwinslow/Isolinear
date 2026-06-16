@@ -19,6 +19,9 @@ expect:
   leaky_commands_rejected_before_orchestration: true
   mutation_commands_rejected_before_orchestration: true
   missing_config_entry_rejected_before_orchestration: true
+  home_assistant_routing_accepts_card_transport_envelope: true
+  home_assistant_transport_id_stripped_before_internal_schema: true
+  unexpected_card_payload_keys_rejected_by_isolinear_validator: true
   auto_config_entry_resolves_single_runtime_entry: true
   auto_config_entry_resolves_single_registry_entry: true
   auto_config_entry_rejects_multiple_runtime_entries: true

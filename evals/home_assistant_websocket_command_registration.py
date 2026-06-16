@@ -100,6 +100,23 @@ def main():
     )
 
     print_case(
+        "home_assistant_routing_schema_accepts_card_payload",
+        given={
+            "live_regression": (
+                "Home Assistant rejected card commands with extra keys before "
+                "Isolinear could strip transport id metadata"
+            ),
+            "transport_fields": list(result["routing_schema"]["command"].keys()),
+        },
+        when={
+            "operation": "dispatch_registered_start_job_through_home_assistant_routing_schema",
+        },
+        then={
+            "routing_schema": result["routing_schema"],
+        },
+    )
+
+    print_case(
         "auto_config_entry_resolves_only_when_unambiguous",
         given={
             "config_entry_id": "auto",
@@ -156,6 +173,7 @@ def main():
                 "accepted_callbacks",
                 "invalid_callbacks",
                 "missing_config_entry_rejection",
+                "home_assistant_routing_schema",
                 "auto_config_entry_resolution",
                 "websocket_observability",
             ],

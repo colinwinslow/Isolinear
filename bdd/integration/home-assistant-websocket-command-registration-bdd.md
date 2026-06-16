@@ -58,7 +58,20 @@ payload
 **Then** the command should be rejected before orchestration
 **And** the error should identify the missing config-entry scope
 
-### Scenario F - scope path: auto config-entry resolution is deterministic
+### Scenario F - live path: Home Assistant routing accepts card envelopes
+
+**Given** the dashboard card sends a Home Assistant WebSocket message with
+transport `id`, command `type`, `version`, `config_entry_id`, and command
+payload fields
+**When** Home Assistant dispatches the registered Isolinear command
+**Then** the Home Assistant routing schema should not reject the message as
+having extra keys
+**And** Isolinear should strip transport `id` before validating
+`IntegrationWsCommand`
+**And** unexpected card payload keys should still fail closed in Isolinear's
+internal validator before orchestration
+
+### Scenario G - scope path: auto config-entry resolution is deterministic
 
 **Given** a registered command uses `config_entry_id: auto`
 **When** exactly one Isolinear config entry exists in runtime setup data or the
@@ -68,7 +81,7 @@ Home Assistant config-entry registry
 closed before job state, history, planning, rendering, worker, or mutation
 capable code runs
 
-### Scenario G - observability path: registered command decisions are visible
+### Scenario H - observability path: registered command decisions are visible
 
 **Given** registered commands are accepted or rejected at the WebSocket
 boundary
@@ -78,14 +91,14 @@ resolved config-entry ID, accepted state, and decision code
 **And** prompts, tokens, endpoints, raw history, generated code, and generated
 image bytes should not be recorded
 
-### Scenario H - idempotence path: repeated setup does not duplicate commands
+### Scenario I - idempotence path: repeated setup does not duplicate commands
 
 **Given** the Isolinear WebSocket command set has already been registered
 **When** registration runs again in the same Home Assistant runtime
 **Then** no duplicate command handlers should be registered
 **And** the existing command registration metadata should be reused
 
-### Scenario I - boundary path: registration remains non-orchestrating
+### Scenario J - boundary path: registration remains non-orchestrating
 
 **Given** WebSocket registration has handled success and failure cases
 **When** the anchor aggregates observed side effects

@@ -33,8 +33,14 @@ try:  # pragma: no cover - exercised by Home Assistant, not repo tests.
 except ImportError:  # pragma: no cover - deterministic fallback for repo tests.
 
     class _FallbackVol:
+        Extra = "__extra__"
+
         @staticmethod
         def Required(key: str) -> str:
+            return key
+
+        @staticmethod
+        def Optional(key: str) -> str:
             return key
 
     class _FallbackWebSocketApi:
@@ -657,6 +663,7 @@ def _ha_command_schema(command_type: str) -> dict[Any, Any]:
     # all failures get the same structured codes in tests and production.
     return {
         vol.Required("type"): command_type,
+        vol.Extra: object,
     }
 
 

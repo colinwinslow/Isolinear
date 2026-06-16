@@ -93,10 +93,26 @@ class FakeWebSocketApiModule:
                 "orchestration": websocket_registration_side_effects(False),
             }
 
+        routing = _simulate_home_assistant_routing_schema(handler, message)
+        if not routing["accepted"]:
+            connection.send_error(
+                message.get("id"),
+                routing["code"],
+                routing.get("message", "Home Assistant WebSocket routing rejected the command."),
+            )
+            return {
+                "accepted": False,
+                "handler_called": False,
+                "routing": routing,
+                "connection": _connection_payload(connection),
+                "orchestration": websocket_registration_side_effects(False),
+            }
+
         handler_result = _run_if_awaitable(handler(hass, connection, message))
         return {
             "accepted": bool(connection.results) and not connection.errors,
             "handler_called": True,
+            "routing": routing,
             "handler_result": handler_result,
             "connection": _connection_payload(connection),
             "orchestration": handler_result.get("orchestration", websocket_registration_side_effects(False))
@@ -290,6 +306,37 @@ def verify_registered_callback_snapshots(root=None) -> dict[str, Any]:
     }
 
 
+def verify_home_assistant_routing_schema_accepts_card_payload() -> dict[str, Any]:
+    websocket_api_module = FakeWebSocketApiModule()
+    hass = FakeHass(websocket_api_module)
+    registration = _run(async_register_websocket_api(hass))
+    command = {
+        "id": 44,
+        "type": INTEGRATION_COMMAND_TYPES["start_job"],
+        "version": INTEGRATION_WS_VERSION,
+        "config_entry_id": CONFIG_ENTRY_AUTO,
+        "prompt": "Show the family room temperature",
+    }
+    routed = websocket_api_module.dispatch(hass, command)
+    strict_extra = websocket_api_module.dispatch(
+        hass,
+        {
+            **command,
+            "id": 45,
+            "unexpected_card_key": "still_checked_by_isolinear",
+        },
+    )
+    handler = websocket_api_module.handler_for_type(command["type"])
+    schema = getattr(handler, "_isolinear_command_schema", None)
+    return {
+        "registration": registration,
+        "command": command,
+        "handler_schema": _schema_summary(schema),
+        "home_assistant_routing_result": routed,
+        "internal_strict_extra_result": strict_extra,
+    }
+
+
 def verify_invalid_registered_commands_fail_closed() -> dict[str, Any]:
     hass, websocket_api_module, registration = _registered_fake_hass()
     examples = invalid_command_examples()
@@ -432,6 +479,7 @@ def verify_websocket_registration_side_effects() -> dict[str, Any]:
     callbacks = verify_registered_callback_snapshots()["dispatch_results"]
     invalid = verify_invalid_registered_commands_fail_closed()["dispatch_results"]
     missing_scope = verify_missing_config_entry_rejection()["dispatch_result"]
+    routing_schema = verify_home_assistant_routing_schema_accepts_card_payload()
     auto_resolution = verify_auto_config_entry_resolution()
     observability = verify_websocket_observability()
 
@@ -445,6 +493,18 @@ def verify_websocket_registration_side_effects() -> dict[str, Any]:
         for name, result in invalid.items()
     )
     observed.append({"name": "missing_config_entry", **missing_scope["orchestration"]})
+    observed.append(
+        {
+            "name": "home_assistant_routing_schema",
+            **routing_schema["home_assistant_routing_result"]["orchestration"],
+        }
+    )
+    observed.append(
+        {
+            "name": "internal_strict_extra_after_routing",
+            **routing_schema["internal_strict_extra_result"]["orchestration"],
+        }
+    )
     observed.append(
         {
             "name": "auto_single_config_entry",
@@ -511,6 +571,7 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
     callbacks = verify_registered_callback_snapshots(root)
     invalid = verify_invalid_registered_commands_fail_closed()
     missing_scope = verify_missing_config_entry_rejection()
+    routing_schema = verify_home_assistant_routing_schema_accepts_card_payload()
     auto_resolution = verify_auto_config_entry_resolution()
     observability = verify_websocket_observability()
     idempotence = verify_idempotent_command_registration()
@@ -533,6 +594,10 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
         failures.append("One or more invalid registered commands were accepted.")
     if missing_scope["dispatch_result"]["accepted"]:
         failures.append("A command for a missing config entry was accepted.")
+    if not routing_schema["home_assistant_routing_result"]["accepted"]:
+        failures.append("Home Assistant routing schema rejected a valid card payload before Isolinear validation.")
+    if routing_schema["internal_strict_extra_result"]["accepted"]:
+        failures.append("Internal Isolinear validation accepted an unexpected card payload key.")
     if not auto_resolution["single_entry"]["result"]["accepted"]:
         failures.append("The auto config-entry sentinel did not resolve the only configured entry.")
     if auto_resolution["multiple_entries"]["result"]["accepted"]:
@@ -559,6 +624,7 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
         "callbacks": callbacks,
         "invalid": invalid,
         "missing_scope": missing_scope,
+        "routing_schema": routing_schema,
         "auto_resolution": auto_resolution,
         "observability": observability,
         "idempotence": idempotence,
@@ -595,3 +661,82 @@ def _run_if_awaitable(value):
     if asyncio.iscoroutine(value):
         return _run(value)
     return value
+
+
+def _simulate_home_assistant_routing_schema(handler: Any, message: dict[str, Any]) -> dict[str, Any]:
+    schema = getattr(handler, "_isolinear_command_schema", None)
+    if not isinstance(schema, dict):
+        return {"accepted": True, "code": "schema_not_inspectable"}
+
+    command_type = _schema_command_type(schema)
+    if command_type != message.get("type"):
+        return {"accepted": False, "code": "unknown_command_type"}
+
+    if len(schema) == 1:
+        if len(message) > 2:
+            return {
+                "accepted": False,
+                "code": "invalid_format",
+                "message": f"extra keys not allowed. Got {message!r}",
+            }
+        return {"accepted": True, "code": "routing_type_only"}
+
+    if _schema_allows_extra(schema):
+        return {"accepted": True, "code": "routing_schema_accepts_transport_envelope"}
+
+    allowed_keys = {
+        key_name
+        for key in schema
+        if (key_name := _schema_key_name(key)) not in {"__extra__", "Extra"}
+    }
+    allowed_keys.add("id")
+    extra_keys = sorted(set(message) - allowed_keys)
+    if extra_keys:
+        return {
+            "accepted": False,
+            "code": "invalid_format",
+            "message": f"extra keys not allowed. Got {message!r}",
+            "extra_keys": extra_keys,
+        }
+    return {"accepted": True, "code": "routing_schema_accepts_declared_fields"}
+
+
+def _schema_command_type(schema: dict[Any, Any]) -> Any:
+    if "type" in schema:
+        return schema["type"]
+    for key, value in schema.items():
+        if _schema_key_name(key) == "type":
+            return value
+    return None
+
+
+def _schema_allows_extra(schema: dict[Any, Any]) -> bool:
+    for key in schema:
+        name = _schema_key_name(key)
+        if name in {"__extra__", "Extra"}:
+            return True
+    return False
+
+
+def _schema_key_name(key: Any) -> str:
+    if isinstance(key, str):
+        return key
+    schema = getattr(key, "schema", None)
+    if isinstance(schema, str):
+        return schema
+    name = getattr(key, "__name__", None)
+    if isinstance(name, str):
+        return name
+    return str(key)
+
+
+def _schema_summary(schema: Any) -> dict[str, Any]:
+    if not isinstance(schema, dict):
+        return {"inspectable": False, "schema_type": type(schema).__name__}
+    return {
+        "inspectable": True,
+        "key_count": len(schema),
+        "command_type": _schema_command_type(schema),
+        "allows_extra": _schema_allows_extra(schema),
+        "keys": [_schema_key_name(key) for key in schema],
+    }

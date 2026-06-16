@@ -13,6 +13,7 @@ from Isolinear.websocket_command_registration_anchor import (  # noqa: E402
     FakeConnection,
     verify_idempotent_command_registration,
     verify_invalid_registered_commands_fail_closed,
+    verify_home_assistant_routing_schema_accepts_card_payload,
     verify_missing_config_entry_rejection,
     verify_registered_callback_snapshots,
     verify_registered_command_names,
@@ -116,6 +117,23 @@ class WebSocketCommandRegistrationAnchorTests(unittest.TestCase):
         )
         self.assertTrue(all(not item["accepted"] for item in result["dispatch_results"].values()))
         self.assertTrue(all(not item["connection"]["results"] for item in result["dispatch_results"].values()))
+
+    def test_home_assistant_routing_schema_accepts_card_transport_envelope(self):
+        result = verify_home_assistant_routing_schema_accepts_card_payload()
+
+        self.assertTrue(result["home_assistant_routing_result"]["accepted"], result)
+        self.assertTrue(result["home_assistant_routing_result"]["handler_called"], result)
+        self.assertEqual(
+            result["home_assistant_routing_result"]["routing"]["code"],
+            "routing_schema_accepts_transport_envelope",
+        )
+        self.assertTrue(result["handler_schema"]["allows_extra"], result)
+        self.assertFalse(result["internal_strict_extra_result"]["accepted"], result)
+        self.assertTrue(result["internal_strict_extra_result"]["handler_called"], result)
+        self.assertEqual(
+            result["internal_strict_extra_result"]["connection"]["errors"][0]["code"],
+            "invalid_integration_ws_command",
+        )
 
     def test_missing_config_entry_scope_fails_closed(self):
         result = verify_missing_config_entry_rejection()
