@@ -69,13 +69,21 @@ def test_manifest_has_hacs_required_metadata() -> None:
 
 
 def test_brand_icons_are_packaged() -> None:
+    repository_brand_dir = REPO_ROOT / "brand"
+    repository_icon = repository_brand_dir / "icon.png"
+    repository_high_density_icon = repository_brand_dir / "icon@2x.png"
     brand_dir = PACKAGE_DIR / "brand"
     icon = brand_dir / "icon.png"
     high_density_icon = brand_dir / "icon@2x.png"
 
+    assert repository_brand_dir.is_dir()
+    assert repository_icon.is_file()
+    assert repository_high_density_icon.is_file()
     assert brand_dir.is_dir()
     assert icon.is_file()
     assert high_density_icon.is_file()
+    assert repository_icon.read_bytes() == icon.read_bytes()
+    assert repository_high_density_icon.read_bytes() == high_density_icon.read_bytes()
     assert icon.stat().st_size > 0
     assert high_density_icon.stat().st_size > icon.stat().st_size
 

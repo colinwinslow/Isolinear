@@ -6,7 +6,7 @@ from typing import Any
 
 from custom_components.isolinear import async_setup_entry
 from custom_components.isolinear.const import DOMAIN, INTEGRATION_COMMAND_TYPES, INTEGRATION_WS_VERSION
-from custom_components.isolinear.entity_catalog import DATA_ENTITY_CATALOG
+from custom_components.isolinear.entity_catalog import DATA_ENTITY_CATALOG, DATA_ENTITY_CATALOG_SETUP
 from custom_components.isolinear.history_retrieval import DATA_HISTORY_RETRIEVAL, DATA_HISTORY_SOURCE
 from custom_components.isolinear.job_orchestration import (
     DATA_JOB_ORCHESTRATION,
@@ -157,6 +157,59 @@ def verify_missing_approved_history_failure(root=None) -> dict[str, Any]:
     }
 
 
+def verify_unresolved_allowlist_catalog_failure(root=None) -> dict[str, Any]:
+    root = root or repo_root()
+    hass, websocket_api_module = _setup_orchestration_hass(
+        FakeConfigEntry(
+            "unresolved-allowlist-orchestration-entry",
+            options={"entity_allowlist": ["sensor.bathrrom_sensor_temperature"]},
+        )
+    )
+    dispatch = websocket_api_module.dispatch(
+        hass,
+        {
+            "id": 9,
+            **_start_command(
+                "unresolved-allowlist-orchestration-entry",
+                "Show the bathroom temperature",
+            ),
+        },
+    )
+    snapshot = _first_result_payload(dispatch)
+    start_run = _latest_run(hass, "unresolved-allowlist-orchestration-entry")
+    retry_dispatch = websocket_api_module.dispatch(
+        hass,
+        {
+            "id": 10,
+            **_retry_command(
+                "unresolved-allowlist-orchestration-entry",
+                snapshot["job_id"],
+            ),
+        },
+    )
+    retry_snapshot = _first_result_payload(retry_dispatch)
+    entry_data = hass.data[DOMAIN]["unresolved-allowlist-orchestration-entry"]
+    return {
+        "dispatch": dispatch,
+        "snapshot": snapshot,
+        "snapshot_validation": _validate_snapshot(snapshot, root),
+        "catalog_setup": entry_data[DATA_ENTITY_CATALOG_SETUP],
+        "history_store": _history_store_summary(hass, "unresolved-allowlist-orchestration-entry"),
+        "orchestration_store": _orchestration_store_summary(
+            hass,
+            "unresolved-allowlist-orchestration-entry",
+        ),
+        "orchestration": dispatch["orchestration"],
+        "run": start_run,
+        "retry": {
+            "dispatch": retry_dispatch,
+            "snapshot": retry_snapshot,
+            "snapshot_validation": _validate_snapshot(retry_snapshot, root),
+            "run": _latest_run(hass, "unresolved-allowlist-orchestration-entry"),
+        },
+    }
+
+
 def verify_config_entry_orchestration_isolation(root=None) -> dict[str, Any]:
     root = root or repo_root()
     websocket_api_module = FakeWebSocketApiModule()
@@ -253,6 +306,7 @@ def verify_orchestration_snapshots_validate(root=None) -> dict[str, Any]:
     success = verify_start_job_orchestration_success(root)
     non_catalog = verify_non_catalog_prompt_entity_failure(root)
     missing_history = verify_missing_approved_history_failure(root)
+    unresolved_allowlist = verify_unresolved_allowlist_catalog_failure(root)
     ambiguous = verify_ambiguous_prompt_requires_clarification(root)
     return {
         "success": {
@@ -261,6 +315,7 @@ def verify_orchestration_snapshots_validate(root=None) -> dict[str, Any]:
         },
         "non_catalog": non_catalog,
         "missing_history": missing_history,
+        "unresolved_allowlist": unresolved_allowlist,
         "ambiguous": ambiguous,
     }
 
@@ -269,6 +324,7 @@ def verify_job_orchestration_side_effect_boundaries() -> dict[str, Any]:
     success = verify_start_job_orchestration_success()
     non_catalog = verify_non_catalog_prompt_entity_failure()
     missing_history = verify_missing_approved_history_failure()
+    unresolved_allowlist = verify_unresolved_allowlist_catalog_failure()
     ambiguous = verify_ambiguous_prompt_requires_clarification()
     isolation = verify_config_entry_orchestration_isolation()
     setup = verify_setup_entry_orchestration_storage()
@@ -277,6 +333,7 @@ def verify_job_orchestration_side_effect_boundaries() -> dict[str, Any]:
         {"name": "successful_start", **success["dispatch"]["orchestration"]},
         {"name": "non_catalog_failure", **non_catalog["dispatch"]["orchestration"]},
         {"name": "missing_history_failure", **missing_history["dispatch"]["orchestration"]},
+        {"name": "unresolved_allowlist_failure", **unresolved_allowlist["dispatch"]["orchestration"]},
         {"name": "ambiguous_prompt_clarification", **ambiguous["dispatch"]["orchestration"]},
         {"name": "entry_a_start", **isolation["entry_a"]["dispatch"]["orchestration"]},
         {"name": "entry_b_start", **isolation["entry_b"]["dispatch"]["orchestration"]},
@@ -324,6 +381,7 @@ def verify_job_orchestration_scaffold_anchor(root=None) -> dict[str, Any]:
     success = verify_start_job_orchestration_success(root)
     non_catalog = verify_non_catalog_prompt_entity_failure(root)
     missing_history = verify_missing_approved_history_failure(root)
+    unresolved_allowlist = verify_unresolved_allowlist_catalog_failure(root)
     ambiguous = verify_ambiguous_prompt_requires_clarification(root)
     isolation = verify_config_entry_orchestration_isolation(root)
     setup = verify_setup_entry_orchestration_storage()
@@ -352,6 +410,16 @@ def verify_job_orchestration_scaffold_anchor(root=None) -> dict[str, Any]:
         failures.append("Missing approved history did not return the structured missing-history code.")
     if missing_history["run"]["missing_entity_ids"] != ["sensor.downstairs_temperature"]:
         failures.append("Missing approved history did not report the missing entity ID.")
+    if unresolved_allowlist["snapshot"]["failure"]["code"] != "unknown_allowlisted_entity":
+        failures.append("Unresolved allowlist entity did not surface the catalog setup failure code.")
+    if unresolved_allowlist["run"]["missing_entity_ids"] != ["sensor.bathrrom_sensor_temperature"]:
+        failures.append("Unresolved allowlist entity did not report the missing allowlist entity ID.")
+    if unresolved_allowlist["retry"]["snapshot"]["failure"]["code"] != "unknown_allowlisted_entity":
+        failures.append("Unresolved allowlist retry did not preserve the catalog setup failure code.")
+    if unresolved_allowlist["retry"]["run"]["missing_entity_ids"] != ["sensor.bathrrom_sensor_temperature"]:
+        failures.append("Unresolved allowlist retry did not report the missing allowlist entity ID.")
+    if unresolved_allowlist["dispatch"]["orchestration"]["home_assistant_history_read"]:
+        failures.append("Unresolved allowlist entity read history before catalog rejection.")
     if ambiguous["snapshot"]["status"] != "clarification_needed":
         failures.append("Ambiguous prompt did not return a clarification-needed snapshot.")
     if ambiguous["dispatch"]["orchestration"]["home_assistant_history_read"]:
@@ -376,6 +444,7 @@ def verify_job_orchestration_scaffold_anchor(root=None) -> dict[str, Any]:
         "success": success,
         "non_catalog": non_catalog,
         "missing_history": missing_history,
+        "unresolved_allowlist": unresolved_allowlist,
         "ambiguous": ambiguous,
         "isolation": isolation,
         "setup": setup,
@@ -440,6 +509,15 @@ def _start_command(entry_id: str, prompt: str) -> dict[str, Any]:
         "version": INTEGRATION_WS_VERSION,
         "config_entry_id": entry_id,
         "prompt": prompt,
+    }
+
+
+def _retry_command(entry_id: str, job_id: str) -> dict[str, Any]:
+    return {
+        "type": INTEGRATION_COMMAND_TYPES["retry_job"],
+        "version": INTEGRATION_WS_VERSION,
+        "config_entry_id": entry_id,
+        "job_id": job_id,
     }
 
 

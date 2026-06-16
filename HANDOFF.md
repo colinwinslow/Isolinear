@@ -208,6 +208,21 @@ registers an options update listener that refreshes the runtime approved
 catalog plus allowlist-derived history/orchestration setup metadata before the
 next dashboard command.
 
+The live `0.1.7` HACS retest showed the allowlist text no longer fused
+separators, but a one-entry allowlist containing
+`sensor.bathrrom_sensor_temperature` still produced generic dashboard
+`NO_APPROVED_ENTITIES_AVAILABLE`; the Isolinear icon also appeared on the Home
+Assistant integrations page but not in HACS. The repository is now ready for
+live HACS retest as version `0.1.8`. The options flow uses Home Assistant's
+native multi-entity selector for the allowlist while preserving explicit
+entity-ID storage and legacy text/list normalization. When catalog setup failed
+because the configured allowlist referenced an entity Home Assistant could not
+resolve, orchestration now reports `unknown_allowlisted_entity` with the exact
+missing ID before any history read rather than flattening the problem into an
+empty-catalog dashboard failure; retrying that failed job preserves the same
+structured failure. Root `brand/icon.png` and `brand/icon@2x.png` are now
+present for HACS and match the package-local Home Assistant brand assets.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -911,14 +926,16 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Run the live HACS `0.1.7` dashboard verification. Redownload Isolinear through
+Run the live HACS `0.1.8` dashboard verification. Redownload Isolinear through
 HACS, restart Home Assistant, recreate the dashboard card, and confirm the
-registered Lovelace resource URL includes `?v=0.1.7` while the picker/editor
+registered Lovelace resource URL includes `?v=0.1.8` while the picker/editor
 shows `config_entry_id: auto`, including when Home Assistant had previously
 handed the card the old `fake-config-entry` placeholder. Confirm a stored
-two-entity allowlist reopens with a visible separator and the dashboard route
-sees those approved entities without another restart. Confirm the integration
-icon appears where Home Assistant surfaces custom integration brand assets.
+allowlist reopens through the multi-entity selector with the exact selected
+entity IDs and the dashboard route sees those approved entities without another
+restart. Confirm the integration icon appears both where Home Assistant
+surfaces custom integration brand assets and where HACS reads repository-root
+brand assets.
 Then run the served-artifact prompt path against real Home Assistant sensor
 history and the configured Ollama planner, using the WebSocket decision
 observability to capture accept/reject evidence if the card cannot start a job.
@@ -927,14 +944,6 @@ allowlist, runtime options-update listener, and entity catalog setup result
 rather than treating it as a future-orchestration placeholder.
 Confirm no worker token, worker-local path, local artifact path, or base64
 image bytes leak to card-facing WebSocket responses.
-
-After the live `0.1.7` verification, a strong product-ergonomics follow-up is
-the options-flow allowlist picker packet: replace or supplement the raw
-`entity_allowlist` textarea with a Home Assistant-native picker suitable for
-dozens or hundreds of approved entities. The packet should keep explicit
-entity IDs as the stored contract and treat any device, area, label, search,
-or checkbox grouping as UI convenience rather than a new device-level
-allowlist architecture.
 
 Preserve the known codegen sandbox matplotlib subprocess flake as a historical
 caveat; the first-real-slice closeout full Python suite passed cleanly
@@ -945,10 +954,9 @@ caveat; the first-real-slice closeout full Python suite passed cleanly
 - Semantic-memory storage-helper implementation, migrations, and repair UI details beyond the envelope contract.
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.
-- Home Assistant options-flow allowlist picker UI for large installs. The
-  stored allowlist should remain explicit entity IDs; the open design question
-  is whether the first UI uses Home Assistant's built-in multi-entity selector
-  only, or adds device/area/label grouping around that selector.
+- Optional future allowlist picker ergonomics beyond Home Assistant's native
+  multi-entity selector, such as device/area/label grouping. The stored
+  allowlist must remain explicit entity IDs.
 - Worker token rotation UI or real Home Assistant Repairs/automatic repair
   semantics,
   automatic/durable provider retry semantics, additional durable polling

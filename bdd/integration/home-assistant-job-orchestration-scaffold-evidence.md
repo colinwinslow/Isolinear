@@ -1,6 +1,9 @@
 # Home Assistant Job Orchestration Scaffold Evidence
 
-Run timestamp: 2026-06-08T18:38:42+00:00
+Run timestamps:
+
+- Baseline eval transcript: 2026-06-08T18:38:42+00:00
+- Unresolved allowlist catalog regression refresh: 2026-06-16T17:44:09+00:00
 
 BDD file:
 `bdd/integration/home-assistant-job-orchestration-scaffold-bdd.md`
@@ -12,6 +15,7 @@ Overall result: PASS
 - Scenario A: start job composes catalog, history, and job state -> `CASE start_job_composes_catalog_history_and_job_state`
 - Scenario B: non-catalog prompt entities fail before history -> `CASE non_catalog_prompt_entities_fail_before_history`
 - Scenario C: missing approved history is structured -> `CASE missing_approved_history_returns_failed_snapshot`
+- Scenario C2: unresolved allowlist entities are explicit -> `CASE unresolved_allowlist_entity_surfaces_catalog_setup_failure`
 - Scenario D: config entries stay scoped -> `CASE config_entries_keep_orchestration_scoped`
 - Scenario E: ambiguous prompts ask for clarification -> `CASE ambiguous_prompt_requests_clarification`
 - Scenario F: setup stores orchestration state -> `CASE setup_entry_stores_orchestration_state`
@@ -32,11 +36,11 @@ Raw output:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 9 items
+collected 10 items
 
-tests\test_job_orchestration_scaffold_anchor.py .........                [100%]
+tests\test_job_orchestration_scaffold_anchor.py ..........               [100%]
 
-============================== 9 passed in 0.68s ==============================
+============================= 10 passed in 1.25s ==============================
 ```
 
 ## Full Unit Verification
@@ -47,28 +51,17 @@ Raw command:
 .\.venv\Scripts\python.exe -m pytest tests/
 ```
 
-Raw output:
+Condensed raw output:
 
 ```text
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 119 items
+collected 338 items
 
-tests\test_approved_entity_catalog_scaffold_anchor.py .........          [  7%]
-tests\test_approved_history_retrieval_scaffold_anchor.py .........       [ 15%]
-tests\test_codegen_sandbox_anchor.py ..........                          [ 23%]
-tests\test_config_flow_options_anchor.py .....                           [ 27%]
-tests\test_dashboard_card_anchor.py .......                              [ 33%]
-tests\test_dashboard_resource_registration_anchor.py .......             [ 39%]
-tests\test_fake_vertical_slice.py .....................................  [ 70%]
-tests\test_integration_scaffold_anchor.py .....                          [ 74%]
-tests\test_job_orchestration_scaffold_anchor.py .........                [ 82%]
-tests\test_job_state_scaffold_anchor.py .........                        [ 89%]
-tests\test_transport_auth_anchor.py .....                                [ 94%]
-tests\test_websocket_command_registration_anchor.py .......              [100%]
-
-============================ 119 passed in 53.07s =============================
+tests\test_job_orchestration_scaffold_anchor.py ..........               [ 48%]
+...
+======================= 338 passed in 86.12s (0:01:26) ========================
 ```
 
 ## Eval Verification
@@ -88,6 +81,8 @@ CASE non_catalog_prompt_entities_fail_before_history
 PASS non_catalog_prompt_entities_fail_before_history
 CASE missing_approved_history_returns_failed_snapshot
 PASS missing_approved_history_returns_failed_snapshot
+CASE unresolved_allowlist_entity_surfaces_catalog_setup_failure
+PASS unresolved_allowlist_entity_surfaces_catalog_setup_failure
 CASE config_entries_keep_orchestration_scoped
 PASS config_entries_keep_orchestration_scoped
 CASE ambiguous_prompt_requests_clarification
@@ -158,6 +153,30 @@ then.missing_history.run.missing_entity_ids:
 - sensor.downstairs_temperature
 then.missing_history.orchestration.home_assistant_history_read: true
 then.missing_history.snapshot_validation.accepted: true
+```
+
+### Scenario C2
+
+```text
+case_id: unresolved_allowlist_entity_surfaces_catalog_setup_failure
+given.allowlist_entity_id: sensor.bathrrom_sensor_temperature
+given.prompt: Show the bathroom temperature
+when.operation: dispatch_registered_start_job
+then.unresolved_allowlist.catalog_setup.code: unknown_allowlisted_entity
+then.unresolved_allowlist.catalog_setup.missing_entity_ids:
+- sensor.bathrrom_sensor_temperature
+then.unresolved_allowlist.snapshot.status: failed
+then.unresolved_allowlist.snapshot.failure.code: unknown_allowlisted_entity
+then.unresolved_allowlist.snapshot.failure.stage: approved_entity_catalog
+then.unresolved_allowlist.run.missing_entity_ids:
+- sensor.bathrrom_sensor_temperature
+then.unresolved_allowlist.retry.snapshot.failure.code: unknown_allowlisted_entity
+then.unresolved_allowlist.retry.run.missing_entity_ids:
+- sensor.bathrrom_sensor_temperature
+then.unresolved_allowlist.retry.snapshot_validation.accepted: true
+then.unresolved_allowlist.orchestration.home_assistant_history_read: false
+then.unresolved_allowlist.history_store.series_count: 0
+then.unresolved_allowlist.snapshot_validation.accepted: true
 ```
 
 ### Scenario D
@@ -248,6 +267,7 @@ when.operation: validate_observed_orchestration_snapshots
 then.snapshot_validation.success.all_snapshots_valid: true
 then.snapshot_validation.non_catalog.snapshot_validation.accepted: true
 then.snapshot_validation.missing_history.snapshot_validation.accepted: true
+then.snapshot_validation.unresolved_allowlist.snapshot_validation.accepted: true
 ```
 
 ## Adjacent Home Assistant Eval Verification

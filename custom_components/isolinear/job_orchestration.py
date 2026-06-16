@@ -13,7 +13,7 @@ from typing import Any
 from ._paths import schema_path
 from .artifact_serving import prepare_png_artifact, remove_png_artifact, write_png_artifact
 from .const import DOMAIN, INTEGRATION_COMMAND_TYPES
-from .entity_catalog import DATA_ENTITY_CATALOG
+from .entity_catalog import DATA_ENTITY_CATALOG, DATA_ENTITY_CATALOG_SETUP
 from .history_retrieval import (
     DATA_HISTORY_RETRIEVAL,
     retrieve_approved_history,
@@ -285,6 +285,8 @@ def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]
     catalog_items = _approved_catalog_items(hass, entry_id)
     selection = select_prompt_entity_ids(command["prompt"], catalog_items)
     if not selection["accepted"]:
+        missing_entity_ids = []
+        run_result_code = selection["code"]
         if selection["code"] == "entity_selection_requires_clarification":
             snapshot = _append_clarification_snapshot(
                 job,
@@ -293,11 +295,14 @@ def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]
             )
             result_code = "job_orchestration_scaffold_clarification_needed"
         else:
+            failure = _catalog_selection_failure(hass, entry_id, selection)
+            missing_entity_ids = failure.get("missing_entity_ids", [])
+            run_result_code = failure["code"]
             snapshot = _append_failed_snapshot(
                 job,
-                code=selection["code"],
+                code=failure["code"],
                 stage="approved_entity_catalog",
-                message=selection["message"],
+                message=failure["message"],
                 checks=[
                     {"name": "integration_job_state_scaffold", "status": "pass"},
                     {"name": "approved_entity_catalog", "status": "fail"},
@@ -311,10 +316,11 @@ def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]
             store,
             command=command,
             job=job,
-            result_code=selection["code"],
+            result_code=run_result_code,
             requested_entity_ids=[],
             history_entity_ids=[],
             snapshot_ids=_snapshot_ids(job),
+            missing_entity_ids=missing_entity_ids,
         )
         return _accepted(
             result_code,
@@ -642,6 +648,8 @@ def handle_job_orchestration_retry_ws_command(hass: Any, command: dict[str, Any]
     catalog_items = _approved_catalog_items(hass, entry_id)
     selection = select_prompt_entity_ids(job["prompt"], catalog_items)
     if not selection["accepted"]:
+        missing_entity_ids = []
+        run_result_code = selection["code"]
         if selection["code"] == "entity_selection_requires_clarification":
             snapshot = _append_clarification_snapshot(
                 job,
@@ -650,11 +658,14 @@ def handle_job_orchestration_retry_ws_command(hass: Any, command: dict[str, Any]
             )
             result_code = "job_orchestration_retry_continuation_clarification_needed"
         else:
+            failure = _catalog_selection_failure(hass, entry_id, selection)
+            missing_entity_ids = failure.get("missing_entity_ids", [])
+            run_result_code = failure["code"]
             snapshot = _append_failed_snapshot(
                 job,
-                code=selection["code"],
+                code=failure["code"],
                 stage="approved_entity_catalog",
-                message=selection["message"],
+                message=failure["message"],
                 checks=[
                     {"name": "integration_job_state_scaffold", "status": "pass"},
                     {"name": "retry_command", "status": "pass"},
@@ -669,10 +680,11 @@ def handle_job_orchestration_retry_ws_command(hass: Any, command: dict[str, Any]
             store,
             command=command,
             job=job,
-            result_code=selection["code"],
+            result_code=run_result_code,
             requested_entity_ids=[],
             history_entity_ids=[],
             snapshot_ids=_snapshot_ids(job),
+            missing_entity_ids=missing_entity_ids,
         )
         return _accepted(
             result_code,
@@ -4317,6 +4329,72 @@ def _approved_catalog_items(hass: Any, entry_id: str) -> list[dict[str, Any]]:
         for item in items
         if isinstance(item, dict) and item.get("visible_to_agent") is True
     ]
+
+
+def _catalog_selection_failure(
+    hass: Any,
+    entry_id: str,
+    selection: dict[str, Any],
+) -> dict[str, Any]:
+    if selection.get("code") != "no_approved_entities_available":
+        return {
+            "code": selection.get("code", "approved_entity_catalog_failed"),
+            "message": selection.get(
+                "message",
+                "The approved entity catalog rejected this request.",
+            ),
+            "missing_entity_ids": [],
+        }
+
+    setup = _entity_catalog_setup_result(hass, entry_id)
+    if not isinstance(setup, dict) or setup.get("accepted") is not False:
+        return {
+            "code": selection["code"],
+            "message": selection["message"],
+            "missing_entity_ids": [],
+        }
+
+    missing_entity_ids = [
+        str(entity_id)
+        for entity_id in setup.get("missing_entity_ids", [])
+        if isinstance(entity_id, str)
+    ]
+    if missing_entity_ids:
+        return {
+            "code": setup.get("code", "unknown_allowlisted_entity"),
+            "message": (
+                "The configured allowlist contains entity IDs Home Assistant "
+                f"could not resolve: {', '.join(missing_entity_ids)}. "
+                "Check the spelling or choose entities from the options picker."
+            ),
+            "missing_entity_ids": missing_entity_ids,
+        }
+
+    errors = setup.get("errors", [])
+    if isinstance(errors, list) and errors:
+        reason = errors[0].get("reason") if isinstance(errors[0], dict) else None
+        return {
+            "code": setup.get("code", "invalid_entity_allowlist"),
+            "message": (
+                "The configured allowlist is invalid"
+                + (f" ({reason})." if reason else ".")
+            ),
+            "missing_entity_ids": [],
+        }
+
+    return {
+        "code": setup.get("code", "approved_entity_catalog_unavailable"),
+        "message": "The approved entity catalog setup failed for this config entry.",
+        "missing_entity_ids": [],
+    }
+
+
+def _entity_catalog_setup_result(hass: Any, entry_id: str) -> dict[str, Any] | None:
+    entry_data = getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {})
+    if not isinstance(entry_data, dict):
+        return None
+    setup = entry_data.get(DATA_ENTITY_CATALOG_SETUP)
+    return setup if isinstance(setup, dict) else None
 
 
 def _job_for_result(hass: Any, entry_id: str, result: dict[str, Any]) -> dict[str, Any] | None:

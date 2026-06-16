@@ -33,13 +33,16 @@ assets after each small update.
 **Then** the manifest should include `domain`, `name`, `version`,
 `documentation`, `issue_tracker`, and `codeowners`
 
-### Scenario C - happy path: brand icons are bundled
+### Scenario C - happy path: brand icons are visible to HACS and Home Assistant
 
 **Given** HACS installs only `custom_components/isolinear`
-**When** Home Assistant resolves local brand images for the integration
-**Then** the integration package should include
+**When** HACS inspects the repository brand assets and Home Assistant resolves
+local brand images for the integration
+**Then** the repository root should include `brand/icon.png`
+**And** the integration package should include
 `custom_components/isolinear/brand/icon.png`
 **And** it should include a high-density `icon@2x.png` companion
+**And** the repository and package-local brand assets should match
 
 ### Scenario D - happy path: runtime schemas are bundled
 

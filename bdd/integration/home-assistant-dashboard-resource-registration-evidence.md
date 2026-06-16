@@ -1,6 +1,6 @@
 # Home Assistant Dashboard Resource Registration Evidence
 
-Run timestamp: 2026-06-16T16:40:12+00:00
+Run timestamp: 2026-06-16T17:38:23+00:00
 
 BDD file:
 `bdd/integration/home-assistant-dashboard-resource-registration-bdd.md`
@@ -26,16 +26,15 @@ Additional failure-path coverage:
 Raw command:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_dashboard_resource_registration_anchor.py tests/test_hacs_install_packaging.py
+.\.venv\Scripts\python.exe -m pytest tests/test_dashboard_resource_registration_anchor.py
 ```
 
 Raw output:
 
 ```text
-collected 14 items
-tests\test_dashboard_resource_registration_anchor.py ........            [ 57%]
-tests\test_hacs_install_packaging.py ......                              [100%]
-14 passed in 0.41s
+collected 8 items
+tests\test_dashboard_resource_registration_anchor.py ........            [100%]
+8 passed in 0.27s
 ```
 
 ## Eval Verification
@@ -52,12 +51,12 @@ Raw observed output excerpts:
 CASE card_bundle_served_from_integration_static_path
 "bundle_path": "...\\custom_components\\isolinear\\frontend\\dist\\isolinear-card.js"
 "static_path_url": "/api/isolinear/static"
-"resource_url": "/api/isolinear/static/isolinear-card.js?v=0.1.7"
+"resource_url": "/api/isolinear/static/isolinear-card.js?v=0.1.8"
 PASS card_bundle_served_from_integration_static_path
 
 CASE config_entry_setup_registers_resource_metadata
 "setup_accepted": true
-"resources": [{"id": "resource-001", "type": "module", "url": "/api/isolinear/static/isolinear-card.js?v=0.1.7"}]
+"resources": [{"id": "resource-001", "type": "module", "url": "/api/isolinear/static/isolinear-card.js?v=0.1.8"}]
 PASS config_entry_setup_registers_resource_metadata
 
 CASE repeated_setup_does_not_duplicate_metadata
@@ -74,13 +73,13 @@ PASS preexisting_matching_metadata_is_reused
 
 CASE stale_isolinear_resource_is_updated
 "legacy_resource_url": "/api/isolinear/static/isolinear-card.js"
-"resource_url": "/api/isolinear/static/isolinear-card.js?v=0.1.7"
+"resource_url": "/api/isolinear/static/isolinear-card.js?v=0.1.8"
 "code": "dashboard_resource_updated"
 "resource_updated": true
 "resource_created": false
 "create_call_count": 0
 "update_call_count": 1
-"resources": [{"id": "resource-stale", "type": "module", "url": "/api/isolinear/static/isolinear-card.js?v=0.1.7"}]
+"resources": [{"id": "resource-stale", "type": "module", "url": "/api/isolinear/static/isolinear-card.js?v=0.1.8"}]
 PASS stale_isolinear_resource_is_updated
 
 CASE missing_bundle_fails_closed

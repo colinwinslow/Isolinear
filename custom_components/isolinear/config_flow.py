@@ -26,8 +26,11 @@ try:  # pragma: no cover - exercised by Home Assistant, not the repo anchor.
     import voluptuous as vol
     from homeassistant import config_entries
     from homeassistant.core import callback
+    from homeassistant.helpers.selector import EntitySelector, EntitySelectorConfig
 except ImportError:  # pragma: no cover - deterministic fallback for repo tests.
     vol = None
+    EntitySelector = None
+    EntitySelectorConfig = None
 
     def callback(func):
         return func
@@ -81,6 +84,11 @@ OPTIONS_FLOW_FIELDS = (
     "max_codegen_repair_attempts",
     "entity_allowlist",
 )
+ENTITY_ALLOWLIST_SELECTOR_METADATA = {
+    "type": "entity",
+    "multiple": True,
+    "storage": "entity_id_list",
+}
 
 NO_FLOW_ORCHESTRATION_CALLS = {
     "worker_called": False,
@@ -169,6 +177,9 @@ def config_flow_field_metadata() -> dict[str, Any]:
         "options_fields": list(OPTIONS_FLOW_FIELDS),
         "config_defaults": default_config_data(),
         "options_defaults": options_to_form_data(default_options_data()),
+        "options_selectors": {
+            "entity_allowlist": dict(ENTITY_ALLOWLIST_SELECTOR_METADATA),
+        },
         "supported_model_provider_types": list(SUPPORTED_MODEL_PROVIDER_TYPES),
         "supported_render_modes": list(SUPPORTED_RENDER_MODES),
     }
@@ -220,8 +231,16 @@ def build_options_flow_schema(current_options: Mapping[str, Any] | None = None):
             "step": OPTIONS_FLOW_STEP,
             "fields": list(OPTIONS_FLOW_FIELDS),
             "defaults": {key: defaults.get(key) for key in OPTIONS_FLOW_FIELDS},
+            "selectors": {
+                "entity_allowlist": dict(ENTITY_ALLOWLIST_SELECTOR_METADATA),
+            },
         }
 
+    entity_allowlist_selector = (
+        EntitySelector(EntitySelectorConfig(multiple=True))
+        if EntitySelector is not None and EntitySelectorConfig is not None
+        else list
+    )
     return vol.Schema(
         {
             vol.Required(
@@ -235,7 +254,7 @@ def build_options_flow_schema(current_options: Mapping[str, Any] | None = None):
             vol.Optional(
                 "entity_allowlist",
                 default=defaults["entity_allowlist"],
-            ): str,
+            ): entity_allowlist_selector,
         }
     )
 
@@ -346,6 +365,18 @@ def normalize_options_user_input(
 
 def options_to_form_data(options_data: Mapping[str, Any]) -> dict[str, Any]:
     """Convert stored options into user-facing form defaults."""
+    form_data = dict(options_data)
+    allowlist = form_data.get("entity_allowlist", [])
+    if isinstance(allowlist, str):
+        form_data["entity_allowlist"] = _normalize_allowlist_value(allowlist)
+        return form_data
+    if isinstance(allowlist, (list, tuple)):
+        form_data["entity_allowlist"] = [str(item) for item in allowlist]
+    return form_data
+
+
+def options_to_legacy_text_form_data(options_data: Mapping[str, Any]) -> dict[str, Any]:
+    """Convert stored options into the former text-area defaults for regression proof."""
     form_data = dict(options_data)
     allowlist = form_data.get("entity_allowlist", [])
     if isinstance(allowlist, (list, tuple)):

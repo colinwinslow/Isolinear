@@ -110,14 +110,34 @@ def manifest_is_hacs_ready() -> dict[str, Any]:
 
 
 def brand_icons_are_packaged() -> dict[str, Any]:
+    repository_brand_dir = REPO_ROOT / "brand"
+    repository_icon = repository_brand_dir / "icon.png"
+    repository_high_density_icon = repository_brand_dir / "icon@2x.png"
     brand_dir = PACKAGE_DIR / "brand"
     icon = brand_dir / "icon.png"
     high_density_icon = brand_dir / "icon@2x.png"
     return {
         "case_id": "brand_icons_are_packaged",
-        "given": {"brand_dir": str(brand_dir)},
+        "given": {
+            "repository_brand_dir": str(repository_brand_dir),
+            "package_brand_dir": str(brand_dir),
+        },
         "when": {"operation": "inspect_package_local_brand_assets"},
         "then": {
+            "repository_icon": {
+                "path": str(repository_icon),
+                "exists": repository_icon.is_file(),
+                "bytes": repository_icon.stat().st_size if repository_icon.is_file() else 0,
+            },
+            "repository_high_density_icon": {
+                "path": str(repository_high_density_icon),
+                "exists": repository_high_density_icon.is_file(),
+                "bytes": (
+                    repository_high_density_icon.stat().st_size
+                    if repository_high_density_icon.is_file()
+                    else 0
+                ),
+            },
             "icon": {
                 "path": str(icon),
                 "exists": icon.is_file(),
@@ -129,9 +149,14 @@ def brand_icons_are_packaged() -> dict[str, Any]:
                 "bytes": high_density_icon.stat().st_size if high_density_icon.is_file() else 0,
             },
             "passed": (
-                brand_dir.is_dir()
+                repository_brand_dir.is_dir()
+                and repository_icon.is_file()
+                and repository_high_density_icon.is_file()
+                and brand_dir.is_dir()
                 and icon.is_file()
                 and high_density_icon.is_file()
+                and repository_icon.read_bytes() == icon.read_bytes()
+                and repository_high_density_icon.read_bytes() == high_density_icon.read_bytes()
                 and icon.stat().st_size > 0
                 and high_density_icon.stat().st_size > icon.stat().st_size
             ),

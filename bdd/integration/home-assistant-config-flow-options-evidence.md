@@ -6,6 +6,7 @@ Run timestamps:
 - Live allowlist regression refresh: 2026-06-15T00:49:15+00:00
 - Live missing config-entry data and package-version refresh: 2026-06-15T15:52:36+00:00
 - Live two-entity redisplay regression refresh: 2026-06-16T16:36:42+00:00
+- Entity-selector allowlist picker refresh: 2026-06-16T17:40:22+00:00
 
 BDD file:
 `bdd/integration/home-assistant-config-flow-options-bdd.md`
@@ -18,7 +19,7 @@ Overall result: PASS
 - Scenario B: user config flow creates validated local-first data -> `CASE user_config_flow_creates_validated_local_first_data`
 - Scenario C: options flow persists safe options -> `CASE options_flow_persists_safe_options`
 - Scenario C2: live allowlist input variants are accepted -> `CASE options_flow_accepts_live_allowlist_input_variants`
-- Scenario C2b: stored allowlists redisplay with separators -> `CASE options_flow_accepts_live_allowlist_input_variants`
+- Scenario C2b: stored allowlists redisplay through the picker -> `CASE options_flow_accepts_live_allowlist_input_variants`
 - Scenario C3: missing stored config-entry data survives options edit -> `CASE options_flow_survives_missing_config_entry_data`
 - Scenario D: invalid config flow input fails closed -> `CASE invalid_config_flow_input_fails_closed`
 - Scenario E: invalid options flow input fails closed -> `CASE invalid_options_flow_input_fails_closed`
@@ -42,7 +43,41 @@ collected 11 items
 
 tests\test_config_flow_options_anchor.py ...........                     [100%]
 
-============================= 11 passed in 0.22s ==============================
+============================= 11 passed in 0.24s ==============================
+```
+
+## Entity Picker Evidence
+
+Raw command:
+
+```powershell
+.\.venv\Scripts\python.exe evals/home_assistant_config_flow_options.py
+```
+
+Condensed raw output excerpt:
+
+```text
+CASE config_flow_is_visible_to_home_assistant
+then.manifest.metadata.options_selectors.entity_allowlist.type: entity
+then.manifest.metadata.options_selectors.entity_allowlist.multiple: true
+then.manifest.metadata.options_defaults.entity_allowlist: []
+
+CASE options_flow_accepts_live_allowlist_input_variants
+then.allowlist_variants.form_default_round_trip.form_default:
+- sensor.family_room_sensor_temperature
+- sensor.bathroom_sensor_temperature
+then.allowlist_variants.form_default_round_trip.selector.type: entity
+then.allowlist_variants.form_default_round_trip.selector.multiple: true
+then.allowlist_variants.form_default_round_trip.submitted.accepted: true
+then.allowlist_variants.form_default_round_trip.legacy_text_default:
+  sensor.family_room_sensor_temperature, sensor.bathroom_sensor_temperature
+then.allowlist_variants.form_default_round_trip.legacy_stored_text_form_default:
+- sensor.family_room_sensor_temperature
+- sensor.bathroom_sensor_temperature
+then.allowlist_variants.form_default_round_trip.legacy_fused_default: false
+then.allowlist_variants.form_default_round_trip.legacy_submitted.accepted: true
+PASS options_flow_accepts_live_allowlist_input_variants
+PASS home_assistant_config_flow_options
 ```
 
 ## Regression Evidence: Live Two-Entity Redisplay
@@ -65,12 +100,21 @@ then.allowlist_variants.variants.json_array_two_entities.options_data.entity_all
 - sensor.family_room_sensor_temperature
 - sensor.bathroom_sensor_temperature
 then.allowlist_variants.form_default_round_trip.form_default:
-  sensor.family_room_sensor_temperature, sensor.bathroom_sensor_temperature
+- sensor.family_room_sensor_temperature
+- sensor.bathroom_sensor_temperature
+then.allowlist_variants.form_default_round_trip.selector.type: entity
+then.allowlist_variants.form_default_round_trip.selector.multiple: true
 then.allowlist_variants.form_default_round_trip.fused_default: false
 then.allowlist_variants.form_default_round_trip.submitted.accepted: true
 then.allowlist_variants.form_default_round_trip.submitted.options_data.entity_allowlist:
 - sensor.family_room_sensor_temperature
 - sensor.bathroom_sensor_temperature
+then.allowlist_variants.form_default_round_trip.legacy_text_default:
+  sensor.family_room_sensor_temperature, sensor.bathroom_sensor_temperature
+then.allowlist_variants.form_default_round_trip.legacy_stored_text_form_default:
+- sensor.family_room_sensor_temperature
+- sensor.bathroom_sensor_temperature
+then.allowlist_variants.form_default_round_trip.legacy_fused_default: false
 PASS options_flow_accepts_live_allowlist_input_variants
 PASS home_assistant_config_flow_options
 ```

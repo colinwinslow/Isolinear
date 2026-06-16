@@ -96,12 +96,31 @@ class ConfigFlowOptionsAnchorTests(unittest.TestCase):
 
         self.assertEqual(
             result["form_default"],
-            "sensor.family_room_sensor_temperature, sensor.bathroom_sensor_temperature",
+            [
+                "sensor.family_room_sensor_temperature",
+                "sensor.bathroom_sensor_temperature",
+            ],
         )
+        self.assertEqual(result["selector"]["type"], "entity")
+        self.assertTrue(result["selector"]["multiple"], result)
         self.assertFalse(result["fused_default"], result)
         self.assertTrue(result["submitted"]["accepted"], result)
         self.assertEqual(
             result["submitted"]["options_data"]["entity_allowlist"],
+            result["stored_entity_allowlist"],
+        )
+        self.assertEqual(
+            result["legacy_text_default"],
+            "sensor.family_room_sensor_temperature, sensor.bathroom_sensor_temperature",
+        )
+        self.assertEqual(
+            result["legacy_stored_text_form_default"],
+            result["stored_entity_allowlist"],
+        )
+        self.assertFalse(result["legacy_fused_default"], result)
+        self.assertTrue(result["legacy_submitted"]["accepted"], result)
+        self.assertEqual(
+            result["legacy_submitted"]["options_data"]["entity_allowlist"],
             result["stored_entity_allowlist"],
         )
 

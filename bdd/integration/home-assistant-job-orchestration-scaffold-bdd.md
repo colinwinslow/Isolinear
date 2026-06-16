@@ -49,6 +49,21 @@ missing
 **And** the failure code should be `missing_approved_history`
 **And** the run summary should include the missing approved entity ID
 
+### Scenario C2 - regression path: unresolved allowlist entities are explicit
+
+**Given** a config entry whose allowlist contains
+`sensor.bathrrom_sensor_temperature`
+**And** Home Assistant entity metadata and states cannot resolve that entity ID
+**When** `job/start` handles a prompt for the bathroom temperature
+**Then** the returned snapshot should be schema-valid and failed
+**And** the failure code should be `unknown_allowlisted_entity`
+**And** the run summary should include the missing allowlist entity ID
+**And** Home Assistant history should not be read for that request
+**When** the failed job is retried
+**Then** the retry snapshot should preserve `unknown_allowlisted_entity`
+**And** the retry run summary should include the same missing allowlist entity ID
+**And** Home Assistant history should still not be read for that request
+
 ### Scenario D - isolation path: config entries stay scoped
 
 **Given** two Isolinear config entries with different approved catalogs and

@@ -7,11 +7,14 @@ from typing import Any
 
 from custom_components.isolinear.config_flow import (
     CONFIG_FLOW_STEP,
+    ENTITY_ALLOWLIST_SELECTOR_METADATA,
     IsolinearConfigFlow,
     NO_FLOW_ORCHESTRATION_CALLS,
     OPTIONS_FLOW_STEP,
     build_options_flow_schema,
     config_flow_field_metadata,
+    default_options_data,
+    options_to_legacy_text_form_data,
     validate_config_flow_user_input,
     validate_options_flow_user_input,
 )
@@ -180,6 +183,7 @@ def verify_allowlist_form_default_round_trip() -> dict[str, Any]:
     }
     schema = build_options_flow_schema(stored_options)
     defaults = schema.get("defaults", {}) if isinstance(schema, dict) else {}
+    selectors = schema.get("selectors", {}) if isinstance(schema, dict) else {}
     form_default = defaults.get("entity_allowlist")
     submitted = validate_options_flow_user_input(
         default_config_data(),
@@ -189,11 +193,36 @@ def verify_allowlist_form_default_round_trip() -> dict[str, Any]:
             "entity_allowlist": form_default,
         },
     )
+    legacy_text_default = options_to_legacy_text_form_data(stored_options)["entity_allowlist"]
+    legacy_stored_text_default = build_options_flow_schema(
+        {
+            **default_options_data(),
+            "entity_allowlist": legacy_text_default,
+        }
+    )
+    legacy_stored_text_defaults = (
+        legacy_stored_text_default.get("defaults", {})
+        if isinstance(legacy_stored_text_default, dict)
+        else {}
+    )
+    legacy_submitted = validate_options_flow_user_input(
+        default_config_data(),
+        {
+            "default_render_mode": "safe",
+            "max_codegen_repair_attempts": 1,
+            "entity_allowlist": legacy_text_default,
+        },
+    )
     return {
         "stored_entity_allowlist": entity_ids,
         "form_default": form_default,
+        "selector": selectors.get("entity_allowlist", dict(ENTITY_ALLOWLIST_SELECTOR_METADATA)),
         "fused_default": form_default == "".join(entity_ids),
         "submitted": submitted,
+        "legacy_text_default": legacy_text_default,
+        "legacy_stored_text_form_default": legacy_stored_text_defaults.get("entity_allowlist"),
+        "legacy_fused_default": legacy_text_default == "".join(entity_ids),
+        "legacy_submitted": legacy_submitted,
     }
 
 
@@ -324,12 +353,22 @@ def verify_config_flow_anchor(root: Path | None = None) -> dict[str, Any]:
         if result["accepted"] and result["options_data"]["entity_allowlist"] != expected_allowlist:
             failures.append(f"Live allowlist variant {name} normalized to the wrong allowlist.")
     round_trip = live_allowlist_variants["form_default_round_trip"]
+    if round_trip["selector"] != dict(ENTITY_ALLOWLIST_SELECTOR_METADATA):
+        failures.append("Options allowlist form does not advertise the entity selector metadata.")
+    if round_trip["form_default"] != round_trip["stored_entity_allowlist"]:
+        failures.append("Entity selector form default did not preserve the stored allowlist list.")
+    if round_trip["legacy_stored_text_form_default"] != round_trip["stored_entity_allowlist"]:
+        failures.append("Entity selector form default did not normalize stored legacy text.")
     if round_trip["fused_default"]:
         failures.append("Stored allowlist form default fused entity IDs together.")
     if not round_trip["submitted"]["accepted"]:
         failures.append("Stored allowlist form default did not round-trip through options validation.")
     elif round_trip["submitted"]["options_data"]["entity_allowlist"] != round_trip["stored_entity_allowlist"]:
         failures.append("Stored allowlist form default round-tripped to the wrong allowlist.")
+    if round_trip["legacy_fused_default"]:
+        failures.append("Legacy text form default fused entity IDs together.")
+    if not round_trip["legacy_submitted"]["accepted"]:
+        failures.append("Legacy text form default did not round-trip through options validation.")
     if not options_flow_config_entry["retains_passed_config_entry"]:
         failures.append("Options flow did not retain the Home Assistant config entry.")
     if options_flow_config_entry["result"].get("type") != "create_entry":

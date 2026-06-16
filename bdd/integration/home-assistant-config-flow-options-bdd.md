@@ -57,16 +57,17 @@ IDs
 **And** the options flow should retain the Home Assistant config entry passed
 to `async_get_options_flow`
 
-### Scenario C2b - regression path: stored allowlists redisplay with separators
+### Scenario C2b - regression path: stored allowlists redisplay through the picker
 
 **Given** a stored allowlist contains
 `sensor.family_room_sensor_temperature` and
 `sensor.bathroom_sensor_temperature`
 **When** the options form is reopened
-**Then** the allowlist field should include an explicit separator between the
-entity IDs
-**And** submitting the redisplayed value should restore the same two-item list
-**And** the field should not contain fused entity ID text
+**Then** the allowlist field should use a multiple entity selector
+**And** the selector default should be the same two entity IDs
+**And** submitting the selector value should restore the same two-item list
+**And** the legacy text default should include an explicit separator instead of
+fused entity ID text
 
 ### Scenario C3 - regression path: missing stored setup data does not block options edits
 

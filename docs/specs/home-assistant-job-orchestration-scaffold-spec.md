@@ -53,7 +53,8 @@ The orchestration scaffold must:
 - Run from `async_setup_entry` after job state, approved catalog, and approved
   history retrieval stores are initialized.
 - Route `isolinear/v1/job/start` through the scaffold when the targeted config
-  entry has at least one visible approved catalog entity.
+  entry has completed the orchestration setup boundary, including the
+  deterministic failed-snapshot path for empty or unavailable catalogs.
 - Preserve the existing deterministic WebSocket command validation and
   config-entry scope validation before orchestration.
 - Create deterministic job state for the targeted config entry.
@@ -71,6 +72,10 @@ The orchestration scaffold must:
 - Validate every `IntegrationJobSnapshot` before storage/return.
 - Return failed schema-valid snapshots with structured failure codes for
   catalog or history gate failures, including missing approved history.
+- If the catalog setup boundary failed because the configured allowlist
+  references entity IDs Home Assistant cannot resolve, return a schema-valid
+  failed snapshot with the catalog setup failure code and missing allowlist
+  entity IDs before history, model-provider, worker, or rendering work can run.
 - Preserve config-entry isolation when two entries start jobs with different
   approved catalogs and history.
 
@@ -129,17 +134,21 @@ side-effect boundaries against fake Home Assistant objects.
    before history is read.
 7. Evidence confirms missing approved history returns a schema-valid failed
    snapshot with failure code `missing_approved_history`.
-8. Evidence confirms ambiguous prompts return a schema-valid clarification
+8. Evidence confirms unresolved configured allowlist entity IDs return a
+   schema-valid failed snapshot with failure code `unknown_allowlisted_entity`
+   before history is read, and retrying that failed job preserves the same
+   structured failure and missing entity IDs without reading history.
+9. Evidence confirms ambiguous prompts return a schema-valid clarification
    snapshot and do not read history.
-9. Evidence confirms two config entries receive isolated jobs, history stores,
+10. Evidence confirms two config entries receive isolated jobs, history stores,
    and orchestration run summaries.
-10. Evidence confirms every returned and stored snapshot validates against
+11. Evidence confirms every returned and stored snapshot validates against
    `IntegrationJobSnapshot`.
-11. Evidence confirms no worker, model provider, semantic-memory persistence,
+12. Evidence confirms no worker, model provider, semantic-memory persistence,
     Home Assistant service/device/state mutation, token-generation, chart
     artifact write, chart rendering, durable storage, or real production job
     orchestration occurs.
-12. Real artifacts are verified on disk: production orchestration module,
+13. Real artifacts are verified on disk: production orchestration module,
     integration setup wiring, WebSocket start routing, BDD, eval outline,
     tests, eval, and evidence.
 

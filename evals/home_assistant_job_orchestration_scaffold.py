@@ -67,6 +67,20 @@ def main():
     )
 
     print_case(
+        "unresolved_allowlist_entity_surfaces_catalog_setup_failure",
+        given={
+            "allowlist_entity_id": "sensor.bathrrom_sensor_temperature",
+            "prompt": "Show the bathroom temperature",
+        },
+        when={
+            "operation": "dispatch_registered_start_job",
+        },
+        then={
+            "unresolved_allowlist": result["unresolved_allowlist"],
+        },
+    )
+
+    print_case(
         "config_entries_keep_orchestration_scoped",
         given={
             "entry_ids": ["orch-entry-a", "orch-entry-b"],
@@ -116,6 +130,7 @@ def main():
                 "successful_start",
                 "non_catalog_failure",
                 "missing_history_failure",
+                "unresolved_allowlist_failure",
                 "ambiguous_prompt_clarification",
                 "config_entry_isolation",
             ],

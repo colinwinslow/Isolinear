@@ -60,20 +60,25 @@ They must reject malformed URLs, unsupported render modes, malformed entity
 IDs, duplicate entity IDs, credential-bearing endpoint URLs, forbidden secret
 keys, and secret-like values before setup or options persistence continues.
 
-The options flow may normalize user-facing entity allowlist text into the
-validated list shape. Newline-separated text, comma-separated text, a single
-entity ID submitted as the options payload, and JSON-style pasted list text such
-as `["sensor.family_room_sensor_temperature"]` must all normalize to the same
-deterministic entity ID list before validation. Blank optional model fields are
-normalized to `null`.
+The options flow must expose `entity_allowlist` through a list-style Home
+Assistant entity selector that supports multiple selections and stores the
+result as an explicit entity ID list. The legacy validator may still normalize
+user-facing entity allowlist text into the same validated list shape so live
+or older flows remain safe: newline-separated text, comma-separated text, a
+single entity ID submitted as the options payload, and JSON-style pasted list
+text such as `["sensor.family_room_sensor_temperature"]` must all normalize to
+the same deterministic entity ID list before validation. Blank optional model
+fields are normalized to `null`.
 
-Stored entity allowlists must redisplay in the options form with explicit
-separators between entity IDs. A stored two-entity allowlist such as
+Stored entity allowlists must redisplay in the options form as a list of entity
+IDs for the selector, not as fused text. The legacy text representation must
+still include explicit separators between entity IDs. A stored two-entity
+allowlist such as
 `sensor.family_room_sensor_temperature` plus
 `sensor.bathroom_sensor_temperature` must not reopen as fused text like
 `sensor.family_room_sensor_temperaturesensor.bathroom_sensor_temperature`;
-the redisplayed value must round-trip through the same deterministic allowlist
-normalizer.
+the selector default and legacy redisplayed value must both round-trip through
+the same deterministic allowlist normalizer.
 
 The Home Assistant options-flow factory must retain the config entry that Home
 Assistant passes to `async_get_options_flow`, so options validation always has
@@ -119,11 +124,12 @@ options data, invalid-input rejection, and non-orchestration behavior.
 6. Live-reported allowlist inputs for
    `sensor.family_room_sensor_temperature` normalize from both plain entity
    text and JSON-style pasted list text, two-entity JSON-style pasted list text
-   normalizes to both entity IDs, stored two-entity allowlists redisplay with a
-   separator and round-trip without fused IDs, and the options flow uses the
-   passed config entry while creating the updated options entry. A live/legacy
-   config entry with missing stored setup data also accepts the same allowlist
-   edit without returning base-level `must_be_object`.
+   normalizes to both entity IDs, the options form advertises a multi-entity
+   selector whose default is the stored entity list, legacy text defaults still
+   redisplay with a separator and round-trip without fused IDs, and the options
+   flow uses the passed config entry while creating the updated options entry.
+   A live/legacy config entry with missing stored setup data also accepts the
+   same allowlist edit without returning base-level `must_be_object`.
 7. Invalid and secret-bearing config/options inputs fail closed with structured
    field errors.
 8. Evidence confirms no worker, model-provider, Home Assistant history,

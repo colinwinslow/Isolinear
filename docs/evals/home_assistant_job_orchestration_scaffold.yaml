@@ -18,6 +18,8 @@ expect:
   returned_snapshots_schema_valid: true
   non_catalog_prompt_entity_rejected_before_history_read: true
   missing_approved_history_returns_failed_snapshot: true
+  unresolved_allowlist_entity_returns_catalog_failure_before_history_read: true
+  unresolved_allowlist_retry_preserves_catalog_failure: true
   ambiguous_prompt_returns_clarification_without_history_read: true
   per_config_entry_isolation: true
   approved_entity_catalog_read: true

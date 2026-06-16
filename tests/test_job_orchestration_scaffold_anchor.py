@@ -17,6 +17,7 @@ from Isolinear.job_orchestration_scaffold_anchor import (  # noqa: E402
     verify_orchestration_snapshots_validate,
     verify_setup_entry_orchestration_storage,
     verify_start_job_orchestration_success,
+    verify_unresolved_allowlist_catalog_failure,
 )
 
 
@@ -61,6 +62,35 @@ class JobOrchestrationScaffoldAnchorTests(unittest.TestCase):
         self.assertEqual(result["snapshot"]["failure"]["code"], "missing_approved_history")
         self.assertEqual(result["run"]["missing_entity_ids"], ["sensor.downstairs_temperature"])
         self.assertTrue(result["orchestration"]["home_assistant_history_read"])
+        self.assertTrue(result["snapshot_validation"]["accepted"], result)
+
+    def test_unresolved_allowlist_entity_surfaces_catalog_setup_failure(self):
+        result = verify_unresolved_allowlist_catalog_failure(REPO_ROOT)
+
+        self.assertTrue(result["dispatch"]["accepted"], result)
+        self.assertEqual(result["catalog_setup"]["code"], "unknown_allowlisted_entity")
+        self.assertEqual(
+            result["catalog_setup"]["missing_entity_ids"],
+            ["sensor.bathrrom_sensor_temperature"],
+        )
+        self.assertEqual(result["snapshot"]["status"], "failed")
+        self.assertEqual(result["snapshot"]["failure"]["code"], "unknown_allowlisted_entity")
+        self.assertIn("sensor.bathrrom_sensor_temperature", result["snapshot"]["failure"]["message"])
+        self.assertEqual(result["run"]["missing_entity_ids"], ["sensor.bathrrom_sensor_temperature"])
+        self.assertTrue(result["retry"]["dispatch"]["accepted"], result)
+        self.assertEqual(result["retry"]["snapshot"]["status"], "failed")
+        self.assertEqual(result["retry"]["snapshot"]["failure"]["code"], "unknown_allowlisted_entity")
+        self.assertIn(
+            "sensor.bathrrom_sensor_temperature",
+            result["retry"]["snapshot"]["failure"]["message"],
+        )
+        self.assertEqual(
+            result["retry"]["run"]["missing_entity_ids"],
+            ["sensor.bathrrom_sensor_temperature"],
+        )
+        self.assertTrue(result["retry"]["snapshot_validation"]["accepted"], result)
+        self.assertFalse(result["orchestration"]["home_assistant_history_read"])
+        self.assertEqual(result["history_store"]["series_count"], 0)
         self.assertTrue(result["snapshot_validation"]["accepted"], result)
 
     def test_config_entries_keep_orchestration_scoped(self):
