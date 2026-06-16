@@ -22,10 +22,13 @@ Run date: 2026-06-16
   mounted card Vitest smoke output
 - Scenario G - clarification path: selected entity renders a served PNG
   artifact: `test_clarification_answer_returns_served_png_artifact_from_in_process_renderer`
+- Scenario H - live regression path: read-only config data keeps planner
+  configured:
+  `test_real_slice_home_assistant_mapping_config_data_configures_planner_and_serves_png`
 - Real-render guard - missing planner fails before placeholder artifact storage:
   `test_real_slice_missing_planner_fails_before_placeholder_artifact_storage`
 
-## Scenarios A-E and G - static path, served PNG URL, clarification, idempotence, failure rollback
+## Scenarios A-E and G-H - static path, served PNG URL, clarification, idempotence, failure rollback, mapping config data
 
 Command:
 
@@ -40,19 +43,20 @@ Raw output:
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0 -- C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear\.venv\Scripts\python.exe
 cachedir: .pytest_cache
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collecting ... collected 9 items
+collecting ... collected 10 items
 
-tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_artifact_metadata_validation_failure_leaves_no_png_file PASSED [ 11%]
-tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_clarification_answer_returns_served_png_artifact_from_in_process_renderer PASSED [ 22%]
-tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_complete_snapshot_validation_failure_rolls_back_png_file PASSED [ 33%]
-tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_config_entry_setup_registers_artifact_static_path PASSED [ 44%]
-tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_hidden_provider_entity_fails_before_render_and_artifact_storage PASSED [ 55%]
-tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_ollama_structured_output_schema_embeds_chart_spec_contract PASSED [ 66%]
-tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_prompt_returns_served_png_artifact_from_in_process_renderer PASSED [ 77%]
-tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_real_slice_missing_planner_fails_before_placeholder_artifact_storage PASSED [ 88%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_artifact_metadata_validation_failure_leaves_no_png_file PASSED [ 10%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_clarification_answer_returns_served_png_artifact_from_in_process_renderer PASSED [ 20%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_complete_snapshot_validation_failure_rolls_back_png_file PASSED [ 30%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_config_entry_setup_registers_artifact_static_path PASSED [ 40%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_hidden_provider_entity_fails_before_render_and_artifact_storage PASSED [ 50%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_ollama_structured_output_schema_embeds_chart_spec_contract PASSED [ 60%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_prompt_returns_served_png_artifact_from_in_process_renderer PASSED [ 70%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_real_slice_home_assistant_mapping_config_data_configures_planner_and_serves_png PASSED [ 80%]
+tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_real_slice_missing_planner_fails_before_placeholder_artifact_storage PASSED [ 90%]
 tests/test_first_real_vertical_slice.py::FirstRealVerticalSliceTests::test_repeated_snapshot_reuses_completed_png_artifact PASSED [100%]
 
-============================== 9 passed in 5.03s ==============================
+============================= 10 passed in 8.02s ==============================
 ```
 
 The passing tests assert these raw values from the returned snapshot and on-disk
@@ -78,6 +82,12 @@ artifact:
   "missing_planner_failure_code": "model_provider_planner_not_configured",
   "missing_planner_artifact_order_count": 0,
   "missing_planner_png_file_count": 0,
+  "mapping_config_data_type": "mappingproxy",
+  "mapping_config_model_provider_setup_code": "model_provider_planner_configured",
+  "mapping_config_snapshot_status": "complete",
+  "mapping_config_artifact_url_prefix": "/api/isolinear/artifacts",
+  "mapping_config_png_signature": [137, 80, 78, 71, 13, 10, 26, 10],
+  "mapping_config_planner_call_count": 1,
   "hidden_entity_failure_code": "model_provider_chart_spec_hidden_entity",
   "hidden_entity_png_file_count": 0,
   "forced_artifact_metadata_failure_code": "invalid_in_process_artifact_metadata",

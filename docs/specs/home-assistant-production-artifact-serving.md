@@ -70,6 +70,10 @@ The production artifact-serving slice must:
   that selected entity, or fail before artifact metadata storage. It must not
   complete with scaffold placeholder artifact metadata when the real render
   path is active.
+- Treat Home Assistant config-entry `data` as mapping-like, not only as a
+  plain `dict`, when configuring the model-provider planner for the real render
+  path. A read-only mapping containing valid Ollama-compatible planner settings
+  must configure the planner and allow the served PNG path to complete.
 
 Allowed side effects are limited to approved metadata/history reads, the
 configured planner call, trusted in-process rendering, writing the PNG artifact
@@ -122,7 +126,9 @@ served from `/api/isolinear/artifacts`.
    metadata.
 10. Focused pytest proves a missing planner on the real render path fails
     before artifact metadata storage instead of creating placeholder success.
-11. Evidence contains raw command/result snippets, artifact path/URL, and PNG
+11. Focused pytest proves Home Assistant read-only mapping config-entry data
+    configures the planner and completes with a served PNG artifact URL.
+12. Evidence contains raw command/result snippets, artifact path/URL, and PNG
    signature bytes.
 
 ## Non-goals

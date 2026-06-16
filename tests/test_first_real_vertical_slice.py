@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 from unittest.mock import patch
 
@@ -38,7 +39,10 @@ from custom_components.isolinear.job_orchestration import (  # noqa: E402
 import custom_components.isolinear.job_orchestration as job_orchestration  # noqa: E402
 from custom_components.isolinear.job_state import ensure_job_state_store  # noqa: E402
 from custom_components.isolinear.model_provider import DATA_MODEL_PROVIDER_PLANNER  # noqa: E402
+from custom_components.isolinear.model_provider import DATA_MODEL_PROVIDER_SETUP  # noqa: E402
+from custom_components.isolinear.model_provider import OllamaCompatiblePlannerClient  # noqa: E402
 from custom_components.isolinear.model_provider import load_planner_result_schema  # noqa: E402
+from custom_components.isolinear.model_provider import setup_model_provider_planner  # noqa: E402
 from custom_components.isolinear.websocket_api import handle_registered_ws_command  # noqa: E402
 
 
@@ -450,6 +454,43 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             self.assertEqual(store["render_plan_order"], [])
             self.assertEqual(store["artifact_order"], [])
             self.assertEqual(list(artifact_dir.glob("*.png")), [])
+
+    def test_real_slice_home_assistant_mapping_config_data_configures_planner_and_serves_png(self):
+        planner = FakePlanner()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(planner=None, artifact_dir=artifact_dir)
+            entry.data = MappingProxyType(dict(entry.data))
+
+            setup = setup_model_provider_planner(hass, entry)
+            self.assertTrue(setup["accepted"], setup)
+            self.assertEqual(setup["code"], "model_provider_planner_configured")
+            self.assertEqual(setup["provider"]["model"], "llama3.1")
+            self.assertEqual(
+                hass.data[DOMAIN][entry.entry_id][DATA_MODEL_PROVIDER_SETUP]["code"],
+                "model_provider_planner_configured",
+            )
+
+            with patch.object(
+                OllamaCompatiblePlannerClient,
+                "plan_chart",
+                side_effect=planner.plan_chart,
+            ):
+                start = _start_job(hass, entry)
+                snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+            image_url = snapshot["snapshot"]["chart"]["image_url"]
+            artifact_path = artifact_dir / image_url.rsplit("/", 1)[-1]
+
+            self.assertTrue(start["accepted"], start)
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "complete")
+            self.assertTrue(image_url.startswith(ARTIFACT_STATIC_URL_PATH), image_url)
+            self.assertEqual(artifact_path.read_bytes()[:8], PNG_SIGNATURE)
+            self.assertEqual(len(planner.calls), 1)
+            self.assertTrue(snapshot["orchestration"]["model_provider_called"])
+            self.assertTrue(snapshot["orchestration"]["chart_rendering_called"])
+            self.assertTrue(snapshot["orchestration"]["chart_artifact_written"])
 
     def test_artifact_metadata_validation_failure_leaves_no_png_file(self):
         planner = FakePlanner()

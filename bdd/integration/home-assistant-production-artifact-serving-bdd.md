@@ -74,6 +74,17 @@ entities, an Ollama-compatible planner, and approved history for each entity
 **And** the referenced file exists on disk with PNG signature bytes
 **And** the snapshot does not report scaffold placeholder artifact success.
 
+### Scenario H - live regression path: read-only config data keeps planner configured
+
+**Given** a configured Isolinear entry whose Home Assistant config-entry data is
+a read-only mapping containing valid Ollama-compatible planner settings
+**When** the dashboard card sends `isolinear/v1/job/start` and then
+`isolinear/v1/job/snapshot`
+**Then** model-provider setup configures the planner
+**And** the returned complete snapshot contains a rendered
+`/api/isolinear/artifacts/<artifact_id>.png` URL
+**And** the referenced file exists on disk with PNG signature bytes.
+
 ## Evidence
 
 The implementing slice produces an evidence file at

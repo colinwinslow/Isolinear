@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any
 
@@ -351,7 +352,7 @@ def _setup_disabled(entry_id: str, code: str) -> dict[str, Any]:
 
 def _has_ollama_planner_config(config_data: Any) -> bool:
     return (
-        isinstance(config_data, dict)
+        isinstance(config_data, Mapping)
         and config_data.get("model_provider_type") == MODEL_PROVIDER_OLLAMA_COMPATIBLE
         and isinstance(config_data.get("model_endpoint_url"), str)
         and config_data["model_endpoint_url"].strip().startswith(("http://", "https://"))

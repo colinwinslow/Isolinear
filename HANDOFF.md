@@ -248,6 +248,17 @@ configured model-provider planner, snapshot polling now records a card-facing
 failed snapshot with `model_provider_planner_not_configured` before artifact
 metadata or PNG storage, rather than returning scaffold placeholder success.
 
+The live `0.1.10` HACS retest then proved that clarification no longer returns
+placeholder artifact success, but selected-entity continuation still failed at
+`model_provider_planner_not_configured`. That exposed the same Home Assistant
+read-only mapping shape on config-entry `data` that previously affected
+allowlist `options`: model-provider planner setup required a plain `dict` and
+therefore disabled the planner even when Ollama settings were present. The
+repository is now ready for live HACS retest as version `0.1.11`.
+Model-provider planner setup accepts mapping-like config-entry data, and
+focused production artifact-serving coverage proves `mappingproxy` config data
+configures the planner and completes with a served PNG artifact.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -951,9 +962,9 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Run the live HACS `0.1.10` dashboard verification. Redownload Isolinear through
+Run the live HACS `0.1.11` dashboard verification. Redownload Isolinear through
 HACS, restart Home Assistant, recreate the dashboard card, and confirm the
-registered Lovelace resource URL includes `?v=0.1.10` while the picker/editor
+registered Lovelace resource URL includes `?v=0.1.11` while the picker/editor
 shows `config_entry_id: auto`, including when Home Assistant had previously
 handed the card the old `fake-config-entry` placeholder. Confirm a stored
 allowlist reopens through the multi-entity selector with the exact selected
@@ -969,8 +980,8 @@ If the card reports an approved-entity failure, inspect the configured
 allowlist, runtime options-update listener, and entity catalog setup result
 rather than treating it as a future-orchestration placeholder.
 If the card reports `model_provider_planner_not_configured`, inspect the
-config entry's Ollama-compatible planner settings before investigating
-artifact serving.
+config entry's Ollama-compatible planner settings and the model-provider setup
+metadata before investigating artifact serving.
 Confirm no worker token, worker-local path, local artifact path, or base64
 image bytes leak to card-facing WebSocket responses.
 
