@@ -72,6 +72,21 @@ def main():
     )
 
     print_case(
+        "read_only_options_mapping_builds_runtime_catalog",
+        given={
+            "entry_id": result["mapping_options"]["entry_id"],
+            "options_type": result["mapping_options"]["options_type"],
+            "configured_entity_ids": result["mapping_options"]["configured_entity_ids"],
+        },
+        when={
+            "operation": "setup_entity_catalog",
+        },
+        then={
+            "mapping_options": result["mapping_options"],
+        },
+    )
+
+    print_case(
         "config_entries_receive_isolated_catalogs",
         given={
             "entry_ids": ["entry-a", "entry-b"],

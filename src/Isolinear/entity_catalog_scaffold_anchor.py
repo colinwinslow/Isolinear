@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from typing import Any
 
 from custom_components.isolinear import async_setup_entry
@@ -258,12 +258,12 @@ def verify_options_update_rebuilds_runtime_catalog(root=None) -> dict[str, Any]:
     entry_data = hass.data[DOMAIN][entry.entry_id]
     store_before_update = summarize_entity_catalog_store(entry_data[DATA_ENTITY_CATALOG])
 
-    entry.options = {
+    entry.options = MappingProxyType({
         "entity_allowlist": [
             "sensor.upstairs_temperature",
             "sensor.downstairs_temperature",
         ]
-    }
+    })
     if entry.update_listeners:
         _run(entry.update_listeners[-1](hass, entry))
 
@@ -273,6 +273,7 @@ def verify_options_update_rebuilds_runtime_catalog(root=None) -> dict[str, Any]:
         "setup_accepted": setup_accepted,
         "listener_registered": bool(entry.update_listeners),
         "unload_callback_registered": bool(entry.unload_callbacks),
+        "updated_options_type": type(entry.options).__name__,
         "store_before_update": store_before_update,
         "store_after_update": store_after_update,
         "catalog_setup": updated_entry_data[DATA_ENTITY_CATALOG_SETUP],
@@ -282,6 +283,29 @@ def verify_options_update_rebuilds_runtime_catalog(root=None) -> dict[str, Any]:
             updated_entry_data[DATA_ENTITY_CATALOG]["items"],
             root,
         ),
+    }
+
+
+def verify_home_assistant_mapping_options_build_runtime_catalog(root=None) -> dict[str, Any]:
+    root = root or repo_root()
+    hass = FakeHass(metadata_by_entity=fake_entity_metadata(), states=fake_states())
+    entity_ids = [
+        "sensor.upstairs_temperature",
+        "sensor.downstairs_temperature",
+    ]
+    entry = FakeConfigEntry(
+        "mapping-options-catalog-entry",
+        options=MappingProxyType({"entity_allowlist": list(entity_ids)}),
+    )
+    result = setup_entity_catalog(hass, entry)
+    store = hass.data[DOMAIN][entry.entry_id][DATA_ENTITY_CATALOG]
+    return {
+        "entry_id": entry.entry_id,
+        "options_type": type(entry.options).__name__,
+        "configured_entity_ids": entity_ids,
+        "result": result,
+        "store": summarize_entity_catalog_store(store),
+        "item_validation": _validate_catalog_items(store["items"], root),
     }
 
 
@@ -424,6 +448,7 @@ def verify_entity_catalog_scaffold_anchor(root=None) -> dict[str, Any]:
     catalog = verify_allowlisted_metadata_catalog(root)
     setup = verify_setup_entry_catalog_storage(root)
     options_update = verify_options_update_rebuilds_runtime_catalog(root)
+    mapping_options = verify_home_assistant_mapping_options_build_runtime_catalog(root)
     isolation = verify_config_entry_catalog_isolation(root)
     unknown = verify_unknown_allowlisted_entity_rejection()
     stale = verify_rejected_rebuild_clears_existing_catalog()
@@ -466,6 +491,10 @@ def verify_entity_catalog_scaffold_anchor(root=None) -> dict[str, Any]:
         failures.append("Options update did not refresh orchestration approved entity metadata.")
     if not all(item["accepted"] for item in options_update["item_validation"]):
         failures.append("Options-updated catalog items failed EntityCatalogItem validation.")
+    if mapping_options["store"]["entity_ids"] != mapping_options["configured_entity_ids"]:
+        failures.append("Home Assistant mapping options did not build the runtime catalog.")
+    if not all(item["accepted"] for item in mapping_options["item_validation"]):
+        failures.append("Home Assistant mapping-options catalog items failed EntityCatalogItem validation.")
     if isolation["entry_a_store"]["entity_ids"] != ["sensor.upstairs_temperature"]:
         failures.append("Entry A catalog isolation failed.")
     if isolation["entry_b_store"]["entity_ids"] != ["binary_sensor.office_window"]:
@@ -492,6 +521,7 @@ def verify_entity_catalog_scaffold_anchor(root=None) -> dict[str, Any]:
         "catalog": catalog,
         "setup": setup,
         "options_update": options_update,
+        "mapping_options": mapping_options,
         "isolation": isolation,
         "unknown": unknown,
         "stale": stale,

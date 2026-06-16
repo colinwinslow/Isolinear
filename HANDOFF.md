@@ -223,6 +223,20 @@ empty-catalog dashboard failure; retrying that failed job preserves the same
 structured failure. Root `brand/icon.png` and `brand/icon@2x.png` are now
 present for HACS and match the package-local Home Assistant brand assets.
 
+The live `0.1.8` HACS retest then proved the Home Assistant multi-entity
+picker surface itself worked: a dozen or so temperature sensors could be
+selected. The dashboard still failed at `approved_entity_catalog` with generic
+`NO_APPROVED_ENTITIES_AVAILABLE`, which showed the saved selector values were
+not reaching the runtime catalog. The repository is now ready for live HACS
+retest as version `0.1.9`. Catalog setup now treats config-entry `data` and
+`options` as mapping-like values rather than requiring plain `dict`, so Home
+Assistant read-only mapping options from the selector build the runtime
+approved catalog and refresh history/orchestration setup metadata before the
+next dashboard command. The attached live logs also showed setup-time schema
+`read_text` blocking warnings in worker token lifecycle/readiness/polling;
+that remains the existing separate event-loop cleanup item and was not the
+catalog-empty failure.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -926,9 +940,9 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Run the live HACS `0.1.8` dashboard verification. Redownload Isolinear through
+Run the live HACS `0.1.9` dashboard verification. Redownload Isolinear through
 HACS, restart Home Assistant, recreate the dashboard card, and confirm the
-registered Lovelace resource URL includes `?v=0.1.8` while the picker/editor
+registered Lovelace resource URL includes `?v=0.1.9` while the picker/editor
 shows `config_entry_id: auto`, including when Home Assistant had previously
 handed the card the old `fake-config-entry` placeholder. Confirm a stored
 allowlist reopens through the multi-entity selector with the exact selected

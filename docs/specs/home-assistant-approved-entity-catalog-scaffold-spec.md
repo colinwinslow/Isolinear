@@ -69,6 +69,9 @@ The catalog boundary must:
   refresh the config-entry-scoped approved catalog plus the allowlist-derived
   history and orchestration setup metadata before the next dashboard command
   reads the catalog.
+- Treat Home Assistant config-entry `data` and `options` as mapping-like
+  values, not only plain `dict` instances, so read-only mapping options from a
+  saved entity selector still build the runtime approved catalog.
 
 Allowed side effects for this packet are limited to:
 
@@ -119,19 +122,22 @@ and side-effect boundaries against fake Home Assistant objects.
 7. Evidence confirms an options update from an empty allowlist to two approved
    entities rebuilds the runtime catalog, refreshes the allowlist-derived
    orchestration setup metadata, and validates the new catalog items.
-8. Evidence confirms two config entries receive isolated catalogs based on
+8. Evidence confirms Home Assistant read-only mapping options build the same
+   runtime catalog as plain dict options instead of falling back to an empty
+   allowlist.
+9. Evidence confirms two config entries receive isolated catalogs based on
    their own allowlists.
-9. Evidence confirms unknown allowlisted entities fail closed before catalog
+10. Evidence confirms unknown allowlisted entities fail closed before catalog
    storage and clear any previous catalog for the entry.
-10. Evidence confirms malformed allowlist inputs fail closed without raising an
+11. Evidence confirms malformed allowlist inputs fail closed without raising an
    exception.
-11. Evidence confirms malformed normalized catalog items fail closed before
+12. Evidence confirms malformed normalized catalog items fail closed before
    storage.
-12. Evidence confirms no worker, model provider, Home Assistant history,
+13. Evidence confirms no worker, model provider, Home Assistant history,
     semantic-memory persistence, Home Assistant service/device/state mutation,
     token-generation, chart artifact write, WebSocket command registration,
     dashboard-resource metadata write, or real job orchestration occurs.
-13. Real artifacts are verified on disk: production catalog module,
+14. Real artifacts are verified on disk: production catalog module,
     integration setup wiring, BDD, eval outline, tests, eval, and evidence.
 
 ## Non-Goals

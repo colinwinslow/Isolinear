@@ -15,6 +15,7 @@ from Isolinear.entity_catalog_scaffold_anchor import (  # noqa: E402
     verify_malformed_allowlist_rejected_without_crash,
     verify_malformed_catalog_item_rejected_before_storage,
     verify_options_update_rebuilds_runtime_catalog,
+    verify_home_assistant_mapping_options_build_runtime_catalog,
     verify_rejected_rebuild_clears_existing_catalog,
     verify_setup_entry_catalog_storage,
     verify_unknown_allowlisted_entity_rejection,
@@ -60,6 +61,7 @@ class ApprovedEntityCatalogScaffoldAnchorTests(unittest.TestCase):
         self.assertTrue(result["setup_accepted"], result)
         self.assertTrue(result["listener_registered"], result)
         self.assertTrue(result["unload_callback_registered"], result)
+        self.assertEqual(result["updated_options_type"], "mappingproxy")
         self.assertEqual(result["store_before_update"]["entity_ids"], [])
         self.assertEqual(
             result["store_after_update"]["entity_ids"],
@@ -75,6 +77,14 @@ class ApprovedEntityCatalogScaffoldAnchorTests(unittest.TestCase):
                 "sensor.downstairs_temperature",
             ],
         )
+        self.assertTrue(all(item["accepted"] for item in result["item_validation"]), result)
+
+    def test_home_assistant_mapping_options_build_runtime_catalog(self):
+        result = verify_home_assistant_mapping_options_build_runtime_catalog(REPO_ROOT)
+
+        self.assertEqual(result["options_type"], "mappingproxy")
+        self.assertTrue(result["result"]["accepted"], result)
+        self.assertEqual(result["store"]["entity_ids"], result["configured_entity_ids"])
         self.assertTrue(all(item["accepted"] for item in result["item_validation"]), result)
 
     def test_config_entries_receive_isolated_catalogs(self):

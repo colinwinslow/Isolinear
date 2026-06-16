@@ -51,6 +51,14 @@ entity IDs
 **And** the allowlist-derived history and orchestration setup metadata should
 reflect the same approved entity IDs before the next dashboard command
 
+### Scenario C3 - regression path: read-only options mappings build runtime catalog
+
+**Given** Home Assistant exposes config-entry options as a read-only mapping
+instead of a plain `dict`
+**When** the approved entity catalog scaffold reads the selected allowlist
+**Then** the runtime catalog should contain the selected entity IDs
+**And** no fallback to an empty allowlist should occur
+
 ### Scenario D - failure path: unknown allowlisted entities fail closed
 
 **Given** a config entry whose allowlist references an entity missing from fake

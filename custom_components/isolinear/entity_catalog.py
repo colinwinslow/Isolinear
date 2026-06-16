@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any
 
@@ -143,9 +144,9 @@ def normalize_entry_entity_allowlist(entry: Any) -> dict[str, Any]:
     options = getattr(entry, "options", None)
     data = getattr(entry, "data", None)
     allowlist = []
-    if isinstance(options, dict) and "entity_allowlist" in options:
+    if isinstance(options, Mapping) and "entity_allowlist" in options:
         allowlist = options["entity_allowlist"]
-    elif isinstance(data, dict) and "entity_allowlist" in data:
+    elif isinstance(data, Mapping) and "entity_allowlist" in data:
         allowlist = data["entity_allowlist"]
 
     if isinstance(allowlist, tuple):

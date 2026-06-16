@@ -4,6 +4,7 @@ Run timestamps:
 
 - Baseline eval transcript: 2026-06-08T13:56:06+00:00
 - Options-update runtime catalog regression refresh: 2026-06-16T16:36:43+00:00
+- Home Assistant read-only mapping options regression refresh: 2026-06-16T18:25:29+00:00
 
 BDD file:
 `bdd/integration/home-assistant-approved-entity-catalog-scaffold-bdd.md`
@@ -15,6 +16,7 @@ Overall result: PASS
 - Scenario A: allowlisted metadata becomes schema-valid catalog items -> `CASE allowlisted_metadata_builds_schema_valid_catalog`
 - Scenario B: setup stores a config-entry-scoped catalog -> `CASE setup_entry_stores_config_entry_scoped_catalog`
 - Scenario C2: options update rebuilds runtime catalog -> `CASE options_update_rebuilds_runtime_catalog`
+- Scenario C3: read-only options mappings build runtime catalog -> `CASE read_only_options_mapping_builds_runtime_catalog`
 - Scenario C: config entries receive separate catalogs -> `CASE config_entries_receive_isolated_catalogs`
 - Scenario D: unknown allowlisted entities fail closed -> `CASE unknown_allowlisted_entities_fail_closed`
 - Scenario E: rejected rebuild clears existing catalog -> `CASE rejected_rebuild_clears_existing_catalog`
@@ -36,11 +38,11 @@ Raw output:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 10 items
+collected 11 items
 
-tests\test_approved_entity_catalog_scaffold_anchor.py ..........         [100%]
+tests\test_approved_entity_catalog_scaffold_anchor.py ...........        [100%]
 
-============================= 10 passed in 0.42s ==============================
+============================= 11 passed in 0.52s ==============================
 ```
 
 ## Full Unit Verification
@@ -57,20 +59,13 @@ Raw output:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.5, pytest-8.4.2, pluggy-1.6.0
 rootdir: C:\Users\c.winslow\OneDrive - Kagwerks\Documents\Repos\Isolinear
-collected 101 items
+collected 339 items
 
-tests\test_approved_entity_catalog_scaffold_anchor.py .........          [  8%]
-tests\test_codegen_sandbox_anchor.py ..........                          [ 18%]
-tests\test_config_flow_options_anchor.py .....                           [ 23%]
-tests\test_dashboard_card_anchor.py .......                              [ 30%]
-tests\test_dashboard_resource_registration_anchor.py .......             [ 37%]
-tests\test_fake_vertical_slice.py .....................................  [ 74%]
-tests\test_integration_scaffold_anchor.py .....                          [ 79%]
-tests\test_job_state_scaffold_anchor.py .........                        [ 88%]
-tests\test_transport_auth_anchor.py .....                                [ 93%]
-tests\test_websocket_command_registration_anchor.py .......              [100%]
+tests\test_approved_entity_catalog_scaffold_anchor.py ...........        [  3%]
+...
+tests\test_worker_transport_failure_classification_anchor.py ..........  [100%]
 
-============================ 101 passed in 34.92s =============================
+======================= 339 passed in 92.10s (0:01:32) ========================
 ```
 
 ## Eval Verification
@@ -90,6 +85,8 @@ CASE setup_entry_stores_config_entry_scoped_catalog
 PASS setup_entry_stores_config_entry_scoped_catalog
 CASE options_update_rebuilds_runtime_catalog
 PASS options_update_rebuilds_runtime_catalog
+CASE read_only_options_mapping_builds_runtime_catalog
+PASS read_only_options_mapping_builds_runtime_catalog
 CASE config_entries_receive_isolated_catalogs
 PASS config_entries_receive_isolated_catalogs
 CASE unknown_allowlisted_entities_fail_closed
@@ -176,6 +173,7 @@ given.updated_allowlist:
 - sensor.downstairs_temperature
 when.operation: invoke_registered_options_update_listener
 then.options_update.listener_registered: true
+then.options_update.updated_options_type: mappingproxy
 then.options_update.store_before_update.entity_ids: []
 then.options_update.store_after_update.entity_ids:
 - sensor.upstairs_temperature
@@ -190,6 +188,27 @@ then.options_update.job_orchestration_setup.approved_entity_ids:
 then.options_update.job_orchestration_setup.enabled: true
 then.options_update.item_validation[0].accepted: true
 then.options_update.item_validation[1].accepted: true
+```
+
+### Scenario C3
+
+```text
+case_id: read_only_options_mapping_builds_runtime_catalog
+given.entry_id: mapping-options-catalog-entry
+given.options_type: mappingproxy
+given.configured_entity_ids:
+- sensor.upstairs_temperature
+- sensor.downstairs_temperature
+when.operation: setup_entity_catalog
+then.mapping_options.result.accepted: true
+then.mapping_options.result.entity_allowlist:
+- sensor.upstairs_temperature
+- sensor.downstairs_temperature
+then.mapping_options.store.entity_ids:
+- sensor.upstairs_temperature
+- sensor.downstairs_temperature
+then.mapping_options.item_validation[0].accepted: true
+then.mapping_options.item_validation[1].accepted: true
 ```
 
 ### Scenario C
@@ -303,9 +322,10 @@ Raw commands:
 ```powershell
 .\.venv\Scripts\python.exe evals\home_assistant_integration_scaffold.py
 .\.venv\Scripts\python.exe evals\home_assistant_config_flow_options.py
+.\.venv\Scripts\python.exe evals\home_assistant_hacs_install_packaging.py
 .\.venv\Scripts\python.exe evals\home_assistant_dashboard_resource_registration.py
 .\.venv\Scripts\python.exe evals\home_assistant_websocket_command_registration.py
-.\.venv\Scripts\python.exe evals\home_assistant_job_state_scaffold.py
+.\.venv\Scripts\python.exe evals\home_assistant_job_orchestration_scaffold.py
 ```
 
 Raw output endings:
@@ -313,7 +333,8 @@ Raw output endings:
 ```text
 PASS home_assistant_integration_scaffold
 PASS home_assistant_config_flow_options
+PASS home_assistant_hacs_install_packaging
 PASS home_assistant_dashboard_resource_registration
 PASS home_assistant_websocket_command_registration
-PASS home_assistant_job_state_scaffold
+PASS home_assistant_job_orchestration_scaffold
 ```
