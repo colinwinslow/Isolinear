@@ -1606,6 +1606,13 @@ def _append_model_provider_failure_snapshot_from_planning_result(
 
     retry_policy = planning_result.get("model_provider_retry_policy")
     if not isinstance(retry_policy, dict):
+        if _is_model_provider_output_failure_code(planning_result.get("code")):
+            return _append_model_provider_failure_snapshot(
+                job,
+                code=planning_result.get("code", "model_provider_planning_failed"),
+                message=_model_provider_planning_failure_message(planning_result),
+                retry_allowed=False,
+            )
         return None
 
     return _append_model_provider_failure_snapshot(
@@ -1617,6 +1624,40 @@ def _append_model_provider_failure_snapshot_from_planning_result(
         ),
         retry_allowed=retry_policy.get("decision", {}).get("manual_retry_allowed") is True,
     )
+
+
+def _is_model_provider_output_failure_code(code: Any) -> bool:
+    return code in {
+        "invalid_integration_model_provider_plan",
+        "invalid_model_provider_chart_spec",
+        "invalid_planner_result",
+        "model_provider_chart_spec_hidden_entity",
+        "model_provider_planner_not_chart_spec_ready",
+        "model_provider_planning_failed",
+    }
+
+
+def _model_provider_planning_failure_message(planning_result: dict[str, Any]) -> str:
+    code = planning_result.get("code")
+    messages = {
+        "invalid_planner_result": "The model provider returned a planner result that failed schema validation.",
+        "model_provider_planner_not_chart_spec_ready": (
+            "The model provider did not return a chart-ready planner result."
+        ),
+        "invalid_model_provider_chart_spec": (
+            "The model provider returned a chart spec that failed schema validation."
+        ),
+        "model_provider_chart_spec_hidden_entity": (
+            "The model provider returned a chart spec that referenced an entity outside the approved allowlist."
+        ),
+        "invalid_integration_model_provider_plan": (
+            "The model provider plan failed integration metadata validation."
+        ),
+        "model_provider_planning_failed": "Model provider planning failed before a chart spec was accepted.",
+    }
+    if isinstance(code, str) and code in messages:
+        return messages[code]
+    return "Model provider planning failed before a chart spec was accepted."
 
 
 def _append_model_provider_failure_snapshot(

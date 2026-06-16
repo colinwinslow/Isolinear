@@ -130,6 +130,32 @@ function createTimeoutThenCompleteHass() {
   return { hass, calls };
 }
 
+function createRepeatedHomeAssistantTimeoutThenCompleteHass() {
+  const calls: Array<Record<string, unknown>> = [];
+  let snapshotPolls = 0;
+  const hass: HomeAssistantLike = {
+    connection: {
+      async sendMessagePromise(message: Record<string, unknown>) {
+        calls.push(message);
+        await sleep(5);
+        if (message.type === ISOLINEAR_COMMANDS.startJob) {
+          return planningSnapshot;
+        }
+        if (message.type === ISOLINEAR_COMMANDS.getSnapshot) {
+          snapshotPolls += 1;
+          if (snapshotPolls <= 8) {
+            throw { code: "fail", message: "Timed out waiting for the job snapshot." };
+          }
+          return completeSnapshot;
+        }
+        throw new Error(`Unexpected Isolinear smoke command: ${message.type}`);
+      },
+    },
+  };
+
+  return { hass, calls };
+}
+
 function createTerminalSnapshotRejectionHass() {
   const calls: Array<Record<string, unknown>> = [];
   const hass: HomeAssistantLike = {
@@ -310,6 +336,61 @@ describe("Isolinear mounted card long-running smoke", () => {
 
     expect(calls.map((call) => call.type)).toEqual([
       ISOLINEAR_COMMANDS.startJob,
+      ISOLINEAR_COMMANDS.getSnapshot,
+      ISOLINEAR_COMMANDS.getSnapshot,
+    ]);
+    expect(card.snapshot.status).toBe("complete");
+    expect(card.snapshot.failure).toBeUndefined();
+    expect(card.shadowRoot!.querySelector<HTMLImageElement>("[data-testid='chart-image']")!.getAttribute("src")).toBe(
+      SERVED_PNG_URL,
+    );
+  });
+
+  it("keeps polling after repeated Home Assistant timeout wrappers and renders the later PNG chart", async () => {
+    const { hass, calls } = createRepeatedHomeAssistantTimeoutThenCompleteHass();
+    const card = new IsolinearCard();
+    card.snapshotPollIntervalMs = 5;
+    document.body.append(card);
+    card.setConfig({
+      type: "custom:isolinear-card",
+      config_entry_id: "real-slice-entry",
+      title: "Isolinear Smoke",
+    });
+    card.hass = hass;
+    await card.updateComplete;
+
+    const input = card.shadowRoot!.querySelector<HTMLTextAreaElement>("[data-testid='prompt-input']")!;
+    input.value = "Show sensor.upstairs_temperature for the last 24 hours";
+    input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    await card.updateComplete;
+
+    const form = card.shadowRoot!.querySelector<HTMLFormElement>("[data-testid='composer']")!;
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true, composed: true }));
+
+    await waitFor(() => card.snapshot.status === "complete", 1500);
+    await card.updateComplete;
+
+    const evidence = {
+      command_types: calls.map((call) => call.type),
+      snapshot_poll_count: calls.filter((call) => call.type === ISOLINEAR_COMMANDS.getSnapshot).length,
+      final_status: card.snapshot.status,
+      failure_code: card.snapshot.failure?.code ?? null,
+      chart_image_url_prefix: card
+        .shadowRoot!.querySelector<HTMLImageElement>("[data-testid='chart-image']")!
+        .getAttribute("src")!
+        .slice(0, 24),
+    };
+    console.info("CARD_REPEATED_HA_TIMEOUT_POLL_EVIDENCE", JSON.stringify(evidence, null, 2));
+
+    expect(calls.map((call) => call.type)).toEqual([
+      ISOLINEAR_COMMANDS.startJob,
+      ISOLINEAR_COMMANDS.getSnapshot,
+      ISOLINEAR_COMMANDS.getSnapshot,
+      ISOLINEAR_COMMANDS.getSnapshot,
+      ISOLINEAR_COMMANDS.getSnapshot,
+      ISOLINEAR_COMMANDS.getSnapshot,
+      ISOLINEAR_COMMANDS.getSnapshot,
+      ISOLINEAR_COMMANDS.getSnapshot,
       ISOLINEAR_COMMANDS.getSnapshot,
       ISOLINEAR_COMMANDS.getSnapshot,
     ]);

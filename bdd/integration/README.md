@@ -173,8 +173,9 @@ custom integration implementation slices.
   redacted repair issue metadata, invalid persisted-entry rejection, rollback,
   config-entry isolation, card-safety, and bounded side-effect proof.
 - `tests/test_first_real_vertical_slice.py` - focused pytest proof for a
-  complete PNG-returning first real slice, hidden provider entity rejection,
-  and idempotent completed-snapshot reuse without worker dispatch.
+  complete PNG-returning first real slice, card-facing model-provider failure
+  snapshots for hidden or invalid provider output, and idempotent
+  completed-snapshot reuse without worker dispatch.
 - `tests/test_first_real_vertical_slice.py` - production artifact serving
   proof that the first real slice returns a served PNG artifact URL whose file
   exists on disk.

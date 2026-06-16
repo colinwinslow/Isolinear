@@ -279,3 +279,77 @@ Raw output:
 .
 4 passed in 5.68s
 ```
+
+## Regression Addendum - 2026-06-16 Repeated Home Assistant Timeout Wrappers
+
+Command:
+
+```powershell
+.\scripts\frontend.ps1 test -- --reporter=verbose --silent=false src/isolinear-card.long-running-smoke.test.ts
+```
+
+Raw output excerpt:
+
+```text
+stdout | src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > keeps polling after repeated Home Assistant timeout wrappers and renders the later PNG chart
+CARD_REPEATED_HA_TIMEOUT_POLL_EVIDENCE {
+  "command_types": [
+    "isolinear/v1/job/start",
+    "isolinear/v1/job/snapshot",
+    "isolinear/v1/job/snapshot",
+    "isolinear/v1/job/snapshot",
+    "isolinear/v1/job/snapshot",
+    "isolinear/v1/job/snapshot",
+    "isolinear/v1/job/snapshot",
+    "isolinear/v1/job/snapshot",
+    "isolinear/v1/job/snapshot",
+    "isolinear/v1/job/snapshot"
+  ],
+  "snapshot_poll_count": 9,
+  "final_status": "complete",
+  "failure_code": null,
+  "chart_image_url_prefix": "/api/isolinear/artifacts"
+}
+
+stdout | src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > shows a visible failure when snapshot polling receives a terminal Isolinear rejection
+CARD_TERMINAL_POLL_FAILURE_EVIDENCE {
+  "command_types": [
+    "isolinear/v1/job/start",
+    "isolinear/v1/job/snapshot"
+  ],
+  "final_status": "failed",
+  "failure_code": "snapshot_poll_failed",
+  "failure_message": "The Isolinear job was not found.",
+  "failure_details_visible": true
+}
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+```
+
+Follow-up verification:
+
+```text
+.\scripts\frontend.ps1 test
+
+ Test Files  2 passed (2)
+      Tests  12 passed (12)
+
+.\.venv\Scripts\python.exe -m pytest tests/test_dashboard_card_long_running_smoke.py -q -s
+
+REGISTERED_WS_SINGLE_FLIGHT_EVIDENCE
+{'in_progress_code': 'job_orchestration_artifact_snapshot_in_progress', 'in_progress_status': 'planning', 'in_progress_stage': 'job_orchestration_scaffold_ready', 'first_status': 'complete', 'final_status': 'complete', 'planner_call_count': 1, 'png_signature': [137, 80, 78, 71, 13, 10, 26, 10]}
+REGISTERED_WS_STALE_LOCK_RECHECK_EVIDENCE
+{'second_job_state_code': 'job_orchestration_artifact_snapshot_returned', 'first_status': 'complete', 'second_status': 'complete', 'planner_call_count': 1, 'lock_call_count': 2}
+REGISTERED_WS_SMOKE_EVIDENCE
+{'snapshot_status': 'complete', 'artifact_url': '/api/isolinear/artifacts/real-slice-entry-artifact-001.png', 'planner_call_count': 1, 'approved_entity_ids': ['sensor.upstairs_temperature']}
+4 passed in 5.04s
+
+.\.venv\Scripts\python.exe -m pytest tests/test_hacs_install_packaging.py tests/test_dashboard_resource_registration_anchor.py -q
+
+14 passed in 0.61s
+
+.\.venv\Scripts\python.exe evals\home_assistant_hacs_install_packaging.py
+
+PASS home_assistant_hacs_install_packaging
+```

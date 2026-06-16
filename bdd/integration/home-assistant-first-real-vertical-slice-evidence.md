@@ -94,11 +94,18 @@ Raw result snippet:
 ```json
 {
   "snapshot_result": {
-    "accepted": false,
-    "code": "model_provider_chart_spec_hidden_entity",
+    "accepted": true,
+    "code": "registered_job_state_command_accepted",
+    "status": "failed",
+    "failure": {
+      "stage": "model_provider_planning",
+      "code": "model_provider_chart_spec_hidden_entity",
+      "message": "The model provider returned a chart spec that referenced an entity outside the approved allowlist."
+    },
     "orchestration": {
       "model_provider_called": true,
       "chart_rendering_called": false,
+      "chart_artifact_written": false,
       "artifact_metadata_bookkeeping_written": false,
       "render_plan_bookkeeping_written": false,
       "model_provider_plan_bookkeeping_written": false,
@@ -115,7 +122,36 @@ Raw result snippet:
 }
 ```
 
-## Scenario C - repeated snapshot requests reuse the artifact
+## Scenario C - invalid provider chart output returns a failed snapshot
+
+Raw result snippet:
+
+```json
+{
+  "snapshot_result": {
+    "accepted": true,
+    "code": "registered_job_state_command_accepted",
+    "status": "failed",
+    "failure": {
+      "stage": "model_provider_planning",
+      "code": "invalid_model_provider_chart_spec",
+      "message": "The model provider returned a chart spec that failed schema validation."
+    },
+    "orchestration": {
+      "model_provider_called": true,
+      "chart_rendering_called": false,
+      "chart_artifact_written": false,
+      "artifact_metadata_bookkeeping_written": false,
+      "render_plan_bookkeeping_written": false,
+      "model_provider_plan_bookkeeping_written": false
+    }
+  },
+  "planner_call_count": 1,
+  "png_files_written": 0
+}
+```
+
+## Scenario D - repeated snapshot requests reuse the artifact
 
 Raw result snippet:
 
@@ -247,4 +283,39 @@ Runtime drift found and closed:
 8 passed in 0.45s
 40 passed in 6.72s
 305 passed in 57.56s
+```
+
+## Regression Addendum - 2026-06-16 Provider Output Failure Snapshot
+
+Live dashboard retesting showed that some model-provider failures could reach
+the card as generic registered WebSocket command rejections instead of
+card-facing failed job snapshots. Focused regression coverage now proves invalid
+provider chart output returns a failed snapshot with model-provider failure
+details while still avoiding render and artifact writes.
+
+Command:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_first_real_vertical_slice.py -q
+```
+
+Raw output:
+
+```text
+...........                                                              [100%]
+11 passed in 4.90s
+```
+
+Verified behavior:
+
+```text
+invalid provider chart output:
+  registered command accepted: true
+  snapshot status: failed
+  failure stage: model_provider_planning
+  failure code: invalid_model_provider_chart_spec
+  model provider called: true
+  chart rendering called: false
+  chart artifact written: false
+  PNG files written: 0
 ```

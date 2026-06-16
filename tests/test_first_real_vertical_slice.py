@@ -155,6 +155,33 @@ class FakePlanner:
         }
 
 
+class InvalidPlannerResultPlanner(FakePlanner):
+    def plan_chart(
+        self,
+        request: dict[str, Any],
+        *,
+        result_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append(request)
+        return {
+            "accepted": True,
+            "code": "model_provider_planner_result_received",
+            "provider": self.provider_metadata(),
+            "planner_result": {
+                "status": "chart_spec_ready",
+                "chart_spec": {
+                    "chart_id": "invalid-real-slice-chart",
+                    "chart_type": "time_series",
+                },
+                "clarification_question": None,
+                "memory_proposals": [],
+                "reasoning_summary": "Returned an intentionally incomplete chart spec.",
+                "warnings": [],
+            },
+            "provider_response": {"model": "llama3.1", "done": True},
+        }
+
+
 def configured_real_slice_hass(
     *,
     planner: FakePlanner | None,
@@ -416,8 +443,10 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             start = _start_job(hass, entry)
             snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
 
-            self.assertFalse(snapshot["accepted"], snapshot)
-            self.assertEqual(snapshot["code"], "model_provider_chart_spec_hidden_entity")
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "failed")
+            self.assertEqual(snapshot["snapshot"]["failure"]["stage"], "model_provider_planning")
+            self.assertEqual(snapshot["snapshot"]["failure"]["code"], "model_provider_chart_spec_hidden_entity")
             self.assertEqual(len(planner.calls), 1)
             self.assertFalse(snapshot["orchestration"]["chart_rendering_called"])
             self.assertFalse(snapshot["orchestration"]["chart_artifact_written"])
@@ -569,6 +598,26 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             self.assertIsNone(store["latest_model_provider_plan"])
             self.assertIsNone(store["latest_render_plan"])
             self.assertIsNone(store["latest_artifact"])
+
+    def test_invalid_planner_result_returns_card_facing_failed_snapshot(self):
+        planner = InvalidPlannerResultPlanner()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(planner=planner, artifact_dir=artifact_dir)
+
+            start = _start_job(hass, entry)
+            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+            self.assertTrue(start["accepted"], start)
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "failed")
+            self.assertEqual(snapshot["snapshot"]["failure"]["stage"], "model_provider_planning")
+            self.assertEqual(snapshot["snapshot"]["failure"]["code"], "invalid_model_provider_chart_spec")
+            self.assertEqual(len(planner.calls), 1)
+            self.assertTrue(snapshot["orchestration"]["model_provider_called"])
+            self.assertFalse(snapshot["orchestration"]["chart_rendering_called"])
+            self.assertFalse(snapshot["orchestration"]["chart_artifact_written"])
+            self.assertEqual(list(artifact_dir.glob("*.png")), [])
 
     def test_repeated_snapshot_reuses_completed_png_artifact(self):
         planner = FakePlanner()

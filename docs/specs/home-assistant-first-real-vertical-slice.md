@@ -60,6 +60,9 @@ The first real vertical slice must:
   jobs.
 - Validate `PlannerResult`, nested `ChartSpec`, and referenced entity IDs
   before render-plan, artifact, or complete-snapshot storage.
+- Return card-facing failed job snapshots for planner or provider chart-output
+  validation failures instead of surfacing them as generic registered WebSocket
+  command rejections.
 - Render a safe-mode trusted matplotlib PNG in-process when the first-real
   slice is enabled and no worker dispatch is used.
 - Return that PNG to the existing dashboard card as `chart.image_url`, using a
@@ -104,12 +107,14 @@ planner, and verifies that the returned chart image is a real PNG data URL.
    plan, rendered artifact metadata, and no worker dispatch.
 3. Focused pytest proves hidden provider entity references still fail before
    rendering or artifact storage.
-4. Focused pytest proves repeated snapshot requests reuse the completed
+4. Focused pytest proves invalid provider chart output returns a failed
+   snapshot with model-provider failure details and still writes no PNG file.
+5. Focused pytest proves repeated snapshot requests reuse the completed
    artifact without another planner call.
-5. Evidence file contains raw command/result snippets and decoded PNG
+6. Evidence file contains raw command/result snippets and decoded PNG
    signature bytes.
-6. Adjacent orchestration tests remain green.
-7. Manual evidence proves the same registered Home Assistant WebSocket handler
+7. Adjacent orchestration tests remain green.
+8. Manual evidence proves the same registered Home Assistant WebSocket handler
    path can use real Home Assistant recorder history and a real
    Ollama-compatible planner without blocking the event loop.
 

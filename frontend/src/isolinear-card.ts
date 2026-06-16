@@ -38,7 +38,7 @@ const ACTIVE_JOB_STATUSES = new Set<IsolinearJobSnapshot["status"]>([
 const CONFIG_ENTRY_AUTO = "auto";
 const LEGACY_CONFIG_ENTRY_PLACEHOLDER = "fake-config-entry";
 const SNAPSHOT_POLL_INTERVAL_MS = 1000;
-const MAX_TRANSIENT_SNAPSHOT_POLL_FAILURES = 6;
+const MAX_TRANSIENT_SNAPSHOT_POLL_FAILURES = 300;
 const TRANSIENT_SNAPSHOT_POLL_ERROR_CODES = new Set([
   "connection_closed",
   "connection_error",
@@ -46,6 +46,14 @@ const TRANSIENT_SNAPSHOT_POLL_ERROR_CODES = new Set([
   "disconnected",
   "request_timeout",
   "timeout",
+]);
+const TERMINAL_SNAPSHOT_POLL_ERROR_CODES = new Set([
+  "invalid_format",
+  "invalid_integration_ws_command",
+  "job_not_retryable",
+  "unknown_config_entry",
+  "unknown_job",
+  "wrong_version",
 ]);
 
 function validateConfig(config: Partial<IsolinearCardConfig> | undefined): IsolinearCardConfig {
@@ -104,7 +112,10 @@ function isTransientSnapshotPollError(error: unknown): boolean {
   if (!code) {
     return messageLooksTransient(error);
   }
-  return TRANSIENT_SNAPSHOT_POLL_ERROR_CODES.has(code) || code.includes("timeout");
+  if (TERMINAL_SNAPSHOT_POLL_ERROR_CODES.has(code)) {
+    return false;
+  }
+  return TRANSIENT_SNAPSHOT_POLL_ERROR_CODES.has(code) || code.includes("timeout") || messageLooksTransient(error);
 }
 
 function statusLayout(status: IsolinearJobSnapshot["status"]): string {

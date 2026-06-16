@@ -56,11 +56,12 @@ placeholder from an earlier dashboard-card bundle
 **And** the card should send `config_entry_id: auto` through the versioned
 WebSocket command instead of preserving the obsolete placeholder.
 
-### Scenario E - regression: transient snapshot timeout keeps polling
+### Scenario E - regression: transient snapshot timeouts keep polling
 
 **Given** the dashboard card has an active planning snapshot for a job
-**And** the first `isolinear/v1/job/snapshot` poll rejects with a transient
-timeout
+**And** one or more `isolinear/v1/job/snapshot` polls reject with transient
+timeout errors, including generic Home Assistant `fail` wrappers whose message
+indicates timeout
 **When** a later snapshot poll returns a `complete` served PNG artifact snapshot
 **Then** the card should keep polling instead of switching to a local
 `snapshot_poll_failed` state

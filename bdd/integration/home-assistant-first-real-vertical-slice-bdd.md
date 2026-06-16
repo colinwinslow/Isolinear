@@ -33,7 +33,15 @@ output
 **Then** the snapshot request fails before in-process rendering, artifact
 metadata storage, or complete snapshot storage.
 
-### Scenario C - repeated snapshot requests reuse the artifact
+### Scenario C - invalid provider chart output returns a failed snapshot
+
+**Given** the same configured entry and history
+**When** the planner returns a chart spec that fails schema validation
+**Then** the snapshot request returns a card-facing failed job snapshot with the
+model-provider failure code
+**And** the integration does not render a chart or write an artifact file.
+
+### Scenario D - repeated snapshot requests reuse the artifact
 
 **Given** a real-slice job has already completed
 **When** the dashboard card asks for the same job snapshot again

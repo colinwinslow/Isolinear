@@ -52,7 +52,9 @@ The dashboard card must:
 - Poll `isolinear/v1/job/snapshot` through the same Home Assistant connection
   when an active snapshot includes a `job_id`.
 - Retry bounded transient snapshot poll failures such as Home Assistant
-  frontend timeouts while the same job remains active.
+  frontend timeouts while the same job remains active, including generic Home
+  Assistant failure wrappers whose message indicates timeout or connection
+  loss.
 - Continue to surface terminal Isolinear snapshot rejections such as
   `unknown_job` as visible failed dashboard snapshots.
 - Stop polling when the job reaches `complete`, `failed`, or
@@ -99,9 +101,10 @@ path without adding a parallel verifier framework.
    first-real-slice snapshot with a PNG signature.
 5. Python smoke proves the planner is called once with only the allowlisted
    entity and the worker is not called.
-6. Frontend smoke proves a transient snapshot timeout is retried and the later
-   complete snapshot renders, while a terminal Isolinear rejection still
-   renders a visible failure.
+6. Frontend smoke proves transient snapshot timeouts, including repeated
+   generic Home Assistant timeout wrappers, are retried until a later complete
+   snapshot renders, while a terminal Isolinear rejection still renders a
+   visible failure.
 7. Python smoke proves a concurrent snapshot poll during planner work returns
    the active snapshot, rechecks completed artifacts after acquiring the
    per-job lock, and the planner is still called only once.
@@ -113,8 +116,8 @@ path without adding a parallel verifier framework.
 - New worker/add-on rendering behavior.
 - Durable job or artifact persistence.
 - Automatic job/provider retry behavior or subscription streaming changes
-  beyond the bounded snapshot transport retry needed for this card poll
-  regression.
+  beyond the bounded active-job snapshot transport retry needed for this card
+  poll regression.
 
 ## References
 
