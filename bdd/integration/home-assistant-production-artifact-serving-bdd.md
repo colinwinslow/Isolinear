@@ -85,6 +85,20 @@ a read-only mapping containing valid Ollama-compatible planner settings
 `/api/isolinear/artifacts/<artifact_id>.png` URL
 **And** the referenced file exists on disk with PNG signature bytes.
 
+### Scenario I - live regression path: overlapping snapshot polls are single-flight
+
+**Given** a real-slice job has staged approved history and the configured
+planner is still running for the first `isolinear/v1/job/snapshot` request
+**When** the dashboard card asks for the same job snapshot again before the
+first planner call completes
+**Then** the integration returns the current active planning snapshot
+**And** it does not call the planner or renderer again
+**And** if the first request completes after the second request reads the active
+snapshot but before it acquires the per-job lock, the second request reuses the
+completed artifact instead of planning again
+**And** after the first request completes, later snapshot requests reuse the
+same complete served PNG artifact.
+
 ## Evidence
 
 The implementing slice produces an evidence file at

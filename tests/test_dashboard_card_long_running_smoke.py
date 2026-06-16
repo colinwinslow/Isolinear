@@ -1,4 +1,5 @@
 import sys
+import threading
 import time
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+from custom_components.isolinear import job_orchestration as job_orchestration_module  # noqa: E402
 from custom_components.isolinear.const import (  # noqa: E402
     COMMAND_GET_SNAPSHOT,
     COMMAND_START_JOB,
@@ -122,6 +124,24 @@ class SlowSmokePlanner:
         }
 
 
+class BlockingSmokePlanner(SlowSmokePlanner):
+    def __init__(self) -> None:
+        super().__init__()
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def plan_chart(
+        self,
+        request: dict[str, Any],
+        *,
+        result_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.entered.set()
+        if not self.release.wait(timeout=2):
+            raise AssertionError("Timed out waiting to release blocking smoke planner.")
+        return super().plan_chart(request, result_schema=result_schema)
+
+
 def configured_real_slice_hass(
     *,
     planner: SlowSmokePlanner,
@@ -175,6 +195,37 @@ def _history_records(entity_id: str) -> list[dict[str, Any]]:
 
 
 class DashboardCardLongRunningSmokeTests(unittest.TestCase):
+    def test_artifact_snapshot_lock_creation_is_single_flight(self):
+        store: dict[str, Any] = {"_artifact_snapshot_locks": {}}
+        barrier = threading.Barrier(12)
+        locks: list[Any] = []
+        errors: list[BaseException] = []
+
+        def get_lock() -> None:
+            try:
+                barrier.wait(timeout=2)
+                locks.append(
+                    job_orchestration_module._artifact_snapshot_lock_for_job(
+                        store,
+                        "job-smoke-001",
+                    )
+                )
+            except BaseException as exc:  # pragma: no cover - re-raised in the test thread.
+                errors.append(exc)
+
+        threads = [threading.Thread(target=get_lock) for _ in range(12)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=2)
+
+        if errors:
+            raise errors[0]
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(len(locks), 12)
+        self.assertEqual(len({id(lock) for lock in locks}), 1)
+        self.assertEqual(list(store["_artifact_snapshot_locks"].keys()), ["job-smoke-001"])
+
     def test_registered_websocket_start_then_snapshot_returns_png_for_card_polling(self):
         planner = SlowSmokePlanner()
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -231,6 +282,187 @@ class DashboardCardLongRunningSmokeTests(unittest.TestCase):
             self.assertEqual(evidence["planner_call_count"], 1)
             self.assertEqual(evidence["approved_entity_ids"], ["sensor.upstairs_temperature"])
             self.assertFalse(snapshot["orchestration"]["worker_called"])
+
+    def test_registered_snapshot_poll_is_single_flight_while_planner_is_running(self):
+        planner = BlockingSmokePlanner()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(planner=planner, artifact_dir=artifact_dir)
+
+            start_message = {
+                "id": 1,
+                "type": COMMAND_START_JOB,
+                "version": INTEGRATION_WS_VERSION,
+                "config_entry_id": entry.entry_id,
+                "prompt": PROMPT,
+            }
+            start = handle_registered_ws_command(hass, start_message)
+            snapshot_message = {
+                "id": 2,
+                "type": COMMAND_GET_SNAPSHOT,
+                "version": INTEGRATION_WS_VERSION,
+                "config_entry_id": entry.entry_id,
+                "job_id": start["snapshot"]["job_id"],
+            }
+            first_result: dict[str, Any] = {}
+
+            def run_first_snapshot() -> None:
+                try:
+                    first_result["snapshot"] = handle_registered_ws_command(hass, snapshot_message)
+                except Exception as exc:  # pragma: no cover - re-raised in the test thread.
+                    first_result["exception"] = exc
+
+            first_thread = threading.Thread(target=run_first_snapshot)
+            first_thread.start()
+            self.assertTrue(planner.entered.wait(timeout=2))
+
+            in_progress = handle_registered_ws_command(
+                hass,
+                {
+                    **snapshot_message,
+                    "id": 3,
+                },
+            )
+
+            planner.release.set()
+            first_thread.join(timeout=10)
+            self.assertFalse(first_thread.is_alive())
+            if "exception" in first_result:
+                raise first_result["exception"]
+            first = first_result["snapshot"]
+
+            final = handle_registered_ws_command(
+                hass,
+                {
+                    **snapshot_message,
+                    "id": 4,
+                },
+            )
+            artifact_id = first["job_orchestration"]["artifact"]["artifact_id"]
+            artifact_path = artifact_dir / f"{artifact_id}.png"
+
+            evidence = {
+                "in_progress_code": in_progress["job_state"]["code"],
+                "in_progress_status": in_progress["snapshot"]["status"],
+                "in_progress_stage": in_progress["snapshot"]["progress"]["stage"],
+                "first_status": first["snapshot"]["status"],
+                "final_status": final["snapshot"]["status"],
+                "planner_call_count": len(planner.calls),
+                "png_signature": list(artifact_path.read_bytes()[:8]),
+            }
+            print("REGISTERED_WS_SINGLE_FLIGHT_EVIDENCE")
+            print(evidence)
+
+            self.assertTrue(start["accepted"], start)
+            self.assertTrue(in_progress["accepted"], in_progress)
+            self.assertEqual(in_progress["job_state"]["code"], "job_orchestration_artifact_snapshot_in_progress")
+            self.assertEqual(in_progress["snapshot"]["status"], "planning")
+            self.assertEqual(first["snapshot"]["status"], "complete")
+            self.assertEqual(final["snapshot"], first["snapshot"])
+            self.assertEqual(len(planner.calls), 1)
+            self.assertEqual(artifact_path.read_bytes()[:8], PNG_SIGNATURE)
+
+    def test_registered_snapshot_poll_rechecks_completed_artifact_after_lock_acquire(self):
+        planner = BlockingSmokePlanner()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(planner=planner, artifact_dir=artifact_dir)
+            start_message = {
+                "id": 1,
+                "type": COMMAND_START_JOB,
+                "version": INTEGRATION_WS_VERSION,
+                "config_entry_id": entry.entry_id,
+                "prompt": PROMPT,
+            }
+            start = handle_registered_ws_command(hass, start_message)
+            snapshot_message = {
+                "id": 2,
+                "type": COMMAND_GET_SNAPSHOT,
+                "version": INTEGRATION_WS_VERSION,
+                "config_entry_id": entry.entry_id,
+                "job_id": start["snapshot"]["job_id"],
+            }
+            original_lock_for_job = job_orchestration_module._artifact_snapshot_lock_for_job
+            lock_call_guard = threading.Lock()
+            lock_call_count = 0
+            second_lookup_paused = threading.Event()
+            allow_second_lookup = threading.Event()
+
+            def delayed_lock_for_job(store: dict[str, Any], job_id: str) -> threading.Lock:
+                nonlocal lock_call_count
+                with lock_call_guard:
+                    lock_call_count += 1
+                    call_number = lock_call_count
+                if call_number == 2:
+                    second_lookup_paused.set()
+                    if not allow_second_lookup.wait(timeout=2):
+                        raise AssertionError("Timed out waiting to resume second lock lookup.")
+                return original_lock_for_job(store, job_id)
+
+            first_result: dict[str, Any] = {}
+            second_result: dict[str, Any] = {}
+
+            def run_first_snapshot() -> None:
+                try:
+                    first_result["snapshot"] = handle_registered_ws_command(hass, snapshot_message)
+                except Exception as exc:  # pragma: no cover - re-raised in the test thread.
+                    first_result["exception"] = exc
+
+            def run_second_snapshot() -> None:
+                try:
+                    second_result["snapshot"] = handle_registered_ws_command(
+                        hass,
+                        {
+                            **snapshot_message,
+                            "id": 3,
+                        },
+                    )
+                except Exception as exc:  # pragma: no cover - re-raised in the test thread.
+                    second_result["exception"] = exc
+
+            job_orchestration_module._artifact_snapshot_lock_for_job = delayed_lock_for_job
+            try:
+                first_thread = threading.Thread(target=run_first_snapshot)
+                first_thread.start()
+                self.assertTrue(planner.entered.wait(timeout=2))
+
+                second_thread = threading.Thread(target=run_second_snapshot)
+                second_thread.start()
+                self.assertTrue(second_lookup_paused.wait(timeout=2))
+
+                planner.release.set()
+                first_thread.join(timeout=10)
+                self.assertFalse(first_thread.is_alive())
+                allow_second_lookup.set()
+                second_thread.join(timeout=10)
+                self.assertFalse(second_thread.is_alive())
+            finally:
+                allow_second_lookup.set()
+                planner.release.set()
+                job_orchestration_module._artifact_snapshot_lock_for_job = original_lock_for_job
+
+            if "exception" in first_result:
+                raise first_result["exception"]
+            if "exception" in second_result:
+                raise second_result["exception"]
+            first = first_result["snapshot"]
+            second = second_result["snapshot"]
+
+            evidence = {
+                "second_job_state_code": second["job_state"]["code"],
+                "first_status": first["snapshot"]["status"],
+                "second_status": second["snapshot"]["status"],
+                "planner_call_count": len(planner.calls),
+                "lock_call_count": lock_call_count,
+            }
+            print("REGISTERED_WS_STALE_LOCK_RECHECK_EVIDENCE")
+            print(evidence)
+
+            self.assertTrue(start["accepted"], start)
+            self.assertEqual(first["snapshot"]["status"], "complete")
+            self.assertEqual(second["job_state"]["code"], "job_orchestration_artifact_snapshot_returned")
+            self.assertEqual(second["snapshot"], first["snapshot"])
+            self.assertEqual(len(planner.calls), 1)
 
 
 if __name__ == "__main__":

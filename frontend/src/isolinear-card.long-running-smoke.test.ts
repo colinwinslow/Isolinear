@@ -104,6 +104,53 @@ function createRejectingHass() {
   return { hass, calls };
 }
 
+function createTimeoutThenCompleteHass() {
+  const calls: Array<Record<string, unknown>> = [];
+  let snapshotPolls = 0;
+  const hass: HomeAssistantLike = {
+    connection: {
+      async sendMessagePromise(message: Record<string, unknown>) {
+        calls.push(message);
+        await sleep(5);
+        if (message.type === ISOLINEAR_COMMANDS.startJob) {
+          return planningSnapshot;
+        }
+        if (message.type === ISOLINEAR_COMMANDS.getSnapshot) {
+          snapshotPolls += 1;
+          if (snapshotPolls === 1) {
+            throw { code: "timeout", message: "Timed out waiting for the job snapshot." };
+          }
+          return completeSnapshot;
+        }
+        throw new Error(`Unexpected Isolinear smoke command: ${message.type}`);
+      },
+    },
+  };
+
+  return { hass, calls };
+}
+
+function createTerminalSnapshotRejectionHass() {
+  const calls: Array<Record<string, unknown>> = [];
+  const hass: HomeAssistantLike = {
+    connection: {
+      async sendMessagePromise(message: Record<string, unknown>) {
+        calls.push(message);
+        await sleep(5);
+        if (message.type === ISOLINEAR_COMMANDS.startJob) {
+          return planningSnapshot;
+        }
+        if (message.type === ISOLINEAR_COMMANDS.getSnapshot) {
+          throw { code: "unknown_job", message: "The Isolinear job was not found." };
+        }
+        throw new Error(`Unexpected Isolinear smoke command: ${message.type}`);
+      },
+    },
+  };
+
+  return { hass, calls };
+}
+
 describe("Isolinear mounted card long-running smoke", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
@@ -224,6 +271,100 @@ describe("Isolinear mounted card long-running smoke", () => {
       SERVED_PNG_URL,
     );
     expect(card.snapshot.validation.status).toBe("pass");
+  });
+
+  it("keeps polling after a transient snapshot timeout and renders the later PNG chart", async () => {
+    const { hass, calls } = createTimeoutThenCompleteHass();
+    const card = new IsolinearCard();
+    card.snapshotPollIntervalMs = 5;
+    document.body.append(card);
+    card.setConfig({
+      type: "custom:isolinear-card",
+      config_entry_id: "real-slice-entry",
+      title: "Isolinear Smoke",
+    });
+    card.hass = hass;
+    await card.updateComplete;
+
+    const input = card.shadowRoot!.querySelector<HTMLTextAreaElement>("[data-testid='prompt-input']")!;
+    input.value = "Show sensor.upstairs_temperature for the last 24 hours";
+    input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    await card.updateComplete;
+
+    const form = card.shadowRoot!.querySelector<HTMLFormElement>("[data-testid='composer']")!;
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true, composed: true }));
+
+    await waitFor(() => card.snapshot.status === "complete");
+    await card.updateComplete;
+
+    const evidence = {
+      command_types: calls.map((call) => call.type),
+      final_status: card.snapshot.status,
+      failure_code: card.snapshot.failure?.code ?? null,
+      chart_image_url_prefix: card
+        .shadowRoot!.querySelector<HTMLImageElement>("[data-testid='chart-image']")!
+        .getAttribute("src")!
+        .slice(0, 24),
+    };
+    console.info("CARD_TRANSIENT_POLL_EVIDENCE", JSON.stringify(evidence, null, 2));
+
+    expect(calls.map((call) => call.type)).toEqual([
+      ISOLINEAR_COMMANDS.startJob,
+      ISOLINEAR_COMMANDS.getSnapshot,
+      ISOLINEAR_COMMANDS.getSnapshot,
+    ]);
+    expect(card.snapshot.status).toBe("complete");
+    expect(card.snapshot.failure).toBeUndefined();
+    expect(card.shadowRoot!.querySelector<HTMLImageElement>("[data-testid='chart-image']")!.getAttribute("src")).toBe(
+      SERVED_PNG_URL,
+    );
+  });
+
+  it("shows a visible failure when snapshot polling receives a terminal Isolinear rejection", async () => {
+    const { hass, calls } = createTerminalSnapshotRejectionHass();
+    const card = new IsolinearCard();
+    card.snapshotPollIntervalMs = 5;
+    document.body.append(card);
+    card.setConfig({
+      type: "custom:isolinear-card",
+      config_entry_id: "real-slice-entry",
+      title: "Isolinear Smoke",
+    });
+    card.hass = hass;
+    await card.updateComplete;
+
+    const input = card.shadowRoot!.querySelector<HTMLTextAreaElement>("[data-testid='prompt-input']")!;
+    input.value = "Show sensor.upstairs_temperature for the last 24 hours";
+    input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    await card.updateComplete;
+
+    const form = card.shadowRoot!.querySelector<HTMLFormElement>("[data-testid='composer']")!;
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true, composed: true }));
+
+    await waitFor(() => card.snapshot.status === "failed");
+    await card.updateComplete;
+
+    expect(calls.map((call) => call.type)).toEqual([
+      ISOLINEAR_COMMANDS.startJob,
+      ISOLINEAR_COMMANDS.getSnapshot,
+    ]);
+    console.info(
+      "CARD_TERMINAL_POLL_FAILURE_EVIDENCE",
+      JSON.stringify(
+        {
+          command_types: calls.map((call) => call.type),
+          final_status: card.snapshot.status,
+          failure_code: card.snapshot.failure?.code ?? null,
+          failure_message: card.snapshot.failure?.message ?? null,
+          failure_details_visible: card.shadowRoot!.querySelector("[data-testid='failure-details']") !== null,
+        },
+        null,
+        2,
+      ),
+    );
+    expect(card.snapshot.failure?.code).toBe("snapshot_poll_failed");
+    expect(card.snapshot.failure?.message).toContain("job");
+    expect(card.shadowRoot!.querySelector("[data-testid='failure-details']")).not.toBeNull();
   });
 
   it("shows a visible failure when prompt submission is rejected", async () => {

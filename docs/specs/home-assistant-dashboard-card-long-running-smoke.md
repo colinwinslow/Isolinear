@@ -51,6 +51,10 @@ The dashboard card must:
 - Disable duplicate prompt submission while an active job is visible.
 - Poll `isolinear/v1/job/snapshot` through the same Home Assistant connection
   when an active snapshot includes a `job_id`.
+- Retry bounded transient snapshot poll failures such as Home Assistant
+  frontend timeouts while the same job remains active.
+- Continue to surface terminal Isolinear snapshot rejections such as
+  `unknown_job` as visible failed dashboard snapshots.
 - Stop polling when the job reaches `complete`, `failed`, or
   `clarification_needed`.
 - Cancel outstanding polling timers when the card disconnects, when a new prompt
@@ -64,7 +68,9 @@ The dashboard card must:
 The registered-command proof must also verify that the same start and snapshot
 command shapes accepted by the card are accepted by the production registered
 WebSocket handler path and return a served PNG artifact URL for the
-first-real-slice route.
+first-real-slice route. It must also prove overlapping snapshot requests while
+planner/render work is already in progress do not start duplicate planner
+calls.
 
 ## Anchor artifact
 
@@ -93,14 +99,22 @@ path without adding a parallel verifier framework.
    first-real-slice snapshot with a PNG signature.
 5. Python smoke proves the planner is called once with only the allowlisted
    entity and the worker is not called.
-6. The checked-in card bundle is rebuilt after the polling change.
+6. Frontend smoke proves a transient snapshot timeout is retried and the later
+   complete snapshot renders, while a terminal Isolinear rejection still
+   renders a visible failure.
+7. Python smoke proves a concurrent snapshot poll during planner work returns
+   the active snapshot, rechecks completed artifacts after acquiring the
+   per-job lock, and the planner is still called only once.
+8. The checked-in card bundle is rebuilt after the polling change.
 
 ## Non-goals
 
 - Real Home Assistant browser automation against a live dashboard URL.
 - New worker/add-on rendering behavior.
 - Durable job or artifact persistence.
-- Automatic retries or subscription streaming changes.
+- Automatic job/provider retry behavior or subscription streaming changes
+  beyond the bounded snapshot transport retry needed for this card poll
+  regression.
 
 ## References
 

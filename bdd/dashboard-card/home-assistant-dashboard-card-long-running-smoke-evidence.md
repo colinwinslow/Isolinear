@@ -4,7 +4,7 @@ Paired BDD:
 `bdd/dashboard-card/home-assistant-dashboard-card-long-running-smoke-bdd.md`
 
 Run date: 2026-06-13
-Regression addendum: 2026-06-15
+Regression addendum: 2026-06-16
 
 ## Scenario A - delayed card prompt reaches chart result
 
@@ -182,7 +182,100 @@ npm: 11.13.0
 
 
  Test Files  2 passed (2)
-      Tests  9 passed (9)
-   Start at  11:54:59
-   Duration  3.53s (transform 180ms, setup 0ms, import 389ms, tests 111ms, environment 2.04s)
+      Tests  11 passed (11)
+   Start at  14:39:53
+   Duration  3.09s (transform 188ms, setup 0ms, import 370ms, tests 217ms, environment 1.58s)
+```
+
+## Regression Addendum - 2026-06-16 Transient Snapshot Polling
+
+Command:
+
+```powershell
+.\scripts\frontend.ps1 test -- --reporter=verbose --silent=false src/isolinear-card.long-running-smoke.test.ts
+```
+
+Raw output:
+
+```text
+Node: v24.16.0
+npm: 11.13.0
+
+> test
+> vitest run --reporter=verbose --silent=false src/isolinear-card.long-running-smoke.test.ts
+
+
+ RUN  v4.1.8 C:/Users/c.winslow/OneDrive - Kagwerks/Documents/Repos/Isolinear/frontend
+
+stdout | src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > polls job/snapshot until a delayed prompt renders a PNG chart
+CARD_SMOKE_EVIDENCE {
+  "command_types": [
+    "isolinear/v1/job/start",
+    "isolinear/v1/job/snapshot"
+  ],
+  "final_status": "complete",
+  "final_layout": "chart-first",
+  "chart_image_url_prefix": "/api/isolinear/artifacts",
+  "validation_status": "pass",
+  "submit_disabled_during_active_job": true
+}
+
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > uses automatic config-entry resolution in the picker stub config 2ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > normalizes the legacy fake config entry placeholder to auto 35ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > shows auto in the editor when Home Assistant passes the legacy fake config entry placeholder 2ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > polls job/snapshot until a delayed prompt renders a PNG chart 45ms
+stdout | src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > keeps polling after a transient snapshot timeout and renders the later PNG chart
+CARD_TRANSIENT_POLL_EVIDENCE {
+  "command_types": [
+    "isolinear/v1/job/start",
+    "isolinear/v1/job/snapshot",
+    "isolinear/v1/job/snapshot"
+  ],
+  "final_status": "complete",
+  "failure_code": null,
+  "chart_image_url_prefix": "/api/isolinear/artifacts"
+}
+
+stdout | src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > shows a visible failure when snapshot polling receives a terminal Isolinear rejection
+CARD_TERMINAL_POLL_FAILURE_EVIDENCE {
+  "command_types": [
+    "isolinear/v1/job/start",
+    "isolinear/v1/job/snapshot"
+  ],
+  "final_status": "failed",
+  "failure_code": "snapshot_poll_failed",
+  "failure_message": "The Isolinear job was not found.",
+  "failure_details_visible": true
+}
+
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > keeps polling after a transient snapshot timeout and renders the later PNG chart 75ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > shows a visible failure when snapshot polling receives a terminal Isolinear rejection 44ms
+ ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > shows a visible failure when prompt submission is rejected 15ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  14:38:45
+   Duration  3.51s (transform 162ms, setup 0ms, import 328ms, tests 220ms, environment 1.92s)
+
+stderr | src/isolinear-card.long-running-smoke.test.ts
+Lit is in dev mode. Not recommended for production! See https://lit.dev/msg/dev-mode for more information.
+```
+
+Command:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_dashboard_card_long_running_smoke.py -q -s
+```
+
+Raw output:
+
+```text
+.REGISTERED_WS_SINGLE_FLIGHT_EVIDENCE
+{'in_progress_code': 'job_orchestration_artifact_snapshot_in_progress', 'in_progress_status': 'planning', 'in_progress_stage': 'job_orchestration_scaffold_ready', 'first_status': 'complete', 'final_status': 'complete', 'planner_call_count': 1, 'png_signature': [137, 80, 78, 71, 13, 10, 26, 10]}
+.REGISTERED_WS_STALE_LOCK_RECHECK_EVIDENCE
+{'second_job_state_code': 'job_orchestration_artifact_snapshot_returned', 'first_status': 'complete', 'second_status': 'complete', 'planner_call_count': 1, 'lock_call_count': 2}
+.REGISTERED_WS_SMOKE_EVIDENCE
+{'prompt': 'Show sensor.upstairs_temperature for the last 24 hours', 'elapsed_ms': 400, 'command_types': ['isolinear/v1/job/start', 'isolinear/v1/job/snapshot'], 'start_status': 'planning', 'snapshot_status': 'complete', 'artifact_url': '/api/isolinear/artifacts/real-slice-entry-artifact-001.png', 'artifact_path': 'C:\\Users\\C12BA~1.WIN\\AppData\\Local\\Temp\\tmp6ei9xunt\\real-slice-entry-artifact-001.png', 'png_signature': [137, 80, 78, 71, 13, 10, 26, 10], 'planner_call_count': 1, 'approved_entity_ids': ['sensor.upstairs_temperature'], 'orchestration': {'worker_called': False, 'model_provider_called': True, 'home_assistant_history_called': False, 'semantic_memory_called': False, 'home_assistant_service_or_state_mutation_called': False, 'token_generated': False, 'chart_artifact_written': True, 'chart_rendering_called': True, 'durable_storage_written': False, 'retry_behavior_called': False, 'subscription_progress_streaming_called': False, 'worker_progress_streaming_called': False, 'automatic_progress_task_called': False, 'job_orchestration_called': False, 'model_provider_retry_policy_bookkeeping_written': False, 'approved_entity_catalog_read': False, 'home_assistant_history_read': False, 'history_retrieval_scaffold_written': False, 'job_state_scaffold_written': True, 'job_orchestration_scaffold_written': True, 'subscription_bookkeeping_written': False, 'artifact_metadata_bookkeeping_written': True, 'render_plan_bookkeeping_written': True, 'model_provider_plan_bookkeeping_written': True, 'worker_dispatch_bookkeeping_written': False, 'worker_progress_bookkeeping_written': False, 'worker_retry_policy_bookkeeping_written': False, 'worker_transport_failure_classification_bookkeeping_written': False, 'websocket_command_registered': False}}
+.
+4 passed in 5.68s
 ```

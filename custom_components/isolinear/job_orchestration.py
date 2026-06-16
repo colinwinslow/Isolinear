@@ -6,6 +6,7 @@ import base64
 import binascii
 import json
 import re
+import threading
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -81,6 +82,8 @@ RENDER_REQUEST_SCHEMA_PATH = schema_path("render-request.schema.json")
 RENDER_RESULT_SCHEMA_PATH = schema_path("render-result.schema.json")
 PLANNER_RESULT_SCHEMA_PATH = schema_path("planner-result.schema.json")
 CHART_SPEC_SCHEMA_PATH = schema_path("chart-spec.schema.json")
+THREAD_LOCK_TYPE = type(threading.Lock())
+ARTIFACT_SNAPSHOT_LOCKS_GUARD = threading.Lock()
 
 ENTITY_ID_IN_PROMPT = re.compile(r"\b[a-z0-9_]+\.[a-z0-9_]+\b")
 FORBIDDEN_WORKER_PROGRESS_TEXT = re.compile(
@@ -191,6 +194,7 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         store.setdefault("worker_transport_failure_classification_order", [])
         store.setdefault("latest_worker_transport_failure_classification", None)
         store.setdefault("worker_transport_failure_classification_ids_by_job_id", {})
+        store.setdefault("_artifact_snapshot_locks", {})
         return store
 
     store = {
@@ -243,6 +247,7 @@ def ensure_job_orchestration_store(hass: Any, entry_id: str) -> dict[str, Any]:
         "worker_transport_failure_classification_order": [],
         "latest_worker_transport_failure_classification": None,
         "worker_transport_failure_classification_ids_by_job_id": {},
+        "_artifact_snapshot_locks": {},
     }
     entry_data[DATA_JOB_ORCHESTRATION] = store
     return store
@@ -937,12 +942,119 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
             job_orchestration_written=False,
         )
 
+    planning_lock = _artifact_snapshot_lock_for_job(store, job["job_id"])
+    if not planning_lock.acquire(blocking=False):
+        return _accepted_artifact_snapshot(
+            "job_orchestration_artifact_snapshot_in_progress",
+            command,
+            latest_snapshot,
+            artifact=existing_artifact,
+            render_plan=existing_render_plan,
+            model_provider_plan=existing_model_provider_plan,
+            worker_dispatch=existing_worker_dispatch,
+            worker_progress_events=existing_worker_progress_events,
+            artifact_metadata_written=False,
+            render_plan_written=False,
+            model_provider_plan_written=False,
+            worker_dispatch_written=False,
+            worker_progress_written=False,
+            worker_progress_streaming_called=False,
+            model_provider_called=False,
+            worker_called=False,
+            chart_rendering_called=False,
+            job_state_written=False,
+            job_orchestration_written=False,
+        )
+
+    try:
+        latest_snapshot = job.get("latest_snapshot")
+        validation = validate_job_snapshot_contract(latest_snapshot)
+        if not validation["accepted"]:
+            result = _orchestration_rejection("invalid_integration_job_snapshot", job_id=command.get("job_id"))
+            result["validation"] = validation
+            return result
+
+        existing_artifact = _artifact_for_job(store, job["job_id"])
+        existing_render_plan = _render_plan_for_job(store, job["job_id"])
+        existing_model_provider_plan = _model_provider_plan_for_job(store, job["job_id"])
+        existing_worker_dispatch = _worker_dispatch_for_job(store, job["job_id"])
+        existing_worker_progress_events = _worker_progress_events_for_job(store, job["job_id"])
+        if existing_artifact is not None and _is_artifact_complete_snapshot(latest_snapshot, existing_artifact):
+            return _accepted_artifact_snapshot(
+                "job_orchestration_artifact_snapshot_returned",
+                command,
+                latest_snapshot,
+                artifact=existing_artifact,
+                render_plan=existing_render_plan,
+                model_provider_plan=existing_model_provider_plan,
+                worker_dispatch=existing_worker_dispatch,
+                worker_progress_events=existing_worker_progress_events,
+                artifact_metadata_written=False,
+                render_plan_written=False,
+                model_provider_plan_written=False,
+                worker_dispatch_written=False,
+                worker_progress_written=False,
+                worker_progress_streaming_called=False,
+                model_provider_called=False,
+                worker_called=False,
+                chart_rendering_called=False,
+                job_state_written=False,
+                job_orchestration_written=False,
+            )
+
+        if not _is_artifact_source_snapshot(latest_snapshot):
+            snapshot_result = handle_job_state_ws_command(hass, command)
+            if not snapshot_result["accepted"]:
+                return snapshot_result
+            return _accepted_artifact_snapshot(
+                "job_orchestration_snapshot_returned_without_artifact",
+                command,
+                snapshot_result["snapshot"],
+                artifact=None,
+                render_plan=existing_render_plan,
+                model_provider_plan=existing_model_provider_plan,
+                worker_dispatch=existing_worker_dispatch,
+                worker_progress_events=existing_worker_progress_events,
+                artifact_metadata_written=False,
+                render_plan_written=False,
+                model_provider_plan_written=False,
+                worker_dispatch_written=False,
+                worker_progress_written=False,
+                worker_progress_streaming_called=False,
+                model_provider_called=False,
+                worker_called=False,
+                chart_rendering_called=False,
+                job_state_written=False,
+                job_orchestration_written=False,
+            )
+
+        return _record_artifact_snapshot_for_source(
+            hass,
+            command,
+            entry_id=entry_id,
+            store=store,
+            job=job,
+            source_snapshot=latest_snapshot,
+        )
+    finally:
+        planning_lock.release()
+
+
+def _record_artifact_snapshot_for_source(
+    hass: Any,
+    command: dict[str, Any],
+    *,
+    entry_id: str,
+    store: dict[str, Any],
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+) -> dict[str, Any]:
     planning_result = _record_artifact_and_render_plan(
         store,
         hass=hass,
         entry_id=entry_id,
         job=job,
-        source_snapshot=latest_snapshot,
+        source_snapshot=source_snapshot,
     )
     if not planning_result["accepted"]:
         model_provider_failure_snapshot = _append_model_provider_failure_snapshot_from_planning_result(
@@ -4438,6 +4550,16 @@ def _artifact_for_job(store: dict[str, Any], job_id: str) -> dict[str, Any] | No
     artifact_id = store.get("artifact_by_job_id", {}).get(job_id)
     artifact = store.get("artifact_metadata", {}).get(artifact_id)
     return deepcopy(artifact) if isinstance(artifact, dict) else None
+
+
+def _artifact_snapshot_lock_for_job(store: dict[str, Any], job_id: str) -> threading.Lock:
+    with ARTIFACT_SNAPSHOT_LOCKS_GUARD:
+        locks = store.setdefault("_artifact_snapshot_locks", {})
+        lock = locks.get(job_id)
+        if not isinstance(lock, THREAD_LOCK_TYPE):
+            lock = threading.Lock()
+            locks[job_id] = lock
+        return lock
 
 
 def _render_plan_for_job(store: dict[str, Any], job_id: str) -> dict[str, Any] | None:

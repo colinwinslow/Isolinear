@@ -25,6 +25,10 @@ Run date: 2026-06-16
 - Scenario H - live regression path: read-only config data keeps planner
   configured:
   `test_real_slice_home_assistant_mapping_config_data_configures_planner_and_serves_png`
+- Scenario I - live regression path: overlapping snapshot polls are
+  single-flight:
+  `test_registered_snapshot_poll_is_single_flight_while_planner_is_running` and
+  `test_registered_snapshot_poll_rechecks_completed_artifact_after_lock_acquire`
 - Real-render guard - missing planner fails before placeholder artifact storage:
   `test_real_slice_missing_planner_fails_before_placeholder_artifact_storage`
 
@@ -170,4 +174,25 @@ CARD_SMOKE_EVIDENCE {
 
 stderr | src/isolinear-card.long-running-smoke.test.ts
 Lit is in dev mode. Not recommended for production! See https://lit.dev/msg/dev-mode for more information.
+```
+
+## Scenario I - overlapping snapshot polls stay single-flight
+
+Command:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_dashboard_card_long_running_smoke.py -q -s
+```
+
+Raw output:
+
+```text
+.REGISTERED_WS_SINGLE_FLIGHT_EVIDENCE
+{'in_progress_code': 'job_orchestration_artifact_snapshot_in_progress', 'in_progress_status': 'planning', 'in_progress_stage': 'job_orchestration_scaffold_ready', 'first_status': 'complete', 'final_status': 'complete', 'planner_call_count': 1, 'png_signature': [137, 80, 78, 71, 13, 10, 26, 10]}
+.REGISTERED_WS_STALE_LOCK_RECHECK_EVIDENCE
+{'second_job_state_code': 'job_orchestration_artifact_snapshot_returned', 'first_status': 'complete', 'second_status': 'complete', 'planner_call_count': 1, 'lock_call_count': 2}
+.REGISTERED_WS_SMOKE_EVIDENCE
+{'prompt': 'Show sensor.upstairs_temperature for the last 24 hours', 'elapsed_ms': 400, 'command_types': ['isolinear/v1/job/start', 'isolinear/v1/job/snapshot'], 'start_status': 'planning', 'snapshot_status': 'complete', 'artifact_url': '/api/isolinear/artifacts/real-slice-entry-artifact-001.png', 'artifact_path': 'C:\\Users\\C12BA~1.WIN\\AppData\\Local\\Temp\\tmp6ei9xunt\\real-slice-entry-artifact-001.png', 'png_signature': [137, 80, 78, 71, 13, 10, 26, 10], 'planner_call_count': 1, 'approved_entity_ids': ['sensor.upstairs_temperature'], 'orchestration': {'worker_called': False, 'model_provider_called': True, 'home_assistant_history_called': False, 'semantic_memory_called': False, 'home_assistant_service_or_state_mutation_called': False, 'token_generated': False, 'chart_artifact_written': True, 'chart_rendering_called': True, 'durable_storage_written': False, 'retry_behavior_called': False, 'subscription_progress_streaming_called': False, 'worker_progress_streaming_called': False, 'automatic_progress_task_called': False, 'job_orchestration_called': False, 'model_provider_retry_policy_bookkeeping_written': False, 'approved_entity_catalog_read': False, 'home_assistant_history_read': False, 'history_retrieval_scaffold_written': False, 'job_state_scaffold_written': True, 'job_orchestration_scaffold_written': True, 'subscription_bookkeeping_written': False, 'artifact_metadata_bookkeeping_written': True, 'render_plan_bookkeeping_written': True, 'model_provider_plan_bookkeeping_written': True, 'worker_dispatch_bookkeeping_written': False, 'worker_progress_bookkeeping_written': False, 'worker_retry_policy_bookkeeping_written': False, 'worker_transport_failure_classification_bookkeeping_written': False, 'websocket_command_registered': False}}
+.
+4 passed in 5.68s
 ```

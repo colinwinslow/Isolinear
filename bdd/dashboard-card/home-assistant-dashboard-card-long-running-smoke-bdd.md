@@ -56,6 +56,25 @@ placeholder from an earlier dashboard-card bundle
 **And** the card should send `config_entry_id: auto` through the versioned
 WebSocket command instead of preserving the obsolete placeholder.
 
+### Scenario E - regression: transient snapshot timeout keeps polling
+
+**Given** the dashboard card has an active planning snapshot for a job
+**And** the first `isolinear/v1/job/snapshot` poll rejects with a transient
+timeout
+**When** a later snapshot poll returns a `complete` served PNG artifact snapshot
+**Then** the card should keep polling instead of switching to a local
+`snapshot_poll_failed` state
+**And** the final card state should be `complete` with the served PNG artifact
+URL visible.
+
+### Scenario F - boundary: terminal snapshot rejection remains visible
+
+**Given** the dashboard card has an active planning snapshot for a job
+**When** `isolinear/v1/job/snapshot` rejects with a terminal Isolinear command
+error such as `unknown_job`
+**Then** the card should render a visible failed dashboard snapshot
+**And** the failure message should preserve the terminal rejection context.
+
 ## Evidence
 
 The implementing slice produces an evidence file at

@@ -38,6 +38,15 @@ const ACTIVE_JOB_STATUSES = new Set<IsolinearJobSnapshot["status"]>([
 const CONFIG_ENTRY_AUTO = "auto";
 const LEGACY_CONFIG_ENTRY_PLACEHOLDER = "fake-config-entry";
 const SNAPSHOT_POLL_INTERVAL_MS = 1000;
+const MAX_TRANSIENT_SNAPSHOT_POLL_FAILURES = 6;
+const TRANSIENT_SNAPSHOT_POLL_ERROR_CODES = new Set([
+  "connection_closed",
+  "connection_error",
+  "connection_lost",
+  "disconnected",
+  "request_timeout",
+  "timeout",
+]);
 
 function validateConfig(config: Partial<IsolinearCardConfig> | undefined): IsolinearCardConfig {
   if (!config || config.type !== "custom:isolinear-card") {
@@ -75,6 +84,29 @@ function messageFromError(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function codeFromError(error: unknown): string | undefined {
+  if (typeof error === "object" && error !== null) {
+    const maybe = error as { code?: unknown };
+    if (typeof maybe.code === "string" && maybe.code.trim()) {
+      return maybe.code.trim().toLowerCase();
+    }
+  }
+  return undefined;
+}
+
+function messageLooksTransient(error: unknown): boolean {
+  const message = messageFromError(error, "").toLowerCase();
+  return message.includes("timeout") || message.includes("timed out") || message.includes("connection");
+}
+
+function isTransientSnapshotPollError(error: unknown): boolean {
+  const code = codeFromError(error);
+  if (!code) {
+    return messageLooksTransient(error);
+  }
+  return TRANSIENT_SNAPSHOT_POLL_ERROR_CODES.has(code) || code.includes("timeout");
+}
+
 function statusLayout(status: IsolinearJobSnapshot["status"]): string {
   if (status === "idle") {
     return "prompt-first";
@@ -103,6 +135,7 @@ export class IsolinearCard extends LitElement {
 
   private pollTimer?: number;
   private pollGeneration = 0;
+  private transientSnapshotPollFailures = 0;
 
   public static getConfigElement(): HTMLElement {
     return document.createElement("isolinear-card-editor");
@@ -357,6 +390,7 @@ export class IsolinearCard extends LitElement {
 
     this.cancelSnapshotPolling();
     this.pollGeneration += 1;
+    this.transientSnapshotPollFailures = 0;
     this.scheduleSnapshotPoll(this.pollGeneration);
   }
 
@@ -385,8 +419,14 @@ export class IsolinearCard extends LitElement {
 
     try {
       this.snapshot = await createIsolinearApi(this.hass, this.config).getSnapshot(this.snapshot.job_id);
+      this.transientSnapshotPollFailures = 0;
       this.notifyCallsChanged();
     } catch (error) {
+      if (this.shouldRetrySnapshotPoll(error)) {
+        this.transientSnapshotPollFailures += 1;
+        this.scheduleSnapshotPoll(generation);
+        return;
+      }
       this.snapshot = this.snapshotPollingFailure(error);
       this.notifyCallsChanged();
       return;
@@ -403,6 +443,16 @@ export class IsolinearCard extends LitElement {
       window.clearTimeout(this.pollTimer);
       this.pollTimer = undefined;
     }
+    this.transientSnapshotPollFailures = 0;
+  }
+
+  private shouldRetrySnapshotPoll(error: unknown): boolean {
+    return (
+      this.transientSnapshotPollFailures < MAX_TRANSIENT_SNAPSHOT_POLL_FAILURES &&
+      isTransientSnapshotPollError(error) &&
+      !!this.snapshot.job_id &&
+      ACTIVE_JOB_STATUSES.has(this.snapshot.status)
+    );
   }
 
   private snapshotPollingFailure(error: unknown): IsolinearJobSnapshot {

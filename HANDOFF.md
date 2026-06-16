@@ -259,6 +259,19 @@ Model-provider planner setup accepts mapping-like config-entry data, and
 focused production artifact-serving coverage proves `mappingproxy` config data
 configures the planner and completes with a served PNG artifact.
 
+The live `0.1.11` HACS retest then showed the selected clarification entity
+reached `job_orchestration_clarification_continuation_ready` and appeared to
+start the Ollama planner, but the dashboard card later switched to a local
+`SNAPSHOT_POLL_FAILED` state while waiting for `job/snapshot`. The repository
+is now ready for live HACS retest as version `0.1.12`. The dashboard card now
+retries bounded transient snapshot poll failures such as Home Assistant
+frontend timeouts while keeping terminal Isolinear rejections visible, and the
+backend snapshot artifact/render path now has per-job single-flight protection:
+overlapping snapshot polls during planner/render work return the current active
+planning snapshot with `job_orchestration_artifact_snapshot_in_progress`
+instead of starting duplicate planner calls. Later snapshot polls reuse the
+completed served PNG artifact.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -962,9 +975,9 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Run the live HACS `0.1.11` dashboard verification. Redownload Isolinear through
+Run the live HACS `0.1.12` dashboard verification. Redownload Isolinear through
 HACS, restart Home Assistant, recreate the dashboard card, and confirm the
-registered Lovelace resource URL includes `?v=0.1.11` while the picker/editor
+registered Lovelace resource URL includes `?v=0.1.12` while the picker/editor
 shows `config_entry_id: auto`, including when Home Assistant had previously
 handed the card the old `fake-config-entry` placeholder. Confirm a stored
 allowlist reopens through the multi-entity selector with the exact selected
@@ -976,6 +989,12 @@ Then run both the explicit served-artifact prompt path and the ambiguous
 clarification-answer path against real Home Assistant sensor history and the
 configured Ollama planner, using the WebSocket decision observability to
 capture accept/reject evidence if the card cannot start a job.
+If the card remains on `job_orchestration_clarification_continuation_ready`
+while Ollama is busy, wait for subsequent snapshot polls; transient frontend
+snapshot timeouts should no longer replace the active job with
+`SNAPSHOT_POLL_FAILED`. If overlapping polls are observed, the registered
+response may report `job_orchestration_artifact_snapshot_in_progress` until the
+first planner/render request finishes.
 If the card reports an approved-entity failure, inspect the configured
 allowlist, runtime options-update listener, and entity catalog setup result
 rather than treating it as a future-orchestration placeholder.

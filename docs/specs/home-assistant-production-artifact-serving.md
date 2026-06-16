@@ -61,6 +61,10 @@ The production artifact-serving slice must:
 - Keep idempotence: repeated snapshot requests for a completed job reuse the
   same complete snapshot, artifact metadata, and on-disk PNG path without
   calling the planner or renderer again.
+- Keep snapshot planning single-flight per job: if a second snapshot request
+  arrives while planner/render/artifact work is already in progress for that
+  job, return the current active snapshot without calling the planner, renderer,
+  worker, or artifact writer again.
 - Preserve the existing hidden-entity failure path: planner output that
   references a non-allowlisted entity fails before rendering, artifact file
   write, artifact metadata storage, or complete snapshot storage.
@@ -128,7 +132,12 @@ served from `/api/isolinear/artifacts`.
     before artifact metadata storage instead of creating placeholder success.
 11. Focused pytest proves Home Assistant read-only mapping config-entry data
     configures the planner and completes with a served PNG artifact URL.
-12. Evidence contains raw command/result snippets, artifact path/URL, and PNG
+12. Focused registered-command smoke proves overlapping snapshot requests while
+    planner work is in progress return the active snapshot and do not duplicate
+    planner calls, including the stale-read window where the first request
+    completes after a second request reads the active snapshot but before it
+    acquires the per-job lock.
+13. Evidence contains raw command/result snippets, artifact path/URL, and PNG
    signature bytes.
 
 ## Non-goals
