@@ -79,7 +79,13 @@ Registration must:
   must not include prompts, tokens, endpoints, raw history, generated code, or
   generated image bytes.
 - Return the existing scaffold `IntegrationJobSnapshot` payload for accepted
-  commands until a later orchestration packet replaces the scaffold behavior.
+  commands only when the config entry has not completed the orchestration setup
+  boundary.
+- Once a config entry has completed the orchestration setup boundary, route
+  registered commands through orchestration even when the approved entity
+  catalog is empty or unavailable, so the card receives a deterministic
+  approved-entity failure instead of the obsolete
+  `orchestration_not_implemented` job-state scaffold snapshot.
 - Send a structured WebSocket error for invalid command payloads, unsupported
   versions, forbidden card boundary material, or missing config-entry scope.
 
@@ -93,11 +99,14 @@ Allowed side effects for this packet are limited to:
   observability surface.
 - Returning or erroring a WebSocket response for the current command.
 
-The registration boundary must report that no worker, model-provider, Home
-Assistant history, semantic-memory, Home Assistant service/device/state
-mutation, token-generation, job-orchestration, or dashboard-resource metadata
-write occurred. It must separately report WebSocket command registration as the
-allowed Home Assistant registration side effect for this packet.
+Pure registration and registered commands for entries that have not completed
+orchestration setup must report that no worker, model-provider, Home Assistant
+history, semantic-memory, Home Assistant service/device/state mutation,
+token-generation, job-orchestration, or dashboard-resource metadata write
+occurred. Commands for entries that have completed orchestration setup may
+report bounded orchestration bookkeeping while still failing closed before
+history, planning, rendering, worker, or mutation-capable code when the
+approved catalog is empty/unavailable.
 
 ## Anchor Artifact
 
@@ -143,19 +152,28 @@ side-effect boundaries against fake Home Assistant objects.
 9. Evidence confirms registered command accept/reject decisions are observable
    with command type, requested config-entry ID, resolved config-entry ID, and
    decision code.
-10. Evidence confirms repeated setup does not duplicate WebSocket command
+10. Evidence confirms a registered `job/start` command for an entry that has
+   completed orchestration setup but has no approved catalog routes to a failed
+   orchestration snapshot, not the job-state scaffold's
+   `orchestration_not_implemented` placeholder.
+11. Evidence confirms registered follow-up commands for an entry that has
+   completed orchestration setup route to orchestration's config-entry/job
+   boundary and fail unknown jobs without returning job-state scaffold
+   snapshots.
+12. Evidence confirms repeated setup does not duplicate WebSocket command
    registration.
-11. Evidence confirms no worker, model provider, Home Assistant history,
-   semantic-memory, Home Assistant service/device/state mutation,
-   token-generation, job orchestration, or dashboard-resource metadata write is
-   part of this command registration boundary.
-12. Real artifacts are verified on disk: production WebSocket module,
+13. Evidence confirms pure registration and registered commands without
+   orchestration setup do not call the worker, model provider, Home Assistant
+   history, semantic-memory, Home Assistant service/device/state mutation,
+   token generation, job orchestration, or dashboard-resource metadata writes.
+14. Real artifacts are verified on disk: production WebSocket module,
    integration setup call, BDD, eval outline, tests, eval, and evidence.
 
 ## Non-Goals
 
-- Job orchestration, subscriptions, progress streaming, retries, or artifact
-  storage beyond returning scaffold snapshots.
+- Adding new job orchestration, subscription, progress streaming, retry, or
+  artifact-storage capabilities beyond routing registered commands to already
+  established boundaries.
 - Home Assistant history access or entity catalog construction.
 - Model-provider calls.
 - Worker HTTP calls, worker token generation, rotation, storage, or repair UI.

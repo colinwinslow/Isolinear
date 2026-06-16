@@ -255,6 +255,13 @@ def has_enabled_job_orchestration(hass: Any, entry_id: str) -> bool:
     return isinstance(setup, dict) and setup.get("enabled") is True
 
 
+def has_job_orchestration_setup(hass: Any, entry_id: str) -> bool:
+    """Return whether a config entry completed the orchestration setup boundary."""
+    entry_data = getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {})
+    setup = entry_data.get(DATA_JOB_ORCHESTRATION_SETUP) if isinstance(entry_data, dict) else None
+    return isinstance(setup, dict)
+
+
 def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]) -> dict[str, Any]:
     """Compose job state, approved catalog, and approved history for job/start."""
     if command["type"] != INTEGRATION_COMMAND_TYPES["start_job"]:

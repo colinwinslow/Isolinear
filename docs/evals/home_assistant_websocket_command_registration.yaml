@@ -26,6 +26,9 @@ expect:
   auto_config_entry_resolves_single_registry_entry: true
   auto_config_entry_rejects_multiple_runtime_entries: true
   auto_config_entry_rejects_multiple_registry_entries: true
+  configured_orchestration_empty_catalog_routes_to_orchestration_failure: true
+  configured_orchestration_empty_catalog_does_not_return_orchestration_not_implemented: true
+  configured_orchestration_followup_unknown_jobs_fail_at_orchestration_boundary: true
   websocket_decision_observability:
     fields:
       - command_type
@@ -41,6 +44,7 @@ expect:
       - generated_code
       - generated_image
   repeated_setup_duplicate_count: 0
+  non_orchestrating_side_effect_scope: registered commands before orchestration setup exists
   worker_called: false
   model_provider_called: false
   home_assistant_history_called: false

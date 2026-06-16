@@ -18,6 +18,7 @@ from custom_components.isolinear.dashboard_resource import (
     CARD_RESOURCE_TYPE,
     CARD_RESOURCE_URL,
 )
+from custom_components.isolinear.job_orchestration import DATA_JOB_ORCHESTRATION_SETUP
 from custom_components.isolinear.websocket_api import (
     DATA_WEBSOCKET_API_MODULE,
     DATA_WEBSOCKET_OBSERVABILITY,
@@ -425,6 +426,89 @@ def verify_auto_config_entry_resolution() -> dict[str, Any]:
     }
 
 
+def verify_configured_orchestration_does_not_return_job_state_scaffold() -> dict[str, Any]:
+    hass = FakeHass()
+    hass.data[DOMAIN]["fake-config-entry"][DATA_JOB_ORCHESTRATION_SETUP] = {
+        "accepted": True,
+        "code": "job_orchestration_ready",
+        "enabled": False,
+        "approved_entity_ids": [],
+    }
+    command = {
+        "id": 54,
+        "type": INTEGRATION_COMMAND_TYPES["start_job"],
+        "version": INTEGRATION_WS_VERSION,
+        "config_entry_id": CONFIG_ENTRY_AUTO,
+        "prompt": "Show the family room temperature",
+    }
+    result = handle_registered_ws_command(hass, command)
+    snapshot = result.get("snapshot", {})
+    return {
+        "command": command,
+        "result": result,
+        "snapshot_status": snapshot.get("status"),
+        "failure_code": snapshot.get("failure", {}).get("code") if isinstance(snapshot, dict) else None,
+        "warnings": snapshot.get("warnings", []) if isinstance(snapshot, dict) else [],
+    }
+
+
+def verify_configured_orchestration_followup_commands_route_to_orchestration() -> dict[str, Any]:
+    hass = FakeHass()
+    hass.data[DOMAIN]["fake-config-entry"][DATA_JOB_ORCHESTRATION_SETUP] = {
+        "accepted": True,
+        "code": "job_orchestration_ready",
+        "enabled": False,
+        "approved_entity_ids": [],
+    }
+    commands = {
+        "answer_clarification": {
+            "id": 55,
+            "type": INTEGRATION_COMMAND_TYPES["answer_clarification"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": CONFIG_ENTRY_AUTO,
+            "job_id": "missing-job",
+            "question_id": "select_approved_entity",
+            "option_id": "sensor.family_room_sensor_temperature",
+            "remember": False,
+        },
+        "retry_job": {
+            "id": 56,
+            "type": INTEGRATION_COMMAND_TYPES["retry_job"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": CONFIG_ENTRY_AUTO,
+            "job_id": "missing-job",
+        },
+        "get_snapshot": {
+            "id": 57,
+            "type": INTEGRATION_COMMAND_TYPES["get_snapshot"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": CONFIG_ENTRY_AUTO,
+            "job_id": "missing-job",
+        },
+        "subscribe_job": {
+            "id": 58,
+            "type": INTEGRATION_COMMAND_TYPES["subscribe_job"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": CONFIG_ENTRY_AUTO,
+            "job_id": "missing-job",
+        },
+    }
+    results = {
+        name: handle_registered_ws_command(hass, command)
+        for name, command in commands.items()
+    }
+    return {
+        "commands": commands,
+        "results": results,
+        "all_rejected": all(not result["accepted"] for result in results.values()),
+        "codes": {name: result["code"] for name, result in results.items()},
+        "snapshots_returned": {
+            name: "snapshot" in result
+            for name, result in results.items()
+        },
+    }
+
+
 def verify_websocket_observability() -> dict[str, Any]:
     hass = FakeHass()
     accepted_command = {
@@ -573,6 +657,8 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
     missing_scope = verify_missing_config_entry_rejection()
     routing_schema = verify_home_assistant_routing_schema_accepts_card_payload()
     auto_resolution = verify_auto_config_entry_resolution()
+    configured_orchestration = verify_configured_orchestration_does_not_return_job_state_scaffold()
+    configured_followups = verify_configured_orchestration_followup_commands_route_to_orchestration()
     observability = verify_websocket_observability()
     idempotence = verify_idempotent_command_registration()
     side_effects = verify_websocket_registration_side_effects()
@@ -606,6 +692,18 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
         failures.append("The auto config-entry sentinel did not resolve the registry fallback entry.")
     if auto_resolution["registry_multiple_entries"]["result"]["accepted"]:
         failures.append("The auto config-entry registry fallback accepted an ambiguous setup.")
+    if not configured_orchestration["result"]["accepted"]:
+        failures.append("Configured orchestration regression command was rejected.")
+    if configured_orchestration["snapshot_status"] != "failed":
+        failures.append("Configured orchestration regression did not return a failed orchestration snapshot.")
+    if "orchestration_not_implemented" in configured_orchestration["warnings"]:
+        failures.append("Configured orchestration regression fell back to the job-state scaffold.")
+    if not configured_followups["all_rejected"]:
+        failures.append("Configured orchestration follow-up commands did not fail closed.")
+    if any(code != "unknown_job" for code in configured_followups["codes"].values()):
+        failures.append("Configured orchestration follow-up commands did not route to the unknown-job boundary.")
+    if any(configured_followups["snapshots_returned"].values()):
+        failures.append("Configured orchestration follow-up commands returned job-state snapshots.")
     if observability["event_count"] != 2:
         failures.append("Registered WebSocket decisions were not recorded for observability.")
     if idempotence["duplicate_count"] != 0:
@@ -626,6 +724,8 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
         "missing_scope": missing_scope,
         "routing_schema": routing_schema,
         "auto_resolution": auto_resolution,
+        "configured_orchestration": configured_orchestration,
+        "configured_followups": configured_followups,
         "observability": observability,
         "idempotence": idempotence,
         "side_effects": side_effects,

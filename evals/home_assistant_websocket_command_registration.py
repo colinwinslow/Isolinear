@@ -134,6 +134,39 @@ def main():
     )
 
     print_case(
+        "configured_orchestration_does_not_return_job_state_scaffold",
+        given={
+            "live_regression": (
+                "A HACS-installed card command reached Isolinear but returned the obsolete "
+                "job-state scaffold 'waiting for a later orchestration packet' snapshot"
+            ),
+            "config_entry_id": result["configured_orchestration"]["command"]["config_entry_id"],
+            "orchestration_setup_enabled": False,
+        },
+        when={
+            "operation": "dispatch_registered_start_job_after_orchestration_setup",
+        },
+        then={
+            "configured_orchestration": result["configured_orchestration"],
+        },
+    )
+
+    print_case(
+        "configured_orchestration_followup_commands_route_to_orchestration_boundary",
+        given={
+            "config_entry_id": "auto",
+            "command_types": list(result["configured_followups"]["commands"]),
+            "orchestration_setup_enabled": False,
+        },
+        when={
+            "operation": "dispatch_registered_followup_commands_after_orchestration_setup",
+        },
+        then={
+            "configured_followups": result["configured_followups"],
+        },
+    )
+
+    print_case(
         "registered_websocket_decisions_are_observable",
         given={
             "observed_fields": [
@@ -166,7 +199,7 @@ def main():
     )
 
     print_case(
-        "websocket_registration_remains_non_orchestrating",
+        "websocket_registration_without_orchestration_setup_remains_non_orchestrating",
         given={
             "handled_surfaces": [
                 "command_registration",
@@ -177,6 +210,7 @@ def main():
                 "auto_config_entry_resolution",
                 "websocket_observability",
             ],
+            "scope": "registered commands before orchestration setup exists",
         },
         when={
             "operation": "aggregate_observed_side_effects",

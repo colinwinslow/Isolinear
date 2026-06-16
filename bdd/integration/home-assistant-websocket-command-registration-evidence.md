@@ -1,6 +1,6 @@
 # Home Assistant WebSocket Command Registration Evidence
 
-Run timestamp: 2026-06-16T05:07:45+00:00
+Run timestamp: 2026-06-16T13:44:30+00:00
 
 BDD file:
 `bdd/integration/home-assistant-websocket-command-registration-bdd.md`
@@ -17,8 +17,9 @@ Overall result: PASS
 - Scenario F: Home Assistant routing accepts card envelopes -> `CASE home_assistant_routing_schema_accepts_card_payload`
 - Scenario G: auto config-entry resolution is deterministic -> `CASE auto_config_entry_resolves_only_when_unambiguous`
 - Scenario H: registered command decisions are visible -> `CASE registered_websocket_decisions_are_observable`
-- Scenario I: repeated setup does not duplicate commands -> `CASE repeated_setup_does_not_duplicate_commands`
-- Scenario J: registration remains non-orchestrating -> `CASE websocket_registration_remains_non_orchestrating`
+- Scenario I: configured orchestration does not return the job-state scaffold -> `CASE configured_orchestration_does_not_return_job_state_scaffold` and `CASE configured_orchestration_followup_commands_route_to_orchestration_boundary`
+- Scenario J: repeated setup does not duplicate commands -> `CASE repeated_setup_does_not_duplicate_commands`
+- Scenario K: registration without orchestration setup remains non-orchestrating -> `CASE websocket_registration_without_orchestration_setup_remains_non_orchestrating`
 
 ## Focused Unit Verification
 
@@ -31,9 +32,9 @@ Raw command:
 Raw output:
 
 ```text
-collected 14 items
-tests\test_websocket_command_registration_anchor.py ..............       [100%]
-14 passed in 0.90s
+collected 16 items
+tests\test_websocket_command_registration_anchor.py ................     [100%]
+16 passed in 0.49s
 ```
 
 ## Eval Verification
@@ -119,6 +120,35 @@ CASE auto_config_entry_resolves_only_when_unambiguous
 "registry_multiple_entries": {"known_config_entries": ["registry-entry-001", "registry-entry-002"], "result": {"accepted": false, "code": "ambiguous_config_entry"}}
 PASS auto_config_entry_resolves_only_when_unambiguous
 
+CASE configured_orchestration_does_not_return_job_state_scaffold
+"live_regression": "A HACS-installed card command reached Isolinear but returned the obsolete job-state scaffold 'waiting for a later orchestration packet' snapshot"
+"config_entry_id": "auto"
+"orchestration_setup_enabled": false
+"snapshot_status": "failed"
+"failure_code": "no_approved_entities_available"
+"warnings": [
+  "job_orchestration_scaffold",
+  "no_approved_entities_available",
+  "orchestration_stopped_before_model_worker"
+]
+PASS configured_orchestration_does_not_return_job_state_scaffold
+
+CASE configured_orchestration_followup_commands_route_to_orchestration_boundary
+"all_rejected": true
+"codes": {
+  "answer_clarification": "unknown_job",
+  "retry_job": "unknown_job",
+  "get_snapshot": "unknown_job",
+  "subscribe_job": "unknown_job"
+}
+"snapshots_returned": {
+  "answer_clarification": false,
+  "retry_job": false,
+  "get_snapshot": false,
+  "subscribe_job": false
+}
+PASS configured_orchestration_followup_commands_route_to_orchestration_boundary
+
 CASE registered_websocket_decisions_are_observable
 "event_count": 2
 "events": [
@@ -145,7 +175,8 @@ CASE repeated_setup_does_not_duplicate_commands
 "duplicate_count": 0
 PASS repeated_setup_does_not_duplicate_commands
 
-CASE websocket_registration_remains_non_orchestrating
+CASE websocket_registration_without_orchestration_setup_remains_non_orchestrating
+"scope": "registered commands before orchestration setup exists"
 "forbidden_aggregate": {
   "worker_called": false,
   "model_provider_called": false,
@@ -158,7 +189,7 @@ CASE websocket_registration_remains_non_orchestrating
 }
 "allowed_aggregate": {"websocket_command_registered": true}
 "allowed_side_effects": {"websocket_command_registered": true, "websocket_decision_observability_recorded": true}
-PASS websocket_registration_remains_non_orchestrating
+PASS websocket_registration_without_orchestration_setup_remains_non_orchestrating
 
 PASS home_assistant_websocket_command_registration
 ```

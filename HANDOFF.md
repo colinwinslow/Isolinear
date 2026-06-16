@@ -183,6 +183,18 @@ valid card envelopes route to Isolinear, Home Assistant transport `id` stays
 outside the internal command contract, and unexpected card payload keys still
 fail closed before orchestration.
 
+The live `0.1.5` HACS retest then proved commands reached Isolinear, but
+`job/start` still returned the obsolete job-state scaffold snapshot
+(`waiting for a later orchestration packet`, validation `not_run`) instead of
+the first-real-slice orchestration path. That happened because registered
+WebSocket routing only entered orchestration when the setup-time approved
+catalog already had at least one item; an empty or unavailable catalog silently
+fell back to the old scaffold. The repository is now ready for live HACS
+retest as version `0.1.6`. Once an entry has completed orchestration setup,
+registered commands route through orchestration even if the approved catalog is
+empty, so the card receives a deterministic approved-entity failure such as
+`no_approved_entities_available` rather than `orchestration_not_implemented`.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -886,17 +898,28 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Run the live HACS `0.1.5` dashboard verification. Redownload Isolinear through
+Run the live HACS `0.1.6` dashboard verification. Redownload Isolinear through
 HACS, restart Home Assistant, recreate the dashboard card, and confirm the
-registered Lovelace resource URL includes `?v=0.1.5` while the picker/editor
+registered Lovelace resource URL includes `?v=0.1.6` while the picker/editor
 shows `config_entry_id: auto`, including when Home Assistant had previously
 handed the card the old `fake-config-entry` placeholder. Confirm the
 integration icon appears where Home Assistant surfaces custom integration brand
 assets. Then run the served-artifact prompt path against real Home Assistant
 sensor history and the configured Ollama planner, using the WebSocket decision
 observability to capture accept/reject evidence if the card cannot start a job.
+If the card reports an approved-entity failure, inspect the configured
+allowlist and setup-time entity catalog result rather than treating it as a
+future-orchestration placeholder.
 Confirm no worker token, worker-local path, local artifact path, or base64
 image bytes leak to card-facing WebSocket responses.
+
+After the live `0.1.6` verification, a strong product-ergonomics follow-up is
+the options-flow allowlist picker packet: replace or supplement the raw
+`entity_allowlist` textarea with a Home Assistant-native picker suitable for
+dozens or hundreds of approved entities. The packet should keep explicit
+entity IDs as the stored contract and treat any device, area, label, search,
+or checkbox grouping as UI convenience rather than a new device-level
+allowlist architecture.
 
 Preserve the known codegen sandbox matplotlib subprocess flake as a historical
 caveat; the first-real-slice closeout full Python suite passed cleanly
@@ -907,6 +930,10 @@ caveat; the first-real-slice closeout full Python suite passed cleanly
 - Semantic-memory storage-helper implementation, migrations, and repair UI details beyond the envelope contract.
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.
+- Home Assistant options-flow allowlist picker UI for large installs. The
+  stored allowlist should remain explicit entity IDs; the open design question
+  is whether the first UI uses Home Assistant's built-in multi-entity selector
+  only, or adds device/area/label grouping around that selector.
 - Worker token rotation UI or real Home Assistant Repairs/automatic repair
   semantics,
   automatic/durable provider retry semantics, additional durable polling

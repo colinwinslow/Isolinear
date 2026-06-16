@@ -26,6 +26,7 @@ from custom_components.isolinear.const import (  # noqa: E402
     INTEGRATION_COMMAND_TYPES,
     INTEGRATION_WS_VERSION,
 )
+from custom_components.isolinear.job_orchestration import DATA_JOB_ORCHESTRATION_SETUP  # noqa: E402
 from custom_components.isolinear.websocket_api import (  # noqa: E402
     DATA_WEBSOCKET_OBSERVABILITY,
     handle_registered_ws_command,
@@ -160,6 +161,82 @@ class WebSocketCommandRegistrationAnchorTests(unittest.TestCase):
         self.assertTrue(result["accepted"], result)
         self.assertEqual(result["config_entry_id"], "fake-config-entry")
         self.assertEqual(result["snapshot"]["status"], "planning")
+
+    def test_configured_orchestration_does_not_fall_back_to_job_state_scaffold(self):
+        hass = SchedulingHass()
+        hass.data[DOMAIN]["fake-config-entry"][DATA_JOB_ORCHESTRATION_SETUP] = {
+            "accepted": True,
+            "code": "job_orchestration_ready",
+            "enabled": False,
+            "approved_entity_ids": [],
+        }
+        message = {
+            "id": 67,
+            "type": INTEGRATION_COMMAND_TYPES["start_job"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": CONFIG_ENTRY_AUTO,
+            "prompt": "Show the family room temperature",
+        }
+
+        result = handle_registered_ws_command(hass, message)
+
+        self.assertTrue(result["accepted"], result)
+        self.assertEqual(result["config_entry_id"], "fake-config-entry")
+        self.assertEqual(result["snapshot"]["status"], "failed")
+        self.assertEqual(result["snapshot"]["failure"]["code"], "no_approved_entities_available")
+        self.assertNotIn("orchestration_not_implemented", result["snapshot"]["warnings"])
+        self.assertEqual(
+            result["snapshot"]["progress"]["stage"],
+            "job_orchestration_scaffold_failed",
+        )
+
+    def test_configured_orchestration_routes_followup_commands_to_orchestration_boundary(self):
+        hass = SchedulingHass()
+        hass.data[DOMAIN]["fake-config-entry"][DATA_JOB_ORCHESTRATION_SETUP] = {
+            "accepted": True,
+            "code": "job_orchestration_ready",
+            "enabled": False,
+            "approved_entity_ids": [],
+        }
+        commands = [
+            {
+                "id": 68,
+                "type": INTEGRATION_COMMAND_TYPES["answer_clarification"],
+                "version": INTEGRATION_WS_VERSION,
+                "config_entry_id": CONFIG_ENTRY_AUTO,
+                "job_id": "missing-job",
+                "question_id": "select_approved_entity",
+                "option_id": "sensor.family_room_sensor_temperature",
+                "remember": False,
+            },
+            {
+                "id": 69,
+                "type": INTEGRATION_COMMAND_TYPES["retry_job"],
+                "version": INTEGRATION_WS_VERSION,
+                "config_entry_id": CONFIG_ENTRY_AUTO,
+                "job_id": "missing-job",
+            },
+            {
+                "id": 70,
+                "type": INTEGRATION_COMMAND_TYPES["get_snapshot"],
+                "version": INTEGRATION_WS_VERSION,
+                "config_entry_id": CONFIG_ENTRY_AUTO,
+                "job_id": "missing-job",
+            },
+            {
+                "id": 71,
+                "type": INTEGRATION_COMMAND_TYPES["subscribe_job"],
+                "version": INTEGRATION_WS_VERSION,
+                "config_entry_id": CONFIG_ENTRY_AUTO,
+                "job_id": "missing-job",
+            },
+        ]
+
+        results = [handle_registered_ws_command(hass, command) for command in commands]
+
+        self.assertTrue(all(not result["accepted"] for result in results), results)
+        self.assertTrue(all(result["code"] == "unknown_job" for result in results), results)
+        self.assertTrue(all("snapshot" not in result for result in results), results)
 
     def test_auto_config_entry_falls_back_to_config_entry_registry(self):
         hass = SchedulingHass(include_entry=False, registry_entry_ids=["registry-entry-001"])

@@ -91,16 +91,29 @@ resolved config-entry ID, accepted state, and decision code
 **And** prompts, tokens, endpoints, raw history, generated code, and generated
 image bytes should not be recorded
 
-### Scenario I - idempotence path: repeated setup does not duplicate commands
+### Scenario I - live regression: configured orchestration does not return the job-state scaffold
+
+**Given** a Home Assistant config entry has completed the orchestration setup
+boundary
+**And** the approved entity catalog is empty or unavailable
+**When** the dashboard card sends a registered `job/start` command
+**Then** the command should route through the orchestration boundary
+**And** the returned snapshot should fail at the approved-entity gate instead
+of reporting `orchestration_not_implemented`
+**And** registered follow-up commands for unknown jobs should fail at the
+orchestration job boundary without returning job-state scaffold snapshots
+
+### Scenario J - idempotence path: repeated setup does not duplicate commands
 
 **Given** the Isolinear WebSocket command set has already been registered
 **When** registration runs again in the same Home Assistant runtime
 **Then** no duplicate command handlers should be registered
 **And** the existing command registration metadata should be reused
 
-### Scenario J - boundary path: registration remains non-orchestrating
+### Scenario K - boundary path: registration without orchestration setup remains non-orchestrating
 
-**Given** WebSocket registration has handled success and failure cases
+**Given** WebSocket registration has handled success and failure cases for
+entries that have not completed orchestration setup
 **When** the anchor aggregates observed side effects
 **Then** no worker, model-provider, history, semantic-memory,
 service/device/state mutation, token-generation, job-orchestration, or

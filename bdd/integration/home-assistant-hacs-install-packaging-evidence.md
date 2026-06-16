@@ -1,6 +1,6 @@
 # Home Assistant HACS Install Packaging Evidence
 
-Run timestamp: 2026-06-16T05:04:18+00:00
+Run timestamp: 2026-06-16T13:28:53+00:00
 
 BDD file:
 `bdd/integration/home-assistant-hacs-install-packaging-bdd.md`
@@ -30,7 +30,7 @@ Raw output:
 collected 14 items
 tests\test_dashboard_resource_registration_anchor.py ........            [ 57%]
 tests\test_hacs_install_packaging.py ......                              [100%]
-14 passed in 0.50s
+14 passed in 0.41s
 ```
 
 ## Eval Verification
@@ -71,8 +71,8 @@ CASE dashboard_card_is_bundled
 "packaged_bundle": "...\\custom_components\\isolinear\\frontend\\dist\\isolinear-card.js"
 "bundle_exists": true
 "bundle_matches_root": true
-"expected_resource_url": "/api/isolinear/static/isolinear-card.js?v=0.1.5"
-"resource": {"type": "module", "url": "/api/isolinear/static/isolinear-card.js?v=0.1.5"}
+"expected_resource_url": "/api/isolinear/static/isolinear-card.js?v=0.1.6"
+"resource": {"type": "module", "url": "/api/isolinear/static/isolinear-card.js?v=0.1.6"}
 PASS dashboard_card_is_bundled
 
 CASE frontend_build_refreshes_packaged_card
@@ -94,9 +94,9 @@ Raw observed output excerpt:
 
 ```text
 CASE scaffold_package_is_visible_to_home_assistant
-"const_version": "0.1.5"
+"const_version": "0.1.6"
 "const_version_matches_manifest": true
-"manifest": {"domain": "isolinear", "version": "0.1.5"}
+"manifest": {"domain": "isolinear", "version": "0.1.6"}
 PASS scaffold_package_is_visible_to_home_assistant
 
 PASS home_assistant_integration_scaffold

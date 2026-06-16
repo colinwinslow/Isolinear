@@ -23,6 +23,7 @@ from .job_orchestration import (
     handle_job_orchestration_start_ws_command,
     handle_job_orchestration_subscribe_ws_command,
     has_enabled_job_orchestration,
+    has_job_orchestration_setup,
 )
 from .job_state import handle_job_state_ws_command
 
@@ -250,16 +251,19 @@ def handle_registered_ws_command(
         "config_entry_id": scope["config_entry_id"],
     }
 
-    orchestration_enabled = has_enabled_job_orchestration(hass, command["config_entry_id"])
-    if command["type"] == INTEGRATION_COMMAND_TYPES["start_job"] and orchestration_enabled:
+    orchestration_available = (
+        has_enabled_job_orchestration(hass, command["config_entry_id"])
+        or has_job_orchestration_setup(hass, command["config_entry_id"])
+    )
+    if command["type"] == INTEGRATION_COMMAND_TYPES["start_job"] and orchestration_available:
         job_result = handle_job_orchestration_start_ws_command(hass, command)
-    elif command["type"] == INTEGRATION_COMMAND_TYPES["answer_clarification"] and orchestration_enabled:
+    elif command["type"] == INTEGRATION_COMMAND_TYPES["answer_clarification"] and orchestration_available:
         job_result = handle_job_orchestration_clarification_answer_ws_command(hass, command)
-    elif command["type"] == INTEGRATION_COMMAND_TYPES["retry_job"] and orchestration_enabled:
+    elif command["type"] == INTEGRATION_COMMAND_TYPES["retry_job"] and orchestration_available:
         job_result = handle_job_orchestration_retry_ws_command(hass, command)
-    elif command["type"] == INTEGRATION_COMMAND_TYPES["get_snapshot"] and orchestration_enabled:
+    elif command["type"] == INTEGRATION_COMMAND_TYPES["get_snapshot"] and orchestration_available:
         job_result = handle_job_orchestration_snapshot_ws_command(hass, command)
-    elif command["type"] == INTEGRATION_COMMAND_TYPES["subscribe_job"] and orchestration_enabled:
+    elif command["type"] == INTEGRATION_COMMAND_TYPES["subscribe_job"] and orchestration_available:
         job_result = handle_job_orchestration_subscribe_ws_command(hass, command, message_id=message_id)
     else:
         job_result = handle_job_state_ws_command(hass, command, message_id=message_id)
