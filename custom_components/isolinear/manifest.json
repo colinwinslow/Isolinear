@@ -3,7 +3,9 @@
   "name": "Isolinear",
   "codeowners": [],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": [
+    "lovelace"
+  ],
   "documentation": "https://github.com/kagwerks/isolinear",
   "issue_tracker": "https://github.com/kagwerks/isolinear/issues",
   "integration_type": "hub",
@@ -11,5 +13,5 @@
   "requirements": [
     "matplotlib==3.11.0"
   ],
-  "version": "0.1.15"
+  "version": "0.1.16"
 }

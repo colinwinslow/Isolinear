@@ -32,6 +32,8 @@ assets after each small update.
 **When** HACS validates integration metadata
 **Then** the manifest should include `domain`, `name`, `version`,
 `documentation`, `issue_tracker`, and `codeowners`
+**And** it should declare a `lovelace` dependency so cold-boot setup can update
+the package-versioned dashboard resource metadata
 
 ### Scenario C - happy path: brand icons are visible to HACS and Home Assistant
 

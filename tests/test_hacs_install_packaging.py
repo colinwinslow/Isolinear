@@ -66,6 +66,7 @@ def test_manifest_has_hacs_required_metadata() -> None:
         assert key in manifest
     assert manifest["domain"] == "isolinear"
     assert manifest["issue_tracker"].endswith("/issues")
+    assert "lovelace" in manifest["dependencies"]
     assert "matplotlib==3.11.0" in manifest["requirements"]
 
 

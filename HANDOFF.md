@@ -312,6 +312,18 @@ append sanitized card-facing failed job snapshots with
 instead of surfacing as snapshot-poll command rejections; no PNG file, artifact
 metadata, render plan, or provider plan is written on that failure path.
 
+The live `0.1.15` HACS redownload then showed commit `18f95bd` installed, but
+the dashboard resource metadata still pointed at
+`/api/isolinear/static/isolinear-card.js?v=0.1.14` after a full hardware
+reboot. Local proof already showed stale query-string Isolinear resources
+update in place when Lovelace resource storage is available, so the likely live
+gap was cold-boot ordering: Isolinear setup could run before Lovelace resource
+storage existed because the manifest declared no Lovelace dependency. The
+repository is now ready for live HACS retest as version `0.1.16`. The Home
+Assistant manifest declares `dependencies: ["lovelace"]`, HACS packaging proof
+fails if that dependency is omitted, and dashboard resource evidence proves the
+current package-versioned URL is `?v=0.1.16`.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -1016,11 +1028,12 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Run the live HACS `0.1.15` dashboard verification. Redownload Isolinear through
+Run the live HACS `0.1.16` dashboard verification. Redownload Isolinear through
 HACS, restart Home Assistant, recreate the dashboard card, and confirm the
-registered Lovelace resource URL includes `?v=0.1.15` while the picker/editor
-shows `config_entry_id: auto`, including when Home Assistant had previously
-handed the card the old `fake-config-entry` placeholder. Confirm a stored
+registered Lovelace resource URL updates from the stale `?v=0.1.14` row to
+`?v=0.1.16` while the picker/editor shows `config_entry_id: auto`, including
+when Home Assistant had previously handed the card the old `fake-config-entry`
+placeholder. Confirm a stored
 allowlist reopens through the multi-entity selector with the exact selected
 entity IDs and the dashboard route sees those approved entities without another
 restart. Confirm the integration icon appears both where Home Assistant
