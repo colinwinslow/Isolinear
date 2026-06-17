@@ -19,14 +19,17 @@ from custom_components.isolinear.dashboard_resource import (
     CARD_RESOURCE_URL,
 )
 from custom_components.isolinear.job_orchestration import DATA_JOB_ORCHESTRATION_SETUP
+from custom_components.isolinear import websocket_api as websocket_api_module
 from custom_components.isolinear.websocket_api import (
     DATA_WEBSOCKET_API_MODULE,
     DATA_WEBSOCKET_OBSERVABILITY,
     DATA_WEBSOCKET_REGISTRATION,
     NO_WEBSOCKET_ORCHESTRATION_CALLS,
+    UNEXPECTED_WEBSOCKET_EXCEPTION_CODE,
     async_register_websocket_api,
     handle_registered_ws_command,
     invalid_command_examples,
+    registered_websocket_handlers,
     websocket_registration_side_effects,
 )
 
@@ -528,11 +531,133 @@ def verify_websocket_observability() -> dict[str, Any]:
     accepted_result = handle_registered_ws_command(hass, accepted_command)
     rejected_result = handle_registered_ws_command(hass, rejected_command)
     events = hass.data[DOMAIN].get(DATA_WEBSOCKET_OBSERVABILITY, [])
+    observed_fields = sorted({field for event in events for field in event})
+    required_diagnostic_fields = {
+        "message_id",
+        "command_type",
+        "requested_config_entry_id",
+        "resolved_config_entry_id",
+        "accepted",
+        "code",
+        "job_id",
+        "result_code",
+        "snapshot_status",
+        "progress_stage",
+    }
+    serialized_events = repr(events).lower()
+    forbidden_terms = [
+        "bearer",
+        "token",
+        "endpoint",
+        "raw_history",
+        "generated_code",
+        "generated_image",
+        "data:image",
+    ]
     return {
         "accepted_result": accepted_result,
         "rejected_result": rejected_result,
         "events": events,
         "event_count": len(events),
+        "observed_fields": observed_fields,
+        "diagnostic_fields_present": required_diagnostic_fields.issubset(set(observed_fields)),
+        "forbidden_terms_absent": all(term not in serialized_events for term in forbidden_terms),
+    }
+
+
+def verify_websocket_observability_sanitizes_untrusted_identifiers() -> dict[str, Any]:
+    hass = FakeHass()
+    malicious_config_command = {
+        "id": "Bearer message-secret",
+        "type": INTEGRATION_COMMAND_TYPES["get_snapshot"],
+        "version": INTEGRATION_WS_VERSION,
+        "config_entry_id": "provider.local:11434/Bearer-secret-token",
+        "job_id": "job-001",
+    }
+    missing_config_result = handle_registered_ws_command(hass, malicious_config_command)
+
+    hass.data[DOMAIN]["fake-config-entry"][DATA_JOB_ORCHESTRATION_SETUP] = {
+        "accepted": True,
+        "code": "job_orchestration_ready",
+        "enabled": False,
+        "approved_entity_ids": [],
+    }
+    malicious_job_command = {
+        "id": 55,
+        "type": INTEGRATION_COMMAND_TYPES["get_snapshot"],
+        "version": INTEGRATION_WS_VERSION,
+        "config_entry_id": CONFIG_ENTRY_AUTO,
+        "job_id": "C:\\Users\\secret\\worker_token /config/secrets.yaml",
+    }
+    missing_job_result = handle_registered_ws_command(hass, malicious_job_command)
+
+    events = hass.data[DOMAIN].get(DATA_WEBSOCKET_OBSERVABILITY, [])
+    serialized_events = repr(events)
+    forbidden_terms = [
+        "message-secret",
+        "provider.local",
+        "11434",
+        "Bearer-secret-token",
+        "C:\\Users\\secret",
+        "/config/secrets.yaml",
+        "worker_token",
+    ]
+    return {
+        "missing_config_result_code": missing_config_result["code"],
+        "missing_job_result_code": missing_job_result["code"],
+        "events": events,
+        "event_count": len(events),
+        "redacted_message_id": events[-2].get("message_id") if len(events) >= 2 else None,
+        "redacted_requested_config_entry_id": (
+            events[-2].get("requested_config_entry_id") if len(events) >= 2 else None
+        ),
+        "redacted_job_id": events[-1].get("job_id") if events else None,
+        "forbidden_terms_absent": all(term not in serialized_events for term in forbidden_terms),
+    }
+
+
+def verify_unexpected_websocket_exception_observability() -> dict[str, Any]:
+    hass = FakeHass()
+    connection = FakeConnection()
+    handler = next(
+        item
+        for item in registered_websocket_handlers()
+        if getattr(item, "_isolinear_command_type", None) == INTEGRATION_COMMAND_TYPES["get_snapshot"]
+    )
+    message = {
+        "id": 54,
+        "type": INTEGRATION_COMMAND_TYPES["get_snapshot"],
+        "version": INTEGRATION_WS_VERSION,
+        "config_entry_id": "fake-config-entry",
+        "job_id": "job-001",
+    }
+    original = websocket_api_module.async_handle_registered_ws_command
+
+    async def raising_registered_command(hass, message):
+        raise RuntimeError("Bearer secret-token http://provider.local generated_image raw_history")
+
+    websocket_api_module.async_handle_registered_ws_command = raising_registered_command
+    try:
+        handler_result = _run_if_awaitable(handler(hass, connection, message))
+    finally:
+        websocket_api_module.async_handle_registered_ws_command = original
+
+    events = hass.data[DOMAIN].get(DATA_WEBSOCKET_OBSERVABILITY, [])
+    serialized = repr({"connection": _connection_payload(connection), "events": events}).lower()
+    forbidden_terms = [
+        "secret-token",
+        "provider.local",
+        "generated_image",
+        "raw_history",
+    ]
+    return {
+        "handler_result": handler_result,
+        "connection": _connection_payload(connection),
+        "events": events,
+        "event_count": len(events),
+        "error_code": connection.errors[0]["code"] if connection.errors else None,
+        "exception_type": events[-1].get("exception_type") if events else None,
+        "forbidden_terms_absent": all(term not in serialized for term in forbidden_terms),
     }
 
 
@@ -660,6 +785,8 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
     configured_orchestration = verify_configured_orchestration_does_not_return_job_state_scaffold()
     configured_followups = verify_configured_orchestration_followup_commands_route_to_orchestration()
     observability = verify_websocket_observability()
+    sanitized_observability = verify_websocket_observability_sanitizes_untrusted_identifiers()
+    exception_observability = verify_unexpected_websocket_exception_observability()
     idempotence = verify_idempotent_command_registration()
     side_effects = verify_websocket_registration_side_effects()
 
@@ -706,6 +833,22 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
         failures.append("Configured orchestration follow-up commands returned job-state snapshots.")
     if observability["event_count"] != 2:
         failures.append("Registered WebSocket decisions were not recorded for observability.")
+    if not observability["diagnostic_fields_present"]:
+        failures.append("Registered WebSocket decisions did not include snapshot/job diagnostic fields.")
+    if not observability["forbidden_terms_absent"]:
+        failures.append("Registered WebSocket decision observability recorded forbidden text.")
+    if not sanitized_observability["forbidden_terms_absent"]:
+        failures.append("Registered WebSocket decision observability leaked untrusted identifier text.")
+    if sanitized_observability["redacted_requested_config_entry_id"] != "<redacted>":
+        failures.append("Registered WebSocket observability did not redact a malicious config-entry ID.")
+    if sanitized_observability["redacted_job_id"] != "<redacted>":
+        failures.append("Registered WebSocket observability did not redact a malicious job ID.")
+    if exception_observability["error_code"] != UNEXPECTED_WEBSOCKET_EXCEPTION_CODE:
+        failures.append("Unexpected registered WebSocket exceptions did not return a structured error code.")
+    if exception_observability["exception_type"] != "RuntimeError":
+        failures.append("Unexpected registered WebSocket exceptions did not record the exception type.")
+    if not exception_observability["forbidden_terms_absent"]:
+        failures.append("Unexpected registered WebSocket exception observability recorded forbidden text.")
     if idempotence["duplicate_count"] != 0:
         failures.append("Repeated setup duplicated WebSocket command registration.")
     if any(side_effects["forbidden_aggregate"].values()):
@@ -727,6 +870,8 @@ def verify_websocket_command_registration_anchor(root=None) -> dict[str, Any]:
         "configured_orchestration": configured_orchestration,
         "configured_followups": configured_followups,
         "observability": observability,
+        "sanitized_observability": sanitized_observability,
+        "exception_observability": exception_observability,
         "idempotence": idempotence,
         "side_effects": side_effects,
     }

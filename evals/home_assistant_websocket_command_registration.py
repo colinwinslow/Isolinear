@@ -170,11 +170,16 @@ def main():
         "registered_websocket_decisions_are_observable",
         given={
             "observed_fields": [
+                "message_id",
                 "command_type",
                 "requested_config_entry_id",
                 "resolved_config_entry_id",
                 "accepted",
                 "code",
+                "job_id",
+                "result_code",
+                "snapshot_status",
+                "progress_stage",
             ],
         },
         when={
@@ -182,6 +187,51 @@ def main():
         },
         then={
             "observability": result["observability"],
+        },
+    )
+
+    print_case(
+        "unexpected_registered_websocket_exceptions_are_logged_safely",
+        given={
+            "command_type": "isolinear/v1/job/snapshot",
+            "message_id": 54,
+            "job_id": "job-001",
+            "forbidden_terms": [
+                "secret-token",
+                "provider.local",
+                "generated_image",
+                "raw_history",
+            ],
+        },
+        when={
+            "operation": "dispatch_registered_handler_with_executor_exception",
+        },
+        then={
+            "exception_observability": result["exception_observability"],
+        },
+    )
+
+    print_case(
+        "registered_websocket_observability_sanitizes_untrusted_identifiers",
+        given={
+            "malicious_fields": [
+                "message_id",
+                "config_entry_id",
+                "job_id",
+            ],
+            "forbidden_terms": [
+                "message-secret",
+                "provider.local",
+                "Bearer-secret-token",
+                "C:\\Users\\secret",
+                "worker_token",
+            ],
+        },
+        when={
+            "operation": "dispatch_commands_with_sensitive_identifier_values",
+        },
+        then={
+            "sanitized_observability": result["sanitized_observability"],
         },
     )
 

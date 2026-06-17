@@ -75,9 +75,15 @@ Registration must:
   Isolinear entries.
 - Record lightweight backend observability for registered command decisions,
   including command type, requested config-entry ID, resolved config-entry ID,
-  accepted/rejected state, and rejection/acceptance code. This observability
-  must not include prompts, tokens, endpoints, raw history, generated code, or
-  generated image bytes.
+  accepted/rejected state, rejection/acceptance code, message ID, job ID when
+  present, result code, snapshot status, progress stage, and failure code when
+  a snapshot is returned. This observability must not include prompts, tokens,
+  endpoints, raw history, generated code, or generated image bytes.
+- Catch unexpected exceptions at the registered Home Assistant handler boundary,
+  record a sanitized decision event with command type, message ID, config-entry
+  ID, job ID when present, and exception type, and send a structured WebSocket
+  error instead of allowing Home Assistant to turn the failure into a generic
+  rejection without Isolinear diagnostic context.
 - Return the existing scaffold `IntegrationJobSnapshot` payload for accepted
   commands only when the config entry has not completed the orchestration setup
   boundary.
@@ -150,8 +156,9 @@ side-effect boundaries against fake Home Assistant objects.
    data or the config-entry registry only when exactly one Isolinear entry
    exists, and fails closed for zero or multiple entries before orchestration.
 9. Evidence confirms registered command accept/reject decisions are observable
-   with command type, requested config-entry ID, resolved config-entry ID, and
-   decision code.
+   with message ID, command type, requested config-entry ID, resolved
+   config-entry ID, job ID/result code when present, snapshot status/progress
+   stage when present, and decision code.
 10. Evidence confirms a registered `job/start` command for an entry that has
    completed orchestration setup but has no approved catalog routes to a failed
    orchestration snapshot, not the job-state scaffold's
@@ -166,7 +173,11 @@ side-effect boundaries against fake Home Assistant objects.
    orchestration setup do not call the worker, model provider, Home Assistant
    history, semantic-memory, Home Assistant service/device/state mutation,
    token generation, job orchestration, or dashboard-resource metadata writes.
-14. Real artifacts are verified on disk: production WebSocket module,
+14. Evidence confirms unexpected registered handler exceptions return
+   `isolinear_websocket_command_exception` and record exception type without
+   prompts, tokens, endpoints, raw history, generated code, or generated image
+   bytes.
+15. Real artifacts are verified on disk: production WebSocket module,
    integration setup call, BDD, eval outline, tests, eval, and evidence.
 
 ## Non-Goals

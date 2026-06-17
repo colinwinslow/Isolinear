@@ -20,6 +20,7 @@ from Isolinear.websocket_command_registration_anchor import (  # noqa: E402
     verify_setup_entry_websocket_registration,
     verify_websocket_command_registration_anchor,
 )
+from custom_components.isolinear import websocket_api as websocket_api_module  # noqa: E402
 from custom_components.isolinear.const import (  # noqa: E402
     CONFIG_ENTRY_AUTO,
     DOMAIN,
@@ -29,6 +30,7 @@ from custom_components.isolinear.const import (  # noqa: E402
 from custom_components.isolinear.job_orchestration import DATA_JOB_ORCHESTRATION_SETUP  # noqa: E402
 from custom_components.isolinear.websocket_api import (  # noqa: E402
     DATA_WEBSOCKET_OBSERVABILITY,
+    UNEXPECTED_WEBSOCKET_EXCEPTION_CODE,
     handle_registered_ws_command,
     registered_websocket_handlers,
 )
@@ -307,23 +309,88 @@ class WebSocketCommandRegistrationAnchorTests(unittest.TestCase):
             "job_id": "job-001",
         }
 
-        accepted = handle_registered_ws_command(hass, accepted_message)
-        rejected = handle_registered_ws_command(hass, rejected_message)
+        with self.assertLogs("custom_components.isolinear.websocket_api", level="INFO") as logs:
+            accepted = handle_registered_ws_command(hass, accepted_message)
+            rejected = handle_registered_ws_command(hass, rejected_message)
         events = hass.data[DOMAIN][DATA_WEBSOCKET_OBSERVABILITY]
+        log_output = "\n".join(logs.output)
 
         self.assertTrue(accepted["accepted"], accepted)
         self.assertFalse(rejected["accepted"], rejected)
         self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]["message_id"], 65)
         self.assertEqual(events[0]["command_type"], INTEGRATION_COMMAND_TYPES["start_job"])
         self.assertEqual(events[0]["requested_config_entry_id"], CONFIG_ENTRY_AUTO)
         self.assertEqual(events[0]["resolved_config_entry_id"], "fake-config-entry")
         self.assertTrue(events[0]["accepted"])
         self.assertEqual(events[0]["code"], "registered_job_state_command_accepted")
+        self.assertEqual(events[0]["result_code"], accepted["job_state"]["code"])
+        self.assertEqual(events[0]["job_id"], accepted["job_state"]["job_id"])
+        self.assertEqual(events[0]["snapshot_status"], accepted["snapshot"]["status"])
+        self.assertEqual(events[0]["progress_stage"], accepted["snapshot"]["progress"]["stage"])
+        self.assertEqual(events[1]["message_id"], 66)
         self.assertEqual(events[1]["command_type"], INTEGRATION_COMMAND_TYPES["get_snapshot"])
         self.assertEqual(events[1]["requested_config_entry_id"], "missing-config-entry")
         self.assertIsNone(events[1]["resolved_config_entry_id"])
         self.assertFalse(events[1]["accepted"])
         self.assertEqual(events[1]["code"], "unknown_config_entry")
+        self.assertIn("message_id=65", log_output)
+        self.assertIn(f"result_code={accepted['job_state']['code']}", log_output)
+        self.assertIn(f"snapshot_status={accepted['snapshot']['status']}", log_output)
+
+    def test_registered_websocket_decision_logs_sanitize_untrusted_identifier_fields(self):
+        hass = SchedulingHass()
+        malicious_config_message = {
+            "id": "Bearer message-secret",
+            "type": INTEGRATION_COMMAND_TYPES["get_snapshot"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": "provider.local:11434/Bearer-secret-token",
+            "job_id": "job-001",
+        }
+
+        with self.assertLogs("custom_components.isolinear.websocket_api", level="WARNING") as config_logs:
+            missing_config = handle_registered_ws_command(hass, malicious_config_message)
+
+        hass.data[DOMAIN]["fake-config-entry"][DATA_JOB_ORCHESTRATION_SETUP] = {
+            "accepted": True,
+            "code": "job_orchestration_ready",
+            "enabled": False,
+            "approved_entity_ids": [],
+        }
+        malicious_job_message = {
+            "id": 73,
+            "type": INTEGRATION_COMMAND_TYPES["get_snapshot"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": CONFIG_ENTRY_AUTO,
+            "job_id": "C:\\Users\\secret\\worker_token /config/secrets.yaml",
+        }
+
+        with self.assertLogs("custom_components.isolinear.websocket_api", level="WARNING") as job_logs:
+            missing_job = handle_registered_ws_command(hass, malicious_job_message)
+
+        events = hass.data[DOMAIN][DATA_WEBSOCKET_OBSERVABILITY]
+        serialized_events = repr(events)
+        log_output = "\n".join(config_logs.output + job_logs.output)
+
+        self.assertFalse(missing_config["accepted"], missing_config)
+        self.assertFalse(missing_job["accepted"], missing_job)
+        self.assertEqual(events[-2]["message_id"], "<redacted>")
+        self.assertEqual(events[-2]["requested_config_entry_id"], "<redacted>")
+        self.assertEqual(events[-1]["job_id"], "<redacted>")
+        self.assertNotIn("message-secret", serialized_events)
+        self.assertNotIn("provider.local", serialized_events)
+        self.assertNotIn("11434", serialized_events)
+        self.assertNotIn("Bearer-secret-token", serialized_events)
+        self.assertNotIn("C:\\Users\\secret", serialized_events)
+        self.assertNotIn("/config/secrets.yaml", serialized_events)
+        self.assertNotIn("worker_token", serialized_events)
+        self.assertNotIn("message-secret", log_output)
+        self.assertNotIn("provider.local", log_output)
+        self.assertNotIn("11434", log_output)
+        self.assertNotIn("Bearer-secret-token", log_output)
+        self.assertNotIn("C:\\Users\\secret", log_output)
+        self.assertNotIn("/config/secrets.yaml", log_output)
+        self.assertNotIn("worker_token", log_output)
 
     def test_repeated_setup_does_not_duplicate_command_registration(self):
         result = verify_idempotent_command_registration()
@@ -359,6 +426,56 @@ class WebSocketCommandRegistrationAnchorTests(unittest.TestCase):
         self.assertEqual(hass.executor_calls[0]["func"], "handle_registered_ws_command")
         self.assertEqual(connection.errors, [])
         self.assertEqual(connection.results[0]["result"]["status"], "planning")
+
+    def test_registered_handler_logs_unexpected_executor_exception(self):
+        hass = SchedulingHass()
+        connection = FakeConnection()
+        handler = next(
+            item
+            for item in registered_websocket_handlers()
+            if getattr(item, "_isolinear_command_type", None) == INTEGRATION_COMMAND_TYPES["get_snapshot"]
+        )
+        message = {
+            "id": 72,
+            "type": INTEGRATION_COMMAND_TYPES["get_snapshot"],
+            "version": INTEGRATION_WS_VERSION,
+            "config_entry_id": "fake-config-entry",
+            "job_id": "job-001",
+        }
+        original = websocket_api_module.async_handle_registered_ws_command
+
+        async def raising_registered_command(hass, message):
+            raise RuntimeError(
+                "Bearer super-secret-token http://provider.local generated_image raw_history"
+            )
+
+        websocket_api_module.async_handle_registered_ws_command = raising_registered_command
+        try:
+            with self.assertLogs("custom_components.isolinear.websocket_api", level="WARNING") as logs:
+                result = handler(hass, connection, message)
+        finally:
+            websocket_api_module.async_handle_registered_ws_command = original
+
+        events = hass.data[DOMAIN][DATA_WEBSOCKET_OBSERVABILITY]
+        log_output = "\n".join(logs.output)
+
+        self.assertIsNone(result)
+        self.assertEqual(connection.results, [])
+        self.assertEqual(len(connection.errors), 1)
+        self.assertEqual(connection.errors[0]["id"], 72)
+        self.assertEqual(connection.errors[0]["code"], UNEXPECTED_WEBSOCKET_EXCEPTION_CODE)
+        self.assertEqual(events[-1]["code"], UNEXPECTED_WEBSOCKET_EXCEPTION_CODE)
+        self.assertEqual(events[-1]["message_id"], 72)
+        self.assertEqual(events[-1]["command_type"], INTEGRATION_COMMAND_TYPES["get_snapshot"])
+        self.assertEqual(events[-1]["requested_config_entry_id"], "fake-config-entry")
+        self.assertEqual(events[-1]["job_id"], "job-001")
+        self.assertEqual(events[-1]["exception_type"], "RuntimeError")
+        self.assertIn("exception_type=RuntimeError", log_output)
+        self.assertIn("job_id=job-001", log_output)
+        self.assertNotIn("super-secret-token", log_output)
+        self.assertNotIn("provider.local", log_output)
+        self.assertNotIn("generated_image", log_output)
+        self.assertNotIn("raw_history", log_output)
 
     def test_websocket_command_registration_anchor_verification_passes(self):
         result = verify_websocket_command_registration_anchor(REPO_ROOT)

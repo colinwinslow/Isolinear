@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import re
 from collections.abc import Callable
 from copy import deepcopy
 from functools import wraps
@@ -125,6 +126,16 @@ DATA_WEBSOCKET_API_MODULE = "_websocket_api_module"
 DATA_WEBSOCKET_OBSERVABILITY = "websocket_observability"
 DATA_WEBSOCKET_REGISTRATION = "websocket_registration"
 MAX_WEBSOCKET_OBSERVABILITY_EVENTS = 50
+UNEXPECTED_WEBSOCKET_EXCEPTION_CODE = "isolinear_websocket_command_exception"
+
+SENSITIVE_LOG_TEXT = re.compile(
+    r"Bearer\s+\S+|access_token|home_assistant_token|long_lived_access_token|"
+    r"model_provider_token|ollama_api_key|worker_token|data:image/|image_bytes_base64|"
+    r"raw_history|generated_code|generated_image|https?://\S+|[A-Za-z]:\\\S+|"
+    r"(?:^|\s)/(?:config|ssl|media|share|addons|backup|tmp|homeassistant)(?:/\S*)?|"
+    r"\b(?:localhost|(?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]+|(?:\d{1,3}\.){3}\d{1,3}):\d{2,5}\b",
+    re.IGNORECASE,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -158,6 +169,9 @@ ERROR_MESSAGES = {
     "unknown_config_entry": "The Isolinear config entry was not found for this command.",
     "unknown_integration_ws_command": "Unknown Isolinear WebSocket command.",
     "unsupported_integration_ws_version": "Unsupported Isolinear WebSocket command version.",
+    UNEXPECTED_WEBSOCKET_EXCEPTION_CODE: (
+        "The Isolinear WebSocket command failed unexpectedly. Check Isolinear logs for diagnostic context."
+    ),
 }
 
 
@@ -224,6 +238,7 @@ def handle_registered_ws_command(
         rejection = _registered_rejection(result["code"])
         decision = _record_websocket_decision(
             hass,
+            message_id=message_id,
             command_type=command_type,
             requested_config_entry_id=requested_config_entry_id,
             resolved_config_entry_id=None,
@@ -237,6 +252,7 @@ def handle_registered_ws_command(
     if not scope["accepted"]:
         decision = _record_websocket_decision(
             hass,
+            message_id=message_id,
             command_type=command["type"],
             requested_config_entry_id=scope.get("requested_config_entry_id", command["config_entry_id"]),
             resolved_config_entry_id=scope.get("resolved_config_entry_id"),
@@ -270,12 +286,14 @@ def handle_registered_ws_command(
     if not job_result["accepted"]:
         decision = _record_websocket_decision(
             hass,
+            message_id=message_id,
             command_type=command["type"],
             requested_config_entry_id=scope.get("requested_config_entry_id", command["config_entry_id"]),
             resolved_config_entry_id=command["config_entry_id"],
             accepted=False,
             code=job_result["code"],
             job_id=job_result.get("job_id"),
+            result_code=job_result.get("code"),
         )
         rejection = _registered_rejection(
             job_result["code"],
@@ -300,12 +318,15 @@ def handle_registered_ws_command(
 
     decision = _record_websocket_decision(
         hass,
+        message_id=message_id,
         command_type=command["type"],
         requested_config_entry_id=scope.get("requested_config_entry_id", command["config_entry_id"]),
         resolved_config_entry_id=command["config_entry_id"],
         accepted=True,
         code="registered_job_state_command_accepted",
         job_id=job_result.get("job_id"),
+        result_code=job_result.get("code"),
+        snapshot=job_result.get("snapshot"),
     )
 
     return {
@@ -446,30 +467,41 @@ def _configured_entry_ids_from_registry(hass: Any) -> set[str]:
 def _record_websocket_decision(
     hass: Any,
     *,
+    message_id: Any = None,
     command_type: Any,
     requested_config_entry_id: Any,
     resolved_config_entry_id: Any,
     accepted: bool,
     code: str,
     job_id: Any = None,
+    result_code: Any = None,
+    snapshot: Any = None,
+    exception_type: Any = None,
 ) -> dict[str, Any]:
     event = {
-        "command_type": command_type if isinstance(command_type, str) else None,
+        "message_id": _safe_log_value(message_id),
+        "command_type": _safe_log_value(command_type),
         "requested_config_entry_id": (
-            requested_config_entry_id
+            _safe_log_token(requested_config_entry_id)
             if isinstance(requested_config_entry_id, str)
             else None
         ),
         "resolved_config_entry_id": (
-            resolved_config_entry_id
+            _safe_log_token(resolved_config_entry_id)
             if isinstance(resolved_config_entry_id, str)
             else None
         ),
         "accepted": bool(accepted),
-        "code": code,
+        "code": _safe_log_token(code),
     }
     if isinstance(job_id, str):
-        event["job_id"] = job_id
+        event["job_id"] = _safe_log_token(job_id)
+    if isinstance(result_code, str):
+        event["result_code"] = _safe_log_token(result_code)
+    if isinstance(snapshot, dict):
+        _add_snapshot_diagnostic_fields(event, snapshot)
+    if isinstance(exception_type, str):
+        event["exception_type"] = _safe_log_token(exception_type)
 
     domain_data = hass.data.setdefault(DOMAIN, {})
     events = domain_data.setdefault(DATA_WEBSOCKET_OBSERVABILITY, [])
@@ -477,16 +509,98 @@ def _record_websocket_decision(
     if len(events) > MAX_WEBSOCKET_OBSERVABILITY_EVENTS:
         del events[:-MAX_WEBSOCKET_OBSERVABILITY_EVENTS]
 
-    _LOGGER.info(
-        "Isolinear WebSocket command %s: type=%s requested_config_entry_id=%s "
-        "resolved_config_entry_id=%s code=%s",
+    log_level = logging.INFO if accepted else logging.WARNING
+    _LOGGER.log(
+        log_level,
+        "Isolinear WebSocket command %s: message_id=%s type=%s "
+        "requested_config_entry_id=%s resolved_config_entry_id=%s job_id=%s "
+        "code=%s result_code=%s snapshot_status=%s progress_stage=%s "
+        "failure_code=%s exception_type=%s",
         "accepted" if accepted else "rejected",
+        event["message_id"],
         event["command_type"],
         event["requested_config_entry_id"],
         event["resolved_config_entry_id"],
+        event.get("job_id"),
         code,
+        event.get("result_code"),
+        event.get("snapshot_status"),
+        event.get("progress_stage"),
+        event.get("failure_code"),
+        event.get("exception_type"),
     )
     return event
+
+
+def _add_snapshot_diagnostic_fields(event: dict[str, Any], snapshot: dict[str, Any]) -> None:
+    status = snapshot.get("status")
+    if isinstance(status, str):
+        event["snapshot_status"] = _safe_log_token(status)
+
+    progress = snapshot.get("progress")
+    if isinstance(progress, dict):
+        progress_stage = progress.get("stage")
+        if isinstance(progress_stage, str):
+            event["progress_stage"] = _safe_log_token(progress_stage)
+
+    failure = snapshot.get("failure")
+    if isinstance(failure, dict):
+        failure_code = failure.get("code")
+        failure_stage = failure.get("stage")
+        if isinstance(failure_code, str):
+            event["failure_code"] = _safe_log_token(failure_code)
+        if isinstance(failure_stage, str):
+            event["failure_stage"] = _safe_log_token(failure_stage)
+
+
+def _safe_log_token(value: str, *, max_length: int = 120) -> str:
+    if SENSITIVE_LOG_TEXT.search(value):
+        return "<redacted>"
+    return value[:max_length]
+
+
+def _safe_log_value(value: Any) -> int | str | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return _safe_log_token(value)
+    return None
+
+
+def _registered_exception_result(
+    hass: Any,
+    message: Any,
+    exc: BaseException,
+) -> dict[str, Any]:
+    command_type = _message_field(message, "type")
+    requested_config_entry_id = _message_field(message, "config_entry_id")
+    job_id = _message_field(message, "job_id")
+    message_id = _message_field(message, "id")
+    exception_type = type(exc).__name__
+    decision = _record_websocket_decision(
+        hass,
+        message_id=message_id,
+        command_type=command_type,
+        requested_config_entry_id=requested_config_entry_id,
+        resolved_config_entry_id=None,
+        accepted=False,
+        code=UNEXPECTED_WEBSOCKET_EXCEPTION_CODE,
+        job_id=job_id,
+        exception_type=exception_type,
+    )
+    return {
+        "accepted": False,
+        "code": UNEXPECTED_WEBSOCKET_EXCEPTION_CODE,
+        "render_attempted": False,
+        "config_entry_id": (
+            _safe_log_token(requested_config_entry_id)
+            if isinstance(requested_config_entry_id, str)
+            else None
+        ),
+        "job_id": _safe_log_token(job_id) if isinstance(job_id, str) else None,
+        "orchestration": websocket_registration_side_effects(False),
+        "websocket_observability": decision,
+    }
 
 
 def _message_field(message: Any, key: str) -> Any:
@@ -626,8 +740,11 @@ def _make_ws_handler(command_type: str) -> Callable[..., Any]:
     @websocket_api.async_response
     async def ws_handle_isolinear_command(hass: Any, connection: Any, msg: dict[str, Any]) -> dict[str, Any]:
         """Handle an Isolinear WebSocket command."""
-        result = await async_handle_registered_ws_command(hass, msg)
         message_id = msg.get("id") if isinstance(msg, dict) else None
+        try:
+            result = await async_handle_registered_ws_command(hass, msg)
+        except Exception as exc:
+            result = _registered_exception_result(hass, msg, exc)
         if result["accepted"]:
             if result["type"] == INTEGRATION_COMMAND_TYPES["subscribe_job"] and hasattr(connection, "subscriptions"):
                 connection.subscriptions[message_id] = lambda: None

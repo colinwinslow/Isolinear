@@ -7,6 +7,8 @@ Run timestamps:
   2026-06-16T17:28:55+00:00
 - Read-only allowlist mapping package-version `0.1.9` refresh:
   2026-06-16T18:25:28+00:00
+- WebSocket diagnostic logging package-version `0.1.14` refresh:
+  2026-06-17T01:41:17+00:00
 
 BDD file:
 `bdd/integration/home-assistant-hacs-install-packaging-bdd.md`
@@ -27,15 +29,18 @@ Overall result: PASS
 Raw command:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests/test_hacs_install_packaging.py
+.\.venv\Scripts\python.exe -m pytest tests/test_websocket_command_registration_anchor.py tests/test_dashboard_resource_registration_anchor.py tests/test_hacs_install_packaging.py tests/test_integration_scaffold_anchor.py
 ```
 
 Raw output:
 
 ```text
-collected 6 items
-tests\test_hacs_install_packaging.py ......                              [100%]
-6 passed in 0.47s
+collected 37 items
+tests\test_websocket_command_registration_anchor.py ..................   [ 48%]
+tests\test_dashboard_resource_registration_anchor.py ........            [ 70%]
+tests\test_hacs_install_packaging.py ......                              [ 86%]
+tests\test_integration_scaffold_anchor.py .....                          [100%]
+37 passed in 0.99s
 ```
 
 ## Eval Verification
@@ -78,8 +83,8 @@ CASE dashboard_card_is_bundled
 "packaged_bundle": "...\\custom_components\\isolinear\\frontend\\dist\\isolinear-card.js"
 "bundle_exists": true
 "bundle_matches_root": true
-"expected_resource_url": "/api/isolinear/static/isolinear-card.js?v=0.1.9"
-"resource": {"type": "module", "url": "/api/isolinear/static/isolinear-card.js?v=0.1.9"}
+"expected_resource_url": "/api/isolinear/static/isolinear-card.js?v=0.1.14"
+"resource": {"type": "module", "url": "/api/isolinear/static/isolinear-card.js?v=0.1.14"}
 PASS dashboard_card_is_bundled
 
 CASE frontend_build_refreshes_packaged_card
@@ -101,9 +106,9 @@ Raw observed output excerpt:
 
 ```text
 CASE scaffold_package_is_visible_to_home_assistant
-"const_version": "0.1.9"
+"const_version": "0.1.14"
 "const_version_matches_manifest": true
-"manifest": {"domain": "isolinear", "version": "0.1.9"}
+"manifest": {"domain": "isolinear", "version": "0.1.14"}
 PASS scaffold_package_is_visible_to_home_assistant
 
 PASS home_assistant_integration_scaffold

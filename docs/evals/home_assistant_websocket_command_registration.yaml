@@ -31,11 +31,16 @@ expect:
   configured_orchestration_followup_unknown_jobs_fail_at_orchestration_boundary: true
   websocket_decision_observability:
     fields:
+      - message_id
       - command_type
       - requested_config_entry_id
       - resolved_config_entry_id
       - accepted
       - code
+      - job_id
+      - result_code
+      - snapshot_status
+      - progress_stage
     excludes:
       - prompt
       - token
@@ -43,6 +48,30 @@ expect:
       - raw_history
       - generated_code
       - generated_image
+  unexpected_websocket_exception_observability:
+    code: isolinear_websocket_command_exception
+    fields:
+      - message_id
+      - command_type
+      - requested_config_entry_id
+      - job_id
+      - exception_type
+    excludes:
+      - prompt
+      - token
+      - endpoint
+      - raw_history
+      - generated_code
+      - generated_image
+  untrusted_identifier_observability_redaction:
+    redacts:
+      - message_id
+      - config_entry_id
+      - job_id
+    excludes:
+      - token
+      - endpoint
+      - local_path
   repeated_setup_duplicate_count: 0
   non_orchestrating_side_effect_scope: registered commands before orchestration setup exists
   worker_called: false

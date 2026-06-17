@@ -286,6 +286,20 @@ card-facing failed snapshots with `model_provider_planning` details instead of
 surfacing as generic registered WebSocket command rejections; render/artifact
 validation failures still fail closed before PNG writes.
 
+The live `0.1.13` HACS retest still showed the card-local
+`SNAPSHOT_POLL_FAILED` state, so the repository is now ready for live HACS
+retest as version `0.1.14` with stronger backend diagnostic logging rather than
+another speculative behavior change. Registered WebSocket command decisions now
+log and store sanitized diagnostic fields for Home Assistant message ID,
+command type, requested and resolved config-entry IDs, job ID, decision code,
+orchestration/result code, snapshot status, progress stage, failure code, and
+exception type when present. Unexpected registered Home Assistant WebSocket
+handler exceptions are caught at the boundary and returned as structured
+`isolinear_websocket_command_exception` errors while logging only sanitized
+context. Prompt text, tokens, endpoints, raw history, generated code, generated
+images, local filesystem paths, and image bytes remain excluded from the
+diagnostic records.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -990,9 +1004,9 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Run the live HACS `0.1.13` dashboard verification. Redownload Isolinear through
+Run the live HACS `0.1.14` dashboard verification. Redownload Isolinear through
 HACS, restart Home Assistant, recreate the dashboard card, and confirm the
-registered Lovelace resource URL includes `?v=0.1.13` while the picker/editor
+registered Lovelace resource URL includes `?v=0.1.14` while the picker/editor
 shows `config_entry_id: auto`, including when Home Assistant had previously
 handed the card the old `fake-config-entry` placeholder. Confirm a stored
 allowlist reopens through the multi-entity selector with the exact selected
@@ -1002,8 +1016,13 @@ surfaces custom integration brand assets and where HACS reads repository-root
 brand assets.
 Then run both the explicit served-artifact prompt path and the ambiguous
 clarification-answer path against real Home Assistant sensor history and the
-configured Ollama planner, using the WebSocket decision observability to
-capture accept/reject evidence if the card cannot start a job.
+configured Ollama planner, using the WebSocket decision observability and
+Isolinear log lines to capture accept/reject evidence if the card cannot start
+or refresh a job. The key log line shape is:
+`Isolinear WebSocket command accepted/rejected: message_id=... type=...
+requested_config_entry_id=... resolved_config_entry_id=... job_id=...
+code=... result_code=... snapshot_status=... progress_stage=...
+failure_code=... exception_type=...`.
 If the card remains on `job_orchestration_clarification_continuation_ready`
 while Ollama is busy, wait for subsequent snapshot polls; transient frontend
 snapshot timeouts or generic Home Assistant `fail` timeout wrappers should no
@@ -1015,6 +1034,9 @@ If the card reports a model-provider failure, it should now arrive as a
 card-facing failed snapshot with `failure.stage: model_provider_planning` and a
 specific code such as `invalid_model_provider_chart_spec` rather than generic
 `Isolinear WebSocket command rejected.`
+If the logs show `code=isolinear_websocket_command_exception`, inspect the same
+line's `type`, `job_id`, `result_code`, `snapshot_status`, `progress_stage`,
+`failure_code`, and `exception_type` before changing card behavior again.
 If the card reports an approved-entity failure, inspect the configured
 allowlist, runtime options-update listener, and entity catalog setup result
 rather than treating it as a future-orchestration placeholder.

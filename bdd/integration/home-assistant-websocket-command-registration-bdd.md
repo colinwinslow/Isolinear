@@ -87,7 +87,12 @@ capable code runs
 boundary
 **When** the command handler records backend observability
 **Then** each decision should include command type, requested config-entry ID,
-resolved config-entry ID, accepted state, and decision code
+resolved config-entry ID, accepted state, message ID, decision code, and job ID
+when present
+**And** accepted snapshot decisions should include the result code, snapshot
+status, and progress stage
+**And** unexpected registered handler exceptions should return
+`isolinear_websocket_command_exception` while recording the exception type
 **And** prompts, tokens, endpoints, raw history, generated code, and generated
 image bytes should not be recorded
 

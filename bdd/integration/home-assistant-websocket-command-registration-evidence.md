@@ -1,6 +1,6 @@
 # Home Assistant WebSocket Command Registration Evidence
 
-Run timestamp: 2026-06-16T13:44:30+00:00
+Run timestamp: 2026-06-17T01:40:13+00:00
 
 BDD file:
 `bdd/integration/home-assistant-websocket-command-registration-bdd.md`
@@ -17,6 +17,8 @@ Overall result: PASS
 - Scenario F: Home Assistant routing accepts card envelopes -> `CASE home_assistant_routing_schema_accepts_card_payload`
 - Scenario G: auto config-entry resolution is deterministic -> `CASE auto_config_entry_resolves_only_when_unambiguous`
 - Scenario H: registered command decisions are visible -> `CASE registered_websocket_decisions_are_observable`
+- Scenario H: untrusted identifier fields are redacted -> `CASE registered_websocket_observability_sanitizes_untrusted_identifiers`
+- Scenario H: unexpected registered handler exceptions are logged safely -> `CASE unexpected_registered_websocket_exceptions_are_logged_safely`
 - Scenario I: configured orchestration does not return the job-state scaffold -> `CASE configured_orchestration_does_not_return_job_state_scaffold` and `CASE configured_orchestration_followup_commands_route_to_orchestration_boundary`
 - Scenario J: repeated setup does not duplicate commands -> `CASE repeated_setup_does_not_duplicate_commands`
 - Scenario K: registration without orchestration setup remains non-orchestrating -> `CASE websocket_registration_without_orchestration_setup_remains_non_orchestrating`
@@ -32,9 +34,9 @@ Raw command:
 Raw output:
 
 ```text
-collected 16 items
-tests\test_websocket_command_registration_anchor.py ................     [100%]
-16 passed in 0.49s
+collected 18 items
+tests\test_websocket_command_registration_anchor.py ..................   [100%]
+18 passed in 0.54s
 ```
 
 ## Eval Verification
@@ -76,8 +78,13 @@ CASE registered_callbacks_return_scaffold_snapshots
   "accepted": true,
   "code": "registered_job_state_command_accepted",
   "command_type": "isolinear/v1/job/start",
+  "job_id": "fake-config-entry-job-001",
+  "message_id": 10,
+  "progress_stage": "job_state_scaffold",
   "requested_config_entry_id": "auto",
-  "resolved_config_entry_id": "fake-config-entry"
+  "resolved_config_entry_id": "fake-config-entry",
+  "result_code": "job_state_created",
+  "snapshot_status": "planning"
 }
 PASS registered_callbacks_return_scaffold_snapshots
 
@@ -151,23 +158,60 @@ PASS configured_orchestration_followup_commands_route_to_orchestration_boundary
 
 CASE registered_websocket_decisions_are_observable
 "event_count": 2
+"diagnostic_fields_present": true
+"forbidden_terms_absent": true
 "events": [
   {
     "accepted": true,
     "code": "registered_job_state_command_accepted",
     "command_type": "isolinear/v1/job/start",
+    "job_id": "fake-config-entry-job-001",
+    "message_id": 52,
+    "progress_stage": "job_state_scaffold",
     "requested_config_entry_id": "auto",
-    "resolved_config_entry_id": "fake-config-entry"
+    "resolved_config_entry_id": "fake-config-entry",
+    "result_code": "job_state_created",
+    "snapshot_status": "planning"
   },
   {
     "accepted": false,
     "code": "unknown_config_entry",
     "command_type": "isolinear/v1/job/snapshot",
+    "message_id": 53,
     "requested_config_entry_id": "missing-config-entry",
     "resolved_config_entry_id": null
   }
 ]
 PASS registered_websocket_decisions_are_observable
+
+CASE registered_websocket_observability_sanitizes_untrusted_identifiers
+"redaction_surface": "bearer-like text, bare endpoints, Windows paths, and Home Assistant absolute paths"
+"missing_config_result_code": "unknown_config_entry"
+"missing_job_result_code": "unknown_job"
+"redacted_message_id": "<redacted>"
+"redacted_requested_config_entry_id": "<redacted>"
+"redacted_job_id": "<redacted>"
+"forbidden_terms_absent": true
+PASS registered_websocket_observability_sanitizes_untrusted_identifiers
+
+CASE unexpected_registered_websocket_exceptions_are_logged_safely
+"error_code": "isolinear_websocket_command_exception"
+"exception_type": "RuntimeError"
+"event_count": 1
+"events": [
+  {
+    "accepted": false,
+    "code": "isolinear_websocket_command_exception",
+    "command_type": "isolinear/v1/job/snapshot",
+    "exception_type": "RuntimeError",
+    "job_id": "job-001",
+    "message_id": 54,
+    "requested_config_entry_id": "fake-config-entry",
+    "resolved_config_entry_id": null
+  }
+]
+"forbidden_terms_absent": true
+PASS unexpected_registered_websocket_exceptions_are_logged_safely
 
 CASE repeated_setup_does_not_duplicate_commands
 "first_count": 5
