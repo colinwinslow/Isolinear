@@ -48,6 +48,14 @@ model-provider failure code
 **Then** the integration returns the same complete snapshot and does not call
 the planner or renderer again.
 
+### Scenario E - trusted renderer failure returns a failed snapshot
+
+**Given** the planner produced a valid allowlisted chart spec
+**When** the trusted in-process renderer fails before returning an accepted PNG
+**Then** the snapshot request returns a card-facing failed job snapshot with
+`failure.stage: chart_rendering`
+**And** the integration does not write a PNG file or artifact metadata.
+
 ## Evidence
 
 The implementing slice produces an evidence file at

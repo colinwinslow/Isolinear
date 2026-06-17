@@ -74,6 +74,11 @@ The production artifact-serving slice must:
   that selected entity, or fail before artifact metadata storage. It must not
   complete with scaffold placeholder artifact metadata when the real render
   path is active.
+- Preserve trusted-renderer failure visibility: if the in-process renderer
+  fails before returning an accepted PNG, the snapshot request must return a
+  card-facing failed job snapshot with `failure.stage: chart_rendering` rather
+  than reject the snapshot-poll command, and it must not write artifact
+  metadata or PNG files.
 - Treat Home Assistant config-entry `data` as mapping-like, not only as a
   plain `dict`, when configuring the model-provider planner for the real render
   path. A read-only mapping containing valid Ollama-compatible planner settings
@@ -137,7 +142,10 @@ served from `/api/isolinear/artifacts`.
     planner calls, including the stale-read window where the first request
     completes after a second request reads the active snapshot but before it
     acquires the per-job lock.
-13. Evidence contains raw command/result snippets, artifact path/URL, and PNG
+13. Focused pytest proves in-process renderer failures return card-facing
+    failed snapshots with `failure.stage: chart_rendering` and do not write
+    artifact metadata or PNG files.
+14. Evidence contains raw command/result snippets, artifact path/URL, and PNG
    signature bytes.
 
 ## Non-goals

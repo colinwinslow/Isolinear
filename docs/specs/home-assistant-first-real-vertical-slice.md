@@ -65,6 +65,8 @@ The first real vertical slice must:
   command rejections.
 - Render a safe-mode trusted matplotlib PNG in-process when the first-real
   slice is enabled and no worker dispatch is used.
+- Return card-facing failed job snapshots for trusted in-process renderer
+  failures instead of surfacing them as snapshot-poll command rejections.
 - Return that PNG to the existing dashboard card as `chart.image_url`, using a
   `data:image/png;base64,...` URL for this first proof.
 - Validate artifact metadata and the final `IntegrationJobSnapshot` before
@@ -109,12 +111,15 @@ planner, and verifies that the returned chart image is a real PNG data URL.
    rendering or artifact storage.
 4. Focused pytest proves invalid provider chart output returns a failed
    snapshot with model-provider failure details and still writes no PNG file.
-5. Focused pytest proves repeated snapshot requests reuse the completed
+5. Focused pytest proves trusted in-process renderer failures return
+   card-facing failed snapshots with `failure.stage: chart_rendering` and still
+   write no PNG file or artifact metadata.
+6. Focused pytest proves repeated snapshot requests reuse the completed
    artifact without another planner call.
-6. Evidence file contains raw command/result snippets and decoded PNG
+7. Evidence file contains raw command/result snippets and decoded PNG
    signature bytes.
-7. Adjacent orchestration tests remain green.
-8. Manual evidence proves the same registered Home Assistant WebSocket handler
+8. Adjacent orchestration tests remain green.
+9. Manual evidence proves the same registered Home Assistant WebSocket handler
    path can use real Home Assistant recorder history and a real
    Ollama-compatible planner without blocking the event loop.
 

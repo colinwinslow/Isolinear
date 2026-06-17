@@ -1,6 +1,7 @@
 # Home Assistant Integration: First Real Vertical Slice - Evidence
 
-Run timestamp: 2026-06-13T10:05:08.5235113-07:00
+Initial run timestamp: 2026-06-13T10:05:08.5235113-07:00
+Latest regression run timestamp: 2026-06-16T21:42:48.7336274-07:00
 
 ## Scenario A - happy path: allowed prompt returns a PNG chart
 
@@ -318,4 +319,71 @@ invalid provider chart output:
   chart rendering called: false
   chart artifact written: false
   PNG files written: 0
+```
+
+## Regression Addendum - 2026-06-17 Trusted Renderer Failure Snapshot
+
+Live dashboard retesting of `0.1.14` showed `job/snapshot` rejections with
+`code=in_process_renderer_failed` after the backend reached real recorder
+history and the trusted renderer path. Focused regression coverage now proves
+trusted renderer failures return card-facing failed job snapshots instead of
+snapshot-poll command rejections.
+
+Command:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_first_real_vertical_slice.py -q
+```
+
+Raw output:
+
+```text
+............                                                             [100%]
+12 passed in 5.06s
+```
+
+Focused evidence command:
+
+```powershell
+@'
+<inline Python script patching render_in_process_chart to return in_process_renderer_failed>
+'@ | .\.venv\Scripts\python.exe -
+```
+
+Raw result:
+
+```json
+{
+  "orchestration": {
+    "artifact_metadata_bookkeeping_written": false,
+    "chart_artifact_written": false,
+    "chart_rendering_called": true,
+    "model_provider_called": true
+  },
+  "png_files_written": 0,
+  "snapshot": {
+    "accepted": true,
+    "code": "registered_job_state_command_accepted",
+    "failure": {
+      "code": "in_process_renderer_failed",
+      "message": "The trusted chart renderer failed before a chart artifact was accepted.",
+      "stage": "chart_rendering"
+    },
+    "job_state_code": "job_orchestration_in_process_renderer_failure_snapshot_recorded",
+    "progress_stage": "in_process_renderer_failure_snapshot_ready",
+    "retry_allowed": true,
+    "status": "failed"
+  },
+  "start": {
+    "accepted": true,
+    "code": "registered_job_state_command_accepted",
+    "job_id": "real-slice-entry-job-001",
+    "status": "planning"
+  },
+  "store": {
+    "artifact_order": [],
+    "provider_plan_order": [],
+    "render_plan_order": []
+  }
+}
 ```

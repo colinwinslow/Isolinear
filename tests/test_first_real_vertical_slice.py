@@ -619,6 +619,70 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             self.assertFalse(snapshot["orchestration"]["chart_artifact_written"])
             self.assertEqual(list(artifact_dir.glob("*.png")), [])
 
+    def test_in_process_renderer_failure_returns_card_facing_failed_snapshot(self):
+        planner = FakePlanner()
+        renderer_failure = {
+            "accepted": False,
+            "code": "in_process_renderer_failed",
+            "renderer": "in_process_matplotlib",
+            "render_result": {
+                "request_id": "forced-render-failure",
+                "status": "failed",
+                "image_id": None,
+                "image_mime_type": None,
+                "image_path": None,
+                "error": {
+                    "code": "in_process_renderer_failed",
+                    "message": "No module named matplotlib",
+                    "details": {"exception_type": "ModuleNotFoundError"},
+                },
+                "render_metadata": {
+                    "title": None,
+                    "series_plotted": [],
+                    "overlays_plotted": [],
+                    "x_min": None,
+                    "x_max": None,
+                    "warnings": ["in_process_renderer_failed"],
+                    "codegen_attempts": 0,
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(planner=planner, artifact_dir=artifact_dir)
+
+            with patch.object(
+                job_orchestration,
+                "render_in_process_chart",
+                return_value=renderer_failure,
+            ):
+                start = _start_job(hass, entry)
+                snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+            self.assertTrue(start["accepted"], start)
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(
+                snapshot["code"],
+                "registered_job_state_command_accepted",
+            )
+            self.assertEqual(snapshot["snapshot"]["status"], "failed")
+            self.assertEqual(snapshot["snapshot"]["failure"]["stage"], "chart_rendering")
+            self.assertEqual(snapshot["snapshot"]["failure"]["code"], "in_process_renderer_failed")
+            self.assertEqual(
+                snapshot["snapshot"]["progress"]["stage"],
+                "in_process_renderer_failure_snapshot_ready",
+            )
+            self.assertTrue(snapshot["orchestration"]["model_provider_called"])
+            self.assertTrue(snapshot["orchestration"]["chart_rendering_called"])
+            self.assertFalse(snapshot["orchestration"]["chart_artifact_written"])
+            self.assertFalse(snapshot["orchestration"]["artifact_metadata_bookkeeping_written"])
+            self.assertEqual(list(artifact_dir.glob("*.png")), [])
+
+            store = _orchestration_store(hass, entry)
+            self.assertEqual(store["model_provider_plan_order"], [])
+            self.assertEqual(store["render_plan_order"], [])
+            self.assertEqual(store["artifact_order"], [])
+
     def test_repeated_snapshot_reuses_completed_png_artifact(self):
         planner = FakePlanner()
         with tempfile.TemporaryDirectory() as temp_dir:

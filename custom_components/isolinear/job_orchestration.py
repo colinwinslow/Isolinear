@@ -1114,6 +1114,33 @@ def _record_artifact_snapshot_for_source(
                 job_state_written=True,
                 job_orchestration_written=True,
             )
+        renderer_failure_snapshot = _append_in_process_renderer_failure_snapshot_from_planning_result(
+            job,
+            planning_result,
+        )
+        if renderer_failure_snapshot is not None:
+            return _accepted_artifact_snapshot(
+                "job_orchestration_in_process_renderer_failure_snapshot_recorded",
+                command,
+                renderer_failure_snapshot,
+                artifact=None,
+                render_plan=None,
+                model_provider_plan=None,
+                worker_dispatch=None,
+                worker_progress_events=None,
+                artifact_metadata_written=False,
+                render_plan_written=False,
+                model_provider_plan_written=False,
+                worker_dispatch_written=False,
+                worker_progress_written=False,
+                worker_progress_streaming_called=False,
+                model_provider_called=planning_result.get("model_provider_called", False),
+                worker_called=False,
+                chart_rendering_called=planning_result.get("chart_rendering_called", False),
+                chart_artifact_written=False,
+                job_state_written=True,
+                job_orchestration_written=True,
+            )
         result = _orchestration_rejection(
             planning_result["code"],
             job_id=command.get("job_id"),
@@ -1626,6 +1653,19 @@ def _append_model_provider_failure_snapshot_from_planning_result(
     )
 
 
+def _append_in_process_renderer_failure_snapshot_from_planning_result(
+    job: dict[str, Any],
+    planning_result: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not _is_in_process_renderer_failure_code(planning_result.get("code")):
+        return None
+    return _append_in_process_renderer_failure_snapshot(
+        job,
+        code=planning_result.get("code", "in_process_renderer_failed"),
+        message=_in_process_renderer_failure_message(planning_result),
+    )
+
+
 def _is_model_provider_output_failure_code(code: Any) -> bool:
     return code in {
         "invalid_integration_model_provider_plan",
@@ -1634,6 +1674,21 @@ def _is_model_provider_output_failure_code(code: Any) -> bool:
         "model_provider_chart_spec_hidden_entity",
         "model_provider_planner_not_chart_spec_ready",
         "model_provider_planning_failed",
+    }
+
+
+def _is_in_process_renderer_failure_code(code: Any) -> bool:
+    return code in {
+        "artifact_directory_unavailable",
+        "artifact_png_too_large",
+        "artifact_write_failed",
+        "in_process_renderer_failed",
+        "in_process_renderer_output_too_large",
+        "invalid_artifact_id",
+        "invalid_artifact_png_payload",
+        "invalid_in_process_render_request",
+        "invalid_in_process_render_result",
+        "unsupported_chart_spec",
     }
 
 
@@ -1658,6 +1713,25 @@ def _model_provider_planning_failure_message(planning_result: dict[str, Any]) ->
     if isinstance(code, str) and code in messages:
         return messages[code]
     return "Model provider planning failed before a chart spec was accepted."
+
+
+def _in_process_renderer_failure_message(planning_result: dict[str, Any]) -> str:
+    code = planning_result.get("code")
+    messages = {
+        "artifact_directory_unavailable": "Isolinear could not open the chart artifact directory.",
+        "artifact_png_too_large": "The trusted chart renderer produced an artifact that was too large.",
+        "artifact_write_failed": "Isolinear could not write the rendered chart artifact.",
+        "in_process_renderer_failed": "The trusted chart renderer failed before a chart artifact was accepted.",
+        "in_process_renderer_output_too_large": "The trusted chart renderer produced an artifact that was too large.",
+        "invalid_artifact_id": "Isolinear could not prepare a valid chart artifact target.",
+        "invalid_artifact_png_payload": "The trusted chart renderer returned an invalid PNG payload.",
+        "invalid_in_process_render_request": "Isolinear could not prepare a valid request for the trusted chart renderer.",
+        "invalid_in_process_render_result": "The trusted chart renderer returned an invalid render result.",
+        "unsupported_chart_spec": "The trusted chart renderer does not support this chart spec yet.",
+    }
+    if isinstance(code, str) and code in messages:
+        return messages[code]
+    return "The trusted chart renderer failed before a chart artifact was accepted."
 
 
 def _append_model_provider_failure_snapshot(
@@ -1694,6 +1768,45 @@ def _append_model_provider_failure_snapshot(
         warnings=[
             "model_provider_retry_backoff_policy_scaffold",
             "model_provider_metadata_not_exposed_to_card",
+            "automatic_retry_not_scheduled",
+        ],
+    )
+
+
+def _append_in_process_renderer_failure_snapshot(
+    job: dict[str, Any],
+    *,
+    code: str,
+    message: str,
+) -> dict[str, Any]:
+    safe_code = _safe_renderer_failure_code(code)
+    safe_message = _safe_renderer_failure_message(message)
+    return append_validated_job_snapshot(
+        job,
+        status="failed",
+        state_label="Failed",
+        message=safe_message,
+        progress_stage="in_process_renderer_failure_snapshot_ready",
+        progress_message=safe_message,
+        validation_status="fail",
+        validation_summary="A trusted renderer failure was converted to a card-facing failed snapshot.",
+        validation_checks=[
+            {"name": "integration_job_state_scaffold", "status": "pass"},
+            {"name": "model_provider", "status": "pass"},
+            {"name": "chart_rendering", "status": "fail"},
+            {"name": "artifact_metadata", "status": "not_written"},
+            {"name": "manual_retry_affordance", "status": "pass"},
+            {"name": "automatic_retry", "status": "not_scheduled"},
+        ],
+        failure={
+            "stage": "chart_rendering",
+            "code": safe_code,
+            "message": safe_message,
+        },
+        retry_allowed=True,
+        warnings=[
+            "in_process_renderer_failure_snapshot",
+            "renderer_metadata_not_exposed_to_card",
             "automatic_retry_not_scheduled",
         ],
     )
@@ -5113,6 +5226,26 @@ def _safe_worker_snapshot_failure_message(value: Any, *, stage: str) -> str:
         return fallback
     stripped = re.sub(r"\s+", " ", value.strip())
     if FORBIDDEN_WORKER_PROGRESS_TEXT.search(stripped):
+        return fallback
+    return stripped[:240] if stripped else fallback
+
+
+def _safe_renderer_failure_code(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return "in_process_renderer_failed"
+    stripped = value.strip()
+    if FORBIDDEN_WORKER_PROGRESS_TEXT.search(stripped) or FORBIDDEN_MODEL_PROVIDER_FAILURE_TEXT.search(stripped):
+        return "in_process_renderer_failed"
+    normalized = re.sub(r"[^a-zA-Z0-9_.-]+", "_", stripped).strip("_")
+    return normalized[:80] if normalized else "in_process_renderer_failed"
+
+
+def _safe_renderer_failure_message(value: Any) -> str:
+    fallback = "The trusted chart renderer failed before a chart artifact was accepted."
+    if not isinstance(value, str) or not value.strip():
+        return fallback
+    stripped = re.sub(r"\s+", " ", value.strip())
+    if FORBIDDEN_WORKER_PROGRESS_TEXT.search(stripped) or FORBIDDEN_MODEL_PROVIDER_FAILURE_TEXT.search(stripped):
         return fallback
     return stripped[:240] if stripped else fallback
 

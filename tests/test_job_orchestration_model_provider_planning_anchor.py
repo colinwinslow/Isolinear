@@ -23,6 +23,19 @@ from Isolinear.job_orchestration_model_provider_planning_anchor import (  # noqa
 
 
 class JobOrchestrationModelProviderPlanningAnchorTests(unittest.TestCase):
+    def assert_card_facing_model_provider_failure(
+        self,
+        dispatch: dict,
+        expected_code: str,
+    ) -> None:
+        self.assertTrue(dispatch["accepted"], dispatch)
+        self.assertEqual(dispatch["connection"]["errors"], [], dispatch)
+        snapshot = dispatch["handler_result"]["snapshot"]
+        self.assertEqual(snapshot["status"], "failed")
+        self.assertEqual(snapshot["progress"]["stage"], "model_provider_failure_snapshot_ready")
+        self.assertEqual(snapshot["failure"]["stage"], "model_provider_planning")
+        self.assertEqual(snapshot["failure"]["code"], expected_code)
+
     def test_provider_produced_chart_spec_records_provider_plan(self):
         result = verify_provider_produced_chart_spec_records_provider_plan(REPO_ROOT)
 
@@ -78,7 +91,10 @@ class JobOrchestrationModelProviderPlanningAnchorTests(unittest.TestCase):
     def test_hidden_provider_entity_rejected_before_storage(self):
         result = verify_hidden_provider_entity_rejected_before_storage(REPO_ROOT)
 
-        self.assertFalse(result["snapshot"]["accepted"], result)
+        self.assert_card_facing_model_provider_failure(
+            result["snapshot"],
+            "model_provider_chart_spec_hidden_entity",
+        )
         self.assertEqual(result["planner_call_count"], 1)
         self.assertEqual(result["error_codes"], ["model_provider_chart_spec_hidden_entity"])
         self.assertEqual(result["provider_plans"], [])
@@ -95,7 +111,10 @@ class JobOrchestrationModelProviderPlanningAnchorTests(unittest.TestCase):
 
         self.assertEqual(set(result["cases"]), {"x_axis", "y_axis", "notes", "reasoning_summary", "memory_proposals"})
         for case in result["cases"].values():
-            self.assertFalse(case["snapshot"]["accepted"], case)
+            self.assert_card_facing_model_provider_failure(
+                case["snapshot"],
+                "model_provider_chart_spec_hidden_entity",
+            )
             self.assertEqual(case["planner_call_count"], 1, case)
             self.assertEqual(case["error_codes"], ["model_provider_chart_spec_hidden_entity"], case)
             self.assertEqual(case["provider_plans"], [], case)
@@ -106,7 +125,10 @@ class JobOrchestrationModelProviderPlanningAnchorTests(unittest.TestCase):
     def test_invalid_provider_chart_spec_rejected_before_storage(self):
         result = verify_invalid_provider_chart_spec_rejected_before_storage(REPO_ROOT)
 
-        self.assertFalse(result["snapshot"]["accepted"], result)
+        self.assert_card_facing_model_provider_failure(
+            result["snapshot"],
+            "invalid_model_provider_chart_spec",
+        )
         self.assertEqual(result["planner_call_count"], 1)
         self.assertEqual(result["error_codes"], ["invalid_model_provider_chart_spec"])
         self.assertEqual(result["provider_plans"], [])

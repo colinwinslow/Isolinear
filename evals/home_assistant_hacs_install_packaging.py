@@ -104,7 +104,12 @@ def manifest_is_hacs_ready() -> dict[str, Any]:
             "missing": missing,
             "domain": manifest.get("domain"),
             "issue_tracker": manifest.get("issue_tracker"),
-            "passed": not missing and manifest.get("domain") == "isolinear",
+            "requirements": manifest.get("requirements"),
+            "passed": (
+                not missing
+                and manifest.get("domain") == "isolinear"
+                and "matplotlib==3.11.0" in manifest.get("requirements", [])
+            ),
         },
     }
 

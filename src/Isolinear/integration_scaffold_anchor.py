@@ -38,6 +38,8 @@ SCAFFOLD_FILES = [
     "custom_components/isolinear/websocket_api.py",
 ]
 
+REQUIRED_RUNTIME_REQUIREMENTS = ("matplotlib==3.11.0",)
+
 
 def load_manifest(root: Path | None = None) -> dict[str, Any]:
     root = root or repo_root()
@@ -59,7 +61,11 @@ def verify_manifest(root: Path | None = None) -> dict[str, Any]:
         "version_present": isinstance(manifest.get("version"), str) and bool(manifest["version"]),
         "const_version": INTEGRATION_VERSION,
         "const_version_matches_manifest": manifest.get("version") == INTEGRATION_VERSION,
-        "requirements_empty": manifest.get("requirements") == [],
+        "runtime_requirements": manifest.get("requirements"),
+        "renderer_requirements_declared": all(
+            requirement in manifest.get("requirements", [])
+            for requirement in REQUIRED_RUNTIME_REQUIREMENTS
+        ),
         "all_scaffold_files_present": all(files.values()),
     }
 
@@ -155,8 +161,8 @@ def verify_integration_scaffold_anchor(root: Path | None = None) -> dict[str, An
         failures.append("Manifest does not include a version.")
     if not manifest_result["const_version_matches_manifest"]:
         failures.append("Manifest version does not match the integration version constant.")
-    if not manifest_result["requirements_empty"]:
-        failures.append("Scaffold introduced Home Assistant integration requirements.")
+    if not manifest_result["renderer_requirements_declared"]:
+        failures.append("Manifest does not declare the trusted renderer runtime requirement.")
     if not manifest_result["all_scaffold_files_present"]:
         failures.append("One or more scaffold files are missing on disk.")
     if not config_result["defaults"]["result"]["accepted"]:

@@ -300,6 +300,18 @@ context. Prompt text, tokens, endpoints, raw history, generated code, generated
 images, local filesystem paths, and image bytes remain excluded from the
 diagnostic records.
 
+The live `0.1.14` HACS retest then produced useful backend evidence: after the
+dashboard reached real recorder history, `job/snapshot` was rejected with
+`code=in_process_renderer_failed`, identifying the trusted matplotlib renderer
+path rather than a frontend-only polling issue. The repository is now ready for
+live HACS retest as version `0.1.15`. The Home Assistant manifest declares the
+trusted renderer runtime dependency `matplotlib==3.11.0`, and packaging/scaffold
+proof fails if that dependency is omitted. In-process renderer failures now
+append sanitized card-facing failed job snapshots with
+`failure.stage: chart_rendering` and `failure.code: in_process_renderer_failed`
+instead of surfacing as snapshot-poll command rejections; no PNG file, artifact
+metadata, render plan, or provider plan is written on that failure path.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -1004,9 +1016,9 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Run the live HACS `0.1.14` dashboard verification. Redownload Isolinear through
+Run the live HACS `0.1.15` dashboard verification. Redownload Isolinear through
 HACS, restart Home Assistant, recreate the dashboard card, and confirm the
-registered Lovelace resource URL includes `?v=0.1.14` while the picker/editor
+registered Lovelace resource URL includes `?v=0.1.15` while the picker/editor
 shows `config_entry_id: auto`, including when Home Assistant had previously
 handed the card the old `fake-config-entry` placeholder. Confirm a stored
 allowlist reopens through the multi-entity selector with the exact selected
@@ -1034,6 +1046,11 @@ If the card reports a model-provider failure, it should now arrive as a
 card-facing failed snapshot with `failure.stage: model_provider_planning` and a
 specific code such as `invalid_model_provider_chart_spec` rather than generic
 `Isolinear WebSocket command rejected.`
+If the card reports a trusted renderer failure, it should now arrive as a
+card-facing failed snapshot with `failure.stage: chart_rendering` and a specific
+code such as `in_process_renderer_failed` rather than generic
+`SNAPSHOT_POLL_FAILED`; inspect Home Assistant dependency installation and
+renderer logs before changing card polling behavior again.
 If the logs show `code=isolinear_websocket_command_exception`, inspect the same
 line's `type`, `job_id`, `result_code`, `snapshot_status`, `progress_stage`,
 `failure_code`, and `exception_type` before changing card behavior again.
