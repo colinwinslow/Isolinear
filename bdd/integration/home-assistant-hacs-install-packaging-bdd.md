@@ -34,6 +34,8 @@ assets after each small update.
 `documentation`, `issue_tracker`, and `codeowners`
 **And** it should declare a `lovelace` dependency so cold-boot setup can update
 the package-versioned dashboard resource metadata
+**And** it should not declare renderer-only Python requirements that can block
+the config flow before the setup wizard renders
 
 ### Scenario C - happy path: brand icons are visible to HACS and Home Assistant
 

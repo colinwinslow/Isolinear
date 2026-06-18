@@ -38,7 +38,7 @@ SCAFFOLD_FILES = [
     "custom_components/isolinear/websocket_api.py",
 ]
 
-REQUIRED_RUNTIME_REQUIREMENTS = ("matplotlib==3.11.0",)
+CONFIG_FLOW_BLOCKING_REQUIREMENT_PREFIXES = ("matplotlib",)
 
 
 def load_manifest(root: Path | None = None) -> dict[str, Any]:
@@ -62,9 +62,10 @@ def verify_manifest(root: Path | None = None) -> dict[str, Any]:
         "const_version": INTEGRATION_VERSION,
         "const_version_matches_manifest": manifest.get("version") == INTEGRATION_VERSION,
         "runtime_requirements": manifest.get("requirements"),
-        "renderer_requirements_declared": all(
-            requirement in manifest.get("requirements", [])
-            for requirement in REQUIRED_RUNTIME_REQUIREMENTS
+        "config_flow_blocking_requirements_deferred": not any(
+            requirement.startswith(prefix)
+            for requirement in manifest.get("requirements", [])
+            for prefix in CONFIG_FLOW_BLOCKING_REQUIREMENT_PREFIXES
         ),
         "all_scaffold_files_present": all(files.values()),
     }
@@ -161,8 +162,8 @@ def verify_integration_scaffold_anchor(root: Path | None = None) -> dict[str, An
         failures.append("Manifest does not include a version.")
     if not manifest_result["const_version_matches_manifest"]:
         failures.append("Manifest version does not match the integration version constant.")
-    if not manifest_result["renderer_requirements_declared"]:
-        failures.append("Manifest does not declare the trusted renderer runtime requirement.")
+    if not manifest_result["config_flow_blocking_requirements_deferred"]:
+        failures.append("Manifest declares a renderer-only requirement that can block config-flow loading.")
     if not manifest_result["all_scaffold_files_present"]:
         failures.append("One or more scaffold files are missing on disk.")
     if not config_result["defaults"]["result"]["accepted"]:

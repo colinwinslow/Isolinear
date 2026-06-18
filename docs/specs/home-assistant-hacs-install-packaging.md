@@ -47,6 +47,11 @@ The package must:
 - Declare Home Assistant's `lovelace` integration as a manifest dependency so
   dashboard resource storage is available before Isolinear tries to create or
   update its package-versioned Lovelace resource metadata during cold boot.
+- Keep renderer-only heavy Python packages out of manifest `requirements`
+  until their Home Assistant install path is proven load-safe, because Home
+  Assistant installs requirements before the config flow can render. The
+  trusted in-process matplotlib renderer must keep importing matplotlib lazily
+  and fail closed as a chart-rendering job failure if the module is unavailable.
 - Include repository-level HACS brand icons under `brand/`, with at least
   `icon.png`.
 - Include local Home Assistant brand icons under
@@ -95,9 +100,10 @@ The anchor artifact is a HACS-shaped repository tree:
 ## Proof Requirements
 
 1. Focused pytest proves HACS metadata, one-integration repository shape,
-   manifest metadata including the Lovelace dependency, repository-level brand
-   icons, package-local brand icons, package-local schema paths, bundled schema
-   parity, and bundled card asset path.
+   manifest metadata including the Lovelace dependency and an empty
+   config-flow-safe requirements list, repository-level brand icons,
+   package-local brand icons, package-local schema paths, bundled schema parity,
+   and bundled card asset path.
 2. Eval evidence maps the same checks to the BDD scenarios.
 3. Existing dashboard resource tests remain green with the bundled card path.
 4. Existing first-real-slice and worker-rendered artifact tests remain green

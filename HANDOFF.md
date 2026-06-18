@@ -324,6 +324,20 @@ Assistant manifest declares `dependencies: ["lovelace"]`, HACS packaging proof
 fails if that dependency is omitted, and dashboard resource evidence proves the
 current package-versioned URL is `?v=0.1.16`.
 
+The live `0.1.16` reinstall then failed before the first setup form rendered:
+Home Assistant spent about 30 seconds on
+`Please wait, starting configuration wizard for Isolinear` and returned
+`Config flow could not be loaded: 500 Internal Server Error`. That points to
+pre-flow integration loading rather than config-flow validation. The repository
+is now ready for live HACS retest as version `0.1.17`. The renderer-only
+`matplotlib==3.11.0` manifest requirement has been removed so Home Assistant
+does not try to install a heavy compiled dependency before config-flow loading;
+the trusted in-process renderer still imports matplotlib lazily and returns a
+sanitized card-facing chart-rendering failure if the module is unavailable.
+HACS/scaffold proof now fails if renderer-only config-flow-blocking
+requirements are reintroduced, and dashboard resource evidence proves the
+current package-versioned URL is `?v=0.1.17`.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.
@@ -1028,17 +1042,18 @@ hit the known unrelated codegen sandbox matplotlib subprocess flake once
 
 ## Next recommended packet
 
-Run the live HACS `0.1.16` dashboard verification. Redownload Isolinear through
+Run the live HACS `0.1.17` dashboard verification. Redownload Isolinear through
 HACS, restart Home Assistant, recreate the dashboard card, and confirm the
 registered Lovelace resource URL updates from the stale `?v=0.1.14` row to
-`?v=0.1.16` while the picker/editor shows `config_entry_id: auto`, including
+`?v=0.1.17` while the picker/editor shows `config_entry_id: auto`, including
 when Home Assistant had previously handed the card the old `fake-config-entry`
-placeholder. Confirm a stored
+placeholder. Confirm the config-flow wizard renders instead of failing before
+the first setup form. Confirm a stored
 allowlist reopens through the multi-entity selector with the exact selected
 entity IDs and the dashboard route sees those approved entities without another
-restart. Confirm the integration icon appears both where Home Assistant
-surfaces custom integration brand assets and where HACS reads repository-root
-brand assets.
+restart. Confirm the integration icon appears where Home Assistant surfaces
+custom integration brand assets; the HACS Store icon may remain absent until
+Isolinear is added to the Home Assistant brands CDN.
 Then run both the explicit served-artifact prompt path and the ambiguous
 clarification-answer path against real Home Assistant sensor history and the
 configured Ollama planner, using the WebSocket decision observability and
@@ -1062,8 +1077,10 @@ specific code such as `invalid_model_provider_chart_spec` rather than generic
 If the card reports a trusted renderer failure, it should now arrive as a
 card-facing failed snapshot with `failure.stage: chart_rendering` and a specific
 code such as `in_process_renderer_failed` rather than generic
-`SNAPSHOT_POLL_FAILED`; inspect Home Assistant dependency installation and
-renderer logs before changing card polling behavior again.
+`SNAPSHOT_POLL_FAILED`; inspect matplotlib availability and renderer logs
+before changing card polling behavior again. Do not re-add a renderer-only
+manifest requirement unless the Home Assistant config-flow load path has been
+proven safe with that requirement.
 If the logs show `code=isolinear_websocket_command_exception`, inspect the same
 line's `type`, `job_id`, `result_code`, `snapshot_status`, `progress_stage`,
 `failure_code`, and `exception_type` before changing card behavior again.

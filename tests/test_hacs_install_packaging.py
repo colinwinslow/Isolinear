@@ -67,7 +67,7 @@ def test_manifest_has_hacs_required_metadata() -> None:
     assert manifest["domain"] == "isolinear"
     assert manifest["issue_tracker"].endswith("/issues")
     assert "lovelace" in manifest["dependencies"]
-    assert "matplotlib==3.11.0" in manifest["requirements"]
+    assert manifest["requirements"] == []
 
 
 def test_brand_icons_are_packaged() -> None:
