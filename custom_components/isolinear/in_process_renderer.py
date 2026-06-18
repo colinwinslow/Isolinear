@@ -176,7 +176,7 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
     }
 
     series_plotted: list[str] = []
-    plotted: list[tuple[str, list[datetime], list[float]]] = []
+    plotted: list[tuple[str, list[datetime], list[float], list[float] | None, list[float] | None]] = []
     all_timestamps: list[datetime] = []
     all_values: list[float] = []
     warnings: list[str] = []
@@ -188,27 +188,43 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
         if history.get("kind") != "numeric":
             raise ValueError(f"History for {entity_id} is not numeric.")
 
-        timestamps: list[datetime] = []
-        values: list[float] = []
+        rows: list[tuple[datetime, float, float | None, float | None]] = []
         for point in history.get("points", []):
             if not isinstance(point, dict) or point.get("quality") != "ok":
                 continue
             value = point.get("value")
             if not isinstance(value, (int, float)) or isinstance(value, bool):
                 continue
-            timestamps.append(_parse_timestamp(point.get("ts")))
-            values.append(float(value))
+            rows.append(
+                (
+                    _parse_timestamp(point.get("ts")),
+                    float(value),
+                    _numeric_or_none(point.get("value_min")),
+                    _numeric_or_none(point.get("value_max")),
+                )
+            )
 
-        if not timestamps:
+        if not rows:
             raise ValueError(f"History for {entity_id} has no numeric points.")
 
-        ordered = sorted(zip(timestamps, values), key=lambda pair: pair[0])
-        timestamps = [pair[0] for pair in ordered]
-        values = [pair[1] for pair in ordered]
+        rows.sort(key=lambda row: row[0])
+        timestamps = [row[0] for row in rows]
+        values = [row[1] for row in rows]
+        # A min/max band is drawn only when every point carries both bounds
+        # (long-term statistics buckets); raw recorder series have none.
+        if all(row[2] is not None and row[3] is not None for row in rows):
+            mins = [row[2] for row in rows]
+            maxs = [row[3] for row in rows]
+        else:
+            mins = None
+            maxs = None
         label = series_spec.get("label") or entity_id
-        plotted.append((label, timestamps, values))
+        plotted.append((label, timestamps, values, mins, maxs))
         all_timestamps.extend(timestamps)
         all_values.extend(values)
+        if mins is not None and maxs is not None:
+            all_values.extend(mins)
+            all_values.extend(maxs)
         series_plotted.append(series_spec["series_id"])
 
     image = Image.new("RGB", (width, height), (255, 255, 255))
@@ -278,9 +294,20 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
         anchor_x = max(0, min(anchor_x, width - text_w))
         draw.text((anchor_x, plot_bottom + 14), text, fill=(90, 90, 90), font=tick_font)
 
-    # Series polylines.
+    # Min/max bands (statistics series) are drawn behind the mean lines.
+    for index, (label, timestamps, values, mins, maxs) in enumerate(plotted):
+        if mins is None or maxs is None or len(timestamps) < 2:
+            continue
+        color = _SERIES_COLORS[index % len(_SERIES_COLORS)]
+        band_fill = _band_tint(color)
+        upper = [(x_px(ts), y_px(value)) for ts, value in zip(timestamps, maxs)]
+        lower = [(x_px(ts), y_px(value)) for ts, value in zip(timestamps, mins)]
+        polygon = upper + list(reversed(lower))
+        draw.polygon(polygon, fill=band_fill)
+
+    # Series polylines (mean).
     marker_radius = max(4, series_weight)
-    for index, (label, timestamps, values) in enumerate(plotted):
+    for index, (label, timestamps, values, mins, maxs) in enumerate(plotted):
         color = _SERIES_COLORS[index % len(_SERIES_COLORS)]
         points = [(x_px(ts), y_px(value)) for ts, value in zip(timestamps, values)]
         if len(points) == 1:
@@ -295,7 +322,7 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
     # Legend (top-right inside the plot).
     legend_y = plot_top + 10
     swatch_w = max(28, width // 50)
-    for index, (label, _, _) in enumerate(plotted):
+    for index, (label, _, _, _, _) in enumerate(plotted):
         color = _SERIES_COLORS[index % len(_SERIES_COLORS)]
         label_w, label_h = _text_size(draw, label, label_font)
         entry_w = swatch_w + 10 + label_w
@@ -406,6 +433,17 @@ def _parse_timestamp(value: Any) -> datetime:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("History point timestamp must be a non-empty string.")
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _numeric_or_none(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def _band_tint(color: tuple[int, int, int]) -> tuple[int, int, int]:
+    """Return a light tint of the series color for the min/max band fill."""
+    return tuple(int(round(channel * 0.25 + 255 * 0.75)) for channel in color)
 
 
 def _y_axis_label(chart_spec: dict[str, Any]) -> str | None:

@@ -1,7 +1,7 @@
 # Home Assistant Integration: First Real Vertical Slice - Evidence
 
 Initial run timestamp: 2026-06-13T10:05:08.5235113-07:00
-Latest regression run timestamp: 2026-06-17 (venv Python 3.14.5 / Pillow 12.2.0; `351 passed`)
+Latest regression run timestamp: 2026-06-18 (venv Python 3.14.5 / Pillow 12.2.0; `370 passed`; ADR-0020/0021 model-resolved window + tiered data source, 0.1.22)
 
 > Renderer note (ADR-0019): the trusted in-process renderer now draws with
 > Pillow instead of matplotlib. The renderer identifier is `in_process_pillow`
@@ -390,5 +390,80 @@ Raw result:
     "provider_plan_order": [],
     "render_plan_order": []
   }
+}
+```
+
+## Scenarios F-H - model-resolved window and tiered data source (0.1.22)
+
+Captured from `tests/test_first_real_vertical_slice.py`
+(`ResolveHistoryWindowTests`, `HistoryTierSelectionTests`,
+`TieredHistoryRetrievalTests`, `ModelResolvedWindowEndToEndTests`) with a fixed
+`now = 2026-06-18T12:00:00+00:00` and `recorder_keep_days = 10`.
+
+### Scenario F - window clamp/validate (ADR-0020)
+
+```json
+{
+  "honored": {
+    "model_resolved": true,
+    "start": "2026-06-16T12:00:00+00:00",
+    "end": "2026-06-18T12:00:00+00:00",
+    "warnings": []
+  },
+  "future_end_clamped": {
+    "model_resolved": true,
+    "end": "2026-06-18T12:00:00+00:00",
+    "warnings": ["history_window_end_clamped_to_now"]
+  },
+  "inverted_fallback": {
+    "model_resolved": false,
+    "start": "2026-06-17T12:00:00+00:00",
+    "end": "2026-06-18T12:00:00+00:00",
+    "warnings": ["history_window_not_increasing"]
+  }
+}
+```
+
+### Tier selection (ADR-0021)
+
+```json
+{
+  "raw_12h": ["recorder_states", "raw", null, false],
+  "hourly_5d": ["long_term_statistics", "hourly", "hour", false],
+  "daily_90d": ["long_term_statistics", "daily", "day", true]
+}
+```
+
+### Scenario G - seasonal window renders statistics with a band
+
+```json
+{
+  "status": "complete",
+  "image_url_suffix": "e-entry-artifact-001.png",
+  "series_source": "long_term_statistics",
+  "series_resolution": "daily",
+  "first_point": {
+    "ts": "2026-03-20T12:00:00+00:00",
+    "value": 60.0,
+    "value_min": 58.0,
+    "value_max": 63.0,
+    "raw_state": null,
+    "quality": "ok"
+  },
+  "png_files_written": 1
+}
+```
+
+### Scenario H - beyond retention without statistics fails closed
+
+```json
+{
+  "status": "failed",
+  "failure": {
+    "stage": "approved_history_retrieval",
+    "code": "no_long_term_statistics",
+    "message": "No long-term statistics are available to chart this time range (sensor.upstairs_temperature). Statistics require an entity with a measurement state class."
+  },
+  "png_files_written": 0
 }
 ```

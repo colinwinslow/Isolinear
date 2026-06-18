@@ -56,6 +56,35 @@ the planner or renderer again.
 `failure.stage: chart_rendering`
 **And** the integration does not write a PNG file or artifact metadata.
 
+### Scenario F - the model resolves the time window (ADR-0020)
+
+**Given** a configured entry whose planner emits an absolute
+`chart_spec.time_range {start, end}` for a fuzzy prompt, with `now` and
+`time_zone` supplied in the planner request
+**When** the dashboard card runs `job/start` then `job/snapshot`
+**Then** history is fetched after planning for the resolved window (clamped to
+end <= now and span <= 366 days), and a window that is missing, inverted, or
+otherwise unclampable falls back to a fixed last-24h window rather than a
+keyword guess.
+
+### Scenario G - seasonal window uses long-term statistics with a band (ADR-0021)
+
+**Given** a configured entry, a ~90-day absolute window from the planner, and
+long-term statistics available for the entity
+**When** the snapshot path retrieves history
+**Then** the series is sourced from `long_term_statistics` at `daily`
+resolution, each point carries `value`/`value_min`/`value_max`, and the rendered
+PNG shades a min/max band behind the mean line.
+
+### Scenario H - beyond retention without statistics fails closed
+
+**Given** a configured entry and a window older than recorder retention for an
+entity that has no long-term statistics (no `state_class`)
+**When** the snapshot path retrieves history
+**Then** it returns a card-facing failed snapshot with
+`failure.stage: approved_history_retrieval` and `failure.code:
+no_long_term_statistics`, and no PNG file is written.
+
 ## Evidence
 
 The implementing slice produces an evidence file at

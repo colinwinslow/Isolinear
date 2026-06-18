@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ._paths import schema_path
@@ -17,6 +17,15 @@ from .entity_catalog import DATA_ENTITY_CATALOG
 DATA_HISTORY_RETRIEVAL = "history_retrieval"
 DATA_HISTORY_RETRIEVAL_SETUP = "history_retrieval_setup"
 DATA_HISTORY_SOURCE = "history_data"
+DATA_STATISTICS_SOURCE = "statistics_data"
+DATA_RECORDER_KEEP_DAYS = "recorder_keep_days"
+
+# Tiered data-source selection (ADR-0021). Recent/short windows use raw recorder
+# states; longer or beyond-retention windows use long-term statistics, hourly up
+# to 60 days and daily beyond that to keep point counts bounded.
+DEFAULT_RECORDER_KEEP_DAYS = 10.0
+RAW_TIER_MAX_SPAN = timedelta(days=2)
+HOURLY_TIER_MAX_SPAN = timedelta(days=60)
 HISTORY_SERIES_SCHEMA_PATH = (
     schema_path("history-series.schema.json")
 )
@@ -95,6 +104,8 @@ def retrieve_approved_history(
     entity_ids: Any,
     start: Any,
     end: Any,
+    now: Any = None,
+    allow_statistics: bool = False,
     history_by_entity: dict[str, Any] | None = None,
     store: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -133,64 +144,44 @@ def retrieve_approved_history(
             approved_entity_catalog_read=True,
         )
 
-    source = (
-        _history_source_from_hass(
-            hass,
-            entity_ids=requested_entity_ids,
-            range_start=time_range["start_dt"],
-            range_end=time_range["end_dt"],
+    resolved_now = now if isinstance(now, datetime) else datetime.now(timezone.utc)
+    if resolved_now.tzinfo is None:
+        resolved_now = resolved_now.replace(tzinfo=timezone.utc)
+    resolved_now = resolved_now.astimezone(timezone.utc)
+    if allow_statistics:
+        keep_days = _recorder_keep_days(hass)
+        tier = _select_history_tier(
+            time_range["start_dt"],
+            time_range["end_dt"],
+            now=resolved_now,
+            keep_days=keep_days,
         )
-        if history_by_entity is None
-        else history_by_entity
+    else:
+        # Legacy scaffold path: raw recorder states only. Long-term statistics
+        # tiering is opt-in for the model-driven first-real-slice window
+        # (ADR-0020/ADR-0021).
+        tier = ("recorder_states", "raw", None, False)
+
+    series_build = _build_tiered_series(
+        hass,
+        requested_entity_ids=requested_entity_ids,
+        catalog_by_entity=catalog_by_entity,
+        time_range=time_range,
+        tier=tier,
+        history_by_entity=history_by_entity,
     )
-    if not isinstance(source, dict):
+    if not series_build["accepted"]:
         return _history_rejection(
-            "invalid_history_source",
+            series_build["code"],
             entry_id=entry_id,
             store=history_store,
-            errors=[{"path": "$.history_by_entity", "reason": "must_be_object"}],
-            approved_entity_catalog_read=True,
-        )
-
-    series_results = []
-    missing_entity_ids = []
-    errors = []
-    for entity_id in requested_entity_ids:
-        raw_records = source.get(entity_id)
-        if raw_records is None:
-            missing_entity_ids.append(entity_id)
-            continue
-
-        series_result = _normalize_history_series(
-            entity_id,
-            catalog_by_entity[entity_id],
-            raw_records,
-            range_start=time_range["start_dt"],
-            range_end=time_range["end_dt"],
-        )
-        if not series_result["accepted"]:
-            errors.extend(series_result.get("errors", []))
-            continue
-        series_results.append(series_result["series"])
-
-    if missing_entity_ids:
-        return _history_rejection(
-            "missing_approved_history",
-            entry_id=entry_id,
-            store=history_store,
-            missing_entity_ids=missing_entity_ids,
+            errors=series_build.get("errors"),
+            missing_entity_ids=series_build.get("missing_entity_ids"),
+            statistics_unavailable_entity_ids=series_build.get("statistics_unavailable_entity_ids"),
             approved_entity_catalog_read=True,
             home_assistant_history_read=True,
         )
-    if errors:
-        return _history_rejection(
-            "invalid_history_records",
-            entry_id=entry_id,
-            store=history_store,
-            errors=errors,
-            approved_entity_catalog_read=True,
-            home_assistant_history_read=True,
-        )
+    series_results = series_build["series"]
 
     storage_result = store_validated_history_series(
         history_store,
@@ -223,6 +214,7 @@ def retrieve_approved_history(
         },
         "history_series": storage_result["series"],
         "validation": storage_result["validation"],
+        "data_source": {"source": tier[0], "resolution": tier[1]},
         "store": summarize_history_retrieval_store(history_store),
         "orchestration": history_retrieval_side_effects(
             approved_entity_catalog_read=True,
@@ -392,6 +384,334 @@ def _approved_catalog_items(hass: Any, entry_id: str) -> list[dict[str, Any]]:
     ]
 
 
+def _recorder_keep_days(hass: Any) -> float:
+    """Return the recorder retention horizon in days (best-effort)."""
+    domain_data = getattr(hass, "data", {}).get(DOMAIN, {})
+    override = domain_data.get(DATA_RECORDER_KEEP_DAYS)
+    if isinstance(override, (int, float)) and not isinstance(override, bool) and override > 0:
+        return float(override)
+    try:  # pragma: no cover - exercised only in Home Assistant.
+        from homeassistant.components.recorder import get_instance
+
+        keep_days = getattr(get_instance(hass), "keep_days", None)
+        if isinstance(keep_days, (int, float)) and not isinstance(keep_days, bool) and keep_days > 0:
+            return float(keep_days)
+    except Exception:  # pragma: no cover - defensive boundary.
+        pass
+    return DEFAULT_RECORDER_KEEP_DAYS
+
+
+def _select_history_tier(
+    range_start: datetime,
+    range_end: datetime,
+    *,
+    now: datetime,
+    keep_days: float,
+) -> tuple[str, str, str | None, bool]:
+    """Pick a single data source for the whole window (ADR-0021).
+
+    Returns ``(source, resolution, statistics_period, beyond_retention)``.
+    """
+    span = range_end - range_start
+    retention_start = now - timedelta(days=keep_days)
+    beyond_retention = range_start < retention_start
+    if not beyond_retention and span <= RAW_TIER_MAX_SPAN:
+        return ("recorder_states", "raw", None, beyond_retention)
+    if span <= HOURLY_TIER_MAX_SPAN:
+        return ("long_term_statistics", "hourly", "hour", beyond_retention)
+    return ("long_term_statistics", "daily", "day", beyond_retention)
+
+
+def _build_tiered_series(
+    hass: Any,
+    *,
+    requested_entity_ids: list[str],
+    catalog_by_entity: dict[str, Any],
+    time_range: dict[str, Any],
+    tier: tuple[str, str, str | None, bool],
+    history_by_entity: dict[str, Any] | None,
+) -> dict[str, Any]:
+    source_kind, resolution, period, beyond_retention = tier
+    range_start = time_range["start_dt"]
+    range_end = time_range["end_dt"]
+
+    if source_kind == "recorder_states":
+        return _build_raw_series(
+            hass,
+            requested_entity_ids=requested_entity_ids,
+            catalog_by_entity=catalog_by_entity,
+            range_start=range_start,
+            range_end=range_end,
+            history_by_entity=history_by_entity,
+        )
+
+    statistics_source = _statistics_source_from_hass(
+        hass,
+        entity_ids=requested_entity_ids,
+        range_start=range_start,
+        range_end=range_end,
+        period=period,
+    )
+    if not isinstance(statistics_source, dict):
+        unavailable = list(requested_entity_ids)
+    else:
+        unavailable = [
+            entity_id
+            for entity_id in requested_entity_ids
+            if statistics_source.get(entity_id) is None
+        ]
+    if unavailable:
+        if beyond_retention:
+            return {
+                "accepted": False,
+                "code": "no_long_term_statistics",
+                "missing_entity_ids": unavailable,
+                "statistics_unavailable_entity_ids": unavailable,
+            }
+        # Data is still inside recorder retention; serve the whole window from
+        # raw recorder states rather than mixing sources.
+        return _build_raw_series(
+            hass,
+            requested_entity_ids=requested_entity_ids,
+            catalog_by_entity=catalog_by_entity,
+            range_start=range_start,
+            range_end=range_end,
+            history_by_entity=history_by_entity,
+        )
+
+    series_results: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    for entity_id in requested_entity_ids:
+        series_result = _normalize_statistics_series(
+            entity_id,
+            catalog_by_entity[entity_id],
+            statistics_source[entity_id],
+            range_start=range_start,
+            range_end=range_end,
+            resolution=resolution,
+        )
+        if not series_result["accepted"]:
+            errors.extend(series_result.get("errors", []))
+            continue
+        series_results.append(series_result["series"])
+    if errors:
+        return {"accepted": False, "code": "invalid_history_records", "errors": errors}
+    return {"accepted": True, "series": series_results}
+
+
+def _build_raw_series(
+    hass: Any,
+    *,
+    requested_entity_ids: list[str],
+    catalog_by_entity: dict[str, Any],
+    range_start: datetime,
+    range_end: datetime,
+    history_by_entity: dict[str, Any] | None,
+) -> dict[str, Any]:
+    source = (
+        _history_source_from_hass(
+            hass,
+            entity_ids=requested_entity_ids,
+            range_start=range_start,
+            range_end=range_end,
+        )
+        if history_by_entity is None
+        else history_by_entity
+    )
+    if not isinstance(source, dict):
+        return {
+            "accepted": False,
+            "code": "invalid_history_source",
+            "errors": [{"path": "$.history_by_entity", "reason": "must_be_object"}],
+        }
+
+    series_results: list[dict[str, Any]] = []
+    missing_entity_ids: list[str] = []
+    errors: list[dict[str, str]] = []
+    for entity_id in requested_entity_ids:
+        raw_records = source.get(entity_id)
+        if raw_records is None:
+            missing_entity_ids.append(entity_id)
+            continue
+        series_result = _normalize_history_series(
+            entity_id,
+            catalog_by_entity[entity_id],
+            raw_records,
+            range_start=range_start,
+            range_end=range_end,
+        )
+        if not series_result["accepted"]:
+            errors.extend(series_result.get("errors", []))
+            continue
+        series_results.append(series_result["series"])
+
+    if missing_entity_ids:
+        return {
+            "accepted": False,
+            "code": "missing_approved_history",
+            "missing_entity_ids": missing_entity_ids,
+        }
+    if errors:
+        return {"accepted": False, "code": "invalid_history_records", "errors": errors}
+    return {"accepted": True, "series": series_results}
+
+
+def _statistics_source_from_hass(
+    hass: Any,
+    *,
+    entity_ids: list[str],
+    range_start: datetime,
+    range_end: datetime,
+    period: str | None,
+) -> dict[str, Any] | None:
+    domain_data = getattr(hass, "data", {}).get(DOMAIN, {})
+    injected = domain_data.get(DATA_STATISTICS_SOURCE)
+    if isinstance(injected, dict):
+        return {entity_id: injected.get(entity_id) for entity_id in entity_ids}
+    return _recorder_statistics_source_from_hass(
+        hass,
+        entity_ids=entity_ids,
+        range_start=range_start,
+        range_end=range_end,
+        period=period,
+    )
+
+
+def _recorder_statistics_source_from_hass(
+    hass: Any,
+    *,
+    entity_ids: list[str],
+    range_start: datetime,
+    range_end: datetime,
+    period: str | None,
+) -> dict[str, Any] | None:
+    """Return best-effort Home Assistant long-term statistics buckets."""
+    try:  # pragma: no cover - exercised only in Home Assistant.
+        from homeassistant.components.recorder.statistics import statistics_during_period
+    except ImportError:  # pragma: no cover - repo tests run without Home Assistant.
+        return None
+
+    try:
+        raw = statistics_during_period(
+            hass,
+            range_start,
+            range_end,
+            set(entity_ids),
+            period or "hour",
+            None,
+            {"mean", "min", "max"},
+        )
+    except Exception:  # pragma: no cover - defensive recorder boundary.
+        return None
+
+    if not isinstance(raw, dict):
+        return None
+    result: dict[str, Any] = {}
+    for entity_id in entity_ids:
+        rows = raw.get(entity_id)
+        if rows is None:
+            result[entity_id] = None
+            continue
+        result[entity_id] = [
+            {
+                "start": row.get("start") if isinstance(row, dict) else None,
+                "mean": row.get("mean") if isinstance(row, dict) else None,
+                "min": row.get("min") if isinstance(row, dict) else None,
+                "max": row.get("max") if isinstance(row, dict) else None,
+            }
+            for row in rows
+        ]
+    return result
+
+
+def _normalize_statistics_series(
+    entity_id: str,
+    catalog_item: dict[str, Any],
+    buckets: Any,
+    *,
+    range_start: datetime,
+    range_end: datetime,
+    resolution: str,
+) -> dict[str, Any]:
+    if not isinstance(buckets, list):
+        return _history_record_rejection(entity_id, "$.statistics", "must_be_list")
+
+    label = catalog_item.get("friendly_name") or entity_id
+    unit = catalog_item.get("unit_of_measurement")
+    points = []
+    warnings = []
+    for index, bucket in enumerate(buckets):
+        if not isinstance(bucket, dict):
+            return {
+                "accepted": False,
+                "code": "invalid_history_records",
+                "errors": [{"path": f"$.statistics.{entity_id}[{index}]", "reason": "must_be_object"}],
+            }
+        timestamp = _coerce_statistics_timestamp(bucket.get("start"))
+        if timestamp is None:
+            continue
+        if timestamp < range_start or timestamp > range_end:
+            continue
+        mean = bucket.get("mean")
+        if not isinstance(mean, (int, float)) or isinstance(mean, bool):
+            continue
+        points.append(
+            {
+                "ts": _isoformat(timestamp),
+                "value": float(mean),
+                "value_min": _optional_float(bucket.get("min")),
+                "value_max": _optional_float(bucket.get("max")),
+                "raw_state": None,
+                "quality": "ok",
+            }
+        )
+
+    points.sort(key=lambda point: point["ts"])
+    if not points:
+        warnings.append(f"No statistics for {entity_id} were found in the requested time range.")
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "series": {
+            "series_id": _series_id_for_entity(entity_id),
+            "entity_id": entity_id,
+            "label": label,
+            "kind": "numeric",
+            "unit": unit,
+            "points": points,
+            "source": "long_term_statistics",
+            "resolution": resolution,
+            "source_entity_ids": [entity_id],
+            "warnings": warnings,
+        },
+    }
+
+
+def _coerce_statistics_timestamp(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return datetime.fromtimestamp(value, tz=timezone.utc)
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    return None
+
+
+def _optional_float(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
 def _history_source_from_hass(
     hass: Any,
     *,
@@ -538,6 +858,8 @@ def _normalize_history_series(
             "kind": kind,
             "unit": unit,
             "points": points,
+            "source": "recorder_states",
+            "resolution": "raw",
             "source_entity_ids": [entity_id],
             "warnings": warnings,
         },
@@ -674,6 +996,7 @@ def _history_rejection(
     errors: list[dict[str, str]] | None = None,
     rejected_entity_ids: list[str] | None = None,
     missing_entity_ids: list[str] | None = None,
+    statistics_unavailable_entity_ids: list[str] | None = None,
     validation: dict[str, Any] | None = None,
     approved_entity_catalog_read: bool = False,
     home_assistant_history_read: bool = False,
@@ -697,6 +1020,8 @@ def _history_rejection(
         result["rejected_entity_ids"] = rejected_entity_ids
     if missing_entity_ids is not None:
         result["missing_entity_ids"] = missing_entity_ids
+    if statistics_unavailable_entity_ids is not None:
+        result["statistics_unavailable_entity_ids"] = statistics_unavailable_entity_ids
     if validation is not None:
         result["validation"] = validation
     return result

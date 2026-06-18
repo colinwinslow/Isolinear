@@ -58,6 +58,18 @@
               "null"
             ]
           },
+          "value_min": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "value_max": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
           "raw_state": {
             "type": [
               "string",
@@ -77,6 +89,19 @@
           }
         }
       }
+    },
+    "source": {
+      "enum": [
+        "recorder_states",
+        "long_term_statistics"
+      ]
+    },
+    "resolution": {
+      "enum": [
+        "raw",
+        "hourly",
+        "daily"
+      ]
     },
     "source_entity_ids": {
       "type": "array",

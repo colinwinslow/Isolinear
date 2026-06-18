@@ -267,6 +267,78 @@ def has_job_orchestration_setup(hass: Any, entry_id: str) -> bool:
     return isinstance(setup, dict)
 
 
+def _defer_history_to_planning(
+    *,
+    store: dict[str, Any],
+    command: dict[str, Any],
+    job: dict[str, Any],
+    catalog_items: list[dict[str, Any]],
+    requested_entity_ids: list[str],
+    progress_stage: str,
+    result_code: str,
+    accepted_code: str,
+    warnings_prefix: list[str],
+    extra_checks: list[dict[str, str]] | None = None,
+    clarification_answer: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Stage approved entities and defer history retrieval to the planning path.
+
+    For the first real vertical slice the time window is resolved by the model
+    during planning, so history cannot be fetched at job/start (ADR-0020). This
+    appends the artifact-source planning snapshot without reading history; the
+    snapshot path resolves the window, retrieves history, and renders.
+    """
+    checks = [
+        {"name": "integration_job_state_scaffold", "status": "pass"},
+        {"name": "approved_entity_catalog", "status": "pass"},
+        *(extra_checks or []),
+        {"name": "approved_history_retrieval", "status": "deferred_to_planning"},
+        {"name": "model_provider", "status": "not_called"},
+        {"name": "worker", "status": "not_called"},
+        {"name": "chart_rendering", "status": "not_called"},
+    ]
+    snapshot = append_validated_job_snapshot(
+        job,
+        status="planning",
+        state_label="Ready",
+        message=(
+            "Approved entities are selected. The model resolves the time window and "
+            "approved history is retrieved during planning."
+        ),
+        progress_stage=progress_stage,
+        progress_message="Approved entities are staged for model planning.",
+        validation_status="pass",
+        validation_summary="The orchestration selected approved entities for first-real-slice planning.",
+        validation_checks=checks,
+        entities=_snapshot_entities(catalog_items, requested_entity_ids),
+        warnings=[*warnings_prefix, "history_retrieval_deferred_to_planning"],
+    )
+    run_kwargs: dict[str, Any] = {}
+    if clarification_answer is not None:
+        run_kwargs["clarification_answer"] = clarification_answer
+    run = _record_run(
+        store,
+        command=command,
+        job=job,
+        result_code=result_code,
+        requested_entity_ids=requested_entity_ids,
+        history_entity_ids=[],
+        snapshot_ids=_snapshot_ids(job),
+        **run_kwargs,
+    )
+    return _accepted(
+        accepted_code,
+        command,
+        snapshot,
+        run=run,
+        approved_entity_catalog_read=True,
+        home_assistant_history_read=False,
+        history_retrieval_written=False,
+        job_state_written=True,
+        job_orchestration_written=True,
+    )
+
+
 def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]) -> dict[str, Any]:
     """Compose job state, approved catalog, and approved history for job/start."""
     if command["type"] != INTEGRATION_COMMAND_TYPES["start_job"]:
@@ -338,12 +410,25 @@ def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]
         )
 
     requested_entity_ids = selection["entity_ids"]
-    time_range = _default_history_time_range(hass, job["prompt"])
     rejected_entity_ids = [
         entity_id
         for entity_id in requested_entity_ids
         if entity_id not in {item["entity_id"] for item in catalog_items}
     ]
+    if first_real_vertical_slice_enabled(hass, entry_id) and not rejected_entity_ids:
+        return _defer_history_to_planning(
+            store=store,
+            command=command,
+            job=job,
+            catalog_items=catalog_items,
+            requested_entity_ids=requested_entity_ids,
+            progress_stage="job_orchestration_scaffold_ready",
+            result_code="approved_entities_ready_for_planning",
+            accepted_code="job_orchestration_scaffold_ready",
+            warnings_prefix=["first_real_vertical_slice"],
+        )
+
+    time_range = _default_history_time_range(hass)
 
     if not rejected_entity_ids:
         _append_fetching_history_snapshot(job, requested_entity_ids)
@@ -509,9 +594,26 @@ def handle_job_orchestration_clarification_answer_ws_command(
         entity_id=selected_entity_id,
         remember=command["remember"],
     )
+    if first_real_vertical_slice_enabled(hass, entry_id):
+        return _defer_history_to_planning(
+            store=store,
+            command=command,
+            job=job,
+            catalog_items=catalog_items,
+            requested_entity_ids=[selected_entity_id],
+            progress_stage="job_orchestration_clarification_continuation_ready",
+            result_code="clarification_entities_ready_for_planning",
+            accepted_code="job_orchestration_clarification_continuation_ready",
+            warnings_prefix=[
+                "job_orchestration_clarification_continuation_scaffold",
+                "first_real_vertical_slice",
+            ],
+            extra_checks=[{"name": "clarification_answer", "status": "pass"}],
+            clarification_answer=_clarification_answer_summary(command, selected_entity_id),
+        )
     _append_fetching_history_snapshot(job, [selected_entity_id])
 
-    time_range = _default_history_time_range(hass, job["prompt"])
+    time_range = _default_history_time_range(hass)
     history_result = retrieve_approved_history(
         hass,
         entry,
@@ -703,12 +805,29 @@ def handle_job_orchestration_retry_ws_command(hass: Any, command: dict[str, Any]
         )
 
     requested_entity_ids = selection["entity_ids"]
-    time_range = _default_history_time_range(hass, job["prompt"])
     rejected_entity_ids = [
         entity_id
         for entity_id in requested_entity_ids
         if entity_id not in {item["entity_id"] for item in catalog_items}
     ]
+    if first_real_vertical_slice_enabled(hass, entry_id) and not rejected_entity_ids:
+        return _defer_history_to_planning(
+            store=store,
+            command=command,
+            job=job,
+            catalog_items=catalog_items,
+            requested_entity_ids=requested_entity_ids,
+            progress_stage="job_orchestration_retry_continuation_ready",
+            result_code="retry_entities_ready_for_planning",
+            accepted_code="job_orchestration_retry_continuation_ready",
+            warnings_prefix=[
+                "job_orchestration_retry_continuation_scaffold",
+                "first_real_vertical_slice",
+            ],
+            extra_checks=[{"name": "retry_command", "status": "pass"}],
+        )
+
+    time_range = _default_history_time_range(hass)
 
     if not rejected_entity_ids:
         _append_fetching_history_snapshot(job, requested_entity_ids)
@@ -1138,6 +1257,32 @@ def _record_artifact_snapshot_for_source(
                 worker_called=False,
                 chart_rendering_called=planning_result.get("chart_rendering_called", False),
                 chart_artifact_written=False,
+                job_state_written=True,
+                job_orchestration_written=True,
+            )
+        history_failure_snapshot = _append_history_failure_snapshot_from_planning_result(
+            job,
+            planning_result,
+        )
+        if history_failure_snapshot is not None:
+            return _accepted_artifact_snapshot(
+                "job_orchestration_history_failure_snapshot_recorded",
+                command,
+                history_failure_snapshot,
+                artifact=None,
+                render_plan=None,
+                model_provider_plan=None,
+                worker_dispatch=None,
+                worker_progress_events=None,
+                artifact_metadata_written=False,
+                render_plan_written=False,
+                model_provider_plan_written=False,
+                worker_dispatch_written=False,
+                worker_progress_written=False,
+                worker_progress_streaming_called=False,
+                model_provider_called=planning_result.get("model_provider_called", False),
+                worker_called=False,
+                chart_rendering_called=False,
                 job_state_written=True,
                 job_orchestration_written=True,
             )
@@ -1619,6 +1764,55 @@ def _append_worker_failure_snapshot_from_planning_result(
     return None
 
 
+def _append_history_failure_snapshot_from_planning_result(
+    job: dict[str, Any],
+    planning_result: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not planning_result.get("history_failure"):
+        return None
+    code = planning_result.get("code", "approved_history_unavailable")
+    history_result = planning_result.get("history_result", {})
+    return _append_failed_snapshot(
+        job,
+        code=code,
+        stage="approved_history_retrieval",
+        message=_history_failure_message(code, history_result),
+        checks=[
+            {"name": "integration_job_state_scaffold", "status": "pass"},
+            {"name": "approved_entity_catalog", "status": "pass"},
+            {"name": "model_provider", "status": "pass"},
+            {"name": "approved_history_retrieval", "status": "fail"},
+            {"name": "chart_rendering", "status": "not_called"},
+        ],
+    )
+
+
+def _history_failure_message(code: str, history_result: dict[str, Any]) -> str:
+    entity_ids = []
+    if isinstance(history_result, dict):
+        for key in ("missing_entity_ids", "rejected_entity_ids"):
+            value = history_result.get(key)
+            if isinstance(value, list):
+                entity_ids.extend(str(item) for item in value if isinstance(item, str))
+    entity_suffix = f" ({', '.join(sorted(set(entity_ids)))})" if entity_ids else ""
+    messages = {
+        "no_long_term_statistics": (
+            "No long-term statistics are available to chart this time range"
+            f"{entity_suffix}. Statistics require an entity with a measurement state class."
+        ),
+        "missing_approved_history": (
+            f"No approved history was found for the requested time range{entity_suffix}."
+        ),
+        "entity_not_in_approved_catalog": (
+            f"The requested entity is not in the approved catalog{entity_suffix}."
+        ),
+    }
+    return messages.get(
+        code,
+        f"Approved history could not be retrieved for the requested time range{entity_suffix}.",
+    )
+
+
 def _append_model_provider_failure_snapshot_from_planning_result(
     job: dict[str, Any],
     planning_result: dict[str, Any],
@@ -1984,6 +2178,57 @@ def _record_artifact_metadata(
     }
 
 
+def _retrieve_history_for_plan(
+    hass: Any,
+    *,
+    entry_id: str,
+    chart_spec: Any,
+) -> dict[str, Any] | None:
+    """Fetch approved history for the model-resolved window (first real slice).
+
+    Returns ``None`` for the legacy scaffold path (history is staged at start).
+    For the real path, resolves the absolute window from the chart spec
+    (ADR-0020), fetches tiered history (ADR-0021), and stores it for rendering.
+    On failure returns a result flagged ``history_failure`` so the snapshot path
+    can surface a card-facing failed snapshot.
+    """
+    if not first_real_vertical_slice_enabled(hass, entry_id):
+        return None
+    if not isinstance(chart_spec, dict):
+        return None
+
+    entry = getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {}).get("entry")
+    if entry is None:
+        return {"accepted": False, "code": "unknown_config_entry", "history_failure": True}
+
+    entity_ids = sorted(_chart_spec_entity_ids(chart_spec)["entity_ids"])
+    if not entity_ids:
+        return {
+            "accepted": False,
+            "code": "missing_approved_history",
+            "history_failure": True,
+            "history_result": {"missing_entity_ids": []},
+        }
+
+    now = _history_now(hass)
+    window = resolve_history_window(chart_spec, now=now)
+    result = dict(
+        retrieve_approved_history(
+            hass,
+            entry,
+            entity_ids=entity_ids,
+            start=window["start"],
+            end=window["end"],
+            now=now,
+            allow_statistics=True,
+        )
+    )
+    result["window"] = window
+    if not result["accepted"]:
+        result["history_failure"] = True
+    return result
+
+
 def _record_artifact_and_render_plan(
     store: dict[str, Any],
     *,
@@ -2020,6 +2265,26 @@ def _record_artifact_and_render_plan(
                 model_provider_called=model_provider_result.get("model_provider_called", False),
                 model_provider_retry_policy_bookkeeping_written=(
                     model_provider_result.get("model_provider_retry_policy_written", False)
+                ),
+            ),
+        }
+
+    history_for_plan = _retrieve_history_for_plan(
+        hass,
+        entry_id=entry_id,
+        chart_spec=model_provider_result.get("chart_spec"),
+    )
+    if history_for_plan is not None and not history_for_plan["accepted"]:
+        return {
+            "accepted": False,
+            "code": history_for_plan["code"],
+            "history_failure": True,
+            "history_result": history_for_plan,
+            "model_provider_called": model_provider_result.get("model_provider_called", False),
+            "orchestration": job_orchestration_side_effects(
+                model_provider_called=model_provider_result.get("model_provider_called", False),
+                home_assistant_history_read=history_for_plan.get("orchestration", {}).get(
+                    "home_assistant_history_read", False
                 ),
             ),
         }
@@ -2194,7 +2459,7 @@ def _record_model_provider_plan(
             "chart_spec": None,
         }
 
-    request = _model_provider_planner_request(job=job, source_snapshot=source_snapshot)
+    request = _model_provider_planner_request(hass=hass, job=job, source_snapshot=source_snapshot)
     result_schema = load_planner_result_schema()
     provider_response = planner.plan_chart(request, result_schema=result_schema)
     provider_summary = {
@@ -4836,6 +5101,7 @@ def _chart_spec_for_render_plan(
 
 def _model_provider_planner_request(
     *,
+    hass: Any,
     job: dict[str, Any],
     source_snapshot: dict[str, Any],
 ) -> dict[str, Any]:
@@ -4844,8 +5110,18 @@ def _model_provider_planner_request(
         "prompt": job.get("prompt") if isinstance(job.get("prompt"), str) else "",
         "approved_entity_ids": entity_ids,
         "history_entity_ids": entity_ids,
+        "now": _history_now(hass).isoformat(timespec="seconds"),
+        "time_zone": _hass_time_zone(hass),
         "output_schema": "PlannerResult",
     }
+
+
+def _hass_time_zone(hass: Any) -> str:
+    config = getattr(hass, "config", None)
+    time_zone = getattr(config, "time_zone", None)
+    if isinstance(time_zone, str) and time_zone.strip():
+        return time_zone
+    return "UTC"
 
 
 def _chart_spec_entity_ids(chart_spec: dict[str, Any]) -> dict[str, Any]:
@@ -5098,7 +5374,18 @@ def _append_artifact_complete_snapshot(
     )
 
 
-def _default_history_time_range(hass: Any, prompt: Any = None) -> dict[str, str]:
+# The time window is resolved by the model (ADR-0020): the planner emits an
+# absolute chart_spec.time_range, the integration validates and clamps it, and
+# any failure falls back to a fixed last-24h window. The 366-day ceiling is only
+# useful because windows older than recorder retention are served from long-term
+# statistics (ADR-0021).
+_MIN_HISTORY_WINDOW = timedelta(seconds=60)
+_MAX_HISTORY_WINDOW = timedelta(days=366)
+_DEFAULT_HISTORY_WINDOW = timedelta(hours=24)
+
+
+def _default_history_time_range(hass: Any) -> dict[str, str]:
+    """Return the deterministic last-24h fallback window (or a test override)."""
     configured = getattr(hass, "data", {}).get(DOMAIN, {}).get(DATA_JOB_ORCHESTRATION_TIME_RANGE)
     if isinstance(configured, dict) and isinstance(configured.get("start"), str) and isinstance(configured.get("end"), str):
         return {
@@ -5106,55 +5393,86 @@ def _default_history_time_range(hass: Any, prompt: Any = None) -> dict[str, str]
             "end": configured["end"],
         }
 
-    end = datetime.now(timezone.utc).replace(microsecond=0)
-    start = end - _history_window_from_prompt(prompt)
+    end = _history_now(hass)
+    start = end - _DEFAULT_HISTORY_WINDOW
     return {
         "start": start.isoformat(timespec="seconds"),
         "end": end.isoformat(timespec="seconds"),
     }
 
 
-# Honor an explicit "last/past N hours|days|weeks" window from the prompt so the
-# chart covers the range the user asked for instead of a fixed default. The
-# window is clamped to keep recorder reads bounded.
-_MIN_HISTORY_WINDOW = timedelta(hours=1)
-_MAX_HISTORY_WINDOW = timedelta(days=31)
-_DEFAULT_HISTORY_WINDOW = timedelta(hours=24)
-_HISTORY_WINDOW_UNIT_SECONDS = {
-    "hour": 3600,
-    "hr": 3600,
-    "h": 3600,
-    "day": 86400,
-    "d": 86400,
-    "week": 604800,
-    "wk": 604800,
-    "w": 604800,
-}
-_HISTORY_WINDOW_PATTERN = re.compile(
-    r"(?:last|past|previous)?\s*(\d{1,4})\s*(hours?|hrs?|h|days?|d|weeks?|wks?|w)\b",
-    re.IGNORECASE,
-)
+def _history_now(hass: Any) -> datetime:
+    """Return 'now' (UTC, second precision), honoring a test override."""
+    configured = getattr(hass, "data", {}).get(DOMAIN, {}).get(DATA_JOB_ORCHESTRATION_TIME_RANGE)
+    if isinstance(configured, dict) and isinstance(configured.get("now"), str):
+        parsed = _parse_window_timestamp(configured["now"])
+        if parsed is not None:
+            return parsed.replace(microsecond=0)
+    return datetime.now(timezone.utc).replace(microsecond=0)
 
 
-def _history_window_from_prompt(prompt: Any) -> timedelta:
-    if not isinstance(prompt, str) or not prompt.strip():
-        return _DEFAULT_HISTORY_WINDOW
-    match = _HISTORY_WINDOW_PATTERN.search(prompt)
-    if match is None:
-        return _DEFAULT_HISTORY_WINDOW
-    count = int(match.group(1))
-    if count <= 0:
-        return _DEFAULT_HISTORY_WINDOW
-    unit = match.group(2).lower().rstrip("s")
-    seconds = _HISTORY_WINDOW_UNIT_SECONDS.get(unit)
-    if seconds is None:
-        return _DEFAULT_HISTORY_WINDOW
-    window = timedelta(seconds=count * seconds)
-    if window < _MIN_HISTORY_WINDOW:
-        return _MIN_HISTORY_WINDOW
-    if window > _MAX_HISTORY_WINDOW:
-        return _MAX_HISTORY_WINDOW
-    return window
+def resolve_history_window(chart_spec: Any, *, now: datetime) -> dict[str, Any]:
+    """Validate and clamp a model-supplied absolute window, else fall back to 24h.
+
+    Returns a dict with ``start``/``end`` ISO strings, the resolved ``source``
+    intent flag ``model_resolved`` (vs. the 24h fallback), and a list of
+    ``warnings`` describing any clamping that was applied. The fallback is the
+    only deterministic default; there is no keyword parsing (ADR-0020).
+    """
+    now = now.astimezone(timezone.utc).replace(microsecond=0)
+    fallback_start = now - _DEFAULT_HISTORY_WINDOW
+
+    def _fallback(reason: str) -> dict[str, Any]:
+        return {
+            "model_resolved": False,
+            "start": fallback_start.isoformat(timespec="seconds"),
+            "end": now.isoformat(timespec="seconds"),
+            "warnings": [reason],
+        }
+
+    time_range = chart_spec.get("time_range") if isinstance(chart_spec, dict) else None
+    if not isinstance(time_range, dict) or time_range.get("type") != "absolute":
+        return _fallback("history_window_missing_absolute_range")
+
+    start = _parse_window_timestamp(time_range.get("start"))
+    end = _parse_window_timestamp(time_range.get("end"))
+    if start is None or end is None:
+        return _fallback("history_window_unparseable")
+
+    start = start.astimezone(timezone.utc).replace(microsecond=0)
+    end = end.astimezone(timezone.utc).replace(microsecond=0)
+
+    warnings: list[str] = []
+    if end > now:
+        end = now
+        warnings.append("history_window_end_clamped_to_now")
+    if start >= end:
+        return _fallback("history_window_not_increasing")
+    if end - start > _MAX_HISTORY_WINDOW:
+        start = end - _MAX_HISTORY_WINDOW
+        warnings.append("history_window_span_clamped_to_max")
+    if end - start < _MIN_HISTORY_WINDOW:
+        start = end - _MIN_HISTORY_WINDOW
+        warnings.append("history_window_span_expanded_to_min")
+
+    return {
+        "model_resolved": True,
+        "start": start.isoformat(timespec="seconds"),
+        "end": end.isoformat(timespec="seconds"),
+        "warnings": warnings,
+    }
+
+
+def _parse_window_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed
 
 
 def _catalog_item_matches_prompt(prompt: str, item: dict[str, Any]) -> bool:

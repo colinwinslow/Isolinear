@@ -70,6 +70,8 @@
         "prompt",
         "approved_entity_ids",
         "history_entity_ids",
+        "now",
+        "time_zone",
         "output_schema"
       ],
       "additionalProperties": false,
@@ -90,6 +92,14 @@
             "type": "string",
             "pattern": "\\S"
           }
+        },
+        "now": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "time_zone": {
+          "type": "string",
+          "pattern": "\\S"
         },
         "output_schema": {
           "const": "PlannerResult"

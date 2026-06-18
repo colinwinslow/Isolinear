@@ -68,11 +68,12 @@ def load_planner_result_schema() -> dict[str, Any]:
             "title": {"type": "string"},
             "time_range": {
                 "type": "object",
-                "required": ["type", "duration"],
+                "required": ["type", "start", "end"],
                 "additionalProperties": False,
                 "properties": {
-                    "type": {"enum": ["relative"]},
-                    "duration": {"type": "string"},
+                    "type": {"const": "absolute"},
+                    "start": {"type": "string", "format": "date-time"},
+                    "end": {"type": "string", "format": "date-time"},
                 },
             },
             "series": {
@@ -285,6 +286,11 @@ class OllamaCompatiblePlannerClient:
                 "Each series must include series_id, label, source, role, render_as, transform, and unit.",
                 "Each entity series source must be {\"type\":\"entity\",\"entity_id\":\"<approved id>\",\"attribute\":null}.",
                 "Use chart_type time_series, render_as line, transform operation none, x_axis type time, and overlays [].",
+                "Resolve the requested time window into an absolute time_range "
+                "{\"type\":\"absolute\",\"start\":<ISO8601>,\"end\":<ISO8601>} using the "
+                "request now and time_zone. Interpret fuzzy phrases (for example "
+                "\"last weekend\", \"during the night\", \"since the spring equinox\") "
+                "relative to now. Use timezone-aware ISO 8601 timestamps and never set end after now.",
                 "Do not include raw Home Assistant history, secrets, worker URLs, tokens, or prose outside JSON.",
             ],
             "planner_request": deepcopy(request),
@@ -293,7 +299,11 @@ class OllamaCompatiblePlannerClient:
                 "chart_id": "approved_entity_time_series",
                 "chart_type": "time_series",
                 "title": "Approved entity history",
-                "time_range": {"type": "relative", "duration": "24h"},
+                "time_range": {
+                    "type": "absolute",
+                    "start": "2026-06-17T00:00:00+00:00",
+                    "end": "2026-06-18T00:00:00+00:00",
+                },
                 "series": [
                     {
                         "series_id": "approved_entity",

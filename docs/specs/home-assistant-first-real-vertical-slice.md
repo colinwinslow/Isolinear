@@ -54,14 +54,28 @@ The first real vertical slice must:
   Home Assistant runtime, while preserving explicit fake metadata injection for
   tests.
 - Retrieve history only for entities already visible in the approved catalog.
-- Cover the time window the prompt asks for: an explicit "last/past N
-  hours|days|weeks" phrase sets the history range (clamped to between 1 hour and
-  31 days); prompts without a duration fall back to the default 24-hour window.
-- Prefer real Home Assistant recorder history when running in a real Home
-  Assistant runtime, while preserving explicit fake history injection for
+- Resolve the time window with the model, not a keyword parser (ADR-0020): the
+  planner request carries `now` and the Home Assistant `time_zone`; the planner
+  emits an absolute `chart_spec.time_range {start, end}`; the integration
+  validates and clamps it (tz-normalize to UTC, require start < end, clamp
+  end <= now, clamp span <= 366 days, floor 60 s). Any failure (no planner, or a
+  missing / invalid / unclampable window) falls back to a fixed `now - 24h .. now`
+  window. There is no keyword regex.
+- Fetch history *after* planning, in the snapshot path, using the resolved
+  window — so a window older than recorder retention is not rejected at start.
+- Select the data source deterministically by window (ADR-0021): raw recorder
+  states for recent/short windows, hourly long-term statistics up to 60 days,
+  daily statistics beyond that. Each `HistorySeries` records its `source` and
+  `resolution`.
+- Fail closed with `no_long_term_statistics` when the window extends beyond
+  recorder retention and the entity has no long-term statistics (no
+  `state_class`), surfaced as a card-facing failed snapshot.
+- Prefer real Home Assistant recorder history and statistics when running in a
+  real Home Assistant runtime, while preserving explicit fake injection for
   tests.
 - Normalize real or injected history into schema-valid `HistorySeries`
-  records before planning/rendering.
+  records before planning/rendering; statistics buckets carry `value` (mean) and
+  `value_min` / `value_max`.
 - Call only the configured Ollama-compatible planner boundary for eligible
   jobs.
 - Validate `PlannerResult`, nested `ChartSpec`, and referenced entity IDs
@@ -72,7 +86,9 @@ The first real vertical slice must:
 - Render a safe-mode trusted Pillow PNG in-process when the first-real
   slice is enabled and no worker dispatch is used. Title, axis tick labels, axis
   titles, legend text, and the series line are sized large in source pixels so
-  the chart stays legible when the PNG is downscaled to a phone-width card.
+  the chart stays legible when the PNG is downscaled to a phone-width card. When
+  a series carries `value_min` / `value_max` (statistics buckets), shade a
+  min/max band behind the mean line.
 - Return card-facing failed job snapshots for trusted in-process renderer
   failures instead of surfacing them as snapshot-poll command rejections.
 - Return that PNG to the existing dashboard card as `chart.image_url`, using a
@@ -124,14 +140,21 @@ planner, and verifies that the returned chart image is a real PNG data URL.
    write no PNG file or artifact metadata.
 6. Focused pytest proves repeated snapshot requests reuse the completed
    artifact without another planner call.
-6a. Focused pytest proves the prompt-derived history window: a "last 46 hours"
-   prompt records a 46-hour retrieval range, day/week phrases are honored, a
-   prompt with no duration falls back to 24 hours, and out-of-range values are
-   clamped.
-6b. Focused pytest proves renderer legibility: the rendered title paints a
-   tall band of ink (large font in source pixels) and a high-then-low series is
-   plotted across both the upper and lower plot bands rather than collapsing to
-   a flat row.
+6a. Focused pytest + eval prove the deterministic window clamp/validate layer
+   (ADR-0020): a valid model-supplied absolute window is honored; a future end
+   clamps to now; an oversized span clamps to 366 days; inverted, unparseable,
+   naive, missing, and relative ranges fall back to a 24-hour window.
+6b. Focused pytest + eval prove tiered data-source selection (ADR-0021): recent
+   short windows use raw recorder states; multi-day windows use hourly
+   statistics; long windows use daily statistics; a beyond-retention window for
+   an entity with statistics renders mean + `value_min`/`value_max`, while a
+   beyond-retention window for an entity without statistics returns a
+   card-facing `no_long_term_statistics` failed snapshot before rendering.
+6c. Focused pytest proves renderer legibility: the rendered title paints a tall
+   band of ink (large font in source pixels), a high-then-low series is plotted
+   across both the upper and lower plot bands rather than collapsing to a flat
+   row, and a statistics series paints a tinted min/max band behind the mean
+   line.
 7. Evidence file contains raw command/result snippets and decoded PNG
    signature bytes.
 8. Adjacent orchestration tests remain green.

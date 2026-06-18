@@ -27,7 +27,13 @@ from custom_components.isolinear.artifact_serving import (  # noqa: E402
 from custom_components.isolinear.entity_catalog import setup_entity_catalog  # noqa: E402
 from custom_components.isolinear.history_retrieval import (  # noqa: E402
     DATA_HISTORY_SOURCE,
+    retrieve_approved_history,
     setup_history_retrieval,
+)
+import custom_components.isolinear.history_retrieval as history_retrieval  # noqa: E402
+from custom_components.isolinear.job_orchestration import (  # noqa: E402
+    DATA_JOB_ORCHESTRATION_TIME_RANGE,
+    resolve_history_window,
 )
 from custom_components.isolinear.in_process_renderer import (  # noqa: E402
     DATA_FIRST_REAL_VERTICAL_SLICE_ENABLED,
@@ -883,6 +889,31 @@ class InProcessRendererLegibilityTests(unittest.TestCase):
             f"title ink height {title_ink_height}px is too small to read on mobile",
         )
 
+    def test_statistics_series_renders_min_max_band(self):
+        # A series whose points carry value_min/value_max paints a light band of
+        # the tinted series color between the bounds, behind the mean line.
+        request = _varying_render_request()
+        points = request["history_series"][0]["points"]
+        for point in points:
+            point["value_min"] = point["value"] - 4
+            point["value_max"] = point["value"] + 4
+        request["history_series"][0]["source"] = "long_term_statistics"
+        request["history_series"][0]["resolution"] = "daily"
+        result = render_in_process_chart(request)
+        self.assertTrue(result["accepted"], result)
+        image = self._open(result["png_bytes"])
+        band_tint = tuple(int(round(channel * 0.25 + 255 * 0.75)) for channel in (31, 119, 180))
+        found = False
+        pixels = image.load()
+        for y in range(0, image.height, 2):
+            for x in range(0, image.width, 2):
+                if pixels[x, y] == band_tint:
+                    found = True
+                    break
+            if found:
+                break
+        self.assertTrue(found, "expected min/max band tint in the rendered chart")
+
     def test_varying_series_is_plotted_across_full_plot_height(self):
         # Guards the "flat line / values not plotted" rendering failure mode: a
         # series that swings high and low must paint series-colored ink in both
@@ -905,55 +936,270 @@ class InProcessRendererLegibilityTests(unittest.TestCase):
         self.assertTrue(lower, "series ink missing from the lower plot band")
 
 
-class HistoryWindowFromPromptTests(unittest.TestCase):
-    def test_honors_explicit_hour_window_from_prompt(self):
-        window = job_orchestration._history_window_from_prompt(
-            "Show me the attic temperature over the last 46 hours"
-        )
-        self.assertEqual(window, timedelta(hours=46))
+NOW = datetime(2026, 6, 18, 12, 0, 0, tzinfo=timezone.utc)
 
-    def test_supports_day_and_week_windows(self):
-        self.assertEqual(
-            job_orchestration._history_window_from_prompt("attic temp past 2 weeks"),
-            timedelta(weeks=2),
-        )
-        self.assertEqual(
-            job_orchestration._history_window_from_prompt("power over the last 7 days"),
-            timedelta(days=7),
-        )
 
-    def test_defaults_to_24h_when_no_duration_present(self):
-        self.assertEqual(
-            job_orchestration._history_window_from_prompt("show me the attic temperature"),
-            timedelta(hours=24),
-        )
+def _iso(moment: datetime) -> str:
+    return moment.isoformat(timespec="seconds")
 
-    def test_clamps_unreasonable_windows(self):
-        self.assertEqual(
-            job_orchestration._history_window_from_prompt("last 999 days"),
-            timedelta(days=31),
-        )
-        self.assertEqual(
-            job_orchestration._history_window_from_prompt("0 hours"),
-            timedelta(hours=24),
-        )
 
-    def test_start_job_records_prompt_requested_window(self):
-        planner = FakePlanner()
-        hass, entry = configured_real_slice_hass(planner=planner)
-        start = _start_job(
+class AbsoluteWindowPlanner(FakePlanner):
+    """A planner that resolves the window to a fixed absolute range."""
+
+    def __init__(self, *, start: str, end: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._start = start
+        self._end = end
+
+    def plan_chart(self, request, *, result_schema=None):
+        response = super().plan_chart(request, result_schema=result_schema)
+        response["planner_result"]["chart_spec"]["time_range"] = {
+            "type": "absolute",
+            "start": self._start,
+            "end": self._end,
+        }
+        return response
+
+
+class ResolveHistoryWindowTests(unittest.TestCase):
+    def _spec(self, start: Any, end: Any) -> dict[str, Any]:
+        return {"time_range": {"type": "absolute", "start": start, "end": end}}
+
+    def test_valid_absolute_window_is_honored(self):
+        window = resolve_history_window(
+            self._spec("2026-06-16T12:00:00+00:00", "2026-06-18T12:00:00+00:00"),
+            now=NOW,
+        )
+        self.assertTrue(window["model_resolved"])
+        self.assertEqual(window["start"], "2026-06-16T12:00:00+00:00")
+        self.assertEqual(window["end"], "2026-06-18T12:00:00+00:00")
+        self.assertEqual(window["warnings"], [])
+
+    def test_future_end_is_clamped_to_now(self):
+        window = resolve_history_window(
+            self._spec("2026-06-17T12:00:00+00:00", "2026-06-20T00:00:00+00:00"),
+            now=NOW,
+        )
+        self.assertTrue(window["model_resolved"])
+        self.assertEqual(window["end"], _iso(NOW))
+        self.assertIn("history_window_end_clamped_to_now", window["warnings"])
+
+    def test_oversized_window_is_clamped_to_max(self):
+        window = resolve_history_window(
+            self._spec("2020-01-01T00:00:00+00:00", "2026-06-18T12:00:00+00:00"),
+            now=NOW,
+        )
+        self.assertTrue(window["model_resolved"])
+        span = datetime.fromisoformat(window["end"]) - datetime.fromisoformat(window["start"])
+        self.assertEqual(span, timedelta(days=366))
+        self.assertIn("history_window_span_clamped_to_max", window["warnings"])
+
+    def test_inverted_window_falls_back_to_24h(self):
+        window = resolve_history_window(
+            self._spec("2026-06-18T12:00:00+00:00", "2026-06-16T12:00:00+00:00"),
+            now=NOW,
+        )
+        self.assertFalse(window["model_resolved"])
+        self.assertEqual(window["end"], _iso(NOW))
+        self.assertEqual(window["start"], _iso(NOW - timedelta(hours=24)))
+
+    def test_unparseable_window_falls_back_to_24h(self):
+        window = resolve_history_window(self._spec("not-a-date", "also-bad"), now=NOW)
+        self.assertFalse(window["model_resolved"])
+        self.assertEqual(window["start"], _iso(NOW - timedelta(hours=24)))
+
+    def test_naive_timestamps_fall_back_to_24h(self):
+        window = resolve_history_window(
+            self._spec("2026-06-17T12:00:00", "2026-06-18T12:00:00"),
+            now=NOW,
+        )
+        self.assertFalse(window["model_resolved"])
+
+    def test_relative_or_missing_range_falls_back_to_24h(self):
+        self.assertFalse(
+            resolve_history_window(
+                {"time_range": {"type": "relative", "duration": "24h"}}, now=NOW
+            )["model_resolved"]
+        )
+        self.assertFalse(resolve_history_window({}, now=NOW)["model_resolved"])
+
+
+class HistoryTierSelectionTests(unittest.TestCase):
+    def _tier(self, start: datetime, end: datetime):
+        return history_retrieval._select_history_tier(start, end, now=NOW, keep_days=10)
+
+    def test_recent_short_window_uses_raw(self):
+        source, resolution, period, beyond = self._tier(NOW - timedelta(hours=12), NOW)
+        self.assertEqual((source, resolution, period, beyond), ("recorder_states", "raw", None, False))
+
+    def test_multi_day_window_uses_hourly_statistics(self):
+        source, resolution, period, beyond = self._tier(NOW - timedelta(days=5), NOW)
+        self.assertEqual((source, resolution, period), ("long_term_statistics", "hourly", "hour"))
+
+    def test_long_window_uses_daily_statistics(self):
+        source, resolution, period, beyond = self._tier(NOW - timedelta(days=90), NOW)
+        self.assertEqual((source, resolution, period), ("long_term_statistics", "daily", "day"))
+        self.assertTrue(beyond)
+
+    def test_short_but_old_window_is_beyond_retention_hourly(self):
+        source, resolution, period, beyond = self._tier(
+            NOW - timedelta(days=30), NOW - timedelta(days=29)
+        )
+        self.assertEqual((source, resolution, period), ("long_term_statistics", "hourly", "hour"))
+        self.assertTrue(beyond)
+
+
+class TieredHistoryRetrievalTests(unittest.TestCase):
+    def _hass(self):
+        hass, entry = configured_real_slice_hass(planner=None)
+        hass.data[DOMAIN][history_retrieval.DATA_RECORDER_KEEP_DAYS] = 10
+        return hass, entry
+
+    def test_beyond_retention_window_uses_statistics_with_band(self):
+        hass, entry = self._hass()
+        start = NOW - timedelta(days=20)
+        end = NOW - timedelta(days=18)
+        buckets = [
+            {
+                "start": _iso(start + timedelta(hours=index)),
+                "mean": 70.0 + index,
+                "min": 69.0 + index,
+                "max": 72.0 + index,
+            }
+            for index in range(6)
+        ]
+        hass.data[DOMAIN][history_retrieval.DATA_STATISTICS_SOURCE] = {
+            "sensor.upstairs_temperature": buckets
+        }
+        result = retrieve_approved_history(
             hass,
             entry,
-            prompt="Show sensor.upstairs_temperature over the last 46 hours",
+            entity_ids=["sensor.upstairs_temperature"],
+            start=_iso(start),
+            end=_iso(end),
+            now=NOW,
+            allow_statistics=True,
         )
-        self.assertTrue(start["accepted"], start)
+        self.assertTrue(result["accepted"], result)
+        self.assertEqual(result["data_source"]["source"], "long_term_statistics")
+        series = result["history_series"][0]
+        self.assertEqual(series["source"], "long_term_statistics")
+        self.assertEqual(series["resolution"], "hourly")
+        self.assertEqual(series["points"][0]["value_min"], 69.0)
+        self.assertEqual(series["points"][0]["value_max"], 72.0)
 
-        store = hass.data[DOMAIN][entry.entry_id]["history_retrieval"]
-        recorded = store["last_time_range"]
-        span = datetime.fromisoformat(recorded["end"]) - datetime.fromisoformat(
-            recorded["start"]
+    def test_beyond_retention_without_statistics_fails_closed(self):
+        hass, entry = self._hass()
+        start = NOW - timedelta(days=20)
+        end = NOW - timedelta(days=18)
+        hass.data[DOMAIN][history_retrieval.DATA_STATISTICS_SOURCE] = {}
+        result = retrieve_approved_history(
+            hass,
+            entry,
+            entity_ids=["sensor.upstairs_temperature"],
+            start=_iso(start),
+            end=_iso(end),
+            now=NOW,
+            allow_statistics=True,
         )
-        self.assertEqual(span, timedelta(hours=46))
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["code"], "no_long_term_statistics")
+        self.assertIn(
+            "sensor.upstairs_temperature",
+            result["statistics_unavailable_entity_ids"],
+        )
+
+    def test_recent_window_uses_raw_recorder_states(self):
+        hass, entry = self._hass()
+        start = NOW - timedelta(hours=12)
+        records = [
+            {
+                "entity_id": "sensor.upstairs_temperature",
+                "state": str(70.0 + index),
+                "last_changed": _iso(start + timedelta(hours=index)),
+                "attributes": {"unit_of_measurement": "degF"},
+            }
+            for index in range(6)
+        ]
+        hass.data[DOMAIN][DATA_HISTORY_SOURCE] = {"sensor.upstairs_temperature": records}
+        result = retrieve_approved_history(
+            hass,
+            entry,
+            entity_ids=["sensor.upstairs_temperature"],
+            start=_iso(start),
+            end=_iso(NOW),
+            now=NOW,
+            allow_statistics=True,
+        )
+        self.assertTrue(result["accepted"], result)
+        self.assertEqual(result["data_source"]["source"], "recorder_states")
+        series = result["history_series"][0]
+        self.assertEqual(series["resolution"], "raw")
+        self.assertNotIn("value_min", series["points"][0])
+
+
+class ModelResolvedWindowEndToEndTests(unittest.TestCase):
+    def _configure_now(self, hass):
+        hass.data[DOMAIN][DATA_JOB_ORCHESTRATION_TIME_RANGE] = {"now": _iso(NOW)}
+
+    def test_absolute_seasonal_window_renders_statistics_png(self):
+        start = NOW - timedelta(days=90)
+        end = NOW - timedelta(days=1)
+        planner = AbsoluteWindowPlanner(start=_iso(start), end=_iso(end))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(planner=planner, artifact_dir=artifact_dir)
+            self._configure_now(hass)
+            hass.data[DOMAIN][history_retrieval.DATA_RECORDER_KEEP_DAYS] = 10
+            buckets = [
+                {
+                    "start": _iso(start + timedelta(days=index)),
+                    "mean": 60.0 + index,
+                    "min": 58.0 + index,
+                    "max": 63.0 + index,
+                }
+                for index in range(80)
+            ]
+            hass.data[DOMAIN][history_retrieval.DATA_STATISTICS_SOURCE] = {
+                "sensor.upstairs_temperature": buckets
+            }
+
+            start_result = _start_job(hass, entry)
+            snapshot = _snapshot_job(hass, entry, start_result["snapshot"]["job_id"])
+
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "complete")
+            image_url = snapshot["snapshot"]["chart"]["image_url"]
+            self.assertTrue(image_url.endswith(".png"), image_url)
+            artifact_path = artifact_dir / Path(image_url).name
+            self.assertEqual(artifact_path.read_bytes()[:8], PNG_SIGNATURE)
+            store = hass.data[DOMAIN][entry.entry_id]["history_retrieval"]
+            self.assertEqual(store["series"][0]["source"], "long_term_statistics")
+            self.assertEqual(store["series"][0]["resolution"], "daily")
+
+    def test_beyond_retention_without_statistics_returns_failed_snapshot(self):
+        start = NOW - timedelta(days=40)
+        end = NOW - timedelta(days=39)
+        planner = AbsoluteWindowPlanner(start=_iso(start), end=_iso(end))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(planner=planner, artifact_dir=artifact_dir)
+            self._configure_now(hass)
+            hass.data[DOMAIN][history_retrieval.DATA_RECORDER_KEEP_DAYS] = 10
+            hass.data[DOMAIN][history_retrieval.DATA_STATISTICS_SOURCE] = {}
+
+            start_result = _start_job(hass, entry)
+            snapshot = _snapshot_job(hass, entry, start_result["snapshot"]["job_id"])
+
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "failed")
+            self.assertEqual(
+                snapshot["snapshot"]["failure"]["stage"], "approved_history_retrieval"
+            )
+            self.assertEqual(
+                snapshot["snapshot"]["failure"]["code"], "no_long_term_statistics"
+            )
+            self.assertEqual(list(artifact_dir.glob("*.png")), [])
 
 
 if __name__ == "__main__":

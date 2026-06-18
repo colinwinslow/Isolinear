@@ -45,3 +45,5 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0017 — `First real vertical slice`
 - 0018 — `Production artifact serving` (draft)
 - 0019 — `Pillow in-process renderer`
+- 0020 — `Model-resolved chart time window`
+- 0021 — `Tiered history data source (recorder states + long-term statistics)`
