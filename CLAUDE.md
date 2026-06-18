@@ -1,6 +1,6 @@
-# AGENTS.md — Isolinear Agent Contract
+# CLAUDE.md — Isolinear Agent Contract
 
-> This file is the working contract for any coding agent (Codex, Claude Code, etc.) operating in this repo. Codex reads `AGENTS.md` automatically on session start. Keep it short — it is loaded every session.
+> This file is the working contract for Claude Code operating in this repo. Claude Code reads `CLAUDE.md` automatically on session start. Keep it short — it is loaded every session.
 
 ## Identity
 
@@ -12,7 +12,7 @@ This project is developed **agentically**. The human provides direction and over
 
 ## Session start
 
-On session start, run `/startup` (see `codex/startup.md`). The required read set is **`STATUS.md` + `HANDOFF.md`**. `STATUS.md` is the single source for the current bounded packet and rolling session log. `HANDOFF.md` carries the current project phase, architectural direction, implementation status, and unresolved design details.
+On session start, run `/startup`. The required read set is **`STATUS.md` + `HANDOFF.md`**. `STATUS.md` is the single source for the current bounded packet and rolling session log. `HANDOFF.md` carries the current project phase, architectural direction, implementation status, and unresolved design details.
 
 Do not load other docs unless the work requires them. The doc map below tells you when to load what.
 
@@ -29,7 +29,7 @@ Do not load other docs unless the work requires them. The doc map below tells yo
 | What are the JSON Schema contracts? | `docs/schemas/*.json` |
 | What's the implementation plan for slice N? | Current `STATUS.md` active work + the spec's "Proof requirements" |
 | How does the project build/test? | This file, "Build & test" |
-| What session commands exist? | `codex/` (startup, closeout, adr, spec, research, review passes) |
+| What session commands exist? | `.claude/commands/` (startup, closeout, adr, spec, research, review passes) |
 
 If the question doesn't fit the table, ask. Don't guess.
 
@@ -57,7 +57,7 @@ These are the non-negotiable rules of Isolinear. Every diff is checked against t
 
 ### BDD before implementation
 
-Every implementation slice begins with a small, inspectable BDD that defines the artifact proving success. Tests derive from the BDD; code makes the tests pass. Scaffold a spec + paired BDD with `/spec <slug>` (see `codex/spec.md`).
+Every implementation slice begins with a small, inspectable BDD that defines the artifact proving success. Tests derive from the BDD; code makes the tests pass. Scaffold a spec + paired BDD with `/spec <slug>`.
 
 The engineering sequence is:
 
@@ -87,28 +87,28 @@ Build the simplest concrete observable version of the thing **first**, before su
 
 ## Session commands
 
-> **Note:** When running under Claude Code, native slash commands are defined in `.claude/commands/` and take precedence. The `codex/` files below are the reference protocols for Codex. Treat these as **repo-local protocols** when running under Codex: when the user types `/startup`, read `codex/startup.md` and follow it.
+These are native Claude Code slash commands. When the user types `/startup`, Claude Code reads `.claude/commands/startup.md` and follows the protocol there.
 
-| Command | Codex protocol | Claude Code command |
+| Command | Protocol file | Purpose |
 |---|---|---|
-| `/startup` | `codex/startup.md` | `.claude/commands/startup.md` |
-| `/closeout` | `codex/closeout.md` | `.claude/commands/closeout.md` |
-| `/adr <slug>` | `codex/adr.md` | `.claude/commands/adr.md` |
-| `/spec <slug>` | `codex/spec.md` | `.claude/commands/spec.md` |
-| `/research <slug>` | `codex/research.md` | `.claude/commands/research.md` |
+| `/startup` | `.claude/commands/startup.md` | Drift-check + read STATUS/HANDOFF + identify next bounded packet + confirm proof |
+| `/closeout` | `.claude/commands/closeout.md` | Update STATUS rolling log + sync doc indexes + run review passes + commit |
+| `/adr <slug>` | `.claude/commands/adr.md` | Scaffold a new ADR with auto-numbering |
+| `/spec <slug>` | `.claude/commands/spec.md` | Scaffold a new spec + paired BDD |
+| `/research <slug>` | `.claude/commands/research.md` | Scaffold a new research note |
 
 ## Review passes
 
 | Review | Protocol file | When | How to run |
 |---|---|---|---|
-| Architecture review | `codex/review-architecture.md` | Before completing a non-trivial implementation | Codex: standalone `codex exec`; Claude Code: spawn Agent subagent (see protocol file) |
+| Architecture review | `codex/review-architecture.md` | Before completing a non-trivial implementation | Spawn an Agent subagent with fresh context (see protocol file) |
 | BDD-evidence review | `codex/review-bdd-evidence.md` | After a test run on a feature with BDD scenarios | Inline pass at `/closeout` (it verifies evidence you just produced) |
 
 ## Build & test
 
 ```bash
-python3 -m pytest tests/       # run unit tests
-python3 evals/<eval>.py        # run a single eval script
+python3 -m pytest tests/           # run unit tests
+python3 evals/<eval>.py            # run a single eval script
 ```
 
 **Current test posture:** All unit tests and evals passing (see `STATUS.md` for latest session log and current verification status, and `HANDOFF.md` for current implementation status).
@@ -124,7 +124,7 @@ python3 evals/<eval>.py        # run a single eval script
   to.
 - Never skip hooks (`--no-verify`) unless the user explicitly asks. If a hook fails, fix the underlying issue and create a NEW commit; do not amend.
 - Stage specific files. Never blanket `git add -A` / `git add .`.
-- At `/closeout`, include a completion report in the commit body (see `codex/closeout.md` for format).
+- At `/closeout`, include a completion report in the commit body (see `.claude/commands/closeout.md` for format).
 - Ask before pushing. Default is commit-only.
 
 ## What is out of scope (now)

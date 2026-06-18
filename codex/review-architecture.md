@@ -3,25 +3,26 @@
 Reviews a diff against this project's load-bearing invariants. Run **before
 completing any non-trivial implementation**.
 
-## How to run it (Codex)
+## How to run it (Claude Code)
 
-Codex has no subagents. For an honest, un-anchored read, run this as a
-**standalone `codex exec` invocation** so the reviewer starts with fresh
-context instead of the rationalizations built up while implementing:
+For an honest, un-anchored read, spawn a fresh Agent subagent so the reviewer
+starts with clean context instead of the rationalizations built up while
+implementing:
 
-Use a 10 minute timeout (`600000` ms) for the standalone review command. Recent
-architecture reviews with untracked scaffold files have repeatedly approached
-or exceeded shorter timeouts.
-
-```bash
-git --no-pager diff main...HEAD > /tmp/review-diff.txt
-codex exec "You are an architecture reviewer. Read codex/review-architecture.md \
-and AGENTS.md in this repo, then review the diff in /tmp/review-diff.txt against \
-the project invariants. Output the verdict format from the protocol."
+```
+Agent({
+  description: "Architecture review",
+  subagent_type: "code-reviewer",
+  prompt: "You are an architecture reviewer for the Isolinear project.
+Read CLAUDE.md and codex/review-architecture.md in this repo, then review
+the current branch diff (git diff main...HEAD) against the project invariants.
+Output the verdict format from the protocol (Verdict / Invariant violations /
+Scope flags / ADR-relevance / Recommendations). Under 400 words."
+})
 ```
 
-(If you can't spawn a separate run, do it inline as a deliberate, skeptical
-pass — but a fresh `codex exec` is the recommended form.)
+(If spawning an agent is impractical, do it inline as a deliberate, skeptical
+pass — but a fresh subagent is the recommended form.)
 
 ## What you check
 
