@@ -338,7 +338,7 @@ def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]
         )
 
     requested_entity_ids = selection["entity_ids"]
-    time_range = _default_history_time_range(hass)
+    time_range = _default_history_time_range(hass, job["prompt"])
     rejected_entity_ids = [
         entity_id
         for entity_id in requested_entity_ids
@@ -511,7 +511,7 @@ def handle_job_orchestration_clarification_answer_ws_command(
     )
     _append_fetching_history_snapshot(job, [selected_entity_id])
 
-    time_range = _default_history_time_range(hass)
+    time_range = _default_history_time_range(hass, job["prompt"])
     history_result = retrieve_approved_history(
         hass,
         entry,
@@ -703,7 +703,7 @@ def handle_job_orchestration_retry_ws_command(hass: Any, command: dict[str, Any]
         )
 
     requested_entity_ids = selection["entity_ids"]
-    time_range = _default_history_time_range(hass)
+    time_range = _default_history_time_range(hass, job["prompt"])
     rejected_entity_ids = [
         entity_id
         for entity_id in requested_entity_ids
@@ -5098,7 +5098,7 @@ def _append_artifact_complete_snapshot(
     )
 
 
-def _default_history_time_range(hass: Any) -> dict[str, str]:
+def _default_history_time_range(hass: Any, prompt: Any = None) -> dict[str, str]:
     configured = getattr(hass, "data", {}).get(DOMAIN, {}).get(DATA_JOB_ORCHESTRATION_TIME_RANGE)
     if isinstance(configured, dict) and isinstance(configured.get("start"), str) and isinstance(configured.get("end"), str):
         return {
@@ -5107,11 +5107,54 @@ def _default_history_time_range(hass: Any) -> dict[str, str]:
         }
 
     end = datetime.now(timezone.utc).replace(microsecond=0)
-    start = end - timedelta(hours=24)
+    start = end - _history_window_from_prompt(prompt)
     return {
         "start": start.isoformat(timespec="seconds"),
         "end": end.isoformat(timespec="seconds"),
     }
+
+
+# Honor an explicit "last/past N hours|days|weeks" window from the prompt so the
+# chart covers the range the user asked for instead of a fixed default. The
+# window is clamped to keep recorder reads bounded.
+_MIN_HISTORY_WINDOW = timedelta(hours=1)
+_MAX_HISTORY_WINDOW = timedelta(days=31)
+_DEFAULT_HISTORY_WINDOW = timedelta(hours=24)
+_HISTORY_WINDOW_UNIT_SECONDS = {
+    "hour": 3600,
+    "hr": 3600,
+    "h": 3600,
+    "day": 86400,
+    "d": 86400,
+    "week": 604800,
+    "wk": 604800,
+    "w": 604800,
+}
+_HISTORY_WINDOW_PATTERN = re.compile(
+    r"(?:last|past|previous)?\s*(\d{1,4})\s*(hours?|hrs?|h|days?|d|weeks?|wks?|w)\b",
+    re.IGNORECASE,
+)
+
+
+def _history_window_from_prompt(prompt: Any) -> timedelta:
+    if not isinstance(prompt, str) or not prompt.strip():
+        return _DEFAULT_HISTORY_WINDOW
+    match = _HISTORY_WINDOW_PATTERN.search(prompt)
+    if match is None:
+        return _DEFAULT_HISTORY_WINDOW
+    count = int(match.group(1))
+    if count <= 0:
+        return _DEFAULT_HISTORY_WINDOW
+    unit = match.group(2).lower().rstrip("s")
+    seconds = _HISTORY_WINDOW_UNIT_SECONDS.get(unit)
+    if seconds is None:
+        return _DEFAULT_HISTORY_WINDOW
+    window = timedelta(seconds=count * seconds)
+    if window < _MIN_HISTORY_WINDOW:
+        return _MIN_HISTORY_WINDOW
+    if window > _MAX_HISTORY_WINDOW:
+        return _MAX_HISTORY_WINDOW
+    return window
 
 
 def _catalog_item_matches_prompt(prompt: str, item: dict[str, Any]) -> bool:

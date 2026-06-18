@@ -213,18 +213,23 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
 
     image = Image.new("RGB", (width, height), (255, 255, 255))
     draw = ImageDraw.Draw(image)
-    title_font = _load_font(max(18, width // 50))
-    label_font = _load_font(max(13, width // 95))
-    tick_font = _load_font(max(11, width // 115))
+    # The 1400x800 PNG is downscaled to a phone-width card (~3-4x), so fonts and
+    # strokes are sized large in source pixels to survive that reduction.
+    title_font = _load_font(max(34, width // 24))
+    label_font = _load_font(max(24, width // 40))
+    tick_font = _load_font(max(20, width // 48))
+    series_weight = max(4, width // 280)
+    axis_weight = max(3, width // 500)
+    grid_weight = max(2, width // 900)
 
     title = chart_spec["title"]
     title_w, title_h = _text_size(draw, title, title_font)
-    draw.text(((width - title_w) / 2, 14), title, fill=(20, 20, 20), font=title_font)
+    draw.text(((width - title_w) / 2, 20), title, fill=(20, 20, 20), font=title_font)
 
-    plot_left = 92
-    plot_right = width - 28
-    plot_top = 30 + title_h + 18
-    plot_bottom = height - 64
+    plot_left = max(120, width // 11)
+    plot_right = width - max(36, width // 36)
+    plot_top = 24 + title_h + 24
+    plot_bottom = height - max(104, height // 7)
 
     t_min = min(all_timestamps)
     t_max = max(all_timestamps)
@@ -249,14 +254,14 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
     for index in range(6):
         value = v_min + v_span * index / 5
         y = y_px(value)
-        draw.line([(plot_left, y), (plot_right, y)], fill=(232, 232, 232), width=1)
+        draw.line([(plot_left, y), (plot_right, y)], fill=(232, 232, 232), width=grid_weight)
         label = f"{value:.1f}"
         label_w, label_h = _text_size(draw, label, tick_font)
-        draw.text((plot_left - 10 - label_w, y - label_h / 2), label, fill=(90, 90, 90), font=tick_font)
+        draw.text((plot_left - 14 - label_w, y - label_h / 2), label, fill=(90, 90, 90), font=tick_font)
 
     # Axis lines.
-    draw.line([(plot_left, plot_top), (plot_left, plot_bottom)], fill=(60, 60, 60), width=2)
-    draw.line([(plot_left, plot_bottom), (plot_right, plot_bottom)], fill=(60, 60, 60), width=2)
+    draw.line([(plot_left, plot_top), (plot_left, plot_bottom)], fill=(60, 60, 60), width=axis_weight)
+    draw.line([(plot_left, plot_bottom), (plot_right, plot_bottom)], fill=(60, 60, 60), width=axis_weight)
 
     # X-axis time tick labels (start, middle, end).
     for frac, align in ((0.0, "left"), (0.5, "center"), (1.0, "right")):
@@ -271,41 +276,50 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
         else:
             anchor_x = x - text_w / 2
         anchor_x = max(0, min(anchor_x, width - text_w))
-        draw.text((anchor_x, plot_bottom + 8), text, fill=(90, 90, 90), font=tick_font)
+        draw.text((anchor_x, plot_bottom + 14), text, fill=(90, 90, 90), font=tick_font)
 
     # Series polylines.
+    marker_radius = max(4, series_weight)
     for index, (label, timestamps, values) in enumerate(plotted):
         color = _SERIES_COLORS[index % len(_SERIES_COLORS)]
         points = [(x_px(ts), y_px(value)) for ts, value in zip(timestamps, values)]
         if len(points) == 1:
             cx, cy = points[0]
-            draw.ellipse([(cx - 3, cy - 3), (cx + 3, cy + 3)], fill=color)
+            draw.ellipse(
+                [(cx - marker_radius, cy - marker_radius), (cx + marker_radius, cy + marker_radius)],
+                fill=color,
+            )
         else:
-            draw.line(points, fill=color, width=2, joint="curve")
+            draw.line(points, fill=color, width=series_weight, joint="curve")
 
     # Legend (top-right inside the plot).
-    legend_y = plot_top + 6
+    legend_y = plot_top + 10
+    swatch_w = max(28, width // 50)
     for index, (label, _, _) in enumerate(plotted):
         color = _SERIES_COLORS[index % len(_SERIES_COLORS)]
         label_w, label_h = _text_size(draw, label, label_font)
-        swatch_w = 18
-        entry_w = swatch_w + 6 + label_w
-        entry_x = plot_right - entry_w - 8
+        entry_w = swatch_w + 10 + label_w
+        entry_x = plot_right - entry_w - 10
         draw.line(
             [(entry_x, legend_y + label_h / 2), (entry_x + swatch_w, legend_y + label_h / 2)],
             fill=color,
-            width=3,
+            width=series_weight,
         )
-        draw.text((entry_x + swatch_w + 6, legend_y), label, fill=(40, 40, 40), font=label_font)
-        legend_y += label_h + 6
+        draw.text((entry_x + swatch_w + 10, legend_y), label, fill=(40, 40, 40), font=label_font)
+        legend_y += label_h + 10
 
     # Y-axis label (rotated) and x-axis label.
     y_label = _y_axis_label(chart_spec)
     if y_label:
-        _draw_vertical_text(image, y_label, 14, (plot_top + plot_bottom) / 2, label_font, (60, 60, 60))
+        _draw_vertical_text(image, y_label, 16, (plot_top + plot_bottom) / 2, label_font, (60, 60, 60))
     x_label = "Time"
-    x_label_w, _ = _text_size(draw, x_label, label_font)
-    draw.text(((plot_left + plot_right) / 2 - x_label_w / 2, height - 26), x_label, fill=(60, 60, 60), font=label_font)
+    x_label_w, x_label_h = _text_size(draw, x_label, label_font)
+    draw.text(
+        ((plot_left + plot_right) / 2 - x_label_w / 2, height - x_label_h - 16),
+        x_label,
+        fill=(60, 60, 60),
+        font=label_font,
+    )
 
     buffer = BytesIO()
     image.save(buffer, format="PNG")

@@ -54,6 +54,9 @@ The first real vertical slice must:
   Home Assistant runtime, while preserving explicit fake metadata injection for
   tests.
 - Retrieve history only for entities already visible in the approved catalog.
+- Cover the time window the prompt asks for: an explicit "last/past N
+  hours|days|weeks" phrase sets the history range (clamped to between 1 hour and
+  31 days); prompts without a duration fall back to the default 24-hour window.
 - Prefer real Home Assistant recorder history when running in a real Home
   Assistant runtime, while preserving explicit fake history injection for
   tests.
@@ -67,7 +70,9 @@ The first real vertical slice must:
   validation failures instead of surfacing them as generic registered WebSocket
   command rejections.
 - Render a safe-mode trusted Pillow PNG in-process when the first-real
-  slice is enabled and no worker dispatch is used.
+  slice is enabled and no worker dispatch is used. Title, axis tick labels, axis
+  titles, legend text, and the series line are sized large in source pixels so
+  the chart stays legible when the PNG is downscaled to a phone-width card.
 - Return card-facing failed job snapshots for trusted in-process renderer
   failures instead of surfacing them as snapshot-poll command rejections.
 - Return that PNG to the existing dashboard card as `chart.image_url`, using a
@@ -119,6 +124,14 @@ planner, and verifies that the returned chart image is a real PNG data URL.
    write no PNG file or artifact metadata.
 6. Focused pytest proves repeated snapshot requests reuse the completed
    artifact without another planner call.
+6a. Focused pytest proves the prompt-derived history window: a "last 46 hours"
+   prompt records a 46-hour retrieval range, day/week phrases are honored, a
+   prompt with no duration falls back to 24 hours, and out-of-range values are
+   clamped.
+6b. Focused pytest proves renderer legibility: the rendered title paints a
+   tall band of ink (large font in source pixels) and a high-then-low series is
+   plotted across both the upper and lower plot bands rather than collapsing to
+   a flat row.
 7. Evidence file contains raw command/result snippets and decoded PNG
    signature bytes.
 8. Adjacent orchestration tests remain green.

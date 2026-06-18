@@ -797,5 +797,164 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             self.assertEqual(len(store["artifact_order"]), 1)
 
 
+def _varying_render_request(*, width: int = 1400, height: int = 800) -> dict[str, Any]:
+    import math
+
+    start = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=44)
+    points = [
+        {
+            "ts": (start + timedelta(hours=index)).isoformat(timespec="seconds"),
+            "value": round(51 + 6 * math.sin(index / 24 * 2 * math.pi), 2),
+            "raw_state": "x",
+            "quality": "ok",
+        }
+        for index in range(48)
+    ]
+    return {
+        "request_id": "legibility-anchor",
+        "render_mode": "safe",
+        "chart_spec": {
+            "chart_id": "c",
+            "chart_type": "time_series",
+            "title": "Attic Temperature History",
+            "series": [
+                {
+                    "series_id": "attic",
+                    "label": "Attic Temperature",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "sensor.attic_sensor_temperature",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "line",
+                    "transform": {"operation": "none", "window": None},
+                    "unit": "degF",
+                }
+            ],
+            "overlays": [],
+            "x_axis": {"type": "time"},
+            "y_axis": {"label": "degF"},
+            "notes": [],
+        },
+        "history_series": [
+            {
+                "series_id": "attic",
+                "entity_id": "sensor.attic_sensor_temperature",
+                "label": "Attic Temperature",
+                "kind": "numeric",
+                "unit": "degF",
+                "points": points,
+                "source_entity_ids": ["sensor.attic_sensor_temperature"],
+                "warnings": [],
+            }
+        ],
+        "derived_intervals": [],
+        "output": {"format": "png", "width": width, "height": height},
+        "theme": {},
+        "codegen": None,
+    }
+
+
+class InProcessRendererLegibilityTests(unittest.TestCase):
+    def _open(self, png_bytes: bytes):
+        from io import BytesIO
+
+        from PIL import Image
+
+        return Image.open(BytesIO(png_bytes)).convert("RGB")
+
+    def test_title_text_is_rendered_large_enough_for_mobile(self):
+        result = render_in_process_chart(_varying_render_request())
+        self.assertTrue(result["accepted"], result)
+        image = self._open(result["png_bytes"])
+        self.assertEqual(image.size, (1400, 800))
+
+        # The title occupies the top band; its dark-ink height proves the font is
+        # large in source pixels so it survives the ~4x downscale to a phone card.
+        title_band = image.crop((0, 0, image.width, 110)).convert("L")
+        binarized = title_band.point(lambda value: 255 if value < 110 else 0)
+        bbox = binarized.getbbox()
+        self.assertIsNotNone(bbox, "expected rendered title ink in the top band")
+        title_ink_height = bbox[3] - bbox[1]
+        self.assertGreaterEqual(
+            title_ink_height,
+            34,
+            f"title ink height {title_ink_height}px is too small to read on mobile",
+        )
+
+    def test_varying_series_is_plotted_across_full_plot_height(self):
+        # Guards the "flat line / values not plotted" rendering failure mode: a
+        # series that swings high and low must paint series-colored ink in both
+        # the upper and lower bands of the plot, not collapse to one row.
+        result = render_in_process_chart(_varying_render_request())
+        image = self._open(result["png_bytes"])
+        series_color = (31, 119, 180)
+        upper = lower = False
+        pixels = image.load()
+        for y in range(image.height):
+            for x in range(0, image.width, 3):
+                if pixels[x, y] == series_color:
+                    if y < image.height * 0.40:
+                        upper = True
+                    elif y > image.height * 0.60:
+                        lower = True
+            if upper and lower:
+                break
+        self.assertTrue(upper, "series ink missing from the upper plot band")
+        self.assertTrue(lower, "series ink missing from the lower plot band")
+
+
+class HistoryWindowFromPromptTests(unittest.TestCase):
+    def test_honors_explicit_hour_window_from_prompt(self):
+        window = job_orchestration._history_window_from_prompt(
+            "Show me the attic temperature over the last 46 hours"
+        )
+        self.assertEqual(window, timedelta(hours=46))
+
+    def test_supports_day_and_week_windows(self):
+        self.assertEqual(
+            job_orchestration._history_window_from_prompt("attic temp past 2 weeks"),
+            timedelta(weeks=2),
+        )
+        self.assertEqual(
+            job_orchestration._history_window_from_prompt("power over the last 7 days"),
+            timedelta(days=7),
+        )
+
+    def test_defaults_to_24h_when_no_duration_present(self):
+        self.assertEqual(
+            job_orchestration._history_window_from_prompt("show me the attic temperature"),
+            timedelta(hours=24),
+        )
+
+    def test_clamps_unreasonable_windows(self):
+        self.assertEqual(
+            job_orchestration._history_window_from_prompt("last 999 days"),
+            timedelta(days=31),
+        )
+        self.assertEqual(
+            job_orchestration._history_window_from_prompt("0 hours"),
+            timedelta(hours=24),
+        )
+
+    def test_start_job_records_prompt_requested_window(self):
+        planner = FakePlanner()
+        hass, entry = configured_real_slice_hass(planner=planner)
+        start = _start_job(
+            hass,
+            entry,
+            prompt="Show sensor.upstairs_temperature over the last 46 hours",
+        )
+        self.assertTrue(start["accepted"], start)
+
+        store = hass.data[DOMAIN][entry.entry_id]["history_retrieval"]
+        recorded = store["last_time_range"]
+        span = datetime.fromisoformat(recorded["end"]) - datetime.fromisoformat(
+            recorded["start"]
+        )
+        self.assertEqual(span, timedelta(hours=46))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
