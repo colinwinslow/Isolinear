@@ -38,7 +38,7 @@ SCAFFOLD_FILES = [
     "custom_components/isolinear/websocket_api.py",
 ]
 
-CONFIG_FLOW_BLOCKING_REQUIREMENT_PREFIXES = ("matplotlib",)
+CONFIG_FLOW_BLOCKING_REQUIREMENT_PREFIXES = ("matplotlib==",)
 
 
 def load_manifest(root: Path | None = None) -> dict[str, Any]:
@@ -163,7 +163,7 @@ def verify_integration_scaffold_anchor(root: Path | None = None) -> dict[str, An
     if not manifest_result["const_version_matches_manifest"]:
         failures.append("Manifest version does not match the integration version constant.")
     if not manifest_result["config_flow_blocking_requirements_deferred"]:
-        failures.append("Manifest declares a renderer-only requirement that can block config-flow loading.")
+        failures.append("Manifest declares a strict-pinned renderer requirement that can block config-flow loading.")
     if not manifest_result["all_scaffold_files_present"]:
         failures.append("One or more scaffold files are missing on disk.")
     if not config_result["defaults"]["result"]["accepted"]:
