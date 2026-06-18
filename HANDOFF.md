@@ -359,9 +359,41 @@ scaffold guard forbids any `matplotlib` requirement regardless of version pin,
 and the renderer imports Pillow lazily and still fails closed as
 `renderer_dependency_unavailable` if it is somehow absent. The render interface,
 supported scope (safe numeric `time_series` line charts), failure codes, and
-served-PNG artifact contract are unchanged. The repository is now ready for live
-HACS retest as version `0.1.20`; the next packet is live confirmation that the
-integration loads, registers `?v=0.1.20`, and renders a Pillow chart end-to-end.
+served-PNG artifact contract are unchanged.
+
+Live `0.1.20` then confirmed the Pillow renderer works end-to-end, but the chart
+was illegible on a phone and the window was wrong. `0.1.21` enlarged the
+renderer fonts/strokes for the mobile downscale and (temporarily) added a
+keyword regex for the window. The window design was then redirected to be
+model-driven, landing as `0.1.22` across ADR-0020 and ADR-0021.
+
+ADR-0020 makes the chart time window **model-resolved**: the planner request
+carries `now` and the Home Assistant `time_zone`; the planner emits an absolute
+`chart_spec.time_range {start, end}`; the integration validates and clamps it
+deterministically (tz-normalize to UTC, `start < end`, clamp `end <= now`, span
+`<= 366` days, floor `60s`) and falls back to a fixed last-24h window on any
+failure (no planner, missing/invalid/unclampable window). The keyword regex is
+removed entirely. For the first-real-slice path, history is now fetched **after**
+planning using the resolved window, so a window older than recorder retention is
+no longer rejected at `job/start`; the legacy scaffold path keeps its start-time
+raw fetch (statistics tiering is opt-in through an `allow_statistics` flag).
+
+ADR-0021 adds a **tiered history data source**: raw recorder states for
+recent/short windows, hourly long-term statistics up to 60 days, and daily
+statistics beyond that, single-source-per-window. Long-term statistics are read
+through `statistics_during_period` (read-only, off the event loop via the
+existing executor offload). Each `HistorySeries` records its `source`
+(`recorder_states` | `long_term_statistics`) and `resolution`
+(`raw` | `hourly` | `daily`); statistics buckets carry `value` (mean) plus
+`value_min`/`value_max`, and the Pillow renderer shades a min/max band behind the
+mean line. An entity without long-term statistics over a beyond-retention window
+fails closed with a card-facing `no_long_term_statistics` snapshot. The
+HistorySeries schema gains the band point fields and the source/resolution
+fields; the planner request gains `now`/`time_zone` (propagated into the
+model-provider plan and retry-policy schemas); all synced schema copies are
+byte-identical. The repository is ready for live HACS retest as version `0.1.22`;
+the next packet is live confirmation of the model-resolved window and the
+statistics tier (the only path whose live recorder calls are not unit-tested).
 
 ## Product summary
 
