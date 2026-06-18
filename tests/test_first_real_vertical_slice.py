@@ -31,7 +31,9 @@ from custom_components.isolinear.history_retrieval import (  # noqa: E402
 )
 from custom_components.isolinear.in_process_renderer import (  # noqa: E402
     DATA_FIRST_REAL_VERTICAL_SLICE_ENABLED,
+    render_in_process_chart,
 )
+import custom_components.isolinear.in_process_renderer as in_process_renderer  # noqa: E402
 from custom_components.isolinear.job_orchestration import (  # noqa: E402
     DATA_JOB_ORCHESTRATION,
     setup_job_orchestration,
@@ -682,6 +684,91 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             self.assertEqual(store["model_provider_plan_order"], [])
             self.assertEqual(store["render_plan_order"], [])
             self.assertEqual(store["artifact_order"], [])
+
+    def test_renderer_reports_dependency_unavailable_when_matplotlib_import_fails(self):
+        request = {"request_id": "req-dependency-check"}
+        with patch.object(
+            in_process_renderer,
+            "_unsupported_time_series_request",
+            return_value=[],
+        ), patch.object(
+            in_process_renderer,
+            "_render_time_series_png",
+            side_effect=ModuleNotFoundError(
+                "No module named 'matplotlib'", name="matplotlib"
+            ),
+        ):
+            result = render_in_process_chart(request)
+
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["code"], "renderer_dependency_unavailable")
+        self.assertEqual(result["render_result"]["status"], "failed")
+        error = result["render_result"]["error"]
+        self.assertEqual(error["code"], "renderer_dependency_unavailable")
+        self.assertEqual(error["details"]["exception_type"], "ModuleNotFoundError")
+        self.assertEqual(error["details"]["missing_module"], "matplotlib")
+
+    def test_renderer_dependency_unavailable_returns_card_facing_failed_snapshot(self):
+        planner = FakePlanner()
+        renderer_failure = {
+            "accepted": False,
+            "code": "renderer_dependency_unavailable",
+            "renderer": "in_process_matplotlib",
+            "render_result": {
+                "request_id": "forced-dependency-failure",
+                "status": "failed",
+                "image_id": None,
+                "image_mime_type": None,
+                "image_path": None,
+                "error": {
+                    "code": "renderer_dependency_unavailable",
+                    "message": (
+                        "The trusted chart renderer dependency is not available "
+                        "in this Home Assistant environment."
+                    ),
+                    "details": {
+                        "exception_type": "ModuleNotFoundError",
+                        "missing_module": "matplotlib",
+                    },
+                },
+                "render_metadata": {
+                    "title": None,
+                    "series_plotted": [],
+                    "overlays_plotted": [],
+                    "x_min": None,
+                    "x_max": None,
+                    "warnings": ["renderer_dependency_unavailable"],
+                    "codegen_attempts": 0,
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(planner=planner, artifact_dir=artifact_dir)
+
+            with patch.object(
+                job_orchestration,
+                "render_in_process_chart",
+                return_value=renderer_failure,
+            ):
+                start = _start_job(hass, entry)
+                snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+            self.assertTrue(start["accepted"], start)
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "failed")
+            self.assertEqual(snapshot["snapshot"]["failure"]["stage"], "chart_rendering")
+            self.assertEqual(
+                snapshot["snapshot"]["failure"]["code"],
+                "renderer_dependency_unavailable",
+            )
+            self.assertEqual(
+                snapshot["snapshot"]["progress"]["stage"],
+                "in_process_renderer_failure_snapshot_ready",
+            )
+            self.assertTrue(snapshot["orchestration"]["chart_rendering_called"])
+            self.assertFalse(snapshot["orchestration"]["chart_artifact_written"])
+            self.assertEqual(list(artifact_dir.glob("*.png")), [])
 
     def test_repeated_snapshot_reuses_completed_png_artifact(self):
         planner = FakePlanner()

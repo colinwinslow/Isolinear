@@ -43,6 +43,16 @@ def render_in_process_chart(render_request: dict[str, Any]) -> dict[str, Any]:
 
     try:
         png_bytes, metadata = _render_time_series_png(render_request)
+    except ImportError as exc:
+        return _render_failure(
+            render_request,
+            "renderer_dependency_unavailable",
+            "The trusted chart renderer dependency is not available in this Home Assistant environment.",
+            {
+                "exception_type": type(exc).__name__,
+                "missing_module": getattr(exc, "name", None),
+            },
+        )
     except Exception as exc:  # pragma: no cover - defensive runtime boundary.
         return _render_failure(
             render_request,

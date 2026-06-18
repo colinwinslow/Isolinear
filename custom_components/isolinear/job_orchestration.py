@@ -1688,6 +1688,7 @@ def _is_in_process_renderer_failure_code(code: Any) -> bool:
         "invalid_artifact_png_payload",
         "invalid_in_process_render_request",
         "invalid_in_process_render_result",
+        "renderer_dependency_unavailable",
         "unsupported_chart_spec",
     }
 
@@ -1727,6 +1728,9 @@ def _in_process_renderer_failure_message(planning_result: dict[str, Any]) -> str
         "invalid_artifact_png_payload": "The trusted chart renderer returned an invalid PNG payload.",
         "invalid_in_process_render_request": "Isolinear could not prepare a valid request for the trusted chart renderer.",
         "invalid_in_process_render_result": "The trusted chart renderer returned an invalid render result.",
+        "renderer_dependency_unavailable": (
+            "The trusted chart renderer dependency is not installed in this Home Assistant environment."
+        ),
         "unsupported_chart_spec": "The trusted chart renderer does not support this chart spec yet.",
     }
     if isinstance(code, str) and code in messages:
