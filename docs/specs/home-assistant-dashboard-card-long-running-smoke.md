@@ -30,7 +30,7 @@ ADR-0011, ADR-0012, ADR-0017, and ADR-0018.
 The accepted first real vertical slice proves the registered
 `isolinear/v1/job/start` and `isolinear/v1/job/snapshot` handler path can return
 a real PNG from approved history, a planner result, and trusted in-process
-matplotlib rendering. ADR-0018 hardens delivery so the dashboard card receives
+Pillow rendering. ADR-0018 hardens delivery so the dashboard card receives
 a served artifact URL rather than a WebSocket data URL. The dashboard card,
 however, only submitted `job/start`; if that command returned an active
 snapshot, the card could remain in planning until an external caller refreshed

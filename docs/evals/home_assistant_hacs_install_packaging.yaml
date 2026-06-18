@@ -20,4 +20,6 @@ expected:
   dashboard_card_bundle_packaged: true
   static_card_asset_path: /api/isolinear/static/isolinear-card.js
   package_versioned_card_resource_url: /api/isolinear/static/isolinear-card.js?v=<integration_version>
-  renderer_dependency_requirement: "matplotlib>=3.7,<4"
+  renderer_dependency_requirement: none  # ADR-0019: renderer uses HA-shipped Pillow; no manifest requirement
+  manifest_requirements: []
+  matplotlib_requirement_forbidden: true

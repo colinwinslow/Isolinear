@@ -26,7 +26,14 @@ class IntegrationScaffoldAnchorTests(unittest.TestCase):
         self.assertTrue(result["const_version_matches_manifest"], result)
         self.assertEqual(result["manifest"]["version"], INTEGRATION_VERSION)
         self.assertTrue(result["config_flow_blocking_requirements_deferred"], result)
-        self.assertEqual(result["runtime_requirements"], ["matplotlib>=3.7,<4"])
+        self.assertEqual(result["runtime_requirements"], [])
+        self.assertFalse(
+            any(
+                requirement.startswith("matplotlib")
+                for requirement in result["runtime_requirements"]
+            ),
+            result,
+        )
         self.assertTrue(result["all_scaffold_files_present"], result["files"])
         self.assertEqual(result["manifest"]["domain"], "isolinear")
         self.assertEqual(result["manifest"]["integration_type"], "hub")

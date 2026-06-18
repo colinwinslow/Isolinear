@@ -1,10 +1,15 @@
-"""In-process trusted matplotlib renderer for the first real slice."""
+"""In-process trusted Pillow renderer for the first real slice.
+
+Rendering uses Pillow (PIL), which Home Assistant core already ships, instead of
+matplotlib. matplotlib cannot be installed through the integration manifest in a
+stock Home Assistant Python environment: there is no prebuilt wheel for the
+runtime's CPython and the package-install sandbox cannot compile it from source
+(meson is not executable). See ADR-0019.
+"""
 
 from __future__ import annotations
 
 import base64
-import os
-import tempfile
 from copy import deepcopy
 from datetime import datetime
 from io import BytesIO
@@ -14,9 +19,19 @@ from .const import DOMAIN, RENDER_MODE_AUTO, RENDER_MODE_SAFE
 
 
 DATA_FIRST_REAL_VERTICAL_SLICE_ENABLED = "first_real_vertical_slice_enabled"
-IN_PROCESS_RENDERER_NAME = "in_process_matplotlib"
+IN_PROCESS_RENDERER_NAME = "in_process_pillow"
 PNG_DATA_URL_PREFIX = "data:image/png;base64,"
 MAX_IN_PROCESS_PNG_BYTES = 2_000_000
+
+# Deterministic, color-blind-friendly series palette (RGB).
+_SERIES_COLORS = (
+    (31, 119, 180),
+    (255, 127, 14),
+    (44, 160, 44),
+    (214, 39, 40),
+    (148, 103, 189),
+    (140, 86, 75),
+)
 
 
 def first_real_vertical_slice_enabled(hass: Any, entry_id: str) -> bool:
@@ -147,19 +162,13 @@ def _unsupported_time_series_request(render_request: dict[str, Any]) -> list[dic
 
 
 def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
-    os.environ.setdefault("MPLCONFIGDIR", tempfile.mkdtemp(prefix="isolinear-matplotlib-"))
-
-    import matplotlib
-
-    matplotlib.use("Agg")
-    from matplotlib import pyplot as plt
+    from PIL import Image, ImageDraw
 
     chart_spec = render_request["chart_spec"]
     output = render_request.get("output") or {}
-    width = int(output.get("width") or 1400)
-    height = int(output.get("height") or 800)
-    dpi = 100
-    fig, ax = plt.subplots(figsize=(width / dpi, height / dpi), dpi=dpi)
+    width = max(int(output.get("width") or 1400), 200)
+    height = max(int(output.get("height") or 800), 150)
+
     history_by_entity = {
         item.get("entity_id"): item
         for item in render_request.get("history_series", [])
@@ -167,7 +176,9 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
     }
 
     series_plotted: list[str] = []
+    plotted: list[tuple[str, list[datetime], list[float]]] = []
     all_timestamps: list[datetime] = []
+    all_values: list[float] = []
     warnings: list[str] = []
     for series_spec in chart_spec["series"]:
         entity_id = series_spec["source"]["entity_id"]
@@ -191,23 +202,113 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
         if not timestamps:
             raise ValueError(f"History for {entity_id} has no numeric points.")
 
-        ax.plot(timestamps, values, linewidth=2, label=series_spec.get("label") or entity_id)
+        ordered = sorted(zip(timestamps, values), key=lambda pair: pair[0])
+        timestamps = [pair[0] for pair in ordered]
+        values = [pair[1] for pair in ordered]
+        label = series_spec.get("label") or entity_id
+        plotted.append((label, timestamps, values))
         all_timestamps.extend(timestamps)
+        all_values.extend(values)
         series_plotted.append(series_spec["series_id"])
 
-    ax.set_title(chart_spec["title"])
-    ax.set_xlabel("Time")
+    image = Image.new("RGB", (width, height), (255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    title_font = _load_font(max(18, width // 50))
+    label_font = _load_font(max(13, width // 95))
+    tick_font = _load_font(max(11, width // 115))
+
+    title = chart_spec["title"]
+    title_w, title_h = _text_size(draw, title, title_font)
+    draw.text(((width - title_w) / 2, 14), title, fill=(20, 20, 20), font=title_font)
+
+    plot_left = 92
+    plot_right = width - 28
+    plot_top = 30 + title_h + 18
+    plot_bottom = height - 64
+
+    t_min = min(all_timestamps)
+    t_max = max(all_timestamps)
+    t_span = (t_max - t_min).total_seconds() or 1.0
+    v_min = min(all_values)
+    v_max = max(all_values)
+    if v_min == v_max:
+        v_min -= 1.0
+        v_max += 1.0
+    v_pad = (v_max - v_min) * 0.05
+    v_min -= v_pad
+    v_max += v_pad
+    v_span = (v_max - v_min) or 1.0
+
+    def x_px(ts: datetime) -> float:
+        return plot_left + (ts - t_min).total_seconds() / t_span * (plot_right - plot_left)
+
+    def y_px(value: float) -> float:
+        return plot_bottom - (value - v_min) / v_span * (plot_bottom - plot_top)
+
+    # Horizontal gridlines and y-axis tick labels.
+    for index in range(6):
+        value = v_min + v_span * index / 5
+        y = y_px(value)
+        draw.line([(plot_left, y), (plot_right, y)], fill=(232, 232, 232), width=1)
+        label = f"{value:.1f}"
+        label_w, label_h = _text_size(draw, label, tick_font)
+        draw.text((plot_left - 10 - label_w, y - label_h / 2), label, fill=(90, 90, 90), font=tick_font)
+
+    # Axis lines.
+    draw.line([(plot_left, plot_top), (plot_left, plot_bottom)], fill=(60, 60, 60), width=2)
+    draw.line([(plot_left, plot_bottom), (plot_right, plot_bottom)], fill=(60, 60, 60), width=2)
+
+    # X-axis time tick labels (start, middle, end).
+    for frac, align in ((0.0, "left"), (0.5, "center"), (1.0, "right")):
+        ts = t_min + (t_max - t_min) * frac
+        x = x_px(ts)
+        text = ts.strftime("%m-%d %H:%M")
+        text_w, _ = _text_size(draw, text, tick_font)
+        if align == "left":
+            anchor_x = x
+        elif align == "right":
+            anchor_x = x - text_w
+        else:
+            anchor_x = x - text_w / 2
+        anchor_x = max(0, min(anchor_x, width - text_w))
+        draw.text((anchor_x, plot_bottom + 8), text, fill=(90, 90, 90), font=tick_font)
+
+    # Series polylines.
+    for index, (label, timestamps, values) in enumerate(plotted):
+        color = _SERIES_COLORS[index % len(_SERIES_COLORS)]
+        points = [(x_px(ts), y_px(value)) for ts, value in zip(timestamps, values)]
+        if len(points) == 1:
+            cx, cy = points[0]
+            draw.ellipse([(cx - 3, cy - 3), (cx + 3, cy + 3)], fill=color)
+        else:
+            draw.line(points, fill=color, width=2, joint="curve")
+
+    # Legend (top-right inside the plot).
+    legend_y = plot_top + 6
+    for index, (label, _, _) in enumerate(plotted):
+        color = _SERIES_COLORS[index % len(_SERIES_COLORS)]
+        label_w, label_h = _text_size(draw, label, label_font)
+        swatch_w = 18
+        entry_w = swatch_w + 6 + label_w
+        entry_x = plot_right - entry_w - 8
+        draw.line(
+            [(entry_x, legend_y + label_h / 2), (entry_x + swatch_w, legend_y + label_h / 2)],
+            fill=color,
+            width=3,
+        )
+        draw.text((entry_x + swatch_w + 6, legend_y), label, fill=(40, 40, 40), font=label_font)
+        legend_y += label_h + 6
+
+    # Y-axis label (rotated) and x-axis label.
     y_label = _y_axis_label(chart_spec)
     if y_label:
-        ax.set_ylabel(y_label)
-    ax.grid(True, alpha=0.25)
-    ax.legend(loc="best")
-    fig.autofmt_xdate()
-    fig.tight_layout()
+        _draw_vertical_text(image, y_label, 14, (plot_top + plot_bottom) / 2, label_font, (60, 60, 60))
+    x_label = "Time"
+    x_label_w, _ = _text_size(draw, x_label, label_font)
+    draw.text(((plot_left + plot_right) / 2 - x_label_w / 2, height - 26), x_label, fill=(60, 60, 60), font=label_font)
 
     buffer = BytesIO()
-    fig.savefig(buffer, format="png")
-    plt.close(fig)
+    image.save(buffer, format="PNG")
 
     x_min = min(all_timestamps).isoformat(timespec="seconds")
     x_max = max(all_timestamps).isoformat(timespec="seconds")
@@ -217,6 +318,39 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
         "x_max": x_max,
         "warnings": warnings,
     }
+
+
+def _load_font(size: int) -> Any:
+    from PIL import ImageFont
+
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:  # Pillow < 10.1 has no sizeable default font.
+        return ImageFont.load_default()
+
+
+def _text_size(draw: Any, text: str, font: Any) -> tuple[float, float]:
+    try:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        return bbox[2] - bbox[0], bbox[3] - bbox[1]
+    except Exception:  # pragma: no cover - defensive font-metric fallback.
+        try:
+            return float(draw.textlength(text, font=font)), float(getattr(font, "size", 12))
+        except Exception:
+            return float(len(text) * 7), 12.0
+
+
+def _draw_vertical_text(image: Any, text: str, x: float, y_center: float, font: Any, fill: Any) -> None:
+    from PIL import Image, ImageDraw
+
+    measure = ImageDraw.Draw(image)
+    text_w, text_h = _text_size(measure, text, font)
+    text_w = max(int(round(text_w)), 1)
+    text_h = max(int(round(text_h)), 1)
+    tile = Image.new("RGBA", (text_w, text_h), (0, 0, 0, 0))
+    ImageDraw.Draw(tile).text((0, 0), text, font=font, fill=fill)
+    rotated = tile.rotate(90, expand=True)
+    image.paste(rotated, (int(x), int(y_center - rotated.height / 2)), rotated)
 
 
 def _render_failure(

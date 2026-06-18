@@ -110,7 +110,14 @@ def manifest_is_hacs_ready() -> dict[str, Any]:
                 not missing
                 and manifest.get("domain") == "isolinear"
                 and "lovelace" in manifest.get("dependencies", [])
-                and manifest.get("requirements") == ["matplotlib>=3.7,<4"]
+                # No matplotlib requirement: it cannot be installed through the
+                # manifest in a stock HA Python env and a failed install blocks
+                # loading. The renderer uses HA-shipped Pillow instead (ADR-0019).
+                and manifest.get("requirements") == []
+                and not any(
+                    requirement.startswith("matplotlib")
+                    for requirement in manifest.get("requirements", [])
+                )
             ),
         },
     }

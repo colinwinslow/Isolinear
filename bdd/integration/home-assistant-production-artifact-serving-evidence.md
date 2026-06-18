@@ -4,6 +4,8 @@ Paired BDD:
 `bdd/integration/home-assistant-production-artifact-serving-bdd.md`
 
 Run date: 2026-06-16
+Latest regression run: 2026-06-17 (renderer switched matplotlib → Pillow per
+ADR-0019; `artifact_renderer` is now `in_process_pillow`; re-run `351 passed`)
 
 ## Scenario coverage map
 
@@ -73,14 +75,14 @@ artifact:
   "returned_image_url_is_data_url": false,
   "registered_response_local_path_fields_present": false,
   "artifact_status": "rendered",
-  "artifact_renderer": "in_process_matplotlib",
+  "artifact_renderer": "in_process_pillow",
   "png_signature": [137, 80, 78, 71, 13, 10, 26, 10],
   "clarification_start_status": "clarification_needed",
   "clarification_answer_status": "planning",
   "clarification_selected_entity": "sensor.downstairs_temperature",
   "clarification_planner_approved_entity_ids": ["sensor.downstairs_temperature"],
   "clarification_artifact_status": "rendered",
-  "clarification_artifact_renderer": "in_process_matplotlib",
+  "clarification_artifact_renderer": "in_process_pillow",
   "clarification_validation_summary_contains_placeholder": false,
   "missing_planner_snapshot_status": "failed",
   "missing_planner_failure_code": "model_provider_planner_not_configured",

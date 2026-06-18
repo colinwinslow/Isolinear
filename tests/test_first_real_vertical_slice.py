@@ -366,7 +366,7 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             artifact_path = artifact_dir / f"{artifact['artifact_id']}.png"
             self.assertEqual(artifact["status"], "rendered")
             self.assertEqual(artifact["image_url"], image_url)
-            self.assertEqual(artifact["render_metadata"]["renderer"], "in_process_matplotlib")
+            self.assertEqual(artifact["render_metadata"]["renderer"], "in_process_pillow")
             self.assertTrue(artifact_path.is_file(), artifact)
             self.assertEqual(artifact_path.read_bytes()[:8], PNG_SIGNATURE)
             self.assertEqual(len(store["model_provider_plan_order"]), 1)
@@ -431,7 +431,7 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             artifact = store["latest_artifact"]
             artifact_path = artifact_dir / f"{artifact['artifact_id']}.png"
             self.assertEqual(artifact["status"], "rendered")
-            self.assertEqual(artifact["render_metadata"]["renderer"], "in_process_matplotlib")
+            self.assertEqual(artifact["render_metadata"]["renderer"], "in_process_pillow")
             self.assertTrue(artifact_path.is_file(), artifact)
             self.assertEqual(artifact_path.read_bytes()[:8], PNG_SIGNATURE)
             self.assertEqual(len(store["artifact_order"]), 1)
@@ -626,7 +626,7 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
         renderer_failure = {
             "accepted": False,
             "code": "in_process_renderer_failed",
-            "renderer": "in_process_matplotlib",
+            "renderer": "in_process_pillow",
             "render_result": {
                 "request_id": "forced-render-failure",
                 "status": "failed",
@@ -635,8 +635,8 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
                 "image_path": None,
                 "error": {
                     "code": "in_process_renderer_failed",
-                    "message": "No module named matplotlib",
-                    "details": {"exception_type": "ModuleNotFoundError"},
+                    "message": "Forced in-process renderer failure for the test.",
+                    "details": {"exception_type": "ValueError"},
                 },
                 "render_metadata": {
                     "title": None,
@@ -685,7 +685,7 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             self.assertEqual(store["render_plan_order"], [])
             self.assertEqual(store["artifact_order"], [])
 
-    def test_renderer_reports_dependency_unavailable_when_matplotlib_import_fails(self):
+    def test_renderer_reports_dependency_unavailable_when_pillow_import_fails(self):
         request = {"request_id": "req-dependency-check"}
         with patch.object(
             in_process_renderer,
@@ -695,7 +695,7 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             in_process_renderer,
             "_render_time_series_png",
             side_effect=ModuleNotFoundError(
-                "No module named 'matplotlib'", name="matplotlib"
+                "No module named 'PIL'", name="PIL"
             ),
         ):
             result = render_in_process_chart(request)
@@ -706,14 +706,14 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
         error = result["render_result"]["error"]
         self.assertEqual(error["code"], "renderer_dependency_unavailable")
         self.assertEqual(error["details"]["exception_type"], "ModuleNotFoundError")
-        self.assertEqual(error["details"]["missing_module"], "matplotlib")
+        self.assertEqual(error["details"]["missing_module"], "PIL")
 
     def test_renderer_dependency_unavailable_returns_card_facing_failed_snapshot(self):
         planner = FakePlanner()
         renderer_failure = {
             "accepted": False,
             "code": "renderer_dependency_unavailable",
-            "renderer": "in_process_matplotlib",
+            "renderer": "in_process_pillow",
             "render_result": {
                 "request_id": "forced-dependency-failure",
                 "status": "failed",
@@ -728,7 +728,7 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
                     ),
                     "details": {
                         "exception_type": "ModuleNotFoundError",
-                        "missing_module": "matplotlib",
+                        "missing_module": "PIL",
                     },
                 },
                 "render_metadata": {

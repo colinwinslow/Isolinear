@@ -338,6 +338,31 @@ HACS/scaffold proof now fails if renderer-only config-flow-blocking
 requirements are reintroduced, and dashboard resource evidence proves the
 current package-versioned URL is `?v=0.1.17`.
 
+Subsequent live tests confirmed `0.1.17`/`0.1.18` loaded but charts failed
+closed with `RENDERER_DEPENDENCY_UNAVAILABLE` (matplotlib not present), so
+`0.1.19` re-added `matplotlib>=3.7,<4` as a loose-range manifest requirement.
+That install also failed: on the live Home Assistant Python 3.14 runtime the
+range resolved to `matplotlib==3.11.0`, which has no prebuilt wheel for CPython
+3.14, so pip built from source and failed with
+`PermissionError: [Errno 13] Permission denied: 'meson'` (the package-install
+sandbox cannot run the meson build backend). A failed manifest-requirement
+install makes the integration fail to load entirely, which is why `0.1.19`
+showed "not loaded" and left the dashboard resource pinned at `?v=0.1.18`
+(setup never reached resource registration). matplotlib-via-manifest is a dead
+end in this environment.
+
+ADR-0019 resolves this: the trusted in-process renderer now draws with Pillow,
+which Home Assistant core already ships, so the manifest declares no renderer
+`requirements` (now `[]`). The renderer identifier is `in_process_pillow` (the
+`IntegrationArtifactMetadata` schema enum is updated in both synced copies), the
+scaffold guard forbids any `matplotlib` requirement regardless of version pin,
+and the renderer imports Pillow lazily and still fails closed as
+`renderer_dependency_unavailable` if it is somehow absent. The render interface,
+supported scope (safe numeric `time_series` line charts), failure codes, and
+served-PNG artifact contract are unchanged. The repository is now ready for live
+HACS retest as version `0.1.20`; the next packet is live confirmation that the
+integration loads, registers `?v=0.1.20`, and renders a Pillow chart end-to-end.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.

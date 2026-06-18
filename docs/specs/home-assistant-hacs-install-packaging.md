@@ -47,14 +47,17 @@ The package must:
 - Declare Home Assistant's `lovelace` integration as a manifest dependency so
   dashboard resource storage is available before Isolinear tries to create or
   update its package-versioned Lovelace resource metadata during cold boot.
-- Declare `matplotlib>=3.7,<4` in manifest `requirements` so Home Assistant
-  installs a compatible matplotlib before the integration loads. Do not use
-  exact-version pins (`matplotlib==X.Y.Z`) for compiled renderer dependencies;
-  strict pins can cause config-flow 500s when pip cannot satisfy the exact
-  version in the target environment. The trusted in-process matplotlib renderer
-  still imports matplotlib lazily and fails closed as a
-  `renderer_dependency_unavailable` chart-rendering job failure if the module
-  is unavailable.
+- Declare no compiled renderer dependency (`matplotlib`) in manifest
+  `requirements`. matplotlib cannot be installed through the manifest in a stock
+  Home Assistant Python environment: there is no prebuilt wheel for the runtime
+  CPython and the package-install sandbox cannot compile it from source (meson
+  is not executable), and a failed requirement install makes the integration
+  fail to load entirely ("not loaded"). The trusted in-process renderer instead
+  draws with Pillow, which Home Assistant core already ships, so it needs no
+  manifest requirement; it still imports Pillow lazily and fails closed as a
+  `renderer_dependency_unavailable` chart-rendering job failure if the module is
+  somehow unavailable. See ADR-0019. HACS/scaffold proof fails if any
+  `matplotlib` requirement is reintroduced.
 - Include repository-level HACS brand icons under `brand/`, with at least
   `icon.png`.
 - Include local Home Assistant brand icons under
@@ -103,10 +106,12 @@ The anchor artifact is a HACS-shaped repository tree:
 ## Proof Requirements
 
 1. Focused pytest proves HACS metadata, one-integration repository shape,
-   manifest metadata including the Lovelace dependency and a loose-range
-   renderer requirement (`matplotlib>=3.7,<4`), repository-level brand icons,
-   package-local brand icons, package-local schema paths, bundled schema parity,
-   and bundled card asset path.
+   manifest metadata including the Lovelace dependency and an empty
+   `requirements` list with no `matplotlib` renderer requirement (it cannot be
+   installed through the manifest and would block loading; the renderer uses
+   HA-shipped Pillow per ADR-0019), repository-level brand icons, package-local
+   brand icons, package-local schema paths, bundled schema parity, and bundled
+   card asset path.
 2. Eval evidence maps the same checks to the BDD scenarios.
 3. Existing dashboard resource tests remain green with the bundled card path.
 4. Existing first-real-slice and worker-rendered artifact tests remain green

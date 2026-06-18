@@ -67,7 +67,14 @@ def test_manifest_has_hacs_required_metadata() -> None:
     assert manifest["domain"] == "isolinear"
     assert manifest["issue_tracker"].endswith("/issues")
     assert "lovelace" in manifest["dependencies"]
-    assert manifest["requirements"] == ["matplotlib>=3.7,<4"]
+    # The trusted in-process renderer uses Pillow (shipped by HA core). matplotlib
+    # cannot be installed through the manifest in a stock HA Python environment and
+    # a failed requirement install blocks the integration from loading (ADR-0019),
+    # so no matplotlib requirement may be declared regardless of version pin.
+    assert manifest["requirements"] == []
+    assert not any(
+        requirement.startswith("matplotlib") for requirement in manifest["requirements"]
+    )
 
 
 def test_brand_icons_are_packaged() -> None:

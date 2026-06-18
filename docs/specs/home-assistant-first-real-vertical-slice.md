@@ -34,8 +34,11 @@ jobs, store approved catalog/history scaffolds, call an Ollama-compatible
 planner client, and create placeholder chart artifact metadata. The first real
 vertical slice must make the smallest end-to-end user-visible chart path real:
 approved Home Assistant metadata, approved Home Assistant history, a
-provider-produced `ChartSpec`, and a trusted matplotlib PNG returned to the
-existing dashboard card.
+provider-produced `ChartSpec`, and a trusted PNG returned to the
+existing dashboard card. The in-process renderer draws with Pillow (shipped by
+Home Assistant core); matplotlib is not used because it cannot be installed
+through the integration manifest in a stock Home Assistant Python environment
+(ADR-0019).
 
 ## Behavior contract
 
@@ -63,7 +66,7 @@ The first real vertical slice must:
 - Return card-facing failed job snapshots for planner or provider chart-output
   validation failures instead of surfacing them as generic registered WebSocket
   command rejections.
-- Render a safe-mode trusted matplotlib PNG in-process when the first-real
+- Render a safe-mode trusted Pillow PNG in-process when the first-real
   slice is enabled and no worker dispatch is used.
 - Return card-facing failed job snapshots for trusted in-process renderer
   failures instead of surfacing them as snapshot-poll command rejections.
@@ -92,8 +95,8 @@ planner, and verifies that the returned chart image is a real PNG data URL.
 ## Implementation order used
 
 1. Record ADR-0017 and this paired BDD/spec.
-2. Add a narrow in-process trusted matplotlib renderer for numeric
-   `time_series` line charts.
+2. Add a narrow in-process trusted Pillow renderer for numeric
+   `time_series` line charts (originally matplotlib; replaced per ADR-0019).
 3. Teach catalog/history retrieval to prefer real Home Assistant adapters when
    available while preserving test injection.
 4. Wire an explicit first-real-slice route into `job/snapshot` when no worker

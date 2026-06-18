@@ -44,3 +44,4 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0016 — `Durable worker token lifecycle` (draft)
 - 0017 — `First real vertical slice`
 - 0018 — `Production artifact serving` (draft)
+- 0019 — `Pillow in-process renderer`

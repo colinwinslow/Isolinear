@@ -3203,19 +3203,19 @@ def _build_in_process_artifact_metadata(
     }
     rendered["validation"] = {
         "status": "pass",
-        "summary": "In-process trusted matplotlib artifact validates before storage.",
+        "summary": "In-process trusted Pillow artifact validates before storage.",
         "checks": [
             {"name": "integration_job_snapshot", "status": "pass"},
             {"name": "integration_render_plan", "status": "pass"},
             {"name": "render_request_schema", "status": "pass"},
             {"name": "render_result_schema", "status": "pass"},
-            {"name": "matplotlib_png", "status": "pass"},
+            {"name": "pillow_png", "status": "pass"},
             {"name": "worker", "status": "not_called"},
         ],
     }
     rendered["warnings"] = [
         "first_real_vertical_slice",
-        "in_process_matplotlib_renderer",
+        "in_process_pillow_renderer",
         "chart_artifact_served_url",
         *list(render_metadata.get("warnings", []) if isinstance(render_metadata, dict) else []),
     ]
@@ -5010,7 +5010,7 @@ def _append_artifact_complete_snapshot(
             )
             if worker_rendered
             else (
-                "In-process trusted matplotlib render is ready for the dashboard card."
+                "In-process trusted Pillow render is ready for the dashboard card."
                 if in_process_rendered
                 else "Placeholder chart artifact metadata is ready for the dashboard card."
             )
@@ -5082,7 +5082,7 @@ def _append_artifact_complete_snapshot(
             else (
                 [
                     "first_real_vertical_slice",
-                    "in_process_matplotlib_renderer",
+                    "in_process_pillow_renderer",
                     "chart_artifact_served_url",
                     "worker_not_called",
                 ]

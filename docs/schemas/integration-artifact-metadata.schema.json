@@ -83,7 +83,7 @@
         "renderer": {
           "enum": [
             "artifact_storage_scaffold",
-            "in_process_matplotlib",
+            "in_process_pillow",
             "worker_renderer"
           ]
         },

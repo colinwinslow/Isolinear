@@ -1,7 +1,12 @@
 # Home Assistant Integration: First Real Vertical Slice - Evidence
 
 Initial run timestamp: 2026-06-13T10:05:08.5235113-07:00
-Latest regression run timestamp: 2026-06-16T21:42:48.7336274-07:00
+Latest regression run timestamp: 2026-06-17 (venv Python 3.14.5 / Pillow 12.2.0; `351 passed`)
+
+> Renderer note (ADR-0019): the trusted in-process renderer now draws with
+> Pillow instead of matplotlib. The renderer identifier is `in_process_pillow`
+> and the PNG signature below is unchanged (`[137, 80, 78, 71, 13, 10, 26, 10]`,
+> verified against a fresh Pillow render).
 
 ## Scenario A - happy path: allowed prompt returns a PNG chart
 
@@ -27,7 +32,7 @@ Raw result snippet:
     "code": "registered_job_state_command_accepted",
     "snapshot_id": "real-slice-entry-job-001-snapshot-004",
     "status": "complete",
-    "message": "In-process trusted matplotlib render is ready for the dashboard card.",
+    "message": "In-process trusted Pillow render is ready for the dashboard card.",
     "image_url_prefix": "data:image/png;base64,",
     "png_signature": [137, 80, 78, 71, 13, 10, 26, 10],
     "validation": {
@@ -42,12 +47,12 @@ Raw result snippet:
     },
     "warnings": [
       "first_real_vertical_slice",
-      "in_process_matplotlib_renderer",
+      "in_process_pillow_renderer",
       "chart_artifact_data_url",
       "worker_not_called"
     ],
     "in_process_render": {
-      "renderer": "in_process_matplotlib",
+      "renderer": "in_process_pillow",
       "render_result": {
         "request_id": "real-slice-entry-render-request-001",
         "status": "success",
@@ -78,7 +83,7 @@ Raw result snippet:
       "artifact_id": "real-slice-entry-artifact-001",
       "status": "rendered",
       "render_metadata": {
-        "renderer": "in_process_matplotlib",
+        "renderer": "in_process_pillow",
         "render_attempted": true,
         "worker_called": false,
         "chart_rendering_called": true
@@ -236,7 +241,7 @@ Raw result snippet:
     "code": "registered_job_state_command_accepted",
     "connection_errors": [],
     "status": "complete",
-    "message": "In-process trusted matplotlib render is ready for the dashboard card.",
+    "message": "In-process trusted Pillow render is ready for the dashboard card.",
     "image_url_prefix": "data:image/png;base64,",
     "image_url_length": 56110,
     "png_signature": [137, 80, 78, 71, 13, 10, 26, 10],
@@ -257,7 +262,7 @@ Raw result snippet:
     "render_plans": 1,
     "artifacts": 1,
     "worker_dispatches": 0,
-    "artifact_renderer": "in_process_matplotlib",
+    "artifact_renderer": "in_process_pillow",
     "artifact_status": "rendered",
     "chart_entity": "sensor.isolinear_probe_temperature",
     "history_series": ["sensor.isolinear_probe_temperature"]
