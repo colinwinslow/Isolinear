@@ -1040,58 +1040,50 @@ review, and standalone architecture review. The full Python suite previously
 hit the known unrelated codegen sandbox matplotlib subprocess flake once
 (`298 passed, 1 failed`), and the exact failed test passed on rerun.
 
+The matplotlib loose-range requirement restoration packet is complete. Live
+`0.1.18` testing confirmed the lazy-import fail-closed path fires correctly —
+the card surfaced `failure.stage: chart_rendering` /
+`RENDERER_DEPENDENCY_UNAVAILABLE` / "The trusted chart renderer dependency is
+not installed in this Home Assistant environment." Charts cannot render on a
+fresh HA install without matplotlib, so `matplotlib>=3.7,<4` is restored to
+manifest `requirements`. The strict-pin `matplotlib==3.11.0` that caused the
+0.1.16 config-flow 500 is not reused; a loose range delegates version selection
+to pip's resolver so exact-pin conflicts with HA's own dependency set are
+avoided. The integration scaffold guard is narrowed from flagging any
+`matplotlib` prefix to flagging only `matplotlib==` exact pins, so future
+accidental re-introduction of strict pins is still caught. The HACS packaging
+spec, eval YAML, and proof assertions now require `matplotlib>=3.7,<4`. The
+lazy-import fail-closed path remains intact as a backstop when pip install fails
+in the target environment. The visible package version is `0.1.19`.
+
 ## Next recommended packet
 
-Run the live HACS `0.1.17` dashboard verification. Redownload Isolinear through
-HACS, restart Home Assistant, recreate the dashboard card, and confirm the
-registered Lovelace resource URL updates from the stale `?v=0.1.14` row to
-`?v=0.1.17` while the picker/editor shows `config_entry_id: auto`, including
-when Home Assistant had previously handed the card the old `fake-config-entry`
-placeholder. Confirm the config-flow wizard renders instead of failing before
-the first setup form. Confirm a stored
-allowlist reopens through the multi-entity selector with the exact selected
-entity IDs and the dashboard route sees those approved entities without another
-restart. Confirm the integration icon appears where Home Assistant surfaces
-custom integration brand assets; the HACS Store icon may remain absent until
-Isolinear is added to the Home Assistant brands CDN.
-Then run both the explicit served-artifact prompt path and the ambiguous
-clarification-answer path against real Home Assistant sensor history and the
-configured Ollama planner, using the WebSocket decision observability and
-Isolinear log lines to capture accept/reject evidence if the card cannot start
-or refresh a job. The key log line shape is:
+Run the live HACS `0.1.19` dashboard verification. Redownload Isolinear through
+HACS, restart Home Assistant, and confirm:
+- The config-flow wizard renders (no 500 during setup).
+- The registered Lovelace resource URL updates to `?v=0.1.19`.
+- The picker/editor shows `config_entry_id: auto`.
+- A stored allowlist reopens through the multi-entity selector with the exact
+  selected entity IDs.
+- HA logs show `Successfully installed matplotlib` (or a compatible version)
+  during setup; if pip install fails, capture the exact error before any other
+  change.
+
+Then run the served-artifact prompt path against real Home Assistant sensor
+history and the configured Ollama planner. The key success signal is a rendered
+chart PNG, not `RENDERER_DEPENDENCY_UNAVAILABLE`. The key log line shape is:
 `Isolinear WebSocket command accepted/rejected: message_id=... type=...
 requested_config_entry_id=... resolved_config_entry_id=... job_id=...
 code=... result_code=... snapshot_status=... progress_stage=...
 failure_code=... exception_type=...`.
-If the card remains on `job_orchestration_clarification_continuation_ready`
-while Ollama is busy, wait for subsequent snapshot polls; transient frontend
-snapshot timeouts or generic Home Assistant `fail` timeout wrappers should no
-longer replace the active job with `SNAPSHOT_POLL_FAILED`. If overlapping polls
-are observed, the registered response may report
-`job_orchestration_artifact_snapshot_in_progress` until the first
-planner/render request finishes.
-If the card reports a model-provider failure, it should now arrive as a
-card-facing failed snapshot with `failure.stage: model_provider_planning` and a
-specific code such as `invalid_model_provider_chart_spec` rather than generic
-`Isolinear WebSocket command rejected.`
-If the card reports a trusted renderer failure, it should now arrive as a
-card-facing failed snapshot with `failure.stage: chart_rendering` and a specific
-code such as `in_process_renderer_failed` rather than generic
-`SNAPSHOT_POLL_FAILED`; inspect matplotlib availability and renderer logs
-before changing card polling behavior again. Do not re-add a renderer-only
-manifest requirement unless the Home Assistant config-flow load path has been
-proven safe with that requirement.
-If the logs show `code=isolinear_websocket_command_exception`, inspect the same
-line's `type`, `job_id`, `result_code`, `snapshot_status`, `progress_stage`,
-`failure_code`, and `exception_type` before changing card behavior again.
-If the card reports an approved-entity failure, inspect the configured
-allowlist, runtime options-update listener, and entity catalog setup result
-rather than treating it as a future-orchestration placeholder.
-If the card reports `model_provider_planner_not_configured`, inspect the
-config entry's Ollama-compatible planner settings and the model-provider setup
-metadata before investigating artifact serving.
-Confirm no worker token, worker-local path, local artifact path, or base64
-image bytes leak to card-facing WebSocket responses.
+
+If the card still reports `RENDERER_DEPENDENCY_UNAVAILABLE` after `0.1.19` is
+installed, the pip install of matplotlib failed — check HA logs for the exact
+pip error before changing the manifest again. Do not restore a strict
+`matplotlib==X.Y.Z` pin. If a model-provider failure arrives, it should surface
+as `failure.stage: model_provider_planning`. If the logs show
+`code=isolinear_websocket_command_exception`, inspect that line's fields before
+changing card behavior.
 
 Preserve the known codegen sandbox matplotlib subprocess flake as a historical
 caveat; the first-real-slice closeout full Python suite passed cleanly
