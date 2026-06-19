@@ -392,6 +392,77 @@ class WebSocketCommandRegistrationAnchorTests(unittest.TestCase):
         self.assertNotIn("/config/secrets.yaml", log_output)
         self.assertNotIn("worker_token", log_output)
 
+    def test_accepted_command_with_failed_snapshot_logs_warning(self):
+        hass = SchedulingHass()
+        failed_snapshot = {
+            "status": "failed",
+            "failure": {
+                "stage": "approved_entity_catalog",
+                "code": "entity_not_in_approved_catalog",
+            },
+        }
+
+        with self.assertLogs(
+            "custom_components.isolinear.websocket_api", level="INFO"
+        ) as logs:
+            event = websocket_api_module._record_websocket_decision(
+                hass,
+                message_id=101,
+                command_type=INTEGRATION_COMMAND_TYPES["get_snapshot"],
+                requested_config_entry_id=CONFIG_ENTRY_AUTO,
+                resolved_config_entry_id="fake-config-entry",
+                accepted=True,
+                code="registered_job_state_command_accepted",
+                job_id="job-001",
+                result_code="job_orchestration_snapshot_returned",
+                snapshot=failed_snapshot,
+            )
+
+        record = next(
+            item
+            for item in logs.records
+            if "Isolinear WebSocket command" in item.getMessage()
+        )
+
+        self.assertEqual(event["snapshot_status"], "failed")
+        self.assertEqual(event["failure_code"], "entity_not_in_approved_catalog")
+        self.assertEqual(event["failure_stage"], "approved_entity_catalog")
+        # An accepted command that returns a card-facing failed snapshot must be
+        # visible at WARNING, not buried at INFO (open-queue item (g)).
+        self.assertEqual(record.levelname, "WARNING")
+        self.assertIn("failure_code=entity_not_in_approved_catalog", record.getMessage())
+        self.assertIn("failure_stage=approved_entity_catalog", record.getMessage())
+
+    def test_accepted_command_with_successful_snapshot_logs_info(self):
+        hass = SchedulingHass()
+        ready_snapshot = {
+            "status": "complete",
+            "progress": {"stage": "complete"},
+        }
+
+        with self.assertLogs(
+            "custom_components.isolinear.websocket_api", level="INFO"
+        ) as logs:
+            websocket_api_module._record_websocket_decision(
+                hass,
+                message_id=102,
+                command_type=INTEGRATION_COMMAND_TYPES["get_snapshot"],
+                requested_config_entry_id=CONFIG_ENTRY_AUTO,
+                resolved_config_entry_id="fake-config-entry",
+                accepted=True,
+                code="registered_job_state_command_accepted",
+                job_id="job-001",
+                result_code="job_orchestration_snapshot_returned",
+                snapshot=ready_snapshot,
+            )
+
+        record = next(
+            item
+            for item in logs.records
+            if "Isolinear WebSocket command" in item.getMessage()
+        )
+        self.assertEqual(record.levelname, "INFO")
+
     def test_repeated_setup_does_not_duplicate_command_registration(self):
         result = verify_idempotent_command_registration()
 

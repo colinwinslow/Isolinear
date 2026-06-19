@@ -509,13 +509,23 @@ def _record_websocket_decision(
     if len(events) > MAX_WEBSOCKET_OBSERVABILITY_EVENTS:
         del events[:-MAX_WEBSOCKET_OBSERVABILITY_EVENTS]
 
-    log_level = logging.INFO if accepted else logging.WARNING
+    # A command can be accepted at the WebSocket boundary yet still carry a
+    # card-facing failed snapshot (e.g. entity_not_in_approved_catalog,
+    # no_long_term_statistics, in_process_renderer_failed). Those failure codes
+    # were previously buried at INFO; surface them at WARNING so they are
+    # visible for diagnosis (open-queue item (g)).
+    snapshot_failed = (
+        event.get("snapshot_status") == "failed" or "failure_code" in event
+    )
+    log_level = (
+        logging.WARNING if (not accepted or snapshot_failed) else logging.INFO
+    )
     _LOGGER.log(
         log_level,
         "Isolinear WebSocket command %s: message_id=%s type=%s "
         "requested_config_entry_id=%s resolved_config_entry_id=%s job_id=%s "
         "code=%s result_code=%s snapshot_status=%s progress_stage=%s "
-        "failure_code=%s exception_type=%s",
+        "failure_code=%s failure_stage=%s exception_type=%s",
         "accepted" if accepted else "rejected",
         event["message_id"],
         event["command_type"],
@@ -527,6 +537,7 @@ def _record_websocket_decision(
         event.get("snapshot_status"),
         event.get("progress_stage"),
         event.get("failure_code"),
+        event.get("failure_stage"),
         event.get("exception_type"),
     )
     return event

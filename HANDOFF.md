@@ -424,6 +424,36 @@ item. The seam's real-HA leg remains `# pragma: no cover` (exercised in tests vi
 a fake recorder on a real background loop), so the warning removal needs the live
 retest to confirm.
 
+A card-facing failure-logging packet then landed as `0.1.24` (open-queue item
+(g) part (1)). During `0.1.22` live testing the `binary_sensor.kitchen_door`
+"not on the approved list" failure produced no visible Isolinear log line: a
+command can be *accepted* at the WebSocket boundary yet return a card-facing
+failed `IntegrationJobSnapshot` (`status: failed` with a `failure.code`), and
+`_record_websocket_decision` logged those at `INFO` because the decision was
+"accepted". `_record_websocket_decision` in `websocket_api.py` now escalates the
+visible log to `WARNING` whenever the command is rejected **or** an accepted
+command returns a failed snapshot (status `failed` or any captured
+`failure_code`), so failure codes such as `entity_not_in_approved_catalog`,
+`no_long_term_statistics`, and `in_process_renderer_failed` are diagnosable from
+Home Assistant logs instead of buried at `INFO`. The visible log line now also
+prints `failure_stage` next to `failure_code` (both were already in the runtime
+observability record). No schema or contract changed — log level and format
+only — so no ADR was required and the change is below the architecture-review
+bar; the WebSocket-command-registration spec's observability requirement now
+records the per-outcome log level and the `failure_stage` field. Item (g) part
+(2) — whether the all-or-nothing approved-catalog rebuild should fail per-entity
+instead of clearing the whole catalog — remains open. The repository is ready
+for live HACS retest as version `0.1.24`; the live retest should confirm a
+kitchen_door-class failure now emits a visible HA `WARNING` log line.
+
+Night mode (dark theme) is now a recorded open-queue item ((h) in `STATUS.md`)
+with the design decisions captured: scope is **chart PNG + card UI**, theme
+source is **auto-follow the Home Assistant theme** (no user toggle), and it
+needs a spec plus likely an ADR before implementation because the resolved theme
+must be plumbed card -> `job/start` -> render request (schema-touching) and the
+Pillow renderer needs a second dark palette baked at render time. It is intended
+to be picked up in a fresh session.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.

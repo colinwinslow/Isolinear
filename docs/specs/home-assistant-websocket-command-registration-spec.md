@@ -76,9 +76,14 @@ Registration must:
 - Record lightweight backend observability for registered command decisions,
   including command type, requested config-entry ID, resolved config-entry ID,
   accepted/rejected state, rejection/acceptance code, message ID, job ID when
-  present, result code, snapshot status, progress stage, and failure code when
-  a snapshot is returned. This observability must not include prompts, tokens,
-  endpoints, raw history, generated code, or generated image bytes.
+  present, result code, snapshot status, progress stage, and failure code and
+  failure stage when a snapshot is returned. This observability must not include
+  prompts, tokens, endpoints, raw history, generated code, or generated image
+  bytes. Visible decision logging is emitted at `WARNING` when a command is
+  rejected or when an accepted command returns a card-facing failed snapshot
+  (`status: failed` or a captured failure code), and at `INFO` otherwise, so
+  card-facing failure codes are diagnosable from Home Assistant logs rather than
+  buried at `INFO`.
 - Catch unexpected exceptions at the registered Home Assistant handler boundary,
   record a sanitized decision event with command type, message ID, config-entry
   ID, job ID when present, and exception type, and send a structured WebSocket
