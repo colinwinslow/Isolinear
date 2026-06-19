@@ -109,8 +109,20 @@ These are native Claude Code slash commands. When the user types `/startup`, Cla
 ## Build & test
 
 ```bash
-python3 -m pytest tests/           # run unit tests
-python3 evals/<eval>.py            # run a single eval script
+# Python (from repo root)
+python3 -m pytest tests/                          # run all unit tests
+python3 -m pytest tests/test_foo.py -v            # run a single test file
+python3 -m pytest tests/test_foo.py::test_name -v # run a single test
+python3 evals/<eval>.py                            # run a single eval script
+
+# Frontend (from frontend/)
+npm test                                           # run Vitest suite
+npm run build                                      # type-check + Vite bundle
+
+# After any frontend change, sync the bundle to the HACS package:
+# (PowerShell / Windows) .\scripts\frontend.ps1 build
+# (Linux) cd frontend && npm run build
+# Then copy frontend/dist/isolinear-card.js → custom_components/isolinear/frontend/dist/
 ```
 
 **Current test posture:** All unit tests and evals passing (see `STATUS.md` for latest session log and current verification status, and `HANDOFF.md` for current implementation status).
