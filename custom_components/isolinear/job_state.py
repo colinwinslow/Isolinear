@@ -8,7 +8,7 @@ from datetime import datetime
 from copy import deepcopy
 from typing import Any
 
-from ._paths import schema_path
+from ._paths import load_schema_document, schema_path
 from .const import DOMAIN, INTEGRATION_COMMAND_TYPES
 
 
@@ -271,7 +271,7 @@ def append_validated_job_snapshot(
 def validate_job_snapshot_contract(snapshot: Any) -> dict[str, Any]:
     """Validate an IntegrationJobSnapshot against the repo JSON Schema."""
     try:
-        schema = json.loads(SNAPSHOT_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(SNAPSHOT_SCHEMA_PATH)
         _validate_json_schema(snapshot, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {

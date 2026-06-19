@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
-from ._paths import schema_path
+from ._paths import load_schema_document, schema_path
 from .config_schema import ENTITY_ID_PATTERN
 from .const import DOMAIN
 from .entity_catalog import DATA_ENTITY_CATALOG
 
+
+# Upper bound on a single recorder read dispatched onto the recorder DB
+# executor, so a wedged event loop cannot block the calling worker thread
+# indefinitely.
+_RECORDER_READ_TIMEOUT_SECONDS = 60
 
 DATA_HISTORY_RETRIEVAL = "history_retrieval"
 DATA_HISTORY_RETRIEVAL_SETUP = "history_retrieval_setup"
@@ -279,7 +285,7 @@ def validate_history_series_collection_contract(series: Any) -> dict[str, Any]:
 def validate_history_series_contract(series: Any) -> dict[str, Any]:
     """Validate one HistorySeries against the repo JSON Schema."""
     try:
-        schema = json.loads(HISTORY_SERIES_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(HISTORY_SERIES_SCHEMA_PATH)
         _validate_json_schema(series, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, HistorySeriesValidationError, KeyError) as exc:
         return {
@@ -577,6 +583,41 @@ def _statistics_source_from_hass(
     )
 
 
+def _recorder_db_instance(hass: Any) -> Any | None:
+    """Return the Home Assistant recorder instance, or None when unavailable."""
+    try:  # pragma: no cover - exercised only in Home Assistant.
+        from homeassistant.components import recorder
+
+        return recorder.get_instance(hass)
+    except (ImportError, KeyError, RuntimeError, AttributeError):  # pragma: no cover
+        return None
+
+
+def _read_via_recorder_executor(hass: Any, read: Callable[[], Any]) -> Any:
+    """Run a recorder read on the recorder's dedicated database executor.
+
+    Job orchestration runs synchronously on Home Assistant's general executor
+    (see ``async_handle_registered_ws_command``), so a direct recorder call
+    runs on the wrong thread and Home Assistant logs "accesses the database
+    without the database executor". This bounces the read through the loop onto
+    the recorder's DB executor. When no recorder instance or loop is available
+    (repo tests, non-recorder installs) the read runs inline.
+    """
+    instance = _recorder_db_instance(hass)
+    loop = getattr(hass, "loop", None)
+    if instance is None or loop is None:
+        return read()
+
+    async def _job() -> Any:  # pragma: no cover - exercised only in Home Assistant.
+        return await instance.async_add_executor_job(read)
+
+    # Bounded so a stalled event loop cannot hang this worker thread forever;
+    # on timeout the callers' best-effort recorder boundary returns no data.
+    return asyncio.run_coroutine_threadsafe(_job(), loop).result(
+        timeout=_RECORDER_READ_TIMEOUT_SECONDS
+    )
+
+
 def _recorder_statistics_source_from_hass(
     hass: Any,
     *,
@@ -592,14 +633,17 @@ def _recorder_statistics_source_from_hass(
         return None
 
     try:
-        raw = statistics_during_period(
+        raw = _read_via_recorder_executor(
             hass,
-            range_start,
-            range_end,
-            set(entity_ids),
-            period or "hour",
-            None,
-            {"mean", "min", "max"},
+            lambda: statistics_during_period(
+                hass,
+                range_start,
+                range_end,
+                set(entity_ids),
+                period or "hour",
+                None,
+                {"mean", "min", "max"},
+            ),
         )
     except Exception:  # pragma: no cover - defensive recorder boundary.
         return None
@@ -750,25 +794,31 @@ def _recorder_history_source_from_hass(
         return None
 
     try:
-        raw = recorder_history.get_significant_states(
+        raw = _read_via_recorder_executor(
             hass,
-            range_start,
-            range_end,
-            entity_ids,
-            include_start_time_state=True,
-            significant_changes_only=False,
-            minimal_response=False,
-            no_attributes=False,
-        )
-    except TypeError:  # pragma: no cover - compatibility with older HA signatures.
-        try:
-            raw = recorder_history.get_significant_states(
+            lambda: recorder_history.get_significant_states(
                 hass,
                 range_start,
                 range_end,
                 entity_ids,
                 include_start_time_state=True,
                 significant_changes_only=False,
+                minimal_response=False,
+                no_attributes=False,
+            ),
+        )
+    except TypeError:  # pragma: no cover - compatibility with older HA signatures.
+        try:
+            raw = _read_via_recorder_executor(
+                hass,
+                lambda: recorder_history.get_significant_states(
+                    hass,
+                    range_start,
+                    range_end,
+                    entity_ids,
+                    include_start_time_state=True,
+                    significant_changes_only=False,
+                ),
             )
         except Exception:
             return None

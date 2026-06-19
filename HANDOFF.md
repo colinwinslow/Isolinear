@@ -395,6 +395,35 @@ byte-identical. The repository is ready for live HACS retest as version `0.1.22`
 the next packet is live confirmation of the model-resolved window and the
 statistics tier (the only path whose live recorder calls are not unit-tested).
 
+Live `0.1.22` testing then confirmed single-entity long-term-statistics charts
+render correctly and surfaced two classes of Home Assistant event-loop/threading
+warnings (open-queue item (f)), resolved in `0.1.23` as an event-loop / executor
+hygiene packet with no contract changes. First, bundled JSON Schema files were
+read and parsed on the event loop on every contract validation. A memoized
+`load_schema_document()` plus `preload_schema_documents()` were added in
+`_paths.py`; all 24 schema read sites across the integration now use the cached
+loader, and `async_setup_entry` warms the cache from an executor before the first
+validating setup step, so first reads happen off-loop and later validations are
+cache hits. The loader returns a deep copy, preserving the prior per-call
+fresh-dict contract. Second, recorder reads (`get_significant_states`,
+`statistics_during_period`) ran on Home Assistant's general executor rather than
+the recorder's dedicated database executor. A new `_read_via_recorder_executor()`
+seam in `history_retrieval.py` bounces the read through the loop onto
+`recorder.get_instance(hass).async_add_executor_job(...)` via
+`asyncio.run_coroutine_threadsafe(...).result(timeout=60)` — sound because job
+orchestration runs synchronously on a general-executor worker thread distinct
+from both the loop and the recorder executor — and falls back to an inline read
+when no recorder or loop is present (repo tests, non-recorder installs). The
+architecture review returned OK (no invariant violation, no new ADR). The
+session also created the missing `.claude/agents/code-reviewer.md` subagent
+definition, which the architecture-review protocol referenced but which had no
+backing agent file (a Codex-port dangling reference). The repository is ready for
+live HACS retest as version `0.1.23`; live confirmation that the schema and
+recorder blocking-call warnings are gone is folded into the existing live retest
+item. The seam's real-HA leg remains `# pragma: no cover` (exercised in tests via
+a fake recorder on a real background loop), so the warning removal needs the live
+retest to confirm.
+
 ## Product summary
 
 Isolinear lets a user ask natural-language questions about approved Home Assistant entities and receive generated data visualizations based on entity history.

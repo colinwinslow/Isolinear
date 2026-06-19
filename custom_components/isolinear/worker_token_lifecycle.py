@@ -7,7 +7,7 @@ import re
 from copy import deepcopy
 from typing import Any, Callable
 
-from ._paths import schema_path
+from ._paths import load_schema_document, schema_path
 from .const import DOMAIN
 from .job_state import JobStateSnapshotValidationError, _validate_json_schema
 from .worker_readiness import (
@@ -385,7 +385,7 @@ def build_worker_token_lifecycle_state(
 def validate_worker_token_lifecycle_state_contract(state: Any) -> dict[str, Any]:
     """Validate IntegrationWorkerTokenLifecycleState against the repo JSON Schema."""
     try:
-        schema = json.loads(WORKER_TOKEN_LIFECYCLE_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(WORKER_TOKEN_LIFECYCLE_SCHEMA_PATH)
         _validate_json_schema(state, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {

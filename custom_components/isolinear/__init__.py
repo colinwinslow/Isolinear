@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ._paths import preload_schema_documents
 from .artifact_serving import async_setup_artifact_serving
 from .const import DOMAIN
 from .dashboard_resource import async_register_dashboard_resource
@@ -34,6 +35,11 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
     entry_id = getattr(entry, "entry_id", "scaffold-entry")
     entry_data = domain_data.setdefault(entry_id, {})
     entry_data["entry"] = entry
+    # Warm the bundled-schema cache off the event loop before any synchronous
+    # setup step validates against JSON Schema. Without this the first read of
+    # each schema file runs on the loop and Home Assistant logs blocking-call
+    # warnings for entity-catalog/worker setup validation.
+    await _preload_schema_documents(hass)
     entry_data["entity_catalog_setup"] = setup_entity_catalog(hass, entry)
     entry_data["history_retrieval_setup"] = setup_history_retrieval(hass, entry)
     entry_data["job_state"] = ensure_job_state_store(hass, entry_id)
@@ -61,6 +67,15 @@ async def async_unload_entry(hass: Any, entry: Any) -> bool:
     unload_worker_health_polling(hass, entry_id)
     domain_data.pop(entry_id, None)
     return True
+
+
+async def _preload_schema_documents(hass: Any) -> None:
+    """Warm the bundled-schema cache from an executor, off the event loop."""
+    executor_job = getattr(hass, "async_add_executor_job", None)
+    if callable(executor_job):
+        await executor_job(preload_schema_documents)
+    else:
+        preload_schema_documents()
 
 
 async def _async_options_updated(hass: Any, entry: Any) -> None:

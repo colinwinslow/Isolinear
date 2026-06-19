@@ -7,7 +7,7 @@ import secrets
 from copy import deepcopy
 from typing import Any, Callable
 
-from ._paths import schema_path
+from ._paths import load_schema_document, schema_path
 from .const import DOMAIN
 from .job_state import JobStateSnapshotValidationError, _validate_json_schema
 from .worker_renderer import (
@@ -133,7 +133,7 @@ def get_worker_readiness(hass: Any, entry_id: str) -> dict[str, Any] | None:
 def validate_worker_readiness_contract(readiness: Any) -> dict[str, Any]:
     """Validate IntegrationWorkerReadiness against the repo JSON Schema."""
     try:
-        schema = json.loads(WORKER_READINESS_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(WORKER_READINESS_SCHEMA_PATH)
         _validate_json_schema(readiness, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {

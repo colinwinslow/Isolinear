@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any
 
-from ._paths import schema_path
+from ._paths import load_schema_document, schema_path
 from .config_schema import ENTITY_ID_PATTERN
 from .const import DOMAIN
 
@@ -240,7 +240,7 @@ def validate_entity_catalog_contract(items: Any) -> dict[str, Any]:
 def validate_entity_catalog_item_contract(item: Any) -> dict[str, Any]:
     """Validate one EntityCatalogItem against the repo JSON Schema."""
     try:
-        schema = json.loads(ENTITY_CATALOG_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(ENTITY_CATALOG_SCHEMA_PATH)
         _validate_json_schema(item, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, EntityCatalogValidationError, KeyError) as exc:
         return {

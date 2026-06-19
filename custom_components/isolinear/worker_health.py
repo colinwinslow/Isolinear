@@ -7,7 +7,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
-from ._paths import schema_path
+from ._paths import load_schema_document, schema_path
 from .const import DOMAIN
 from .job_state import JobStateSnapshotValidationError, _validate_json_schema
 from .worker_readiness import get_worker_readiness
@@ -157,7 +157,7 @@ def get_worker_health(hass: Any, entry_id: str) -> dict[str, Any] | None:
 def validate_worker_health_request_contract(request: Any) -> dict[str, Any]:
     """Validate WorkerHealthRequest against the repo JSON Schema."""
     try:
-        schema = json.loads(WORKER_HEALTH_REQUEST_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(WORKER_HEALTH_REQUEST_SCHEMA_PATH)
         _validate_json_schema(request, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {
@@ -175,7 +175,7 @@ def validate_worker_health_request_contract(request: Any) -> dict[str, Any]:
 def validate_worker_health_contract(health: Any) -> dict[str, Any]:
     """Validate IntegrationWorkerHealth against the repo JSON Schema."""
     try:
-        schema = json.loads(WORKER_HEALTH_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(WORKER_HEALTH_SCHEMA_PATH)
         _validate_json_schema(health, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {

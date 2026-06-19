@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+
+from ._paths import load_schema_document
 from datetime import datetime, timezone
 from typing import Any
 
@@ -19,7 +21,7 @@ from .worker_health_polling_constants import (
 def validate_worker_health_polling_contract(state: Any) -> dict[str, Any]:
     """Validate IntegrationWorkerHealthPollingState against the repo schema."""
     try:
-        schema = json.loads(WORKER_HEALTH_POLLING_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(WORKER_HEALTH_POLLING_SCHEMA_PATH)
         _validate_json_schema(state, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {

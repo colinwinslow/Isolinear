@@ -11,7 +11,7 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from ._paths import schema_path
+from ._paths import load_schema_document, schema_path
 from .artifact_serving import prepare_png_artifact, remove_png_artifact, write_png_artifact
 from .const import DOMAIN, INTEGRATION_COMMAND_TYPES
 from .entity_catalog import DATA_ENTITY_CATALOG, DATA_ENTITY_CATALOG_SETUP
@@ -4324,7 +4324,7 @@ def _subscription_ids_for_job(hass: Any, entry_id: str, job_id: str) -> list[str
 def validate_artifact_metadata_contract(artifact: Any) -> dict[str, Any]:
     """Validate IntegrationArtifactMetadata against the repo JSON Schema."""
     try:
-        schema = json.loads(ARTIFACT_METADATA_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(ARTIFACT_METADATA_SCHEMA_PATH)
         _validate_json_schema(artifact, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {
@@ -4342,7 +4342,7 @@ def validate_artifact_metadata_contract(artifact: Any) -> dict[str, Any]:
 def validate_render_plan_contract(render_plan: Any) -> dict[str, Any]:
     """Validate IntegrationRenderPlan and its placeholder ChartSpec."""
     try:
-        schema = json.loads(RENDER_PLAN_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(RENDER_PLAN_SCHEMA_PATH)
         _validate_json_schema(render_plan, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {
@@ -4370,7 +4370,7 @@ def validate_render_plan_contract(render_plan: Any) -> dict[str, Any]:
 def validate_worker_dispatch_contract(worker_dispatch: Any) -> dict[str, Any]:
     """Validate IntegrationWorkerDispatch and its nested render result."""
     try:
-        schema = json.loads(WORKER_DISPATCH_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(WORKER_DISPATCH_SCHEMA_PATH)
         _validate_json_schema(worker_dispatch, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {
@@ -4400,7 +4400,7 @@ def validate_worker_dispatch_contract(worker_dispatch: Any) -> dict[str, Any]:
 def validate_worker_progress_contract(worker_progress: Any) -> dict[str, Any]:
     """Validate IntegrationWorkerProgress and its nested job snapshot."""
     try:
-        schema = json.loads(WORKER_PROGRESS_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(WORKER_PROGRESS_SCHEMA_PATH)
         _validate_json_schema(worker_progress, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {
@@ -4430,7 +4430,7 @@ def validate_worker_progress_contract(worker_progress: Any) -> dict[str, Any]:
 def validate_worker_retry_policy_contract(worker_retry_policy: Any) -> dict[str, Any]:
     """Validate IntegrationWorkerRetryPolicy against the repo JSON Schema."""
     try:
-        schema = json.loads(WORKER_RETRY_POLICY_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(WORKER_RETRY_POLICY_SCHEMA_PATH)
         _validate_json_schema(worker_retry_policy, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {
@@ -4449,7 +4449,7 @@ def validate_worker_retry_policy_contract(worker_retry_policy: Any) -> dict[str,
 def validate_model_provider_retry_policy_contract(model_provider_retry_policy: Any) -> dict[str, Any]:
     """Validate IntegrationModelProviderRetryPolicy against the repo JSON Schema."""
     try:
-        schema = json.loads(MODEL_PROVIDER_RETRY_POLICY_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(MODEL_PROVIDER_RETRY_POLICY_SCHEMA_PATH)
         _validate_json_schema(model_provider_retry_policy, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {
@@ -4468,7 +4468,7 @@ def validate_model_provider_retry_policy_contract(model_provider_retry_policy: A
 def validate_worker_transport_failure_classification_contract(classification: Any) -> dict[str, Any]:
     """Validate IntegrationWorkerTransportFailureClassification against the repo JSON Schema."""
     try:
-        schema = json.loads(WORKER_TRANSPORT_FAILURE_CLASSIFICATION_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(WORKER_TRANSPORT_FAILURE_CLASSIFICATION_SCHEMA_PATH)
         _validate_json_schema(classification, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {
@@ -4487,7 +4487,7 @@ def validate_worker_transport_failure_classification_contract(classification: An
 def validate_worker_transport_request_contract(request: Any) -> dict[str, Any]:
     """Validate WorkerTransportRequest and its nested RenderRequest."""
     try:
-        schema = json.loads(WORKER_TRANSPORT_REQUEST_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(WORKER_TRANSPORT_REQUEST_SCHEMA_PATH)
         _validate_json_schema(request, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {
@@ -4518,7 +4518,7 @@ def validate_worker_transport_request_contract(request: Any) -> dict[str, Any]:
 def validate_render_request_contract(render_request: Any) -> dict[str, Any]:
     """Validate RenderRequest, ChartSpec, and HistorySeries before worker dispatch."""
     try:
-        schema = json.loads(RENDER_REQUEST_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(RENDER_REQUEST_SCHEMA_PATH)
         _validate_json_schema(render_request, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {
@@ -4577,7 +4577,7 @@ def validate_render_request_contract(render_request: Any) -> dict[str, Any]:
 def validate_render_result_contract(render_result: Any) -> dict[str, Any]:
     """Validate RenderResult before worker dispatch metadata storage."""
     try:
-        schema = json.loads(RENDER_RESULT_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(RENDER_RESULT_SCHEMA_PATH)
         _validate_json_schema(render_result, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {
@@ -4595,7 +4595,7 @@ def validate_render_result_contract(render_result: Any) -> dict[str, Any]:
 def validate_model_provider_plan_contract(provider_plan: Any) -> dict[str, Any]:
     """Validate IntegrationModelProviderPlan and its nested planner output."""
     try:
-        schema = json.loads(MODEL_PROVIDER_PLAN_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(MODEL_PROVIDER_PLAN_SCHEMA_PATH)
         _validate_json_schema(provider_plan, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {
@@ -4636,7 +4636,7 @@ def validate_model_provider_plan_contract(provider_plan: Any) -> dict[str, Any]:
 def validate_planner_result_contract(planner_result: Any) -> dict[str, Any]:
     """Validate PlannerResult against the repo JSON Schema."""
     try:
-        schema = json.loads(PLANNER_RESULT_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(PLANNER_RESULT_SCHEMA_PATH)
         _validate_json_schema(planner_result, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {
@@ -4654,7 +4654,7 @@ def validate_planner_result_contract(planner_result: Any) -> dict[str, Any]:
 def validate_chart_spec_contract(chart_spec: Any) -> dict[str, Any]:
     """Validate a placeholder ChartSpec against the repo JSON Schema."""
     try:
-        schema = json.loads(CHART_SPEC_SCHEMA_PATH.read_text(encoding="utf-8"))
+        schema = load_schema_document(CHART_SPEC_SCHEMA_PATH)
         _validate_json_schema(chart_spec, schema, root_schema=schema, path="$")
     except (OSError, json.JSONDecodeError, JobStateSnapshotValidationError, KeyError) as exc:
         return {

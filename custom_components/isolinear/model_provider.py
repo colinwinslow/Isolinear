@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any
 
-from ._paths import schema_path
+from ._paths import load_schema_document, schema_path
 from .const import DOMAIN, MODEL_PROVIDER_OLLAMA_COMPATIBLE
 
 
@@ -57,7 +57,7 @@ def get_model_provider_planner(hass: Any, entry_id: str) -> Any | None:
 
 def load_planner_result_schema() -> dict[str, Any]:
     """Load the PlannerResult JSON Schema for Ollama structured output."""
-    schema = json.loads(PLANNER_RESULT_SCHEMA_PATH.read_text(encoding="utf-8"))
+    schema = load_schema_document(PLANNER_RESULT_SCHEMA_PATH)
     schema.setdefault("properties", {})["chart_spec"] = {
         "type": "object",
         "required": ["chart_id", "chart_type", "title", "time_range", "series"],
