@@ -575,8 +575,63 @@ non-`state_class` binary entity, so it fails closed through the same
 A dedicated `timeline_history_unavailable` code is a documented 0.1.26
 refinement.
 
-### Scenario M (PENDING - 0.1.26)
+## Scenarios M-O - numeric + binary overlay composition (0.1.26, ADR-0022 D4/D5)
 
-Numeric line + binary `shaded_intervals` overlay is the documented target
-architecture (ADR-0022 D4/D5). Not implemented in 0.1.25; the renderer
-primitive `_binary_on_regions` is built reusable for it.
+Proof: `tests/test_first_real_vertical_slice.py::InProcessOverlayRendererTests`
+and the overlay tests in `RenderFamilyRoutingTests`
+(`test_compose_binary_overlays_injects_shaded_intervals`,
+`test_fuzzy_mixed_prompt_resolves_numeric_primary_plus_overlay`,
+`test_explicit_mixed_prompt_renders_overlay_png`,
+`test_two_numeric_plus_binary_fails_closed_with_mixed_code`), plus
+`evals/timeline_render_family_routing.py`. Focused run:
+
+```
+$ python -m pytest tests/test_first_real_vertical_slice.py \
+    -k "Overlay or overlay or fuzzy or two_numeric"
+6 passed, 42 deselected
+```
+
+### Scenario M - numeric line + binary shaded overlay (raw eval CASE)
+
+```json
+{
+  "case_id": "numeric_line_with_binary_overlay",
+  "given": {"primary": "sensor.living_room_temperature", "overlay": "binary_sensor.ac"},
+  "then": {
+    "overlay_render_as": "shaded_intervals",
+    "overlays_plotted": ["overlay-001"],
+    "series_plotted": ["temp"],
+    "png_signature_ok": true
+  },
+  "when": {"operation": "_compose_binary_overlays + render_in_process_chart(time_series)"}
+}
+```
+
+End-to-end (`test_explicit_mixed_prompt_renders_overlay_png`): a prompt resolving
+`sensor.upstairs_temperature` + `binary_sensor.kitchen_door` returns a `complete`
+snapshot; the planner is disclosed **only** the numeric primary
+(`approved_entity_ids == ["sensor.upstairs_temperature"]`); the stored render
+plan's `chart_spec.overlays[0]` is a `shaded_intervals` overlay sourced from
+`binary_sensor.kitchen_door`; exactly one PNG is written with a valid signature.
+The rendered anchor PNG (temperature line with two amber AC-on bands shaded
+behind it, the line dipping while the AC runs) was eyes-on verified legible at a
+380px phone-card downscale.
+
+### Scenario N - fuzzy mixed prompt resolves to the overlay composition
+
+`select_prompt_entity_ids("show me the living room temperature and when the ac
+was running", ...)` returns `accepted` with
+`source: "numeric_with_overlay"` and entity IDs
+`["sensor.living_room_temperature", "binary_sensor.living_room_ac"]` (numeric
+primary first), instead of single-entity clarification.
+
+### Scenario O - two numeric + a binary still fails closed
+
+```json
+{
+  "status": "failed",
+  "failure": {"stage": "model_provider_planning", "code": "mixed_chart_composition_unsupported"},
+  "planner_calls": 0,
+  "png_files_written": 0
+}
+```

@@ -79,11 +79,17 @@ The first real vertical slice must:
 - Choose the render family deterministically from each resolved entity's
   `_series_kind` *before* planning (ADR-0022): all-numeric entities use the
   numeric `time_series` / `line` family; all binary/categorical entities use the
-  categorical `timeline` / `step` family. The integration selects which
-  per-family Ollama structured-output schema to send, so the model never picks
-  `chart_type`. A mixed numeric + binary plot fails closed with a deterministic
-  `mixed_chart_composition_unsupported` snapshot until the 0.1.26 overlay packet
-  lands (overlay composition is the documented target architecture).
+  categorical `timeline` / `step` family; exactly one numeric primary + one or
+  more binary/categorical entities use the `time_series_overlay` composition
+  (numeric line + binary `shaded_intervals` overlay bands). The integration
+  selects which per-family Ollama structured-output schema to send, so the model
+  never picks `chart_type`. For the overlay composition the planner is disclosed
+  only the numeric primary as a series; the integration injects the binary
+  overlays deterministically after planning (`_compose_binary_overlays`). A set
+  with two or more numeric series mixed with a binary still fails closed with
+  `mixed_chart_composition_unsupported` (no deterministic primary). A fuzzy
+  prompt matching one numeric + ≥1 binary resolves to the overlay composition
+  rather than single-entity clarification.
 - Call only the configured Ollama-compatible planner boundary for eligible
   jobs.
 - Validate `PlannerResult`, nested `ChartSpec`, and referenced entity IDs
@@ -107,6 +113,13 @@ The first real vertical slice must:
   Timelines are a raw-recorder-states family: a timeline window beyond recorder
   retention fails closed (no raw states, no statistics for a non-`state_class`
   entity).
+- Render `shaded_intervals` overlays (ADR-0022 D4/D5) on a numeric `time_series`
+  chart: each overlay's binary entity is shaded as vertical "on"-region bands
+  across the full plot height behind the primary line, using the same
+  `_binary_on_regions` primitive as the standalone timeline. Overlays are
+  integration-composed (never model-emitted); the renderer accepts only
+  `shaded_intervals` overlays with an entity source and rejects any other
+  overlay shape with `unsupported_chart_spec`.
 - Return card-facing failed job snapshots for trusted in-process renderer
   failures instead of surfacing them as snapshot-poll command rejections.
 - Return that PNG to the existing dashboard card as `chart.image_url`, using a
@@ -188,6 +201,14 @@ planner, and verifies that the returned chart image is a real PNG data URL.
    `model_provider_referenced_unapproved_entity`; one referencing an approved
    entity not disclosed for this job returns `model_provider_substituted_entity`;
    both still fail before rendering or artifact storage.
+6g. Focused pytest + eval prove the numeric + binary overlay composition
+   (ADR-0022 D4/D5, 0.1.26): one numeric + one binary entity resolves to the
+   `time_series_overlay` family; the planner is disclosed only the numeric
+   primary; `_compose_binary_overlays` injects a `shaded_intervals` overlay for
+   the binary entity; the rendered PNG paints the AC-on shaded band behind the
+   numeric line; a fuzzy "temperature and when the AC was running" prompt
+   resolves to the composition; and two numeric + a binary still fails closed
+   with `mixed_chart_composition_unsupported`.
 7. Evidence file contains raw command/result snippets and decoded PNG
    signature bytes.
 8. Adjacent orchestration tests remain green.

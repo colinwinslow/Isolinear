@@ -254,6 +254,7 @@ class RenderFamilyRoutingTests(unittest.TestCase):
     def test_resolve_render_family_routes_by_series_kind(self):
         catalog = [
             {"entity_id": "sensor.temp", "domain": "sensor", "state_class": "measurement"},
+            {"entity_id": "sensor.humidity", "domain": "sensor", "state_class": "measurement"},
             {"entity_id": "binary_sensor.door", "domain": "binary_sensor"},
         ]
         self.assertEqual(
@@ -264,9 +265,35 @@ class RenderFamilyRoutingTests(unittest.TestCase):
             job_orchestration._resolve_render_family(catalog, ["binary_sensor.door"])["family"],
             "timeline",
         )
+        # One numeric + one binary composes into a numeric line + overlay.
+        overlay_routing = job_orchestration._resolve_render_family(
+            catalog, ["sensor.temp", "binary_sensor.door"]
+        )
+        self.assertEqual(overlay_routing["family"], "time_series_overlay")
+        self.assertEqual(overlay_routing["numeric_entity_ids"], ["sensor.temp"])
+        self.assertEqual(overlay_routing["categorical_entity_ids"], ["binary_sensor.door"])
+        # Two numeric series + a binary stays ambiguous (no deterministic primary).
         self.assertEqual(
-            job_orchestration._resolve_render_family(catalog, ["sensor.temp", "binary_sensor.door"])["family"],
+            job_orchestration._resolve_render_family(
+                catalog, ["sensor.temp", "sensor.humidity", "binary_sensor.door"]
+            )["family"],
             "mixed",
+        )
+        # A non-binary categorical mixed with numeric is NOT an overlay (it has no
+        # "on" region to shade) — it stays ambiguous rather than shading nothing.
+        catalog_cat = catalog + [{"entity_id": "sensor.washer_status", "domain": "sensor"}]
+        self.assertEqual(
+            job_orchestration._resolve_render_family(
+                catalog_cat, ["sensor.temp", "sensor.washer_status"]
+            )["family"],
+            "mixed",
+        )
+        # All-binary multi-entity is still the timeline family (not overlay).
+        self.assertEqual(
+            job_orchestration._resolve_render_family(
+                catalog_cat, ["binary_sensor.door", "sensor.washer_status"]
+            )["family"],
+            "timeline",
         )
 
     def test_timeline_planner_schema_locks_timeline_step(self):
@@ -344,7 +371,65 @@ class RenderFamilyRoutingTests(unittest.TestCase):
             )
             self.assertEqual(list(artifact_dir.glob("*.png")), [])
 
-    def test_mixed_prompt_fails_closed_with_mixed_code(self):
+    def test_compose_binary_overlays_injects_shaded_intervals(self):
+        chart_spec = {
+            "chart_id": "c",
+            "chart_type": "time_series",
+            "title": "Temp",
+            "time_range": {"type": "relative", "duration": "24h"},
+            "series": [
+                {
+                    "series_id": "temp",
+                    "label": "Temp",
+                    "source": {"type": "entity", "entity_id": "sensor.upstairs_temperature", "attribute": None},
+                    "role": "primary",
+                    "render_as": "line",
+                    "transform": {"operation": "none", "window": None},
+                    "unit": "degF",
+                }
+            ],
+            "overlays": [],
+            "x_axis": {"type": "time"},
+            "y_axis": {},
+            "notes": [],
+        }
+        composed = job_orchestration._compose_binary_overlays(
+            chart_spec,
+            overlay_entity_ids=["binary_sensor.kitchen_door"],
+            catalog_items=[{"entity_id": "binary_sensor.kitchen_door", "friendly_name": "Kitchen Door"}],
+        )
+        self.assertEqual(len(composed["overlays"]), 1)
+        overlay = composed["overlays"][0]
+        self.assertEqual(overlay["render_as"], "shaded_intervals")
+        self.assertEqual(overlay["source"]["entity_id"], "binary_sensor.kitchen_door")
+        self.assertEqual(overlay["active_values"], ["on"])
+        self.assertEqual(overlay["label"], "Kitchen Door")
+        # The original spec is not mutated.
+        self.assertEqual(chart_spec["overlays"], [])
+
+    def test_fuzzy_mixed_prompt_resolves_numeric_primary_plus_overlay(self):
+        catalog = [
+            {
+                "entity_id": "sensor.living_room_temperature",
+                "domain": "sensor",
+                "state_class": "measurement",
+                "friendly_name": "Living Room Temperature",
+            },
+            {
+                "entity_id": "binary_sensor.living_room_ac",
+                "domain": "binary_sensor",
+                "friendly_name": "Living Room AC",
+            },
+        ]
+        selection = job_orchestration.select_prompt_entity_ids(
+            "show me the living room temperature and when the ac was running", catalog
+        )
+        self.assertTrue(selection["accepted"], selection)
+        self.assertEqual(selection["source"], "numeric_with_overlay")
+        self.assertEqual(selection["entity_ids"][0], "sensor.living_room_temperature")
+        self.assertIn("binary_sensor.living_room_ac", selection["entity_ids"])
+
+    def test_explicit_mixed_prompt_renders_overlay_png(self):
         planner = FakePlanner()
         with tempfile.TemporaryDirectory() as temp_dir:
             artifact_dir = Path(temp_dir)
@@ -359,7 +444,57 @@ class RenderFamilyRoutingTests(unittest.TestCase):
             start = _start_job(
                 hass,
                 entry,
-                prompt="Show sensor.upstairs_temperature and binary_sensor.kitchen_door for the last 24 hours",
+                prompt="Show sensor.upstairs_temperature binary_sensor.kitchen_door for the last 24 hours",
+            )
+            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot["snapshot"])
+            self.assertEqual(len(planner.calls), 1)
+            # The planner was disclosed only the numeric primary as a series.
+            self.assertEqual(planner.calls[0]["approved_entity_ids"], ["sensor.upstairs_temperature"])
+
+            store = _orchestration_store(hass, entry)
+            render_plan = store["render_plans"][store["render_plan_order"][-1]]
+            overlays = render_plan["chart_spec"]["overlays"]
+            self.assertEqual(len(overlays), 1)
+            self.assertEqual(overlays[0]["source"]["entity_id"], "binary_sensor.kitchen_door")
+            self.assertEqual(overlays[0]["render_as"], "shaded_intervals")
+
+            png_files = list(artifact_dir.glob("*.png"))
+            self.assertEqual(len(png_files), 1, png_files)
+            self.assertEqual(png_files[0].read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+
+    def test_two_numeric_plus_binary_fails_closed_with_mixed_code(self):
+        # Two numeric series mixed with a binary entity has no deterministic
+        # primary line, so it still fails closed (ADR-0022 D4 boundary).
+        planner = FakePlanner()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(
+                planner=planner,
+                artifact_dir=artifact_dir,
+                extra_metadata_by_entity={
+                    **_DOOR_METADATA,
+                    "sensor.basement_temperature": {
+                        "friendly_name": "Basement Temperature",
+                        "device_class": "temperature",
+                        "state_class": "measurement",
+                        "unit_of_measurement": "degF",
+                        "attributes": {"unit_of_measurement": "degF"},
+                    },
+                },
+            )
+            hass.data[DOMAIN][DATA_HISTORY_SOURCE]["binary_sensor.kitchen_door"] = _binary_history_records(
+                "binary_sensor.kitchen_door"
+            )
+            start = _start_job(
+                hass,
+                entry,
+                prompt=(
+                    "Show sensor.upstairs_temperature sensor.basement_temperature "
+                    "binary_sensor.kitchen_door for the last 24 hours"
+                ),
             )
             snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
 
@@ -1314,6 +1449,138 @@ class InProcessTimelineRendererTests(unittest.TestCase):
         result = render_in_process_chart(request)
         self.assertFalse(result["accepted"], result)
         self.assertEqual(result["code"], "in_process_renderer_failed")
+
+
+def _overlay_render_request(width: int = 1400, height: int = 800) -> dict[str, Any]:
+    # Temperature line + AC-running shaded_intervals overlay (ADR-0022 D4/D5).
+    import math
+
+    start = datetime(2026, 6, 18, 0, 0, 0, tzinfo=timezone.utc)
+    temp_points = [
+        {
+            "ts": (start + timedelta(hours=index)).isoformat(timespec="seconds"),
+            "value": round(72 + 5 * math.sin(index / 24 * 2 * math.pi), 2),
+            "raw_state": "x",
+            "quality": "ok",
+        }
+        for index in range(25)
+    ]
+    ac_states = [("off", 0), ("on", 8), ("off", 12), ("on", 16), ("off", 21)]
+    ac_points = [
+        {
+            "ts": (start + timedelta(hours=hour)).isoformat(timespec="seconds"),
+            "value": value,
+            "raw_state": value,
+            "quality": "ok",
+        }
+        for value, hour in ac_states
+    ]
+    return {
+        "request_id": "overlay-anchor",
+        "render_mode": "safe",
+        "chart_spec": {
+            "chart_id": "c",
+            "chart_type": "time_series",
+            "title": "Living Room Temperature & AC",
+            "time_range": {
+                "type": "absolute",
+                "start": start.isoformat(timespec="seconds"),
+                "end": (start + timedelta(hours=24)).isoformat(timespec="seconds"),
+            },
+            "series": [
+                {
+                    "series_id": "temp",
+                    "label": "Living Room Temperature",
+                    "source": {"type": "entity", "entity_id": "sensor.living_room_temperature", "attribute": None},
+                    "role": "primary",
+                    "render_as": "line",
+                    "transform": {"operation": "none", "window": None},
+                    "unit": "degF",
+                }
+            ],
+            "overlays": [
+                {
+                    "overlay_id": "overlay-001",
+                    "label": "AC Running",
+                    "source": {"type": "entity", "entity_id": "binary_sensor.ac", "attribute": None},
+                    "render_as": "shaded_intervals",
+                    "active_values": ["on"],
+                }
+            ],
+            "x_axis": {"type": "time"},
+            "y_axis": {"label": "degF"},
+            "notes": [],
+        },
+        "history_series": [
+            {
+                "series_id": "temp",
+                "entity_id": "sensor.living_room_temperature",
+                "label": "Living Room Temperature",
+                "kind": "numeric",
+                "unit": "degF",
+                "points": temp_points,
+                "source_entity_ids": ["sensor.living_room_temperature"],
+                "warnings": [],
+            },
+            {
+                "series_id": "ac",
+                "entity_id": "binary_sensor.ac",
+                "label": "AC Running",
+                "kind": "binary_state",
+                "unit": None,
+                "points": ac_points,
+                "source": "recorder_states",
+                "resolution": "raw",
+                "source_entity_ids": ["binary_sensor.ac"],
+                "warnings": [],
+            },
+        ],
+        "derived_intervals": [],
+        "output": {"format": "png", "width": width, "height": height},
+        "theme": {},
+        "codegen": None,
+    }
+
+
+class InProcessOverlayRendererTests(unittest.TestCase):
+    def _open(self, png_bytes: bytes):
+        from io import BytesIO
+
+        from PIL import Image
+
+        return Image.open(BytesIO(png_bytes)).convert("RGB")
+
+    def test_numeric_line_with_binary_overlay_renders_band_and_line(self):
+        result = render_in_process_chart(_overlay_render_request())
+        self.assertTrue(result["accepted"], result)
+        meta = result["render_result"]["render_metadata"]
+        self.assertEqual(meta["series_plotted"], ["temp"])
+        self.assertEqual(meta["overlays_plotted"], ["overlay-001"])
+        self.assertEqual(meta["codegen_attempts"], 0)
+
+        image = self._open(result["png_bytes"])
+        pixels = image.load()
+        overlay_tint = (255, 224, 178)
+        line_color = (31, 119, 180)
+        overlay_found = any(
+            pixels[x, y] == overlay_tint
+            for y in range(0, image.height, 3)
+            for x in range(0, image.width, 3)
+        )
+        line_found = any(
+            pixels[x, y] == line_color
+            for y in range(0, image.height, 3)
+            for x in range(0, image.width, 3)
+        )
+        self.assertTrue(overlay_found, "expected AC-on shaded band tint behind the line")
+        self.assertTrue(line_found, "expected the temperature line drawn over the overlay")
+
+    def test_overlay_with_unsupported_render_as_fails_closed(self):
+        request = _overlay_render_request()
+        request["chart_spec"]["overlays"][0]["render_as"] = "markers"
+        result = render_in_process_chart(request)
+        self.assertFalse(result["accepted"], result)
+        self.assertEqual(result["code"], "unsupported_chart_spec")
 
 
 NOW = datetime(2026, 6, 18, 12, 0, 0, tzinfo=timezone.utc)

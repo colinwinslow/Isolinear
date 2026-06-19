@@ -127,23 +127,36 @@ catalog at all**
 disclosed for this job**, the snapshot fails before rendering with
 `model_provider_substituted_entity`.
 
-### Scenario M (PENDING - 0.1.26) - numeric line with binary overlay band
+### Scenario M - numeric line with binary overlay band (0.1.26, ADR-0022 D4/D5)
 
-**Given** a prompt that resolves both a numeric entity and a binary entity
-(e.g. "temperature and when the AC was running")
+**Given** a prompt that resolves exactly one numeric entity and one or more
+binary entities (e.g. "show me the temperature and when the AC was running")
 **When** the snapshot path composes the chart deterministically
-**Then** the numeric series renders as the primary line and the binary entity
-renders as a `shaded_intervals` overlay band behind it in a single PNG, with the
-overlay entity allowlist-validated.
+**Then** the integration routes to `time_series_overlay`, discloses only the
+numeric primary to the planner, injects a `shaded_intervals` overlay for each
+binary entity (`_compose_binary_overlays`), and renders a single PNG with the
+numeric series as the primary line and the binary entity shaded as an "on"-region
+band behind it — with the overlay entity allowlist-validated.
 
-> Scenario M is the documented target architecture (ADR-0022 D4/D5). It is
-> **pending** and implemented in the 0.1.26 fast-follow; the 0.1.25 renderer
-> primitive (`_binary_on_regions`) is built to be reused by it without a
-> rewrite.
+### Scenario N - fuzzy mixed prompt resolves to the overlay composition (0.1.26)
+
+**Given** a fuzzy prompt matching one numeric series plus one binary entity by
+catalog tokens
+**When** `select_prompt_entity_ids` resolves it
+**Then** it returns both entities (`source: numeric_with_overlay`) rather than
+asking the user to pick one, while a multi-match that is not exactly one numeric
++ binary still clarifies.
+
+### Scenario O - two numeric series + a binary still fails closed (0.1.26)
+
+**Given** a prompt resolving two numeric entities plus a binary entity
+**When** the snapshot path classifies the set
+**Then** it fails closed with `mixed_chart_composition_unsupported` before the
+planner is called, because no primary line can be chosen deterministically.
 
 ## Evidence
 
 The implementing slice produces an evidence file at
 `bdd/integration/home-assistant-first-real-vertical-slice-evidence.md`
 containing raw outputs for each scenario. Scenarios I-L are active in 0.1.25;
-Scenario M is pending (0.1.26).
+Scenarios M-O are active in 0.1.26.

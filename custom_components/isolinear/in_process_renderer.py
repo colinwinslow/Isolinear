@@ -33,6 +33,14 @@ _SERIES_COLORS = (
     (140, 86, 75),
 )
 
+# Light tints for shaded_intervals overlay bands (ADR-0022): drawn behind the
+# series line, so they stay pale enough for the dark line to read on top.
+_OVERLAY_COLORS = (
+    (255, 224, 178),  # warm amber
+    (200, 230, 201),  # soft green
+    (225, 215, 245),  # soft violet
+)
+
 
 def first_real_vertical_slice_enabled(hass: Any, entry_id: str) -> bool:
     """Return whether the first real in-process renderer path is enabled."""
@@ -109,7 +117,7 @@ def render_in_process_chart(render_request: dict[str, Any]) -> dict[str, Any]:
         "render_metadata": {
             "title": render_request["chart_spec"]["title"],
             "series_plotted": metadata["series_plotted"],
-            "overlays_plotted": [],
+            "overlays_plotted": metadata.get("overlays_plotted", []),
             "x_min": metadata["x_min"],
             "x_max": metadata["x_max"],
             "warnings": metadata["warnings"],
@@ -148,8 +156,21 @@ def _unsupported_time_series_request(render_request: dict[str, Any]) -> list[dic
         return [{"path": "$.chart_spec", "reason": "must_be_object"}]
     if chart_spec.get("chart_type") != "time_series":
         unsupported.append({"path": "$.chart_spec.chart_type", "reason": "time_series_required"})
-    if chart_spec.get("overlays") not in (None, []):
-        unsupported.append({"path": "$.chart_spec.overlays", "reason": "overlays_not_supported"})
+    # Binary shaded_intervals overlays from an entity source are supported
+    # (ADR-0022 D4/D5); any other overlay render_as or source is not.
+    for index, overlay in enumerate(chart_spec.get("overlays") or []):
+        if not isinstance(overlay, dict):
+            unsupported.append({"path": f"$.chart_spec.overlays[{index}]", "reason": "must_be_object"})
+            continue
+        if overlay.get("render_as") != "shaded_intervals":
+            unsupported.append(
+                {"path": f"$.chart_spec.overlays[{index}].render_as", "reason": "shaded_intervals_required"}
+            )
+        source = overlay.get("source")
+        if not isinstance(source, dict) or source.get("type") != "entity":
+            unsupported.append(
+                {"path": f"$.chart_spec.overlays[{index}].source", "reason": "entity_source_required"}
+            )
 
     series = chart_spec.get("series")
     if not isinstance(series, list) or not series:
@@ -280,6 +301,30 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
     def y_px(value: float) -> float:
         return plot_bottom - (value - v_min) / v_span * (plot_bottom - plot_top)
 
+    # Binary shaded_intervals overlays (ADR-0022 D4/D5) are the backmost layer:
+    # vertical bands across the full plot height where the binary entity is
+    # "on", drawn behind gridlines, statistics bands, and the series lines.
+    overlays_plotted: list[str] = []
+    overlay_legend: list[tuple[str, tuple[int, int, int]]] = []
+    for overlay_index, overlay in enumerate(chart_spec.get("overlays") or []):
+        if not isinstance(overlay, dict) or overlay.get("render_as") != "shaded_intervals":
+            continue
+        source = overlay.get("source") or {}
+        entity_id = source.get("entity_id") if isinstance(source, dict) else None
+        history = history_by_entity.get(entity_id)
+        if history is None:
+            warnings.append(f"No history for overlay entity {entity_id}.")
+            continue
+        active_values = overlay.get("active_values") or list(_BINARY_ON_VALUES)
+        regions = _binary_on_regions(history, set(active_values), window_end=t_max)
+        fill = _OVERLAY_COLORS[overlay_index % len(_OVERLAY_COLORS)]
+        for start, end in regions:
+            x0 = max(x_px(min(max(start, t_min), t_max)), plot_left)
+            x1 = min(max(x_px(min(max(end, t_min), t_max)), x0 + 1), plot_right)
+            draw.rectangle([(x0, plot_top), (x1, plot_bottom)], fill=fill)
+        overlays_plotted.append(overlay.get("overlay_id") or f"overlay-{overlay_index + 1:03d}")
+        overlay_legend.append((overlay.get("label") or entity_id, fill))
+
     # Horizontal gridlines and y-axis tick labels.
     for index in range(6):
         value = v_min + v_span * index / 5
@@ -349,6 +394,14 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
         draw.text((entry_x + swatch_w + 10, legend_y), label, fill=(40, 40, 40), font=label_font)
         legend_y += label_h + 10
 
+    # Overlay legend entries (filled swatch + label).
+    for label, fill in overlay_legend:
+        label_w, label_h = _text_size(draw, label, label_font)
+        entry_x = plot_right - (swatch_w + 10 + label_w) - 10
+        draw.rectangle([(entry_x, legend_y), (entry_x + swatch_w, legend_y + label_h)], fill=fill)
+        draw.text((entry_x + swatch_w + 10, legend_y), label, fill=(40, 40, 40), font=label_font)
+        legend_y += label_h + 10
+
     # Y-axis label (rotated) and x-axis label.
     y_label = _y_axis_label(chart_spec)
     if y_label:
@@ -369,6 +422,7 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
     x_max = max(all_timestamps).isoformat(timespec="seconds")
     return buffer.getvalue(), {
         "series_plotted": series_plotted,
+        "overlays_plotted": overlays_plotted,
         "x_min": x_min,
         "x_max": x_max,
         "warnings": warnings,

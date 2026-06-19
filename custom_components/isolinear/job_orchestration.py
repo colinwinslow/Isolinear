@@ -1391,6 +1391,26 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
             "source": "catalog_label",
         }
     if len(matches) > 1:
+        # A fuzzy prompt that matches exactly one numeric series plus one or more
+        # binary/categorical entities composes deterministically into a numeric
+        # line + shaded overlays (ADR-0022 D4) rather than asking the user to
+        # pick one. Any other multi-match (e.g. two numeric series) stays
+        # ambiguous and clarifies.
+        match_kinds = [(item, classify_series_kind(item)) for item in matches]
+        numeric_matches = [item for item, kind in match_kinds if kind == "numeric"]
+        binary_matches = [item for item, kind in match_kinds if kind == "binary_state"]
+        non_numeric_matches = [item for item, kind in match_kinds if kind != "numeric"]
+        # Binary-only overlay composition (ADR-0022 D4): one numeric primary plus
+        # one or more binary entities. A non-binary categorical in the match set
+        # stays ambiguous and clarifies.
+        if len(numeric_matches) == 1 and binary_matches and len(non_numeric_matches) == len(binary_matches):
+            return {
+                "accepted": True,
+                "code": "accepted",
+                "entity_ids": [numeric_matches[0]["entity_id"]]
+                + [item["entity_id"] for item in binary_matches],
+                "source": "numeric_with_overlay",
+            }
         return {
             "accepted": False,
             "code": "entity_selection_requires_clarification",
@@ -2489,15 +2509,32 @@ def _record_model_provider_plan(
                 "accepted": False,
                 "code": "mixed_chart_composition_unsupported",
                 "error": (
-                    "Charting numeric and binary/categorical entities together is not yet supported; "
-                    "the binary overlay composition lands in a later packet."
+                    "This question mixes more than one numeric series with a binary entity, so the primary "
+                    "chart cannot be chosen automatically; ask about a single numeric series with the binary "
+                    "overlay."
                 ),
                 "kinds": routing["kinds"],
             },
         }
 
-    request = _model_provider_planner_request(hass=hass, job=job, source_snapshot=source_snapshot)
-    result_schema = load_planner_result_schema(routing["family"])
+    # The model only ever produces the chartable *series* (ADR-0022 D5): for the
+    # overlay composition it plans the single numeric primary as a time_series
+    # line, and the integration injects the binary entities as shaded_intervals
+    # overlays afterwards. The planner is disclosed only the series entities.
+    is_overlay = routing["family"] == "time_series_overlay"
+    planner_family = "time_series" if is_overlay else routing["family"]
+    series_entity_ids = (
+        routing["numeric_entity_ids"]
+        if planner_family == "time_series"
+        else routing["categorical_entity_ids"]
+    )
+    request = _model_provider_planner_request(
+        hass=hass,
+        job=job,
+        source_snapshot=source_snapshot,
+        entity_ids=series_entity_ids or None,
+    )
+    result_schema = load_planner_result_schema(planner_family)
     provider_response = planner.plan_chart(request, result_schema=result_schema)
     provider_summary = {
         "provider": planner_client_metadata(planner),
@@ -2568,6 +2605,25 @@ def _record_model_provider_plan(
             "model_provider_called": True,
             "model_provider": provider_summary,
         }
+
+    # Deterministically inject binary shaded_intervals overlays (ADR-0022 D4/D5).
+    if is_overlay and isinstance(chart_spec, dict):
+        chart_spec = _compose_binary_overlays(
+            chart_spec,
+            overlay_entity_ids=routing["overlay_entity_ids"],
+            catalog_items=catalog_items,
+        )
+        composed_validation = validate_chart_spec_contract(chart_spec)
+        if not composed_validation["accepted"]:
+            return {
+                "accepted": False,
+                "code": "invalid_model_provider_chart_spec",
+                "validation": composed_validation,
+                "model_provider_called": True,
+                "model_provider": provider_summary,
+            }
+        planner_result = deepcopy(planner_result)
+        planner_result["chart_spec"] = chart_spec
 
     entity_validation = validate_model_provider_output_entities(
         planner_result,
@@ -4774,23 +4830,88 @@ def _resolve_render_family(
     catalog_items: list[dict[str, Any]],
     requested_entity_ids: list[str],
 ) -> dict[str, Any]:
-    """Deterministically choose the render family from resolved entity kinds (ADR-0022)."""
+    """Deterministically choose the render family from resolved entity kinds (ADR-0022).
+
+    Families: ``time_series`` (all numeric), ``timeline`` (all binary/categorical),
+    ``time_series_overlay`` (exactly one numeric primary line + one or more
+    binary/categorical ``shaded_intervals`` overlays — ADR-0022 D4/D5), and
+    ``mixed`` (an ambiguous numeric+categorical set, e.g. two numeric series mixed
+    with a binary, where the primary line cannot be chosen deterministically).
+    """
     by_id = {item["entity_id"]: item for item in catalog_items}
+    numeric_entity_ids: list[str] = []
+    binary_entity_ids: list[str] = []
+    state_entity_ids: list[str] = []  # all non-numeric (binary + categorical), for the timeline family
     kinds: set[str] = set()
     for entity_id in requested_entity_ids:
         item = by_id.get(entity_id)
         if item is None:
             continue
-        kinds.add(classify_series_kind(item))
-    has_numeric = "numeric" in kinds
-    has_categorical = bool(kinds & {"binary_state", "categorical_state"})
-    if has_numeric and has_categorical:
-        family = "mixed"
-    elif has_categorical:
+        kind = classify_series_kind(item)
+        kinds.add(kind)
+        if kind == "numeric":
+            numeric_entity_ids.append(entity_id)
+        elif kind == "binary_state":
+            binary_entity_ids.append(entity_id)
+            state_entity_ids.append(entity_id)
+        else:
+            state_entity_ids.append(entity_id)
+    has_numeric = bool(numeric_entity_ids)
+    has_state = bool(state_entity_ids)
+    # Overlay composition is binary-only (ADR-0022 D4 scope): shaded_intervals
+    # shade an "on" region. A non-binary categorical mixed with numeric has no
+    # "on" region, so it stays ambiguous (mixed) rather than shading nothing.
+    overlay_eligible = (
+        len(numeric_entity_ids) == 1 and binary_entity_ids and len(state_entity_ids) == len(binary_entity_ids)
+    )
+    if has_numeric and has_state:
+        family = "time_series_overlay" if overlay_eligible else "mixed"
+    elif has_state:
         family = "timeline"
     else:
         family = "time_series"
-    return {"family": family, "kinds": sorted(kinds)}
+    return {
+        "family": family,
+        "kinds": sorted(kinds),
+        "numeric_entity_ids": numeric_entity_ids,
+        "categorical_entity_ids": state_entity_ids,
+        "overlay_entity_ids": binary_entity_ids,
+    }
+
+
+# Binary states treated as "on"/active for shaded_intervals overlays (ADR-0022).
+_OVERLAY_ACTIVE_VALUES = ["on"]
+
+
+def _compose_binary_overlays(
+    chart_spec: dict[str, Any],
+    *,
+    overlay_entity_ids: list[str],
+    catalog_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Inject binary entities as shaded_intervals overlays on a numeric spec (ADR-0022 D4/D5).
+
+    The model plans only the numeric primary series; the integration appends one
+    overlay per binary entity deterministically so the model never composes the
+    overlay. The overlay source is the approved binary entity; "on" regions are
+    shaded behind the primary line.
+    """
+    by_id = {item["entity_id"]: item for item in catalog_items}
+    composed = deepcopy(chart_spec)
+    overlays = list(composed.get("overlays") or [])
+    for index, entity_id in enumerate(overlay_entity_ids, start=1):
+        label = by_id.get(entity_id, {}).get("friendly_name") or entity_id
+        overlays.append(
+            {
+                "overlay_id": f"overlay-{index:03d}",
+                "label": label,
+                "source": {"type": "entity", "entity_id": entity_id, "attribute": None},
+                "render_as": "shaded_intervals",
+                "active_values": list(_OVERLAY_ACTIVE_VALUES),
+            }
+        )
+    composed["overlays"] = overlays
+    return composed
 
 
 def _accepted(
@@ -5186,8 +5307,11 @@ def _model_provider_planner_request(
     hass: Any,
     job: dict[str, Any],
     source_snapshot: dict[str, Any],
+    entity_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    entity_ids = _source_snapshot_entity_ids(source_snapshot)
+    # ``entity_ids`` restricts what the planner may chart as series; for the
+    # overlay composition only the numeric primary is disclosed (ADR-0022 D5).
+    entity_ids = entity_ids if entity_ids is not None else _source_snapshot_entity_ids(source_snapshot)
     return {
         "prompt": job.get("prompt") if isinstance(job.get("prompt"), str) else "",
         "approved_entity_ids": entity_ids,

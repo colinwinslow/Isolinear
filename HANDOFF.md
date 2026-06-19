@@ -482,6 +482,39 @@ artifact-verified; the live HACS `0.1.25` retest should confirm a real
 hidden-entity failure. The numeric + binary overlay ("temperature and when the
 AC was running") is open-queue item (i) for `0.1.26`.
 
+The numeric + binary overlay composition then landed as `0.1.26`, completing
+ADR-0022's target architecture (D4/D5). "Show me the temperature and when the AC
+was running" now renders a numeric `time_series` line with the binary entity
+shaded as `shaded_intervals` overlay bands behind it. `_resolve_render_family`
+gained a `time_series_overlay` family for **exactly one numeric primary + one or
+more binary** entities; for that family the planner is disclosed **only** the
+numeric primary as a chartable series (new `entity_ids` argument on
+`_model_provider_planner_request`), and the integration injects the binary
+overlays deterministically **after** planning via `_compose_binary_overlays`
+(the model never composes overlays — invariant #9 / D5). The live Pillow numeric
+renderer gained an overlay pass: vertical "on"-region bands across the full plot
+height drawn behind the primary line, reusing the `_binary_on_regions` primitive
+from 0.1.25; the numeric unsupported-gate now accepts `shaded_intervals` overlays
+with an entity source and rejects any other overlay shape with
+`unsupported_chart_spec`. `select_prompt_entity_ids` auto-resolves a fuzzy prompt
+matching one numeric + one-or-more binary entities to the composition
+(`source: numeric_with_overlay`) instead of single-entity clarification. The
+composition is **binary-only** by design (architecture-review scope tightening):
+a non-binary categorical mixed with numeric has no "on" region to shade, so it
+stays `mixed` (fail closed) rather than shading nothing, and two or more numeric
+series mixed with a binary also stay `mixed` (no deterministic primary). No core
+schema change was needed (`overlays[]` is already first-class). The entity
+allowlist invariant holds: restricting the planner disclosure only narrows what
+the model may chart, while the injected overlay entity is still validated against
+the full disclosed `source_snapshot`. Verification: full suite `393 passed`,
+`timeline_render_family_routing` eval extended with the overlay routing + render
+cases + 51 prior evals `PASS`, the temperature+AC overlay anchor PNG eyes-on
+verified legible at a 380px phone downscale, architecture review `OK` (no
+invariant violations; its one note — categorical-as-overlay — was addressed by
+the binary-only tightening), BDD-evidence review `OK`, `git diff --check` clean,
+bump to `0.1.26`. **Caveat:** unit- and artifact-verified; the live HACS `0.1.26`
+retest should confirm a real mixed prompt renders the overlay.
+
 Night mode (dark theme) is now a recorded open-queue item ((h) in `STATUS.md`)
 with the design decisions captured: scope is **chart PNG + card UI**, theme
 source is **auto-follow the Home Assistant theme** (no user toggle), and it
@@ -1210,22 +1243,20 @@ in the target environment. The visible package version is `0.1.19`.
 
 ## Next recommended packet
 
-Two candidates (the repository is ready for live HACS `0.1.25` retest):
+The repository is ready for a live HACS `0.1.26` retest (extends item (e)).
+Confirm against real Home Assistant + Ollama:
 
-1. **0.1.26 fast-follow — numeric line + binary `shaded_intervals` overlay**
-   (open-queue item (i); ADR-0022 D4/D5; BDD Scenario M). Resolve a numeric and
-   a binary entity from one prompt ("temperature and when the AC was running"),
-   classify each, render the numeric as the primary line with the binary as a
-   shaded overlay band. The renderer primitive (`_binary_on_regions`) and the
-   `overlays[]` schema already exist; the work is multi-entity prompt resolution
-   + deterministic overlay injection + the numeric renderer overlay pass.
+1. A real `binary_sensor` prompt (e.g. "kitchen door last 24 hours") renders an
+   on/off **timeline** PNG instead of the old
+   `model_provider_chart_spec_hidden_entity` failure (0.1.25).
+2. A mixed prompt ("show me the temperature and when the AC was running")
+   renders a numeric **line with the AC-on regions shaded behind it** (0.1.26).
+3. A numeric prompt still renders a line chart; a long-window `state_class`
+   sensor still renders daily statistics with a min/max band.
+4. Capture the WARNING log line shape for any `mixed_chart_composition_unsupported`
+   or disambiguated entity failures.
 
-2. **Live HACS `0.1.25` retest** (extends item (e)): confirm a real
-   `binary_sensor` prompt (e.g. "kitchen door last 24 hours") now renders an
-   on/off timeline PNG instead of the old `model_provider_chart_spec_hidden_entity`
-   failure; confirm a categorical sensor renders state bands; confirm a numeric
-   prompt still renders a line chart. Capture the WARNING log line shape for any
-   `mixed_chart_composition_unsupported` or disambiguated entity failures.
+Then **Night mode** (item (h)) is the next net-new feature (spec + likely ADR).
 
 Then run the served-artifact prompt path against real Home Assistant sensor
 history and the configured Ollama planner. The key success signal is a rendered
@@ -1249,11 +1280,10 @@ caveat; the first-real-slice closeout full Python suite passed cleanly
 
 ## Known unresolved design details
 
-- Numeric line + binary `shaded_intervals` overlay composition (ADR-0022 D4/D5,
-  0.1.26): multi-entity prompt resolution, deterministic overlay injection, and
-  the numeric renderer overlay pass. A dedicated `timeline_history_unavailable`
-  code for beyond-retention binary windows (0.1.25 reuses
-  `no_long_term_statistics`).
+- Overlay follow-ups beyond 0.1.26: overlay for ≥2 numeric primaries
+  (multi-axis), overlay on the `timeline` family, and categorical (non-binary)
+  overlays. A dedicated `timeline_history_unavailable` code for beyond-retention
+  binary windows (0.1.25/0.1.26 reuse `no_long_term_statistics`).
 - Semantic-memory storage-helper implementation, migrations, and repair UI details beyond the envelope contract.
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.
