@@ -47,17 +47,31 @@ def first_real_vertical_slice_enabled(hass: Any, entry_id: str) -> bool:
 
 def render_in_process_chart(render_request: dict[str, Any]) -> dict[str, Any]:
     """Render a trusted ChartSpec to PNG bytes and a data URL."""
-    unsupported = _unsupported_time_series_request(render_request)
+    chart_spec = render_request.get("chart_spec") if isinstance(render_request, dict) else None
+    chart_type = chart_spec.get("chart_type") if isinstance(chart_spec, dict) else None
+    # Deterministic render-family dispatch (ADR-0022): categorical entities take
+    # the timeline/step renderer, everything else the numeric time-series path.
+    is_timeline = chart_type == "timeline"
+
+    if is_timeline:
+        unsupported = _unsupported_timeline_request(render_request)
+        unsupported_message = "The in-process renderer supports only safe binary/categorical timeline step tracks."
+        render_png = _render_timeline_png
+    else:
+        unsupported = _unsupported_time_series_request(render_request)
+        unsupported_message = "The in-process renderer supports only safe numeric time-series line charts."
+        render_png = _render_time_series_png
+
     if unsupported:
         return _render_failure(
             render_request,
             "unsupported_chart_spec",
-            "The in-process renderer supports only safe numeric time-series line charts.",
+            unsupported_message,
             {"unsupported": unsupported},
         )
 
     try:
-        png_bytes, metadata = _render_time_series_png(render_request)
+        png_bytes, metadata = render_png(render_request)
     except ImportError as exc:
         return _render_failure(
             render_request,
@@ -359,6 +373,267 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
         "x_max": x_max,
         "warnings": warnings,
     }
+
+
+_BINARY_ON_VALUES = frozenset({"on", "true", "open", "detected", "home", "1"})
+_BINARY_OFF_VALUES = frozenset({"off", "false", "closed", "clear", "not_home", "away", "0"})
+_MISSING_TIMELINE_QUALITIES = frozenset({"missing", "unavailable", "invalid", "unknown"})
+
+
+def _state_segments(
+    points: list[dict[str, Any]],
+    *,
+    window_end: datetime,
+) -> list[tuple[datetime, datetime, str]]:
+    """Collapse history points into held-until-next-change state segments.
+
+    Each point's state is held from its timestamp until the next state change;
+    the final state is held to ``window_end``. Consecutive equal states merge.
+    Missing-quality points end the current segment without starting a new one.
+    """
+    rows: list[tuple[datetime, str | None]] = []
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        quality = point.get("quality")
+        value = point.get("value")
+        if quality in _MISSING_TIMELINE_QUALITIES or value is None:
+            rows.append((_parse_timestamp(point.get("ts")), None))
+            continue
+        rows.append((_parse_timestamp(point.get("ts")), str(value)))
+    rows.sort(key=lambda row: row[0])
+
+    segments: list[tuple[datetime, datetime, str]] = []
+    for index, (ts, value) in enumerate(rows):
+        end = rows[index + 1][0] if index + 1 < len(rows) else window_end
+        if value is None or end <= ts:
+            continue
+        if segments and segments[-1][2] == value and segments[-1][1] == ts:
+            start, _, prev_value = segments[-1]
+            segments[-1] = (start, end, prev_value)
+        else:
+            segments.append((ts, end, value))
+    return segments
+
+
+def _binary_on_regions(
+    history_series: dict[str, Any],
+    active_values: set[str] | frozenset[str],
+    *,
+    window_end: datetime,
+) -> list[tuple[datetime, datetime]]:
+    """Return [(start, end)] spans where the series state is "on"/active.
+
+    Shared primitive (ADR-0022 D2): a binary "on" region is the same shape
+    whether drawn as a standalone timeline lane or as an overlay band behind a
+    numeric line (the 0.1.26 overlay layer reuses this directly).
+    """
+    normalized = {str(value).lower() for value in active_values}
+    segments = _state_segments(history_series.get("points", []), window_end=window_end)
+    return [(start, end) for start, end, value in segments if value.lower() in normalized]
+
+
+def _timeline_window_end(plotted: list[dict[str, Any]]) -> datetime:
+    ends = [lane["last_ts"] for lane in plotted if lane.get("last_ts") is not None]
+    return max(ends) if ends else datetime.now()
+
+
+def _render_timeline_png(render_request: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
+    from PIL import Image, ImageDraw
+
+    chart_spec = render_request["chart_spec"]
+    output = render_request.get("output") or {}
+    width = max(int(output.get("width") or 1400), 200)
+    height = max(int(output.get("height") or 800), 150)
+
+    history_by_entity = {
+        item.get("entity_id"): item
+        for item in render_request.get("history_series", [])
+        if isinstance(item, dict) and isinstance(item.get("entity_id"), str)
+    }
+
+    series_plotted: list[str] = []
+    lanes: list[dict[str, Any]] = []
+    all_timestamps: list[datetime] = []
+    warnings: list[str] = []
+    for series_spec in chart_spec["series"]:
+        entity_id = series_spec["source"]["entity_id"]
+        history = history_by_entity.get(entity_id)
+        if history is None:
+            raise ValueError(f"Missing history for {entity_id}.")
+        if history.get("kind") not in ("binary_state", "categorical_state"):
+            raise ValueError(f"History for {entity_id} is not a categorical/binary state series.")
+
+        usable = [
+            point
+            for point in history.get("points", [])
+            if isinstance(point, dict)
+            and point.get("value") is not None
+            and point.get("quality") not in _MISSING_TIMELINE_QUALITIES
+        ]
+        if not usable:
+            raise ValueError(f"History for {entity_id} has no usable state points.")
+
+        timestamps = [_parse_timestamp(point.get("ts")) for point in usable]
+        all_timestamps.extend(timestamps)
+        lanes.append(
+            {
+                "label": series_spec.get("label") or entity_id,
+                "history": history,
+                "kind": history.get("kind"),
+                "last_ts": max(timestamps),
+            }
+        )
+        series_plotted.append(series_spec["series_id"])
+
+    window_end = max(all_timestamps)
+
+    image = Image.new("RGB", (width, height), (255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    title_font = _load_font(max(34, width // 24))
+    label_font = _load_font(max(24, width // 40))
+    tick_font = _load_font(max(20, width // 48))
+    axis_weight = max(3, width // 500)
+
+    title = chart_spec["title"]
+    title_w, title_h = _text_size(draw, title, title_font)
+    draw.text(((width - title_w) / 2, 20), title, fill=(20, 20, 20), font=title_font)
+
+    plot_left = max(180, width // 7)
+    plot_right = width - max(36, width // 36)
+    plot_top = 24 + title_h + 24
+    plot_bottom = height - max(104, height // 7)
+
+    t_min = min(all_timestamps)
+    t_max = window_end
+    t_span = (t_max - t_min).total_seconds() or 1.0
+
+    def x_px(ts: datetime) -> float:
+        clamped = min(max(ts, t_min), t_max)
+        return plot_left + (clamped - t_min).total_seconds() / t_span * (plot_right - plot_left)
+
+    lane_count = len(lanes)
+    lane_height = (plot_bottom - plot_top) / lane_count
+    lane_pad = max(8, lane_height * 0.18)
+
+    legend_values: dict[str, tuple[int, int, int]] = {}
+    for lane_index, lane in enumerate(lanes):
+        lane_top = plot_top + lane_index * lane_height + lane_pad
+        lane_bottom = plot_top + (lane_index + 1) * lane_height - lane_pad
+        # Lane baseline + label.
+        draw.line(
+            [(plot_left, lane_bottom), (plot_right, lane_bottom)],
+            fill=(200, 200, 200),
+            width=max(2, width // 900),
+        )
+        label = lane["label"]
+        _, label_h = _text_size(draw, label, label_font)
+        draw.text((16, (lane_top + lane_bottom) / 2 - label_h / 2), label, fill=(40, 40, 40), font=label_font)
+
+        history = lane["history"]
+        distinct = []
+        for point in history.get("points", []):
+            value = point.get("value")
+            if value is None or point.get("quality") in _MISSING_TIMELINE_QUALITIES:
+                continue
+            text = str(value)
+            if text not in distinct:
+                distinct.append(text)
+        is_binary = lane["kind"] == "binary_state" or {
+            value.lower() for value in distinct
+        } <= (_BINARY_ON_VALUES | _BINARY_OFF_VALUES)
+
+        if is_binary:
+            color = _SERIES_COLORS[lane_index % len(_SERIES_COLORS)]
+            regions = _binary_on_regions(history, _BINARY_ON_VALUES, window_end=window_end)
+            for start, end in regions:
+                x0 = x_px(start)
+                x1 = max(x_px(end), x0 + 1)
+                draw.rectangle([(x0, lane_top), (x1, lane_bottom)], fill=color)
+            legend_values.setdefault("on", color)
+        else:
+            segments = _state_segments(history.get("points", []), window_end=window_end)
+            for start, end, value in segments:
+                if value not in legend_values:
+                    legend_values[value] = _SERIES_COLORS[len(legend_values) % len(_SERIES_COLORS)]
+                x0 = x_px(start)
+                x1 = max(x_px(end), x0 + 1)
+                draw.rectangle([(x0, lane_top), (x1, lane_bottom)], fill=legend_values[value])
+
+    # Axis frame.
+    draw.line([(plot_left, plot_top), (plot_left, plot_bottom)], fill=(60, 60, 60), width=axis_weight)
+    draw.line([(plot_left, plot_bottom), (plot_right, plot_bottom)], fill=(60, 60, 60), width=axis_weight)
+
+    # X-axis time tick labels (start, middle, end).
+    for frac, align in ((0.0, "left"), (0.5, "center"), (1.0, "right")):
+        ts = t_min + (t_max - t_min) * frac
+        x = x_px(ts)
+        text = ts.strftime("%m-%d %H:%M")
+        text_w, _ = _text_size(draw, text, tick_font)
+        if align == "left":
+            anchor_x = x
+        elif align == "right":
+            anchor_x = x - text_w
+        else:
+            anchor_x = x - text_w / 2
+        anchor_x = max(0, min(anchor_x, width - text_w))
+        draw.text((anchor_x, plot_bottom + 14), text, fill=(90, 90, 90), font=tick_font)
+
+    # State legend (top-right inside the plot).
+    legend_y = plot_top + 10
+    swatch = max(28, width // 50)
+    for value, color in legend_values.items():
+        label_w, label_h = _text_size(draw, value, label_font)
+        entry_x = plot_right - (swatch + 12 + label_w) - 10
+        draw.rectangle([(entry_x, legend_y), (entry_x + swatch, legend_y + label_h)], fill=color)
+        draw.text((entry_x + swatch + 12, legend_y), value, fill=(40, 40, 40), font=label_font)
+        legend_y += label_h + 10
+
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue(), {
+        "series_plotted": series_plotted,
+        "x_min": t_min.isoformat(timespec="seconds"),
+        "x_max": t_max.isoformat(timespec="seconds"),
+        "warnings": warnings,
+    }
+
+
+def _unsupported_timeline_request(render_request: dict[str, Any]) -> list[dict[str, Any]]:
+    unsupported: list[dict[str, Any]] = []
+    if render_request.get("render_mode") not in {RENDER_MODE_SAFE, RENDER_MODE_AUTO}:
+        unsupported.append({"path": "$.render_mode", "reason": "unsupported_render_mode"})
+    output = render_request.get("output") or {}
+    if output.get("format", "png") != "png":
+        unsupported.append({"path": "$.output.format", "reason": "png_required"})
+
+    chart_spec = render_request.get("chart_spec")
+    if not isinstance(chart_spec, dict):
+        return [{"path": "$.chart_spec", "reason": "must_be_object"}]
+    if chart_spec.get("chart_type") != "timeline":
+        unsupported.append({"path": "$.chart_spec.chart_type", "reason": "timeline_required"})
+    if chart_spec.get("overlays") not in (None, []):
+        unsupported.append({"path": "$.chart_spec.overlays", "reason": "overlays_not_supported"})
+
+    series = chart_spec.get("series")
+    if not isinstance(series, list) or not series:
+        unsupported.append({"path": "$.chart_spec.series", "reason": "must_be_non_empty_list"})
+        return unsupported
+
+    for index, item in enumerate(series):
+        if not isinstance(item, dict):
+            unsupported.append({"path": f"$.chart_spec.series[{index}]", "reason": "must_be_object"})
+            continue
+        source = item.get("source")
+        if not isinstance(source, dict) or source.get("type") != "entity":
+            unsupported.append({"path": f"$.chart_spec.series[{index}].source", "reason": "entity_source_required"})
+        if item.get("render_as", "step") != "step":
+            unsupported.append({"path": f"$.chart_spec.series[{index}].render_as", "reason": "step_required"})
+
+    history = render_request.get("history_series")
+    if not isinstance(history, list):
+        unsupported.append({"path": "$.history_series", "reason": "must_be_list"})
+    return unsupported
 
 
 def _load_font(size: int) -> Any:

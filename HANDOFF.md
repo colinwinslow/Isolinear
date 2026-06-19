@@ -446,6 +446,42 @@ instead of clearing the whole catalog — remains open. The repository is ready
 for live HACS retest as version `0.1.24`; the live retest should confirm a
 kitchen_door-class failure now emits a visible HA `WARNING` log line.
 
+A categorical timeline render family then landed as `0.1.25` under **ADR-0022**,
+resolving the `binary_sensor.kitchen_door` failure for real rather than
+dead-ending it. The `0.1.24` WARNING logging surfaced the precise cause: the
+door prompt failed with `model_provider_chart_spec_hidden_entity` at the
+planning stage, not the intended `no_long_term_statistics`. A binary entity
+cannot satisfy the numeric-only planner schema, so the model substituted an
+entity and the deterministic entity-validation gate rejected it **before**
+history retrieval (the ADR-0020 reorder runs history after planning, so the
+planning failure masks the stats gate). The fix makes binary/categorical
+entities chart: the integration now **deterministically routes the render family
+from each resolved entity's `_series_kind` before planning** (new invariant #9):
+all-numeric → `time_series`/`line`; all binary/categorical → a new
+`timeline`/`step` family; mixed numeric + binary → fail closed with
+`mixed_chart_composition_unsupported` (the overlay composition is the documented
+0.1.26 target, ADR-0022 D4/D5). The integration selects the per-family Ollama
+structured-output schema (`load_planner_result_schema(family)`), so the model
+never picks `chart_type`. The live Pillow renderer gained `_render_timeline_png`
+(one lane per series, binary on/off fills + categorical bands, phone-legible)
+built on a shared `_binary_on_regions` primitive that the 0.1.26 overlay reuses
+without a rewrite. The misleading hidden-entity code was split into honest
+`model_provider_referenced_unapproved_entity` (absent from the approved catalog)
+vs `model_provider_substituted_entity` (approved but not disclosed for this job);
+the legacy code is retained as a classification alias. No **core** schema change
+was needed — `chart-spec.schema.json` already allows `timeline`/`step` and a
+first-class `overlays[]` array. The `no_long_term_statistics` gate stays after
+planning for its intended numeric class (not regressed); a beyond-retention
+binary timeline fails closed through that same gate. Verification: full suite
+`388 passed`, new `timeline_render_family_routing` eval + 51 prior evals `PASS`,
+the two-lane timeline anchor PNG eyes-on verified legible at a 380px phone
+downscale, architecture review `OK` (no invariant violations), BDD-evidence
+review `OK`, `git diff --check` clean, bump to `0.1.25`. **Caveat:** unit- and
+artifact-verified; the live HACS `0.1.25` retest should confirm a real
+`binary_sensor` prompt renders an on/off timeline instead of the old
+hidden-entity failure. The numeric + binary overlay ("temperature and when the
+AC was running") is open-queue item (i) for `0.1.26`.
+
 Night mode (dark theme) is now a recorded open-queue item ((h) in `STATUS.md`)
 with the design decisions captured: scope is **chart PNG + card UI**, theme
 source is **auto-follow the Home Assistant theme** (no user toggle), and it
@@ -1174,16 +1210,22 @@ in the target environment. The visible package version is `0.1.19`.
 
 ## Next recommended packet
 
-Run the live HACS `0.1.19` dashboard verification. Redownload Isolinear through
-HACS, restart Home Assistant, and confirm:
-- The config-flow wizard renders (no 500 during setup).
-- The registered Lovelace resource URL updates to `?v=0.1.19`.
-- The picker/editor shows `config_entry_id: auto`.
-- A stored allowlist reopens through the multi-entity selector with the exact
-  selected entity IDs.
-- HA logs show `Successfully installed matplotlib` (or a compatible version)
-  during setup; if pip install fails, capture the exact error before any other
-  change.
+Two candidates (the repository is ready for live HACS `0.1.25` retest):
+
+1. **0.1.26 fast-follow — numeric line + binary `shaded_intervals` overlay**
+   (open-queue item (i); ADR-0022 D4/D5; BDD Scenario M). Resolve a numeric and
+   a binary entity from one prompt ("temperature and when the AC was running"),
+   classify each, render the numeric as the primary line with the binary as a
+   shaded overlay band. The renderer primitive (`_binary_on_regions`) and the
+   `overlays[]` schema already exist; the work is multi-entity prompt resolution
+   + deterministic overlay injection + the numeric renderer overlay pass.
+
+2. **Live HACS `0.1.25` retest** (extends item (e)): confirm a real
+   `binary_sensor` prompt (e.g. "kitchen door last 24 hours") now renders an
+   on/off timeline PNG instead of the old `model_provider_chart_spec_hidden_entity`
+   failure; confirm a categorical sensor renders state bands; confirm a numeric
+   prompt still renders a line chart. Capture the WARNING log line shape for any
+   `mixed_chart_composition_unsupported` or disambiguated entity failures.
 
 Then run the served-artifact prompt path against real Home Assistant sensor
 history and the configured Ollama planner. The key success signal is a rendered
@@ -1207,6 +1249,11 @@ caveat; the first-real-slice closeout full Python suite passed cleanly
 
 ## Known unresolved design details
 
+- Numeric line + binary `shaded_intervals` overlay composition (ADR-0022 D4/D5,
+  0.1.26): multi-entity prompt resolution, deterministic overlay injection, and
+  the numeric renderer overlay pass. A dedicated `timeline_history_unavailable`
+  code for beyond-retention binary windows (0.1.25 reuses
+  `no_long_term_statistics`).
 - Semantic-memory storage-helper implementation, migrations, and repair UI details beyond the envelope contract.
 - Aggregate-style ambiguous entity clarification and aggregate alias
   creation/reuse executable evals beyond the existing threshold-backed proofs.

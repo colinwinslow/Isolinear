@@ -647,12 +647,14 @@ def verify_job_orchestration_model_provider_planning_anchor(root=None) -> dict[s
         failures.append("Repeated snapshot requests created duplicate provider, render, or artifact state.")
     if not idempotent["same_snapshot_returned"]:
         failures.append("Repeated snapshot request did not return the existing complete snapshot.")
-    if hidden["error_codes"] != ["model_provider_chart_spec_hidden_entity"]:
-        failures.append("Hidden provider entity did not fail closed with model_provider_chart_spec_hidden_entity.")
+    if hidden["error_codes"] != ["model_provider_referenced_unapproved_entity"]:
+        failures.append(
+            "Hidden provider entity did not fail closed with model_provider_referenced_unapproved_entity."
+        )
     if hidden["provider_plans"] or hidden["render_plans"] or hidden["artifacts"] or hidden["complete_snapshots"]:
         failures.append("Hidden provider entity failure stored state after rejection.")
     for case_name, case in hidden_recursive["cases"].items():
-        if case["error_codes"] != ["model_provider_chart_spec_hidden_entity"]:
+        if case["error_codes"] != ["model_provider_referenced_unapproved_entity"]:
             failures.append(f"Recursive hidden provider output case {case_name} did not fail closed.")
         if case["provider_plans"] or case["render_plans"] or case["artifacts"] or case["complete_snapshots"]:
             failures.append(f"Recursive hidden provider output case {case_name} stored state after rejection.")

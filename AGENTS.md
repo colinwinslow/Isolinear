@@ -53,6 +53,8 @@ These are the non-negotiable rules of Isolinear. Every diff is checked against t
 
 8. **No silent architecture decisions** — New external services, databases, queues, frameworks, or storage mechanisms require an ADR before implementation. No speculative generality. (ADR-0008)
 
+9. **Deterministic render-family routing** — The integration selects the chart family (`time_series` / `timeline`) from each resolved entity's series kind *before* planning; the model never chooses `chart_type`. Binary/categorical entities render as raw-states step tracks and cannot be charted beyond recorder retention. (ADR-0022)
+
 ## Workflow
 
 ### BDD before implementation

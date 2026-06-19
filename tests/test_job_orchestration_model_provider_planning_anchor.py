@@ -93,10 +93,10 @@ class JobOrchestrationModelProviderPlanningAnchorTests(unittest.TestCase):
 
         self.assert_card_facing_model_provider_failure(
             result["snapshot"],
-            "model_provider_chart_spec_hidden_entity",
+            "model_provider_referenced_unapproved_entity",
         )
         self.assertEqual(result["planner_call_count"], 1)
-        self.assertEqual(result["error_codes"], ["model_provider_chart_spec_hidden_entity"])
+        self.assertEqual(result["error_codes"], ["model_provider_referenced_unapproved_entity"])
         self.assertEqual(result["provider_plans"], [])
         self.assertEqual(result["render_plans"], [])
         self.assertEqual(result["artifacts"], [])
@@ -113,10 +113,10 @@ class JobOrchestrationModelProviderPlanningAnchorTests(unittest.TestCase):
         for case in result["cases"].values():
             self.assert_card_facing_model_provider_failure(
                 case["snapshot"],
-                "model_provider_chart_spec_hidden_entity",
+                "model_provider_referenced_unapproved_entity",
             )
             self.assertEqual(case["planner_call_count"], 1, case)
-            self.assertEqual(case["error_codes"], ["model_provider_chart_spec_hidden_entity"], case)
+            self.assertEqual(case["error_codes"], ["model_provider_referenced_unapproved_entity"], case)
             self.assertEqual(case["provider_plans"], [], case)
             self.assertEqual(case["render_plans"], [], case)
             self.assertEqual(case["artifacts"], [], case)

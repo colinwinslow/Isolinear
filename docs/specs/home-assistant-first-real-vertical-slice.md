@@ -76,6 +76,14 @@ The first real vertical slice must:
 - Normalize real or injected history into schema-valid `HistorySeries`
   records before planning/rendering; statistics buckets carry `value` (mean) and
   `value_min` / `value_max`.
+- Choose the render family deterministically from each resolved entity's
+  `_series_kind` *before* planning (ADR-0022): all-numeric entities use the
+  numeric `time_series` / `line` family; all binary/categorical entities use the
+  categorical `timeline` / `step` family. The integration selects which
+  per-family Ollama structured-output schema to send, so the model never picks
+  `chart_type`. A mixed numeric + binary plot fails closed with a deterministic
+  `mixed_chart_composition_unsupported` snapshot until the 0.1.26 overlay packet
+  lands (overlay composition is the documented target architecture).
 - Call only the configured Ollama-compatible planner boundary for eligible
   jobs.
 - Validate `PlannerResult`, nested `ChartSpec`, and referenced entity IDs
@@ -89,6 +97,16 @@ The first real vertical slice must:
   the chart stays legible when the PNG is downscaled to a phone-width card. When
   a series carries `value_min` / `value_max` (statistics buckets), shade a
   min/max band behind the mean line.
+- Render `timeline` charts as on/off (binary) or multi-state (categorical) step
+  tracks, one lane per series, from raw `binary_state` / `categorical_state`
+  `HistorySeries` points (ADR-0022). Each state is held until the next change;
+  "on"/active regions are filled. Lane labels, the time axis, and the state
+  legend reuse the same large source-pixel sizing as the numeric renderer so the
+  track stays legible on a phone-width card. The on-region geometry is produced
+  by a shared `_binary_on_regions` primitive reused by the 0.1.26 overlay layer.
+  Timelines are a raw-recorder-states family: a timeline window beyond recorder
+  retention fails closed (no raw states, no statistics for a non-`state_class`
+  entity).
 - Return card-facing failed job snapshots for trusted in-process renderer
   failures instead of surfacing them as snapshot-poll command rejections.
 - Return that PNG to the existing dashboard card as `chart.image_url`, using a
@@ -155,6 +173,21 @@ planner, and verifies that the returned chart image is a real PNG data URL.
    across both the upper and lower plot bands rather than collapsing to a flat
    row, and a statistics series paints a tinted min/max band behind the mean
    line.
+6d. Focused pytest + eval prove deterministic render-family routing (ADR-0022):
+   an all-binary resolved entity set classifies to `timeline` and is sent the
+   timeline planner schema; an all-numeric set classifies to `time_series`; a
+   mixed numeric + binary set fails closed with
+   `mixed_chart_composition_unsupported` before the planner is called.
+6e. Focused pytest proves the categorical timeline renderer: a `binary_sensor`
+   `timeline` chart with raw on/off history renders a PNG whose decoded
+   signature is valid, paints filled "on" regions (ink in the lane) and gaps for
+   "off", reuses the shared `_binary_on_regions` primitive, and reports zero
+   codegen attempts. A timeline window beyond recorder retention fails closed.
+6f. Focused pytest proves failure-code disambiguation (ADR-0022): a provider
+   chart spec referencing an entity absent from the approved catalog returns
+   `model_provider_referenced_unapproved_entity`; one referencing an approved
+   entity not disclosed for this job returns `model_provider_substituted_entity`;
+   both still fail before rendering or artifact storage.
 7. Evidence file contains raw command/result snippets and decoded PNG
    signature bytes.
 8. Adjacent orchestration tests remain green.

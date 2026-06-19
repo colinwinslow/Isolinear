@@ -55,8 +55,22 @@ def get_model_provider_planner(hass: Any, entry_id: str) -> Any | None:
     return planner if planner is not None else None
 
 
-def load_planner_result_schema() -> dict[str, Any]:
-    """Load the PlannerResult JSON Schema for Ollama structured output."""
+# Render families the integration may request from the planner (ADR-0022). The
+# integration deterministically selects the family from each resolved entity's
+# series kind; the model never chooses chart_type.
+PLANNER_RENDER_FAMILIES = {
+    "time_series": {"chart_type": "time_series", "render_as": "line"},
+    "timeline": {"chart_type": "timeline", "render_as": "step"},
+}
+
+
+def load_planner_result_schema(family: str = "time_series") -> dict[str, Any]:
+    """Load the PlannerResult JSON Schema for Ollama structured output.
+
+    ``family`` selects the deterministically-chosen render family (ADR-0022):
+    ``time_series`` (numeric line) or ``timeline`` (binary/categorical step).
+    """
+    spec = PLANNER_RENDER_FAMILIES.get(family, PLANNER_RENDER_FAMILIES["time_series"])
     schema = load_schema_document(PLANNER_RESULT_SCHEMA_PATH)
     schema.setdefault("properties", {})["chart_spec"] = {
         "type": "object",
@@ -64,7 +78,7 @@ def load_planner_result_schema() -> dict[str, Any]:
         "additionalProperties": False,
         "properties": {
             "chart_id": {"type": "string"},
-            "chart_type": {"enum": ["time_series"]},
+            "chart_type": {"enum": [spec["chart_type"]]},
             "title": {"type": "string"},
             "time_range": {
                 "type": "object",
@@ -97,7 +111,7 @@ def load_planner_result_schema() -> dict[str, Any]:
                             },
                         },
                         "role": {"enum": ["primary", "comparison", "secondary", "annotation"]},
-                        "render_as": {"enum": ["line"]},
+                        "render_as": {"enum": [spec["render_as"]]},
                         "transform": {
                             "type": "object",
                             "required": ["operation", "window"],
@@ -277,6 +291,7 @@ class OllamaCompatiblePlannerClient:
         }
 
     def _chat_payload(self, request: dict[str, Any], result_schema: dict[str, Any]) -> dict[str, Any]:
+        chart_type, render_as = _chart_family_from_schema(result_schema)
         prompt_payload = {
             "task": "Return one PlannerResult JSON object for an Isolinear chart plan.",
             "rules": [
@@ -285,7 +300,8 @@ class OllamaCompatiblePlannerClient:
                 "The chart_spec must use chart_type, not graph_type.",
                 "Each series must include series_id, label, source, role, render_as, transform, and unit.",
                 "Each entity series source must be {\"type\":\"entity\",\"entity_id\":\"<approved id>\",\"attribute\":null}.",
-                "Use chart_type time_series, render_as line, transform operation none, x_axis type time, and overlays [].",
+                f"Use chart_type {chart_type}, render_as {render_as}, transform operation none, "
+                "x_axis type time, and overlays [].",
                 "Resolve the requested time window into an absolute time_range "
                 "{\"type\":\"absolute\",\"start\":<ISO8601>,\"end\":<ISO8601>} using the "
                 "request now and time_zone. Interpret fuzzy phrases (for example "
@@ -296,8 +312,8 @@ class OllamaCompatiblePlannerClient:
             "planner_request": deepcopy(request),
             "planner_result_schema": result_schema,
             "minimal_chart_spec_example": {
-                "chart_id": "approved_entity_time_series",
-                "chart_type": "time_series",
+                "chart_id": f"approved_entity_{chart_type}",
+                "chart_type": chart_type,
                 "title": "Approved entity history",
                 "time_range": {
                     "type": "absolute",
@@ -314,7 +330,7 @@ class OllamaCompatiblePlannerClient:
                             "attribute": None,
                         },
                         "role": "primary",
-                        "render_as": "line",
+                        "render_as": render_as,
                         "transform": {"operation": "none", "window": None},
                         "unit": None,
                     }
@@ -346,6 +362,19 @@ class OllamaCompatiblePlannerClient:
                 "temperature": 0,
             },
         }
+
+
+def _chart_family_from_schema(result_schema: Any) -> tuple[str, str]:
+    """Derive (chart_type, render_as) from a family-specific planner schema."""
+    chart_type = "time_series"
+    render_as = "line"
+    try:
+        chart_spec = result_schema["properties"]["chart_spec"]["properties"]
+        chart_type = chart_spec["chart_type"]["enum"][0]
+        render_as = chart_spec["series"]["items"]["properties"]["render_as"]["enum"][0]
+    except (KeyError, IndexError, TypeError):
+        pass
+    return chart_type, render_as
 
 
 def _setup_disabled(entry_id: str, code: str) -> dict[str, Any]:

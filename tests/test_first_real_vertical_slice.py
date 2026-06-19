@@ -1,6 +1,7 @@
 import sys
 import asyncio
 import tempfile
+from copy import deepcopy
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -161,6 +162,216 @@ class FakePlanner:
             },
             "provider_response": {"model": "llama3.1", "done": True},
         }
+
+
+class SubstituteEntityPlanner(FakePlanner):
+    """A planner that references an approved entity that was not disclosed."""
+
+    def __init__(self, *, substitute_entity_id: str, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._substitute_entity_id = substitute_entity_id
+
+    def plan_chart(self, request, *, result_schema=None):
+        response = super().plan_chart(request, result_schema=result_schema)
+        series = response["planner_result"]["chart_spec"]["series"][0]
+        series["source"]["entity_id"] = self._substitute_entity_id
+        series["label"] = self._substitute_entity_id
+        return response
+
+
+class TimelinePlanner(FakePlanner):
+    """A planner that emits a binary timeline (step) chart spec for one entity."""
+
+    def __init__(self, *, entity_id: str, time_range: dict[str, Any] | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._entity_id = entity_id
+        self._time_range = time_range or {"type": "relative", "duration": "24h"}
+
+    def plan_chart(self, request, *, result_schema=None):
+        self.calls.append(request)
+        series_id = self._entity_id.replace(".", "_")
+        chart_spec = {
+            "chart_id": "real-slice-timeline",
+            "chart_type": "timeline",
+            "title": f"Timeline {self._entity_id}",
+            "time_range": deepcopy(self._time_range),
+            "series": [
+                {
+                    "series_id": series_id,
+                    "label": self._entity_id,
+                    "source": {"type": "entity", "entity_id": self._entity_id, "attribute": None},
+                    "role": "primary",
+                    "render_as": "step",
+                    "transform": {"operation": "none", "window": None},
+                    "unit": None,
+                }
+            ],
+            "overlays": [],
+            "x_axis": {"type": "time"},
+            "y_axis": {},
+            "notes": ["first_real_vertical_slice"],
+        }
+        return {
+            "accepted": True,
+            "code": "model_provider_planner_result_received",
+            "provider": self.provider_metadata(),
+            "planner_result": {
+                "status": "chart_spec_ready",
+                "chart_spec": chart_spec,
+                "clarification_question": None,
+                "memory_proposals": [],
+                "reasoning_summary": "Door state over time.",
+                "warnings": [],
+            },
+            "provider_response": {"model": "llama3.1", "done": True},
+        }
+
+
+def _binary_history_records(entity_id: str) -> list[dict[str, Any]]:
+    start = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=10)
+    states = ["off", "on", "off", "on", "off"]
+    return [
+        {
+            "entity_id": entity_id,
+            "state": state,
+            "last_changed": (start + timedelta(hours=2 * index)).isoformat(timespec="seconds"),
+            "attributes": {"device_class": "door"},
+        }
+        for index, state in enumerate(states)
+    ]
+
+
+_DOOR_METADATA = {
+    "binary_sensor.kitchen_door": {
+        "friendly_name": "Kitchen Door",
+        "device_class": "door",
+        "attributes": {"friendly_name": "Kitchen Door", "device_class": "door"},
+    }
+}
+
+
+class RenderFamilyRoutingTests(unittest.TestCase):
+    def test_resolve_render_family_routes_by_series_kind(self):
+        catalog = [
+            {"entity_id": "sensor.temp", "domain": "sensor", "state_class": "measurement"},
+            {"entity_id": "binary_sensor.door", "domain": "binary_sensor"},
+        ]
+        self.assertEqual(
+            job_orchestration._resolve_render_family(catalog, ["sensor.temp"])["family"],
+            "time_series",
+        )
+        self.assertEqual(
+            job_orchestration._resolve_render_family(catalog, ["binary_sensor.door"])["family"],
+            "timeline",
+        )
+        self.assertEqual(
+            job_orchestration._resolve_render_family(catalog, ["sensor.temp", "binary_sensor.door"])["family"],
+            "mixed",
+        )
+
+    def test_timeline_planner_schema_locks_timeline_step(self):
+        schema = load_planner_result_schema("timeline")
+        chart_spec = schema["properties"]["chart_spec"]["properties"]
+        self.assertEqual(chart_spec["chart_type"]["enum"], ["timeline"])
+        self.assertEqual(
+            chart_spec["series"]["items"]["properties"]["render_as"]["enum"],
+            ["step"],
+        )
+
+    def test_binary_prompt_renders_timeline_png(self):
+        planner = TimelinePlanner(entity_id="binary_sensor.kitchen_door")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(
+                planner=planner,
+                artifact_dir=artifact_dir,
+                extra_metadata_by_entity=_DOOR_METADATA,
+            )
+            # Remove the numeric default entity so only the door is allowlisted/disclosed.
+            hass.data[DOMAIN][DATA_HISTORY_SOURCE]["binary_sensor.kitchen_door"] = _binary_history_records(
+                "binary_sensor.kitchen_door"
+            )
+
+            start = _start_job(
+                hass,
+                entry,
+                prompt="Show binary_sensor.kitchen_door for the last 24 hours",
+            )
+            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot["snapshot"])
+            image_url = snapshot["snapshot"]["chart"]["image_url"]
+            self.assertTrue(image_url.startswith("/api/isolinear/artifacts/"), image_url)
+            # The planner was given the timeline schema (deterministic routing).
+            self.assertEqual(len(planner.calls), 1)
+            png_files = list(artifact_dir.glob("*.png"))
+            self.assertEqual(len(png_files), 1, png_files)
+            self.assertEqual(png_files[0].read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+
+    def test_beyond_retention_binary_timeline_fails_closed(self):
+        # A binary entity has no long-term statistics; a window older than
+        # recorder retention has no raw states either, so the timeline fails
+        # closed through the history-retrieval gate (ADR-0022 D3 / Scenario K).
+        beyond = {
+            "type": "absolute",
+            "start": "2026-03-01T00:00:00+00:00",
+            "end": "2026-03-08T00:00:00+00:00",
+        }
+        planner = TimelinePlanner(entity_id="binary_sensor.kitchen_door", time_range=beyond)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(
+                planner=planner,
+                artifact_dir=artifact_dir,
+                extra_metadata_by_entity=_DOOR_METADATA,
+            )
+            hass.data[DOMAIN][DATA_HISTORY_SOURCE]["binary_sensor.kitchen_door"] = _binary_history_records(
+                "binary_sensor.kitchen_door"
+            )
+            start = _start_job(
+                hass,
+                entry,
+                prompt="Show binary_sensor.kitchen_door in early March",
+            )
+            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "failed")
+            self.assertEqual(
+                snapshot["snapshot"]["failure"]["code"],
+                "no_long_term_statistics",
+            )
+            self.assertEqual(list(artifact_dir.glob("*.png")), [])
+
+    def test_mixed_prompt_fails_closed_with_mixed_code(self):
+        planner = FakePlanner()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(
+                planner=planner,
+                artifact_dir=artifact_dir,
+                extra_metadata_by_entity=_DOOR_METADATA,
+            )
+            hass.data[DOMAIN][DATA_HISTORY_SOURCE]["binary_sensor.kitchen_door"] = _binary_history_records(
+                "binary_sensor.kitchen_door"
+            )
+            start = _start_job(
+                hass,
+                entry,
+                prompt="Show sensor.upstairs_temperature and binary_sensor.kitchen_door for the last 24 hours",
+            )
+            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "failed")
+            self.assertEqual(
+                snapshot["snapshot"]["failure"]["code"],
+                "mixed_chart_composition_unsupported",
+            )
+            # Fails before the planner is called.
+            self.assertEqual(len(planner.calls), 0)
+            self.assertEqual(list(artifact_dir.glob("*.png")), [])
 
 
 class InvalidPlannerResultPlanner(FakePlanner):
@@ -454,8 +665,49 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             self.assertTrue(snapshot["accepted"], snapshot)
             self.assertEqual(snapshot["snapshot"]["status"], "failed")
             self.assertEqual(snapshot["snapshot"]["failure"]["stage"], "model_provider_planning")
-            self.assertEqual(snapshot["snapshot"]["failure"]["code"], "model_provider_chart_spec_hidden_entity")
+            # sensor.hidden_temperature is absent from the approved catalog → a
+            # true allowlist breach, not a substitution (ADR-0022 disambiguation).
+            self.assertEqual(
+                snapshot["snapshot"]["failure"]["code"],
+                "model_provider_referenced_unapproved_entity",
+            )
             self.assertEqual(len(planner.calls), 1)
+            self.assertFalse(snapshot["orchestration"]["chart_rendering_called"])
+
+    def test_substituted_approved_but_undisclosed_entity_fails_with_substitution_code(self):
+        # Two numeric entities are allowlisted, but only one is disclosed for a
+        # given job. A planner that references the *other* approved entity is a
+        # substitution, not an allowlist breach (ADR-0022 disambiguation).
+        planner = SubstituteEntityPlanner(substitute_entity_id="sensor.basement_temperature")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(
+                planner=planner,
+                artifact_dir=artifact_dir,
+                extra_metadata_by_entity={
+                    "sensor.basement_temperature": {
+                        "friendly_name": "Basement Temperature",
+                        "device_class": "temperature",
+                        "state_class": "measurement",
+                        "unit_of_measurement": "degF",
+                        "area": "Basement",
+                        "attributes": {
+                            "friendly_name": "Basement Temperature",
+                            "unit_of_measurement": "degF",
+                        },
+                    }
+                },
+            )
+            start = _start_job(hass, entry)
+            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "failed")
+            self.assertEqual(snapshot["snapshot"]["failure"]["stage"], "model_provider_planning")
+            self.assertEqual(
+                snapshot["snapshot"]["failure"]["code"],
+                "model_provider_substituted_entity",
+            )
             self.assertFalse(snapshot["orchestration"]["chart_rendering_called"])
             self.assertFalse(snapshot["orchestration"]["chart_artifact_written"])
             self.assertFalse(snapshot["orchestration"]["artifact_metadata_bookkeeping_written"])
@@ -934,6 +1186,134 @@ class InProcessRendererLegibilityTests(unittest.TestCase):
                 break
         self.assertTrue(upper, "series ink missing from the upper plot band")
         self.assertTrue(lower, "series ink missing from the lower plot band")
+
+
+def _binary_timeline_render_request(width: int = 1400, height: int = 800) -> dict[str, Any]:
+    # A door that is closed, then open for a stretch, then closed again.
+    start = datetime(2026, 6, 18, 0, 0, 0, tzinfo=timezone.utc)
+    states = [
+        ("off", 0),
+        ("on", 6),
+        ("off", 9),
+        ("on", 14),
+        ("off", 20),
+    ]
+    points = [
+        {
+            "ts": (start + timedelta(hours=hour)).isoformat(timespec="seconds"),
+            "value": value,
+            "raw_state": value,
+            "quality": "ok",
+        }
+        for value, hour in states
+    ]
+    return {
+        "request_id": "timeline-anchor",
+        "render_mode": "safe",
+        "chart_spec": {
+            "chart_id": "c",
+            "chart_type": "timeline",
+            "title": "Kitchen Door State",
+            "time_range": {
+                "type": "absolute",
+                "start": start.isoformat(timespec="seconds"),
+                "end": (start + timedelta(hours=24)).isoformat(timespec="seconds"),
+            },
+            "series": [
+                {
+                    "series_id": "kitchen_door",
+                    "label": "Kitchen Door",
+                    "source": {
+                        "type": "entity",
+                        "entity_id": "binary_sensor.kitchen_door",
+                        "attribute": None,
+                    },
+                    "role": "primary",
+                    "render_as": "step",
+                    "transform": {"operation": "none", "window": None},
+                    "unit": None,
+                }
+            ],
+            "overlays": [],
+            "x_axis": {"type": "time"},
+            "y_axis": {},
+            "notes": [],
+        },
+        "history_series": [
+            {
+                "series_id": "kitchen_door",
+                "entity_id": "binary_sensor.kitchen_door",
+                "label": "Kitchen Door",
+                "kind": "binary_state",
+                "unit": None,
+                "points": points,
+                "source": "recorder_states",
+                "resolution": "raw",
+                "source_entity_ids": ["binary_sensor.kitchen_door"],
+                "warnings": [],
+            }
+        ],
+        "derived_intervals": [],
+        "output": {"format": "png", "width": width, "height": height},
+        "theme": {},
+        "codegen": None,
+    }
+
+
+class InProcessTimelineRendererTests(unittest.TestCase):
+    def _open(self, png_bytes: bytes):
+        from io import BytesIO
+
+        from PIL import Image
+
+        return Image.open(BytesIO(png_bytes)).convert("RGB")
+
+    def test_binary_timeline_renders_valid_png_with_on_regions(self):
+        result = render_in_process_chart(_binary_timeline_render_request())
+        self.assertTrue(result["accepted"], result)
+        self.assertEqual(result["render_result"]["status"], "success")
+        self.assertEqual(result["render_result"]["render_metadata"]["codegen_attempts"], 0)
+        self.assertEqual(result["render_result"]["render_metadata"]["series_plotted"], ["kitchen_door"])
+        self.assertEqual(result["png_bytes"][:8], b"\x89PNG\r\n\x1a\n")
+
+        image = self._open(result["png_bytes"])
+        self.assertEqual(image.size, (1400, 800))
+        # The "on" regions paint filled bars in the lane (series color #1f77b4).
+        on_color = (31, 119, 180)
+        on_pixels = sum(
+            1
+            for y in range(0, image.height, 4)
+            for x in range(0, image.width, 4)
+            if image.getpixel((x, y)) == on_color
+        )
+        self.assertGreater(on_pixels, 50, "expected filled on-regions in the timeline lane")
+
+    def test_timeline_on_regions_match_open_intervals(self):
+        from custom_components.isolinear.in_process_renderer import (
+            _binary_on_regions,
+            _BINARY_ON_VALUES,
+        )
+
+        request = _binary_timeline_render_request()
+        history = request["history_series"][0]
+        window_end = datetime(2026, 6, 18, 20, 0, 0, tzinfo=timezone.utc)
+        regions = _binary_on_regions(history, _BINARY_ON_VALUES, window_end=window_end)
+        # Door is on 06:00-09:00 and 14:00-20:00 (held to window end).
+        spans = [((s.hour), (e.hour)) for s, e in regions]
+        self.assertEqual(spans, [(6, 9), (14, 20)])
+
+    def test_numeric_chart_spec_still_routes_to_line_renderer(self):
+        # Regression guard: timeline dispatch must not capture numeric specs.
+        result = render_in_process_chart(_varying_render_request())
+        self.assertTrue(result["accepted"], result)
+        self.assertEqual(result["render_result"]["render_metadata"]["series_plotted"], ["attic"])
+
+    def test_timeline_with_numeric_history_fails_closed(self):
+        request = _binary_timeline_render_request()
+        request["history_series"][0]["kind"] = "numeric"
+        result = render_in_process_chart(request)
+        self.assertFalse(result["accepted"], result)
+        self.assertEqual(result["code"], "in_process_renderer_failed")
 
 
 NOW = datetime(2026, 6, 18, 12, 0, 0, tzinfo=timezone.utc)

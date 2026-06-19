@@ -85,8 +85,65 @@ entity that has no long-term statistics (no `state_class`)
 `failure.stage: approved_history_retrieval` and `failure.code:
 no_long_term_statistics`, and no PNG file is written.
 
+### Scenario I - binary entity renders an on/off timeline (ADR-0022)
+
+**Given** a configured entry whose single resolved entity is a `binary_sensor`
+(e.g. `binary_sensor.kitchen_door`) with raw on/off recorder history in the
+resolved window
+**When** the dashboard card runs `job/start` then `job/snapshot`
+**Then** the integration classifies the entity as `binary_state` *before*
+planning, sends the planner the `timeline` schema, and renders a `timeline`
+`step` PNG whose decoded signature is valid, with filled "on" regions and gaps
+for "off", and reports zero codegen attempts
+**And** the run never produces a `model_provider_chart_spec_hidden_entity` (or
+the new substitution) failure for the approved, disclosed door sensor.
+
+### Scenario J - deterministic render-family routing (ADR-0022)
+
+**Given** the integration has resolved the entities for a job
+**When** it classifies them by `_series_kind`
+**Then** an all-numeric set routes to `time_series`/`line`, an all-categorical
+set routes to `timeline`/`step`, and a mixed numeric + binary set fails closed
+with `mixed_chart_composition_unsupported` before the planner is called
+(overlay composition is deferred to the 0.1.26 packet).
+
+### Scenario K - beyond-retention timeline fails closed (ADR-0022)
+
+**Given** a `binary_sensor` resolved entity and a window older than recorder
+retention
+**When** the snapshot path retrieves history for the timeline
+**Then** it fails closed (no raw states and no long-term statistics for a
+non-`state_class` entity) with a card-facing failed snapshot, and no PNG is
+written.
+
+### Scenario L - honest failure-code disambiguation (ADR-0022)
+
+**Given** the same configured entry and history
+**When** the planner result references an entity that is **not in the approved
+catalog at all**
+**Then** the snapshot fails before rendering with
+`model_provider_referenced_unapproved_entity`
+**And when** instead it references an entity that **is** approved but was **not
+disclosed for this job**, the snapshot fails before rendering with
+`model_provider_substituted_entity`.
+
+### Scenario M (PENDING - 0.1.26) - numeric line with binary overlay band
+
+**Given** a prompt that resolves both a numeric entity and a binary entity
+(e.g. "temperature and when the AC was running")
+**When** the snapshot path composes the chart deterministically
+**Then** the numeric series renders as the primary line and the binary entity
+renders as a `shaded_intervals` overlay band behind it in a single PNG, with the
+overlay entity allowlist-validated.
+
+> Scenario M is the documented target architecture (ADR-0022 D4/D5). It is
+> **pending** and implemented in the 0.1.26 fast-follow; the 0.1.25 renderer
+> primitive (`_binary_on_regions`) is built to be reused by it without a
+> rewrite.
+
 ## Evidence
 
 The implementing slice produces an evidence file at
 `bdd/integration/home-assistant-first-real-vertical-slice-evidence.md`
-containing raw outputs for each scenario.
+containing raw outputs for each scenario. Scenarios I-L are active in 0.1.25;
+Scenario M is pending (0.1.26).

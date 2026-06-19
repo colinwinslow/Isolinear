@@ -467,3 +467,116 @@ Captured from `tests/test_first_real_vertical_slice.py`
   "png_files_written": 0
 }
 ```
+
+## Scenarios I-L - categorical timeline render family (0.1.25, ADR-0022)
+
+Proof: `tests/test_first_real_vertical_slice.py` classes
+`InProcessTimelineRendererTests` and `RenderFamilyRoutingTests`, plus the
+disambiguation tests in `FirstRealVerticalSliceTests`, and the eval
+`evals/timeline_render_family_routing.py`. Focused run:
+
+```
+$ python -m pytest tests/test_first_real_vertical_slice.py \
+    -k "Timeline or RenderFamily or substituted or hidden_provider"
+10 passed, 32 deselected
+```
+
+### Scenario J - deterministic render-family routing (raw eval CASE)
+
+```json
+{
+  "case_id": "deterministic_render_family_routing",
+  "then": {
+    "numeric": "time_series",
+    "binary": "timeline",
+    "categorical": "timeline",
+    "mixed": "mixed",
+    "time_series_chart_type": ["time_series"],
+    "timeline_chart_type": ["timeline"],
+    "timeline_render_as": ["step"]
+  },
+  "when": {"operation": "_resolve_render_family + load_planner_result_schema"}
+}
+```
+
+A mixed numeric + binary prompt fails closed **before the planner is called**
+(`planner.calls == 0`) with a card-facing snapshot:
+
+```json
+{
+  "status": "failed",
+  "failure": {"stage": "model_provider_planning", "code": "mixed_chart_composition_unsupported"},
+  "png_files_written": 0
+}
+```
+
+### Scenario I - binary entity renders an on/off timeline (raw eval CASE)
+
+```json
+{
+  "case_id": "binary_timeline_render",
+  "given": {"entity": "binary_sensor.kitchen_door", "kind": "binary_state"},
+  "then": {
+    "on_region_hours": [[6, 9], [14, 20]],
+    "status": "success",
+    "renderer": "in_process_pillow",
+    "png_signature_ok": true,
+    "series_plotted": ["kitchen_door"]
+  },
+  "when": {"operation": "render_in_process_chart(chart_type=timeline)"}
+}
+```
+
+End-to-end (`test_binary_prompt_renders_timeline_png`): a `job/start` ->
+`job/snapshot` for `binary_sensor.kitchen_door` returns a `complete` snapshot
+whose `chart.image_url` is `/api/isolinear/artifacts/<id>.png`, exactly one PNG
+is written, and its signature bytes are `89 50 4E 47 0D 0A 1A 0A`. The approved,
+disclosed door sensor never produces a hidden/substituted-entity failure. The
+rendered anchor PNG (two-lane binary + categorical) was eyes-on verified legible
+at a 380px phone-card downscale.
+
+### Scenario L - honest failure-code disambiguation
+
+```json
+{
+  "unapproved_reference": {
+    "failure": {"stage": "model_provider_planning", "code": "model_provider_referenced_unapproved_entity"},
+    "note": "sensor.hidden_temperature is absent from the approved catalog"
+  },
+  "substituted_reference": {
+    "failure": {"stage": "model_provider_planning", "code": "model_provider_substituted_entity"},
+    "note": "sensor.basement_temperature is approved but was not disclosed for this job"
+  }
+}
+```
+
+Both fail before rendering or artifact storage
+(`chart_rendering_called == false`, no PNG written). The model-provider planning
+anchor verifier (`src/Isolinear/job_orchestration_model_provider_planning_anchor.py`)
+and its recursive hidden-output cases now assert
+`model_provider_referenced_unapproved_entity`.
+
+### Scenario K - beyond-retention timeline
+
+Proof: `test_beyond_retention_binary_timeline_fails_closed`. A `timeline` window
+beyond recorder retention has no raw states and no long-term statistics for a
+non-`state_class` binary entity, so it fails closed through the same
+`no_long_term_statistics` history-retrieval gate as Scenario H (the gate stays
+*after* planning per ADR-0020; routing does not move it):
+
+```json
+{
+  "status": "failed",
+  "failure": {"code": "no_long_term_statistics"},
+  "png_files_written": 0
+}
+```
+
+A dedicated `timeline_history_unavailable` code is a documented 0.1.26
+refinement.
+
+### Scenario M (PENDING - 0.1.26)
+
+Numeric line + binary `shaded_intervals` overlay is the documented target
+architecture (ADR-0022 D4/D5). Not implemented in 0.1.25; the renderer
+primitive `_binary_on_regions` is built reusable for it.

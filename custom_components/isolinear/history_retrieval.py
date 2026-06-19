@@ -1011,6 +1011,14 @@ def _history_point_for_state(
     }
 
 
+def classify_series_kind(catalog_item: dict[str, Any]) -> str:
+    """Public deterministic series-kind classifier used for render-family routing.
+
+    Returns ``numeric`` | ``binary_state`` | ``categorical_state`` (ADR-0022).
+    """
+    return _series_kind(catalog_item)
+
+
 def _series_kind(catalog_item: dict[str, Any]) -> str:
     if catalog_item.get("domain") == "binary_sensor":
         return "binary_state"

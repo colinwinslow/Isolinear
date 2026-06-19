@@ -17,6 +17,7 @@ from .const import DOMAIN, INTEGRATION_COMMAND_TYPES
 from .entity_catalog import DATA_ENTITY_CATALOG, DATA_ENTITY_CATALOG_SETUP
 from .history_retrieval import (
     DATA_HISTORY_RETRIEVAL,
+    classify_series_kind,
     retrieve_approved_history,
     validate_history_series_collection_contract,
 )
@@ -1866,6 +1867,9 @@ def _is_model_provider_output_failure_code(code: Any) -> bool:
         "invalid_model_provider_chart_spec",
         "invalid_planner_result",
         "model_provider_chart_spec_hidden_entity",
+        "model_provider_referenced_unapproved_entity",
+        "model_provider_substituted_entity",
+        "mixed_chart_composition_unsupported",
         "model_provider_planner_not_chart_spec_ready",
         "model_provider_planning_failed",
     }
@@ -1899,6 +1903,15 @@ def _model_provider_planning_failure_message(planning_result: dict[str, Any]) ->
         ),
         "model_provider_chart_spec_hidden_entity": (
             "The model provider returned a chart spec that referenced an entity outside the approved allowlist."
+        ),
+        "model_provider_referenced_unapproved_entity": (
+            "The model provider referenced an entity that is not on the approved allowlist."
+        ),
+        "model_provider_substituted_entity": (
+            "The model provider substituted an entity that was not selected for this question."
+        ),
+        "mixed_chart_composition_unsupported": (
+            "Charting numeric and binary entities together is not supported yet; ask about them separately."
         ),
         "invalid_integration_model_provider_plan": (
             "The model provider plan failed integration metadata validation."
@@ -2459,8 +2472,32 @@ def _record_model_provider_plan(
             "chart_spec": None,
         }
 
+    # Deterministic render-family routing (ADR-0022): classify each resolved
+    # entity by series kind *before* planning and select the matching planner
+    # schema. The model never chooses chart_type.
+    catalog_items = _approved_catalog_items(hass, entry_id)
+    requested_entity_ids = _source_snapshot_entity_ids(source_snapshot)
+    routing = _resolve_render_family(catalog_items, requested_entity_ids)
+    if routing["family"] == "mixed":
+        return {
+            "accepted": False,
+            "code": "mixed_chart_composition_unsupported",
+            "model_provider_called": False,
+            "model_provider_plan": None,
+            "chart_spec": None,
+            "validation": {
+                "accepted": False,
+                "code": "mixed_chart_composition_unsupported",
+                "error": (
+                    "Charting numeric and binary/categorical entities together is not yet supported; "
+                    "the binary overlay composition lands in a later packet."
+                ),
+                "kinds": routing["kinds"],
+            },
+        }
+
     request = _model_provider_planner_request(hass=hass, job=job, source_snapshot=source_snapshot)
-    result_schema = load_planner_result_schema()
+    result_schema = load_planner_result_schema(routing["family"])
     provider_response = planner.plan_chart(request, result_schema=result_schema)
     provider_summary = {
         "provider": planner_client_metadata(planner),
@@ -2532,7 +2569,12 @@ def _record_model_provider_plan(
             "model_provider": provider_summary,
         }
 
-    entity_validation = validate_model_provider_output_entities(planner_result, chart_spec, source_snapshot)
+    entity_validation = validate_model_provider_output_entities(
+        planner_result,
+        chart_spec,
+        source_snapshot,
+        approved_catalog_entity_ids=[item["entity_id"] for item in catalog_items],
+    )
     if not entity_validation["accepted"]:
         return {
             "accepted": False,
@@ -4681,9 +4723,18 @@ def validate_model_provider_output_entities(
     planner_result: dict[str, Any],
     chart_spec: dict[str, Any],
     source_snapshot: dict[str, Any],
+    approved_catalog_entity_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Ensure provider output contains only approved Home Assistant entity IDs."""
+    """Ensure provider output contains only approved, disclosed entity IDs.
+
+    Disambiguates the failure (ADR-0022): a reference to an entity absent from
+    the approved catalog is a true allowlist breach
+    (``model_provider_referenced_unapproved_entity``); a reference to an entity
+    that is approved but was not disclosed for this job is a substitution
+    (``model_provider_substituted_entity``).
+    """
     approved_entity_ids = set(_source_snapshot_entity_ids(source_snapshot))
+    catalog_entity_ids = set(approved_catalog_entity_ids or []) | approved_entity_ids
     structured_refs = _chart_spec_entity_ids(chart_spec)
     scanned_refs = _entity_ids_in_provider_output(
         {
@@ -4694,12 +4745,20 @@ def validate_model_provider_output_entities(
     referenced_entity_ids = structured_refs["entity_ids"] | scanned_refs["entity_ids"]
     rejected_entity_ids = sorted(referenced_entity_ids - approved_entity_ids)
     if rejected_entity_ids or structured_refs["unsupported_source_refs"]:
+        unapproved_entity_ids = sorted(set(rejected_entity_ids) - catalog_entity_ids)
+        substituted_entity_ids = sorted(set(rejected_entity_ids) & catalog_entity_ids)
+        if unapproved_entity_ids or structured_refs["unsupported_source_refs"]:
+            code = "model_provider_referenced_unapproved_entity"
+        else:
+            code = "model_provider_substituted_entity"
         return {
             "accepted": False,
-            "code": "model_provider_chart_spec_hidden_entity",
+            "code": code,
             "approved_entity_ids": sorted(approved_entity_ids),
             "referenced_entity_ids": sorted(referenced_entity_ids),
             "rejected_entity_ids": rejected_entity_ids,
+            "unapproved_entity_ids": unapproved_entity_ids,
+            "substituted_entity_ids": substituted_entity_ids,
             "unsupported_source_refs": structured_refs["unsupported_source_refs"],
             "textual_entity_refs": scanned_refs["matches"],
         }
@@ -4709,6 +4768,29 @@ def validate_model_provider_output_entities(
         "approved_entity_ids": sorted(approved_entity_ids),
         "referenced_entity_ids": sorted(referenced_entity_ids),
     }
+
+
+def _resolve_render_family(
+    catalog_items: list[dict[str, Any]],
+    requested_entity_ids: list[str],
+) -> dict[str, Any]:
+    """Deterministically choose the render family from resolved entity kinds (ADR-0022)."""
+    by_id = {item["entity_id"]: item for item in catalog_items}
+    kinds: set[str] = set()
+    for entity_id in requested_entity_ids:
+        item = by_id.get(entity_id)
+        if item is None:
+            continue
+        kinds.add(classify_series_kind(item))
+    has_numeric = "numeric" in kinds
+    has_categorical = bool(kinds & {"binary_state", "categorical_state"})
+    if has_numeric and has_categorical:
+        family = "mixed"
+    elif has_categorical:
+        family = "timeline"
+    else:
+        family = "time_series"
+    return {"family": family, "kinds": sorted(kinds)}
 
 
 def _accepted(
