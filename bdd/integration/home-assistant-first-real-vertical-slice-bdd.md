@@ -154,9 +154,22 @@ asking the user to pick one, while a multi-match that is not exactly one numeric
 **Then** it fails closed with `mixed_chart_composition_unsupported` before the
 planner is called, because no primary line can be chosen deterministically.
 
+### Scenario P - planner entity_id is pinned to the disclosed enum (0.1.27, ADR-0022)
+
+**Given** a job whose deterministic render-family routing has disclosed a set of
+approved entities to the planner
+**When** the integration builds the Ollama structured-output schema for the
+planner call
+**Then** the chart-spec `source.entity_id` is constrained to an `enum` of exactly
+the disclosed entity IDs (deduped), so the provider's constrained decoding cannot
+emit an off-allowlist entity
+**And** with no disclosure the field falls back to a free string, while the
+deterministic post-plan entity-validation gate (Scenario L) is retained as
+defence in depth.
+
 ## Evidence
 
 The implementing slice produces an evidence file at
 `bdd/integration/home-assistant-first-real-vertical-slice-evidence.md`
 containing raw outputs for each scenario. Scenarios I-L are active in 0.1.25;
-Scenarios M-O are active in 0.1.26.
+Scenarios M-O are active in 0.1.26; Scenario P is active in 0.1.27.

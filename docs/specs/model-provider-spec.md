@@ -65,6 +65,26 @@ The first provider should support an Ollama-compatible endpoint. The model may r
 
 Where possible, model responses should be constrained by JSON schemas. Free-form prose should be reserved for user-facing explanations and failure messages.
 
+The chart-spec `source.entity_id` in the planner's structured-output schema is
+pinned to an `enum` of exactly the entities the integration disclosed for the
+job (`load_planner_result_schema(family, entity_ids=...)`). Constrained decoding
+therefore cannot emit an off-allowlist entity, so a hallucinated entity is a
+structural impossibility rather than a post-plan
+`model_provider_referenced_unapproved_entity` failure (ADR-0022, allowlist
+invariant). When no entities are disclosed the field falls back to a free string.
+The deterministic post-plan entity-validation gate is retained as defence in
+depth.
+
+## Observability
+
+The Ollama planner client logs the outgoing request body and the raw provider
+response at `DEBUG` on the `custom_components.isolinear.model_provider` logger,
+so new chart families can be diagnosed without a packet capture. These logs are
+off by default and contain the user prompt, disclosed entity IDs, and the model's
+chart-spec output; no tokens or secrets travel the planner path (local Ollama, no
+auth). Transport errors are also logged at `DEBUG` before the sanitized failure
+is returned.
+
 ## Failure behavior
 
 Provider failures must be reported with:

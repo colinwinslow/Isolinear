@@ -2534,7 +2534,13 @@ def _record_model_provider_plan(
         source_snapshot=source_snapshot,
         entity_ids=series_entity_ids or None,
     )
-    result_schema = load_planner_result_schema(planner_family)
+    # Pin the structured-output entity enum to exactly the disclosed entities so
+    # the provider cannot emit an off-allowlist entity (ADR-0022, invariant #1).
+    # request["approved_entity_ids"] is the resolved disclosure (series_entity_ids
+    # or the source-snapshot fallback inside _model_provider_planner_request).
+    result_schema = load_planner_result_schema(
+        planner_family, entity_ids=request["approved_entity_ids"]
+    )
     provider_response = planner.plan_chart(request, result_schema=result_schema)
     provider_summary = {
         "provider": planner_client_metadata(planner),

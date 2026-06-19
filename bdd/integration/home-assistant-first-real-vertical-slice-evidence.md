@@ -2,6 +2,7 @@
 
 Initial run timestamp: 2026-06-13T10:05:08.5235113-07:00
 Latest regression run timestamp: 2026-06-18 (venv Python 3.14.5 / Pillow 12.2.0; `370 passed`; ADR-0020/0021 model-resolved window + tiered data source, 0.1.22)
+Scenario P run timestamp: 2026-06-19 (Python 3.12.3 / Pillow 10.2.0; full suite `394 passed, 3 failed` — the 3 are the pre-existing codegen-sandbox subprocess flake, confirmed identical on clean baseline; enum-pinned planner entity_id + Ollama debug logging, 0.1.27)
 
 > Renderer note (ADR-0019): the trusted in-process renderer now draws with
 > Pillow instead of matplotlib. The renderer identifier is `in_process_pillow`
@@ -635,3 +636,47 @@ primary first), instead of single-entity clarification.
   "png_files_written": 0
 }
 ```
+
+## Scenario P - planner entity_id pinned to the disclosed enum (0.1.27, ADR-0022)
+
+Diagnosis: live `0.1.26` HACS testing kept failing a binary-door prompt at
+`model_provider_planning` with `model_provider_referenced_unapproved_entity`.
+Root cause: the structured-output schema left `source.entity_id` a free string
+(`{"type": "string"}`), so a small local model could hallucinate an off-allowlist
+entity that the post-plan gate (Scenario L) then rejected. The fix pins
+`source.entity_id` to an `enum` of the disclosed entities so constrained decoding
+cannot produce one. The Scenario L gate is retained as defence in depth.
+
+Proof: `tests/test_first_real_vertical_slice.py` —
+`RenderFamilyRoutingTests::test_planner_schema_pins_entity_id_to_disclosed_enum`,
+`test_planner_schema_dedupes_disclosure_and_defaults_to_free_string`,
+`test_timeline_flow_pins_schema_entity_enum_to_disclosed_entity`, and
+`OllamaPlannerClientDebugLoggingTests::test_plan_chart_logs_request_and_response_at_debug`.
+
+```
+$ python -m pytest tests/test_first_real_vertical_slice.py \
+    -k "schema_pins or dedupes or pins_schema_entity_enum or logs_request_and_response" -v
+tests/...::test_planner_schema_dedupes_disclosure_and_defaults_to_free_string PASSED
+tests/...::test_planner_schema_pins_entity_id_to_disclosed_enum               PASSED
+tests/...::test_timeline_flow_pins_schema_entity_enum_to_disclosed_entity      PASSED
+tests/...::test_plan_chart_logs_request_and_response_at_debug                  PASSED
+4 passed, 48 deselected
+```
+
+Schema constraint (pure): `load_planner_result_schema("timeline",
+entity_ids=["binary_sensor.kitchen_door"])` →
+`source.properties.entity_id == {"enum": ["binary_sensor.kitchen_door"]}`; with
+no disclosure it stays `{"type": "string"}`; duplicates/blanks collapse to a
+deduped enum.
+
+End-to-end (`test_timeline_flow_pins_schema_entity_enum_to_disclosed_entity`): a
+binary-door `job/start` → `job/snapshot` records exactly one planner call whose
+`result_schema` carries the pinned enum for `binary_sensor.kitchen_door`, proving
+the orchestration call site forwards the disclosed set.
+
+Observability (`test_plan_chart_logs_request_and_response_at_debug`): with
+`urlopen` faked and the `custom_components.isolinear.model_provider` logger at
+`DEBUG`, `plan_chart` emits `Isolinear -> Ollama plan_chart request` (outgoing
+body carries the prompt + disclosed entity) and
+`Isolinear <- Ollama plan_chart response` (raw provider content); no tokens or
+secrets travel this path.

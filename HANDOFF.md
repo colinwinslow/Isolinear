@@ -1241,11 +1241,37 @@ spec, eval YAML, and proof assertions now require `matplotlib>=3.7,<4`. The
 lazy-import fail-closed path remains intact as a backstop when pip install fails
 in the target environment. The visible package version is `0.1.19`.
 
+The planner entity_id enum-pin packet is complete (`0.1.27`). Live `0.1.26`
+testing kept failing a binary-door prompt at `model_provider_planning` with
+`model_provider_referenced_unapproved_entity` even though binary→`timeline`
+routing was confirmed live. Root cause: the Ollama structured-output schema left
+chart-spec `source.entity_id` a free string, so a small local model could
+hallucinate an off-allowlist entity that the post-plan entity gate then rejected.
+`load_planner_result_schema(family, *, entity_ids=…)` now pins `source.entity_id`
+to an `enum` of exactly the disclosed entities (deduped; blanks dropped), and the
+planning call site passes `request["approved_entity_ids"]` so the enum matches
+the disclosure; constrained decoding now makes an off-allowlist entity
+structurally impossible while the deterministic post-plan gate (Scenario L) stays
+as defence in depth (no core schema-file change — the chart-spec sub-schema is
+built in code). The packet also adds DEBUG request/response logging on the
+`custom_components.isolinear.model_provider` logger (off by default; outgoing body
++ raw provider content + transport errors; no tokens/secrets on the planner path)
+to diagnose future chart families. BDD Scenario P + evidence added. Verified
+against the real Pillow renderer this session: full suite `394 passed, 3 failed`
+(the 3 are the pre-existing codegen-sandbox subprocess flake, confirmed identical
+on clean baseline); the live `0.1.27` retest still owes confirmation that a real
+binary-door prompt now renders instead of failing at planning.
+
 ## Next recommended packet
 
-The repository is ready for a live HACS `0.1.26` retest (extends item (e)).
+The repository is ready for a live HACS `0.1.27` retest (extends item (e)).
 Confirm against real Home Assistant + Ollama:
 
+0. A real `binary_sensor` prompt that previously failed with
+   `model_provider_referenced_unapproved_entity` now renders (the `0.1.27`
+   enum-pin). If it still fails at planning, capture the DEBUG
+   `Isolinear -> / <- Ollama plan_chart` log lines (enable the
+   `custom_components.isolinear.model_provider` logger at DEBUG).
 1. A real `binary_sensor` prompt (e.g. "kitchen door last 24 hours") renders an
    on/off **timeline** PNG instead of the old
    `model_provider_chart_spec_hidden_entity` failure (0.1.25).

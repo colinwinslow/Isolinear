@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
@@ -11,6 +12,8 @@ from typing import Any
 
 from ._paths import load_schema_document, schema_path
 from .const import DOMAIN, MODEL_PROVIDER_OLLAMA_COMPATIBLE
+
+_LOGGER = logging.getLogger(__name__)
 
 
 DATA_MODEL_PROVIDER_PLANNER = "model_provider_planner"
@@ -64,14 +67,33 @@ PLANNER_RENDER_FAMILIES = {
 }
 
 
-def load_planner_result_schema(family: str = "time_series") -> dict[str, Any]:
+def load_planner_result_schema(
+    family: str = "time_series",
+    *,
+    entity_ids: list[str] | None = None,
+) -> dict[str, Any]:
     """Load the PlannerResult JSON Schema for Ollama structured output.
 
     ``family`` selects the deterministically-chosen render family (ADR-0022):
     ``time_series`` (numeric line) or ``timeline`` (binary/categorical step).
+
+    ``entity_ids`` are the entities the integration disclosed to the planner for
+    this job. When supplied, the chart-spec ``source.entity_id`` is pinned to an
+    enum of exactly those IDs so the provider's constrained decoding cannot emit
+    an off-allowlist entity (invariant #1) — turning a hallucinated entity from a
+    post-plan ``model_provider_referenced_unapproved_entity`` failure into a
+    structural impossibility. Without it the field stays a free string.
     """
     spec = PLANNER_RENDER_FAMILIES.get(family, PLANNER_RENDER_FAMILIES["time_series"])
     schema = load_schema_document(PLANNER_RESULT_SCHEMA_PATH)
+    disclosed_entity_ids = [
+        entity_id for entity_id in (entity_ids or []) if isinstance(entity_id, str) and entity_id
+    ]
+    entity_id_schema: dict[str, Any] = (
+        {"enum": list(dict.fromkeys(disclosed_entity_ids))}
+        if disclosed_entity_ids
+        else {"type": "string"}
+    )
     schema.setdefault("properties", {})["chart_spec"] = {
         "type": "object",
         "required": ["chart_id", "chart_type", "title", "time_range", "series"],
@@ -106,7 +128,7 @@ def load_planner_result_schema(family: str = "time_series") -> dict[str, Any]:
                             "additionalProperties": False,
                             "properties": {
                                 "type": {"enum": ["entity"]},
-                                "entity_id": {"type": "string"},
+                                "entity_id": entity_id_schema,
                                 "attribute": {"type": ["string", "null"]},
                             },
                         },
@@ -207,22 +229,45 @@ class OllamaCompatiblePlannerClient:
         schema = result_schema or load_planner_result_schema()
         payload = self._chat_payload(request, schema)
         encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        chat_url = _ollama_chat_url(self.endpoint_url)
         http_request = urllib.request.Request(
-            _ollama_chat_url(self.endpoint_url),
+            chat_url,
             data=encoded,
             headers={"Content-Type": "application/json"},
             method="POST",
+        )
+
+        # DEBUG-only: surface exactly what is sent to the provider so new chart
+        # families can be diagnosed without a packet capture. Contains the user
+        # prompt + disclosed entity IDs + the structured-output schema; no tokens
+        # or secrets travel this path (local Ollama, no auth). Off by default;
+        # enable with the custom_components.isolinear.model_provider logger.
+        _LOGGER.debug(
+            "Isolinear -> Ollama plan_chart request: model=%s url=%s body=%s",
+            self.planner_model,
+            chat_url,
+            json.dumps(payload, separators=(",", ":")),
         )
 
         try:
             with urllib.request.urlopen(http_request, timeout=self.timeout_seconds) as response:
                 response_payload = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
+            _LOGGER.debug("Isolinear <- Ollama plan_chart HTTP error: %s", exc)
             return _provider_failure("model_provider_http_error", str(exc), retry_safe=True)
         except (urllib.error.URLError, TimeoutError) as exc:
+            _LOGGER.debug("Isolinear <- Ollama plan_chart connection error: %s", exc)
             return _provider_failure("model_provider_connection_error", str(exc), retry_safe=True)
         except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            _LOGGER.debug("Isolinear <- Ollama plan_chart response error: %s", exc)
             return _provider_failure("model_provider_response_error", str(exc), retry_safe=False)
+
+        # DEBUG-only: surface exactly what the provider returned (raw chat
+        # response, including the structured chart_spec content the model chose).
+        _LOGGER.debug(
+            "Isolinear <- Ollama plan_chart response: %s",
+            json.dumps(response_payload, separators=(",", ":")),
+        )
 
         message = response_payload.get("message") if isinstance(response_payload, dict) else None
         content = message.get("content") if isinstance(message, dict) else None

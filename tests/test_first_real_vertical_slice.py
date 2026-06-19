@@ -1,5 +1,6 @@
 import sys
 import asyncio
+import json
 import tempfile
 from copy import deepcopy
 import unittest
@@ -303,6 +304,72 @@ class RenderFamilyRoutingTests(unittest.TestCase):
         self.assertEqual(
             chart_spec["series"]["items"]["properties"]["render_as"]["enum"],
             ["step"],
+        )
+
+    @staticmethod
+    def _schema_entity_id_constraint(schema: dict) -> dict:
+        return (
+            schema["properties"]["chart_spec"]["properties"]["series"]["items"][
+                "properties"
+            ]["source"]["properties"]["entity_id"]
+        )
+
+    def test_planner_schema_pins_entity_id_to_disclosed_enum(self):
+        # With disclosed entities the structured-output source.entity_id is
+        # constrained to an enum, so the provider's constrained decoding cannot
+        # reference an off-allowlist entity (ADR-0022, invariant #1).
+        schema = load_planner_result_schema(
+            "timeline", entity_ids=["binary_sensor.kitchen_door"]
+        )
+        self.assertEqual(
+            self._schema_entity_id_constraint(schema),
+            {"enum": ["binary_sensor.kitchen_door"]},
+        )
+
+    def test_planner_schema_dedupes_disclosure_and_defaults_to_free_string(self):
+        pinned = load_planner_result_schema(
+            "time_series", entity_ids=["sensor.a", "sensor.b", "sensor.a", "", None]
+        )
+        # Duplicates collapse deterministically; blanks/non-strings are dropped.
+        self.assertEqual(
+            self._schema_entity_id_constraint(pinned), {"enum": ["sensor.a", "sensor.b"]}
+        )
+        # No disclosure -> backward-compatible free string.
+        unpinned = load_planner_result_schema("time_series")
+        self.assertEqual(
+            self._schema_entity_id_constraint(unpinned), {"type": "string"}
+        )
+
+    def test_timeline_flow_pins_schema_entity_enum_to_disclosed_entity(self):
+        class RecordingTimelinePlanner(TimelinePlanner):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.result_schemas: list[dict] = []
+
+            def plan_chart(self, request, *, result_schema=None):
+                self.result_schemas.append(result_schema)
+                return super().plan_chart(request, result_schema=result_schema)
+
+        planner = RecordingTimelinePlanner(entity_id="binary_sensor.kitchen_door")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            artifact_dir = Path(temp_dir)
+            hass, entry = configured_real_slice_hass(
+                planner=planner,
+                artifact_dir=artifact_dir,
+                extra_metadata_by_entity=_DOOR_METADATA,
+            )
+            hass.data[DOMAIN][DATA_HISTORY_SOURCE]["binary_sensor.kitchen_door"] = _binary_history_records(
+                "binary_sensor.kitchen_door"
+            )
+            start = _start_job(
+                hass, entry, prompt="Show binary_sensor.kitchen_door for the last 24 hours"
+            )
+            _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+        self.assertEqual(len(planner.result_schemas), 1)
+        self.assertEqual(
+            self._schema_entity_id_constraint(planner.result_schemas[0]),
+            {"enum": ["binary_sensor.kitchen_door"]},
         )
 
     def test_binary_prompt_renders_timeline_png(self):
@@ -1847,6 +1914,68 @@ class ModelResolvedWindowEndToEndTests(unittest.TestCase):
                 snapshot["snapshot"]["failure"]["code"], "no_long_term_statistics"
             )
             self.assertEqual(list(artifact_dir.glob("*.png")), [])
+
+
+class OllamaPlannerClientDebugLoggingTests(unittest.TestCase):
+    """The real Ollama client logs request/response at DEBUG for diagnosis."""
+
+    def _run_plan_chart(self, response_body: bytes):
+        client = OllamaCompatiblePlannerClient(
+            endpoint_url="http://localhost:11434",
+            planner_model="gemma4:e4b",
+        )
+
+        sent: dict[str, bytes] = {}
+
+        class _FakeResponse:
+            def __enter__(self_inner):
+                return self_inner
+
+            def __exit__(self_inner, *exc):
+                return False
+
+            def read(self_inner):
+                return response_body
+
+        def _fake_urlopen(req, timeout=None):
+            sent["body"] = req.data
+            return _FakeResponse()
+
+        request = {
+            "prompt": "show me the kitchen door state over the last four hours",
+            "approved_entity_ids": ["binary_sensor.kitchen_door"],
+            "history_entity_ids": ["binary_sensor.kitchen_door"],
+            "now": "2026-06-19T16:00:00+00:00",
+            "time_zone": "UTC",
+            "output_schema": "PlannerResult",
+        }
+        schema = load_planner_result_schema(
+            "timeline", entity_ids=["binary_sensor.kitchen_door"]
+        )
+        with patch(
+            "custom_components.isolinear.model_provider.urllib.request.urlopen",
+            side_effect=_fake_urlopen,
+        ):
+            with self.assertLogs(
+                "custom_components.isolinear.model_provider", level="DEBUG"
+            ) as logs:
+                result = client.plan_chart(request, result_schema=schema)
+        return result, sent, "\n".join(logs.output)
+
+    def test_plan_chart_logs_request_and_response_at_debug(self):
+        content = json.dumps({"status": "chart_spec_ready", "chart_spec": {}})
+        body = json.dumps({"message": {"role": "assistant", "content": content}, "done": True}).encode(
+            "utf-8"
+        )
+        result, sent, log_text = self._run_plan_chart(body)
+
+        self.assertTrue(result["accepted"], result)
+        self.assertIn("Isolinear -> Ollama plan_chart request", log_text)
+        self.assertIn("Isolinear <- Ollama plan_chart response", log_text)
+        # The outgoing body carries the prompt + disclosed entity for inspection.
+        self.assertIn("binary_sensor.kitchen_door", sent["body"].decode("utf-8"))
+        # The response content is visible for diagnosing new chart families.
+        self.assertIn("chart_spec_ready", log_text)
 
 
 if __name__ == "__main__":
