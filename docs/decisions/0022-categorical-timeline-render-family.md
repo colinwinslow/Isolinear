@@ -81,7 +81,14 @@ single on-region primitive shared with the (future) overlay layer.
    series** mixed with a binary has no deterministic primary line and still fails
    closed with `mixed_chart_composition_unsupported`. Fuzzy prompts that match a
    single numeric + ≥1 binary resolve to this composition instead of asking the
-   user to pick one entity.
+   user to pick one entity. **Categorical noise-match handling (0.1.30):** when
+   the match set also contains a categorical entity (e.g., `climate.kitchen_ecobee`
+   matching "kitchen" alongside a temperature sensor and door sensor), the
+   categorical is treated as a noise match and discarded. The composite was
+   previously blocked in this case, dropping the temperature entity entirely.
+   Categoricals cannot be rendered as `shaded_intervals` overlays regardless, so
+   discarding them and proceeding with the numeric+binary composite is strictly
+   better than blocking.
 
 5. **D5 — Overlays are integration-composed, never model-emitted.** The core
    `chart-spec.schema.json` already defines a first-class `overlays[]` array

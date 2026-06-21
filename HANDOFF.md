@@ -1336,6 +1336,22 @@ architecture review (inline) `OK`. The repository is ready for a live HACS
 prompts no longer time out, and the timeline reads clearly. Remaining cosmetic:
 the timeline lane label clips against the axis.
 
+The `0.1.29` live retest confirmed disambiguation is working. Two bugs surfaced
+during testing of the `time_series_overlay` path and are fixed in `0.1.30`. First,
+`select_prompt_entity_ids` composite detection was blocked when a categorical entity
+(e.g., `climate.kitchen_ecobee`) matched a shared token alongside a numeric+binary
+pair — the old guard required all non-numeric matches to be binary, so the composite
+path was never reached and the temperature entity was dropped. The guard now requires
+only one numeric match plus at least one binary match; categorical noise matches are
+discarded (ADR-0022 D4 amended to document this). Second, `validate_chart_spec_contract`
+now calls `_check_chart_spec_no_duplicate_series_sources` and rejects chart specs where
+two series share the same `(type, entity_id, attribute)` source — this catches the
+class of model error where a constrained planner returns two series from the same
+entity with hallucinated labels. Verification: full suite `406 passed, 3 failed`
+(pre-existing codegen flake), relevant evals `PASS`, architecture review CONCERNS
+resolved via ADR-0022 D4 amendment. The repository is ready for a live HACS `0.1.30`
+retest with a numeric temperature sensor + binary door sensor in the allowlist.
+
 ## Next recommended packet
 
 **ADR-0024 D2 — model-driven entity selection on residual ambiguity.** When the
