@@ -41,6 +41,10 @@ _OVERLAY_COLORS = (
     (225, 215, 245),  # soft violet
 )
 
+# Light neutral fill for the "off" span of a binary timeline lane, so a
+# mostly-off entity reads as present-but-off rather than a blank lane.
+_TIMELINE_OFF_FILL = (228, 232, 236)
+
 
 def first_real_vertical_slice_enabled(hass: Any, entry_id: str) -> bool:
     """Return whether the first real in-process renderer path is enabled."""
@@ -599,12 +603,20 @@ def _render_timeline_png(render_request: dict[str, Any]) -> tuple[bytes, dict[st
 
         if is_binary:
             color = _SERIES_COLORS[lane_index % len(_SERIES_COLORS)]
+            # Draw the "off" state as a light track spanning the whole window so a
+            # mostly-off entity (a door closed all morning) reads as present-but-off
+            # instead of a blank lane; the "on" regions are filled on top.
+            draw.rectangle(
+                [(x_px(t_min), lane_top), (x_px(t_max), lane_bottom)],
+                fill=_TIMELINE_OFF_FILL,
+            )
             regions = _binary_on_regions(history, _BINARY_ON_VALUES, window_end=window_end)
             for start, end in regions:
                 x0 = x_px(start)
                 x1 = max(x_px(end), x0 + 1)
                 draw.rectangle([(x0, lane_top), (x1, lane_bottom)], fill=color)
             legend_values.setdefault("on", color)
+            legend_values.setdefault("off", _TIMELINE_OFF_FILL)
         else:
             segments = _state_segments(history.get("points", []), window_end=window_end)
             for start, end, value in segments:

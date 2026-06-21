@@ -37,7 +37,7 @@ If the question doesn't fit the table, ask. Don't guess.
 
 These are the non-negotiable rules of Isolinear. Every diff is checked against them; review passes verify compliance. Cite the ADR for the reasoning.
 
-1. **Entity allowlist enforcement** — Plans and generated code reference only approved entities from the configured allowlist. Ambiguous entity prompts trigger clarification, never silent guesses. (ADR-0003, ADR-0008)
+1. **Entity allowlist enforcement** — Plans and generated code reference only approved entities from the configured allowlist. Entity selection resolves the uniquely best-specified approved entity (deterministic specificity ranking; model-driven on residual ambiguity); a genuinely ambiguous prompt triggers clarification, never a silent guess. The allowlist boundary is absolute regardless of how the entity is chosen. (ADR-0003, ADR-0008, ADR-0024)
 
 2. **No Home Assistant mutation** — The MVP does not mutate Home Assistant state, devices, automations, scenes, or configuration. Read-only operations only. (ADR-0008)
 

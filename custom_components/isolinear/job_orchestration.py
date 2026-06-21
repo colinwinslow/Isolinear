@@ -1411,11 +1411,26 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
                 + [item["entity_id"] for item in binary_matches],
                 "source": "numeric_with_overlay",
             }
+        # Specificity tie-break (ADR-0024 D1): when one candidate matches strictly
+        # more of its distinctive tokens than every other, the prompt named it
+        # ("kitchen door" → kitchen_door, not kitchen_ecobee). Selecting the
+        # uniquely best-specified approved entity is not a silent guess (invariant
+        # #1); a top-score tie is genuine ambiguity and still clarifies.
+        scored = [(item, _catalog_item_match_score(prompt, item)) for item in matches]
+        best_score = max(score for _, score in scored)
+        top_matches = [item for item, score in scored if score == best_score]
+        if len(top_matches) == 1:
+            return {
+                "accepted": True,
+                "code": "accepted",
+                "entity_ids": [top_matches[0]["entity_id"]],
+                "source": "catalog_label_specificity",
+            }
         return {
             "accepted": False,
             "code": "entity_selection_requires_clarification",
             "message": "Multiple approved entities match this question; choose one.",
-            "options": [_clarification_option_for_item(item) for item in matches],
+            "options": [_clarification_option_for_item(item) for item in top_matches],
         }
 
     return {
@@ -5682,20 +5697,35 @@ def _parse_window_timestamp(value: Any) -> datetime | None:
     return parsed
 
 
-def _catalog_item_matches_prompt(prompt: str, item: dict[str, Any]) -> bool:
-    prompt_tokens = set(_prompt_tokens(prompt))
+def _catalog_item_meaningful_tokens(item: dict[str, Any]) -> set[str]:
     item_tokens = set(_prompt_tokens(" ".join(str(value or "") for value in [
         item.get("entity_id", "").replace(".", " "),
         item.get("friendly_name", ""),
         item.get("area", ""),
         item.get("device_name", ""),
     ])))
-    meaningful_tokens = {
+    return {
         token
         for token in item_tokens
         if len(token) >= 4 and token not in {"sensor", "binary", "temperature"}
     }
-    return bool(meaningful_tokens & prompt_tokens)
+
+
+def _catalog_item_match_score(prompt: str, item: dict[str, Any]) -> int:
+    """Count how many of an entity's distinctive tokens appear in the prompt.
+
+    The count (not just a boolean) is what separates false ambiguity — one entity
+    matched on its specific tokens while another shares only a generic word
+    ("kitchen door" vs "kitchen ecobee") — from genuine ambiguity, where rivals
+    tie on a shared term ("show thermostat history" with two thermostats).
+    See ADR-0024 D1.
+    """
+    prompt_tokens = set(_prompt_tokens(prompt))
+    return len(_catalog_item_meaningful_tokens(item) & prompt_tokens)
+
+
+def _catalog_item_matches_prompt(prompt: str, item: dict[str, Any]) -> bool:
+    return _catalog_item_match_score(prompt, item) >= 1
 
 
 def _prompt_tokens(value: str) -> list[str]:

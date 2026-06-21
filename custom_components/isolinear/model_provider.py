@@ -20,7 +20,10 @@ DATA_MODEL_PROVIDER_PLANNER = "model_provider_planner"
 DATA_MODEL_PROVIDER_SETUP = "model_provider_setup"
 
 PLANNER_RESULT_SCHEMA_PATH = schema_path("planner-result.schema.json")
-DEFAULT_OLLAMA_TIMEOUT_SECONDS = 30
+# A local gemma planner call observed ~30s for a simple chart; the prior 30s
+# cap timed out on anything heavier (mixed/overlay prompts). Give the local
+# model real headroom (ADR-0024 also adds a model entity-selection round-trip).
+DEFAULT_OLLAMA_TIMEOUT_SECONDS = 90
 MODEL_PROVIDER_HEALTH_PATH = "/api/tags"
 
 

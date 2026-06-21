@@ -1291,20 +1291,63 @@ a live HACS `0.1.28` retest confirming the real binary-door prompt now renders a
 timeline.
 
 The render-family capability envelope direction is captured as **ADR-0023**
-(draft) with a paired draft spec (`render-family-capability-envelope.md`) and BDD.
-The decision: the integration computes a deterministic *capability envelope* (the
-set of chart families the resolved data *shape* supports — density is fail-soft,
-not a gate), the model selects the family within it from user intent, and a
-deterministic post-plan gate rejects out-of-envelope choices
-(`model_provider_chart_family_out_of_envelope`). It revises ADR-0022 invariant #9.
-First live-renderer tranche is `histogram` + `aggregate_bar`. Nothing is
-implemented yet; ADR-0023 awaits acceptance before the build.
+(**accepted**, commit `5010302`) with a paired spec
+(`render-family-capability-envelope.md`) and BDD that remain `draft` (they accept
+when the implementation anchor lands). The decision: the integration computes a
+deterministic *capability envelope* (the set of chart families the resolved data
+*shape* supports — density is fail-soft, not a gate), the model selects the
+family within it from user intent, and a deterministic post-plan gate rejects
+out-of-envelope choices (`model_provider_chart_family_out_of_envelope`). It
+revises ADR-0022 invariant #9. First live-renderer tranche is `histogram` +
+`aggregate_bar`. Nothing is implemented yet.
+
+The entity-selection specificity + timeout + timeline-readability packet is
+complete (`0.1.29`). The live `0.1.28` retest **confirmed** the structural gate
+fix — the binary-door prompt renders a timeline end-to-end — but surfaced that
+entity *disambiguation* is the next rigidity: every multi-entity prompt forced a
+clarification because the catalog matcher matched on *any* shared meaningful
+token ("kitchen door" matched both `binary_sensor.kitchen_door` and
+`climate.kitchen_ecobee` on the lone shared `kitchen`). **ADR-0024 is accepted**
+and its **D1** is implemented: `select_prompt_entity_ids` now scores each
+candidate by *how many* of its distinctive tokens the prompt contains and selects
+the uniquely top-scoring approved entity (`source: catalog_label_specificity`)
+when the set isn't an overlay composition; a top-score *tie* still clarifies
+(offering only the tied candidates). Invariant #1 is refined in CLAUDE.md/AGENTS.md
+— clarification is the *fallback*, not the first response to any multi-match, and
+the allowlist boundary is unchanged. **D2** (model-driven selection on residual
+ambiguity — a tie or zero matches) is staged as the next packet: it adds a small
+pre-routing model selection call so the user sees a clarification card only when
+the model itself abstains, and it ties into the ADR-0023 envelope work. The same
+packet raised `DEFAULT_OLLAMA_TIMEOUT_SECONDS` 30 → 90 (a successful live call took
+29.8s against the 30s wall; mixed/overlay prompts timed out at exactly 30s), and
+fixed the binary timeline renderer to draw a light "off" track across the full
+window with the "on" regions on top and an on/off legend, so a door closed all
+morning reads as present-but-off instead of a blank lane. **ADR-0025 is drafted**
+(not implemented): stream the model's reasoning into the card's chart slot as
+ephemeral wait-feedback (`stream:true` + a bounded, sanitized `progress.reasoning`
+on the active planning snapshot, surfaced through the existing ~1s poll loop,
+replaced by the chart on completion). The cheaper "reasoning on the finished card"
+(Tier 1) was rejected by product direction (no clutter); ADR-0025 implementation
+is deferred until after ADR-0024 D2 so it streams across both model calls.
+Verification: full suite `404 passed, 3 failed` (the 3 = pre-existing
+codegen-sandbox flake), relevant evals `PASS`, renderer verified on disk,
+architecture review (inline) `OK`. The repository is ready for a live HACS
+`0.1.29` retest confirming the kitchen-door prompt skips clarification, mixed
+prompts no longer time out, and the timeline reads clearly. Remaining cosmetic:
+the timeline lane label clips against the axis.
 
 ## Next recommended packet
 
-Two tracks. **(A) Live HACS `0.1.28` retest** (extends item (e)) and **(B)
-implement the render-family capability envelope** once ADR-0023 is accepted
-(start with the histogram anchor per the spec's implementation order).
+**ADR-0024 D2 — model-driven entity selection on residual ambiguity.** When the
+deterministic specificity fast-path can't resolve (a top-score tie, or zero
+matches against a non-trivial catalog), ask the model to pick the entity (or
+entity set) from the approved catalog before family routing; show the user a
+clarification only when the model returns `clarification_needed`. Needs an ADR-0024
+spec + BDD, a small pre-routing structured-output selection call (entity IDs, not
+a chart spec), and allowlist validation of the chosen IDs (fail closed). Then
+**ADR-0025** (live planner reasoning) so the wait across both model calls is
+narrated. The **ADR-0023 capability envelope** (histogram + aggregate_bar) remains
+open and may converge with D2 into a single envelope call (ADR-0024 D2 Open item).
 
 Confirm the live retest against real Home Assistant + Ollama:
 

@@ -496,6 +496,50 @@ class RenderFamilyRoutingTests(unittest.TestCase):
         self.assertEqual(selection["entity_ids"][0], "sensor.living_room_temperature")
         self.assertIn("binary_sensor.living_room_ac", selection["entity_ids"])
 
+    def test_shared_word_prompt_picks_more_specific_entity(self):
+        # ADR-0024 D1: "kitchen door" shares only "kitchen" with the ecobee but
+        # matches "door" too, so the door wins without a clarification round-trip.
+        catalog = [
+            {
+                "entity_id": "binary_sensor.kitchen_door",
+                "domain": "binary_sensor",
+                "friendly_name": "Kitchen Door",
+            },
+            {
+                "entity_id": "climate.kitchen_ecobee",
+                "domain": "climate",
+                "friendly_name": "Kitchen Ecobee",
+            },
+        ]
+        selection = job_orchestration.select_prompt_entity_ids(
+            "show me when the kitchen door was open this morning", catalog
+        )
+        self.assertTrue(selection["accepted"], selection)
+        self.assertEqual(selection["source"], "catalog_label_specificity")
+        self.assertEqual(selection["entity_ids"], ["binary_sensor.kitchen_door"])
+
+    def test_equally_specific_matches_still_clarify(self):
+        # ADR-0024 D1: a top-score tie is genuine ambiguity and must still ask,
+        # offering only the tied candidates.
+        catalog = [
+            {
+                "entity_id": "climate.upstairs_thermostat",
+                "domain": "climate",
+                "friendly_name": "Upstairs Thermostat",
+            },
+            {
+                "entity_id": "climate.downstairs_thermostat",
+                "domain": "climate",
+                "friendly_name": "Downstairs Thermostat",
+            },
+        ]
+        selection = job_orchestration.select_prompt_entity_ids(
+            "show thermostat history", catalog
+        )
+        self.assertFalse(selection["accepted"], selection)
+        self.assertEqual(selection["code"], "entity_selection_requires_clarification")
+        self.assertEqual(len(selection["options"]), 2)
+
     def test_explicit_mixed_prompt_renders_overlay_png(self):
         planner = FakePlanner()
         with tempfile.TemporaryDirectory() as temp_dir:
