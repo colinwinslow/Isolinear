@@ -12,6 +12,7 @@ Scenarios for chart rendering (trusted renderer), dashboard card display, and re
 - **Event markers** — Trusted renderer draws point-in-time markers over a numeric time-series chart.
 - **Distribution histogram** — Trusted renderer bins numeric entity history into value-frequency bars.
 - **Scatter/correlation** — Trusted renderer plots paired numeric entity values by exact matching timestamps.
+- **Render family capability envelope** — Integration computes the deterministic set of families the data shape supports; the model picks within it from intent; out-of-envelope choices fail closed; sparse data renders fail-soft (ADR-0023, draft).
 - **Dashboard card display** — Rendered chart is displayed in the Home Assistant dashboard card.
 
 ## Related docs
@@ -23,6 +24,9 @@ Scenarios for chart rendering (trusted renderer), dashboard card display, and re
 - Source scenarios: [docs/bdd/dashboard-card.feature](../../docs/bdd/dashboard-card.feature)
 - Paired BDD: [trusted-rendering-bdd.md](trusted-rendering-bdd.md)
 - Evidence: [trusted-rendering-evidence.md](trusted-rendering-evidence.md)
+- Spec: [docs/specs/render-family-capability-envelope.md](../../docs/specs/render-family-capability-envelope.md)
+- ADR: [docs/decisions/0023-model-proposed-render-family-within-capability-envelope.md](../../docs/decisions/0023-model-proposed-render-family-within-capability-envelope.md)
+- Paired BDD: [render-family-capability-envelope-bdd.md](render-family-capability-envelope-bdd.md)
 
 ## Validation
 

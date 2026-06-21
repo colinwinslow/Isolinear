@@ -48,3 +48,4 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0020 — `Model-resolved chart time window`
 - 0021 — `Tiered history data source (recorder states + long-term statistics)`
 - 0022 — `Categorical timeline render family via the model-driven path`
+- 0023 — `Model-proposed render family within a deterministic capability envelope`

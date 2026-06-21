@@ -56,6 +56,7 @@ implementing slice produces an evidence file proving each scenario was hit.
 - `integration-spec.md` — Home Assistant custom integration interface
 - `model-provider-spec.md` — Ollama-compatible model provider contract
 - `product-spec.md` — Product-level feature set
+- `render-family-capability-envelope.md` — Model-proposed chart family within a deterministic capability envelope (ADR-0023); first live renderer tranche + fail-soft (draft)
 - `security-spec.md` — Sandbox security and safety constraints
 - `semantic-memory-spec.md` — Semantic alias storage and recall
 - `validation-spec.md` — Plan validation and chart spec safety
