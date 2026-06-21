@@ -68,7 +68,8 @@ def main():
         },
         then={
             "hidden": result["hidden"],
-            "hidden_recursive": result["hidden_recursive"],
+            "hidden_memory": result["hidden_memory"],
+            "entity_named_chart_id": result["entity_named_chart_id"],
         },
     )
 

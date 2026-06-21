@@ -4787,7 +4787,16 @@ def validate_model_provider_output_entities(
     source_snapshot: dict[str, Any],
     approved_catalog_entity_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Ensure provider output contains only approved, disclosed entity IDs.
+    """Ensure provider output references only approved, disclosed entity IDs.
+
+    Validation is *structural*: it inspects the fields that actually mean "use
+    this entity" — chart-spec ``series``/``overlays`` sources and persisted
+    ``memory_proposals`` entity references — not free-text fields such as
+    ``chart_id``, ``title``, ``notes``, ``reasoning_summary``, or axis
+    metadata. An entity-shaped token in those inert fields cannot reach a data
+    path (the renderer only fetches from structured sources), so flagging them
+    only produced false positives — e.g. a timeline a small model named
+    ``binary_sensor.kitchen_door_timeline`` after its own entity.
 
     Disambiguates the failure (ADR-0022): a reference to an entity absent from
     the approved catalog is a true allowlist breach
@@ -4798,13 +4807,8 @@ def validate_model_provider_output_entities(
     approved_entity_ids = set(_source_snapshot_entity_ids(source_snapshot))
     catalog_entity_ids = set(approved_catalog_entity_ids or []) | approved_entity_ids
     structured_refs = _chart_spec_entity_ids(chart_spec)
-    scanned_refs = _entity_ids_in_provider_output(
-        {
-            "planner_result": planner_result,
-            "chart_spec": chart_spec,
-        }
-    )
-    referenced_entity_ids = structured_refs["entity_ids"] | scanned_refs["entity_ids"]
+    memory_proposal_entity_ids = _memory_proposal_entity_ids(planner_result)
+    referenced_entity_ids = structured_refs["entity_ids"] | memory_proposal_entity_ids
     rejected_entity_ids = sorted(referenced_entity_ids - approved_entity_ids)
     if rejected_entity_ids or structured_refs["unsupported_source_refs"]:
         unapproved_entity_ids = sorted(set(rejected_entity_ids) - catalog_entity_ids)
@@ -4822,7 +4826,6 @@ def validate_model_provider_output_entities(
             "unapproved_entity_ids": unapproved_entity_ids,
             "substituted_entity_ids": substituted_entity_ids,
             "unsupported_source_refs": structured_refs["unsupported_source_refs"],
-            "textual_entity_refs": scanned_refs["matches"],
         }
     return {
         "accepted": True,
@@ -5358,34 +5361,26 @@ def _chart_spec_entity_ids(chart_spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _entity_ids_in_provider_output(payload: Any) -> dict[str, Any]:
+def _memory_proposal_entity_ids(planner_result: Any) -> set[str]:
+    """Collect entity IDs from ``memory_proposals`` (a persisted, reusable path).
+
+    Unlike free-text fields, a memory proposal persists a ``SemanticAlias`` that
+    a later prompt can resolve, so an off-allowlist ``entity_id`` here is a real
+    reference worth rejecting at creation time rather than relying solely on the
+    use-time alias revalidation (invariant #7).
+    """
     entity_ids: set[str] = set()
-    matches: list[dict[str, str]] = []
-    _walk_provider_output_entity_ids(payload, "$", entity_ids, matches)
-    return {
-        "entity_ids": entity_ids,
-        "matches": matches,
-    }
-
-
-def _walk_provider_output_entity_ids(
-    payload: Any,
-    path: str,
-    entity_ids: set[str],
-    matches: list[dict[str, str]],
-) -> None:
-    if isinstance(payload, dict):
-        for key, value in payload.items():
-            _walk_provider_output_entity_ids(value, f"{path}.{key}", entity_ids, matches)
-        return
-    if isinstance(payload, list):
-        for index, value in enumerate(payload):
-            _walk_provider_output_entity_ids(value, f"{path}[{index}]", entity_ids, matches)
-        return
-    if isinstance(payload, str):
-        for entity_id in _unique(ENTITY_ID_IN_PROMPT.findall(payload.lower())):
-            entity_ids.add(entity_id)
-            matches.append({"path": path, "entity_id": entity_id})
+    if not isinstance(planner_result, dict):
+        return entity_ids
+    proposals = planner_result.get("memory_proposals")
+    if not isinstance(proposals, list):
+        return entity_ids
+    for proposal in proposals:
+        if isinstance(proposal, dict):
+            entity_id = proposal.get("entity_id")
+            if isinstance(entity_id, str) and entity_id:
+                entity_ids.add(entity_id)
+    return entity_ids
 
 
 def _collect_source_entity_ids(

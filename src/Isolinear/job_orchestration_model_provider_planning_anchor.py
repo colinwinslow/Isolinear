@@ -275,60 +275,43 @@ def verify_hidden_provider_entity_rejected_before_storage(root=None) -> dict[str
     )
 
 
-def verify_hidden_provider_output_rejected_recursively(root=None) -> dict[str, Any]:
+def verify_hidden_memory_proposal_entity_rejected(root=None) -> dict[str, Any]:
+    """An off-allowlist entity in a persisted ``memory_proposals`` reference is a
+    real, reusable reference and must still fail closed at creation time."""
     root = root or repo_root()
-    cases = {
-        "x_axis": _hidden_provider_output_case(
-            root,
-            entry_id="hidden-provider-x-axis-entry",
-            chart_spec_overrides={
-                "x_axis": {
-                    "type": "time",
+    case = _hidden_provider_output_case(
+        root,
+        entry_id="hidden-provider-memory-entry",
+        planner_result_overrides={
+            "memory_proposals": [
+                {
+                    "alias_id": "hidden-temperature",
                     "entity_id": "sensor.secret_temperature",
-                },
-            },
-        ),
-        "y_axis": _hidden_provider_output_case(
-            root,
-            entry_id="hidden-provider-y-axis-entry",
-            chart_spec_overrides={
-                "y_axis": {
-                    "entity_id": "sensor.secret_temperature",
-                },
-            },
-        ),
-        "notes": _hidden_provider_output_case(
-            root,
-            entry_id="hidden-provider-notes-entry",
-            chart_spec_overrides={
-                "notes": [
-                    "Provider mentioned sensor.secret_temperature in notes.",
-                ],
-            },
-        ),
-        "reasoning_summary": _hidden_provider_output_case(
-            root,
-            entry_id="hidden-provider-reasoning-entry",
-            planner_result_overrides={
-                "reasoning_summary": "The hidden sensor.secret_temperature seemed relevant.",
-            },
-        ),
-        "memory_proposals": _hidden_provider_output_case(
-            root,
-            entry_id="hidden-provider-memory-entry",
-            planner_result_overrides={
-                "memory_proposals": [
-                    {
-                        "alias_id": "hidden-temperature",
-                        "entity_id": "sensor.secret_temperature",
-                    }
-                ],
-            },
-        ),
-    }
-    return {
-        "cases": cases,
-    }
+                }
+            ],
+        },
+    )
+    return {"case": case}
+
+
+def verify_entity_named_chart_id_renders(root=None) -> dict[str, Any]:
+    """A chart whose free-text fields contain entity-shaped tokens (a small
+    model naming its chart after its own entity, e.g.
+    ``sensor.upstairs_temperature_history``) must render, not be rejected as an
+    off-allowlist reference. This reproduces the live 0.1.27 binary-door
+    failure, where ``chart_id`` was mistaken for an entity reference."""
+    root = root or repo_root()
+    case = _hidden_provider_output_case(
+        root,
+        entry_id="entity-named-chart-id-entry",
+        chart_spec_overrides={
+            "chart_id": "sensor.upstairs_temperature_history",
+            "notes": [
+                "The model compared sensor.upstairs_temperature over time.",
+            ],
+        },
+    )
+    return {"case": case}
 
 
 def verify_invalid_provider_chart_spec_rejected_before_storage(root=None) -> dict[str, Any]:
@@ -620,7 +603,8 @@ def verify_job_orchestration_model_provider_planning_anchor(root=None) -> dict[s
     accepted = verify_provider_produced_chart_spec_records_provider_plan(root)
     idempotent = verify_repeated_snapshot_requests_reuse_provider_plan(root)
     hidden = verify_hidden_provider_entity_rejected_before_storage(root)
-    hidden_recursive = verify_hidden_provider_output_rejected_recursively(root)
+    hidden_memory = verify_hidden_memory_proposal_entity_rejected(root)
+    entity_named_chart_id = verify_entity_named_chart_id_renders(root)
     invalid = verify_invalid_provider_chart_spec_rejected_before_storage(root)
     unknown_job = verify_unknown_model_provider_job_rejected_before_call(root)
     cross_entry = verify_cross_config_entry_model_provider_rejected_before_call(root)
@@ -653,11 +637,24 @@ def verify_job_orchestration_model_provider_planning_anchor(root=None) -> dict[s
         )
     if hidden["provider_plans"] or hidden["render_plans"] or hidden["artifacts"] or hidden["complete_snapshots"]:
         failures.append("Hidden provider entity failure stored state after rejection.")
-    for case_name, case in hidden_recursive["cases"].items():
-        if case["error_codes"] != ["model_provider_referenced_unapproved_entity"]:
-            failures.append(f"Recursive hidden provider output case {case_name} did not fail closed.")
-        if case["provider_plans"] or case["render_plans"] or case["artifacts"] or case["complete_snapshots"]:
-            failures.append(f"Recursive hidden provider output case {case_name} stored state after rejection.")
+    memory_case = hidden_memory["case"]
+    if memory_case["error_codes"] != ["model_provider_referenced_unapproved_entity"]:
+        failures.append("Off-allowlist memory_proposals entity did not fail closed.")
+    if (
+        memory_case["provider_plans"]
+        or memory_case["render_plans"]
+        or memory_case["artifacts"]
+        or memory_case["complete_snapshots"]
+    ):
+        failures.append("Off-allowlist memory_proposals entity stored state after rejection.")
+    chart_id_case = entity_named_chart_id["case"]
+    if chart_id_case["error_codes"]:
+        failures.append(
+            "Entity-named chart_id was rejected instead of rendered: "
+            f"{chart_id_case['error_codes']}."
+        )
+    if not chart_id_case["complete_snapshots"]:
+        failures.append("Entity-named chart_id did not produce a complete snapshot.")
     if invalid["error_codes"] != ["invalid_model_provider_chart_spec"]:
         failures.append("Invalid provider chart spec did not fail closed with invalid_model_provider_chart_spec.")
     if invalid["provider_plans"] or invalid["render_plans"] or invalid["artifacts"] or invalid["complete_snapshots"]:
@@ -692,7 +689,8 @@ def verify_job_orchestration_model_provider_planning_anchor(root=None) -> dict[s
         "accepted": accepted,
         "idempotent": idempotent,
         "hidden": hidden,
-        "hidden_recursive": hidden_recursive,
+        "hidden_memory": hidden_memory,
+        "entity_named_chart_id": entity_named_chart_id,
         "invalid": invalid,
         "unknown_job": unknown_job,
         "cross_entry": cross_entry,

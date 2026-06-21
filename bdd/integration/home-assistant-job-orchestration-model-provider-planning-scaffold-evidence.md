@@ -1,6 +1,11 @@
 # Home Assistant Job Orchestration Model-Provider Planning Scaffold Evidence
 
 Run timestamp: 2026-06-09T00:50:48+00:00
+Updated 2026-06-21: `CASE hidden_provider_entity_rejected_before_storage`
+refreshed for the ADR-0023 structural entity gate — the broad textual scan was
+removed, so the gate now rejects off-allowlist entities only in chart-spec
+sources and `memory_proposals`, and entity-shaped tokens in free-text fields
+render normally. Values captured from the current verifiers/eval.
 
 BDD file:
 `bdd/integration/home-assistant-job-orchestration-model-provider-planning-scaffold-bdd.md`
@@ -69,7 +74,7 @@ CASE repeated_snapshot_requests_reuse_provider_plan
 PASS repeated_snapshot_requests_reuse_provider_plan
 
 CASE hidden_provider_entity_rejected_before_storage
-  hidden.error_codes = ["model_provider_chart_spec_hidden_entity"]
+  hidden.error_codes = ["model_provider_referenced_unapproved_entity"]
   hidden.planner_call_count = 1
   hidden.provider_plans = []
   hidden.render_plans = []
@@ -79,31 +84,20 @@ CASE hidden_provider_entity_rejected_before_storage
   hidden.snapshot.orchestration.model_provider_plan_bookkeeping_written = false
   hidden.snapshot.orchestration.render_plan_bookkeeping_written = false
   hidden.snapshot.orchestration.artifact_metadata_bookkeeping_written = false
-  hidden_recursive.cases.x_axis.error_codes = ["model_provider_chart_spec_hidden_entity"]
-  hidden_recursive.cases.x_axis.provider_plans = []
-  hidden_recursive.cases.x_axis.render_plans = []
-  hidden_recursive.cases.x_axis.artifacts = []
-  hidden_recursive.cases.x_axis.complete_snapshots = []
-  hidden_recursive.cases.y_axis.error_codes = ["model_provider_chart_spec_hidden_entity"]
-  hidden_recursive.cases.y_axis.provider_plans = []
-  hidden_recursive.cases.y_axis.render_plans = []
-  hidden_recursive.cases.y_axis.artifacts = []
-  hidden_recursive.cases.y_axis.complete_snapshots = []
-  hidden_recursive.cases.notes.error_codes = ["model_provider_chart_spec_hidden_entity"]
-  hidden_recursive.cases.notes.provider_plans = []
-  hidden_recursive.cases.notes.render_plans = []
-  hidden_recursive.cases.notes.artifacts = []
-  hidden_recursive.cases.notes.complete_snapshots = []
-  hidden_recursive.cases.reasoning_summary.error_codes = ["model_provider_chart_spec_hidden_entity"]
-  hidden_recursive.cases.reasoning_summary.provider_plans = []
-  hidden_recursive.cases.reasoning_summary.render_plans = []
-  hidden_recursive.cases.reasoning_summary.artifacts = []
-  hidden_recursive.cases.reasoning_summary.complete_snapshots = []
-  hidden_recursive.cases.memory_proposals.error_codes = ["model_provider_chart_spec_hidden_entity"]
-  hidden_recursive.cases.memory_proposals.provider_plans = []
-  hidden_recursive.cases.memory_proposals.render_plans = []
-  hidden_recursive.cases.memory_proposals.artifacts = []
-  hidden_recursive.cases.memory_proposals.complete_snapshots = []
+  # Structural entity gate (ADR-0023): an off-allowlist entity in a persisted
+  # memory_proposals reference still fails closed before any storage.
+  hidden_memory.error_codes = ["model_provider_referenced_unapproved_entity"]
+  hidden_memory.provider_plans = []
+  hidden_memory.render_plans = []
+  hidden_memory.artifacts = []
+  hidden_memory.complete_snapshots = []
+  # Entity-shaped tokens in inert free-text fields (here chart_id =
+  # "sensor.upstairs_temperature_history" + a notes mention) are NOT entity
+  # references; the chart renders end to end instead of being rejected.
+  entity_named_chart_id.error_codes = []
+  entity_named_chart_id.snapshot.status = "complete"
+  entity_named_chart_id.provider_plans = 1
+  entity_named_chart_id.complete_snapshots = 1
 PASS hidden_provider_entity_rejected_before_storage
 
 CASE invalid_provider_chart_spec_rejected_before_storage

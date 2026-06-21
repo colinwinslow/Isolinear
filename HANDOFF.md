@@ -1262,16 +1262,58 @@ against the real Pillow renderer this session: full suite `394 passed, 3 failed`
 on clean baseline); the live `0.1.27` retest still owes confirmation that a real
 binary-door prompt now renders instead of failing at planning.
 
+The structural provider-output entity gate packet is complete (`0.1.28`). The
+live `0.1.27` retest revealed the enum-pin was correct but the binary-door prompt
+*still* failed `model_provider_referenced_unapproved_entity`: gemma returned a
+valid `timeline` spec referencing the approved entity, and the captured DEBUG
+response proved the rejection came from our own validation. Root cause:
+`validate_model_provider_output_entities` ran the `ENTITY_ID_IN_PROMPT` regex over
+**every string** in provider output and mistook the model's `chart_id` slug
+`binary_sensor.kitchen_door_timeline` for an off-allowlist entity reference. The
+broad textual scan (`_entity_ids_in_provider_output` /
+`_walk_provider_output_entity_ids`) was removed; the gate is now **structural** —
+it validates only the fields that carry data-access or persistence meaning:
+chart-spec `series`/`overlays` sources (unchanged) plus a new
+`_memory_proposal_entity_ids` check for `memory_proposals` (a persisted, reusable
+reference). Entity-shaped tokens in inert free-text fields (`chart_id`, `title`,
+`notes`, axis metadata, `reasoning_summary`) are no longer treated as references —
+the renderer never reads them, so this loses no real safety while removing the
+false-positive class. The `ENTITY_ID_IN_PROMPT` regex remains for user-prompt
+entity parsing only. Posture chosen with Colin: structured-only, with inert
+mentions fail-soft and off-allowlist `memory_proposals` still failing closed. The
+entity enum-pin (0.1.27) is unchanged; invariant #1 holds (and is strengthened —
+it no longer false-rejects valid plans). The recursive anchor/test/eval were
+reworked to `hidden_memory` (rejects) + `entity_named_chart_id` (renders), and the
+planning-scaffold spec, BDD Scenario C, and evidence were corrected to the new
+posture (Scenario C also carried the pre-ADR-0022 stale code
+`model_provider_chart_spec_hidden_entity`, now fixed). The repository is ready for
+a live HACS `0.1.28` retest confirming the real binary-door prompt now renders a
+timeline.
+
+The render-family capability envelope direction is captured as **ADR-0023**
+(draft) with a paired draft spec (`render-family-capability-envelope.md`) and BDD.
+The decision: the integration computes a deterministic *capability envelope* (the
+set of chart families the resolved data *shape* supports — density is fail-soft,
+not a gate), the model selects the family within it from user intent, and a
+deterministic post-plan gate rejects out-of-envelope choices
+(`model_provider_chart_family_out_of_envelope`). It revises ADR-0022 invariant #9.
+First live-renderer tranche is `histogram` + `aggregate_bar`. Nothing is
+implemented yet; ADR-0023 awaits acceptance before the build.
+
 ## Next recommended packet
 
-The repository is ready for a live HACS `0.1.27` retest (extends item (e)).
-Confirm against real Home Assistant + Ollama:
+Two tracks. **(A) Live HACS `0.1.28` retest** (extends item (e)) and **(B)
+implement the render-family capability envelope** once ADR-0023 is accepted
+(start with the histogram anchor per the spec's implementation order).
+
+Confirm the live retest against real Home Assistant + Ollama:
 
 0. A real `binary_sensor` prompt that previously failed with
-   `model_provider_referenced_unapproved_entity` now renders (the `0.1.27`
-   enum-pin). If it still fails at planning, capture the DEBUG
-   `Isolinear -> / <- Ollama plan_chart` log lines (enable the
-   `custom_components.isolinear.model_provider` logger at DEBUG).
+   `model_provider_referenced_unapproved_entity` now renders (the `0.1.28`
+   structural gate — this was the live `0.1.27` false positive). If it still
+   fails at planning, capture the DEBUG `Isolinear -> / <- Ollama plan_chart`
+   log lines (enable the `custom_components.isolinear.model_provider` logger at
+   DEBUG).
 1. A real `binary_sensor` prompt (e.g. "kitchen door last 24 hours") renders an
    on/off **timeline** PNG instead of the old
    `model_provider_chart_spec_hidden_entity` failure (0.1.25).

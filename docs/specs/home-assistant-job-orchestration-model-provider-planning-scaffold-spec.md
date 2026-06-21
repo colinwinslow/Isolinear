@@ -159,10 +159,11 @@ and deterministic fake Ollama-compatible planner clients.
 1. Create this spec, paired BDD/evidence scaffold, eval outline, and
    model-provider plan schema.
 2. Add failing unit tests and a Python verifier anchor for accepted
-   provider-produced planning, idempotent reuse, recursive hidden-entity
-   rejection across provider output, invalid chart-spec rejection, unknown job
-   rejection, cross-entry rejection, isolation, schema validity, and side-effect
-   boundaries.
+   provider-produced planning, idempotent reuse, structural unapproved-entity
+   rejection (chart-spec `series`/`overlays` sources + `memory_proposals` entity
+   references; entity-shaped tokens in inert free-text fields are ignored —
+   ADR-0023), invalid chart-spec rejection, unknown job rejection, cross-entry
+   rejection, isolation, schema validity, and side-effect boundaries.
 3. Add the focused executable eval.
 4. Add the smallest production Ollama-compatible planner client surface and
    injectable planner boundary.
@@ -187,10 +188,13 @@ and deterministic fake Ollama-compatible planner clients.
 5. Evidence confirms repeated `job/snapshot` requests for that job do not make
    a second provider call or create duplicate provider-plan, render-plan,
    artifact, or complete-snapshot records.
-6. Evidence confirms provider output that mentions hidden entity IDs in the
-   chart spec, axis metadata, notes, reasoning summary, or memory proposals
-   fails closed before model-provider plan metadata, render-plan metadata,
-   artifact metadata, or complete snapshots are stored.
+6. Evidence confirms provider output that references an off-allowlist entity in
+   a chart-spec `series`/`overlays` source or a `memory_proposals` entity
+   reference fails closed before model-provider plan metadata, render-plan
+   metadata, artifact metadata, or complete snapshots are stored. Entity-shaped
+   tokens in inert free-text fields (`chart_id`, `title`, axis metadata,
+   `notes`, `reasoning_summary`) are not entity references and render normally
+   (ADR-0023; the structural-gate fix).
 7. Evidence confirms provider-produced schema-invalid chart specs fail closed
    before model-provider plan metadata, render-plan metadata, artifact
    metadata, or complete snapshots are stored.

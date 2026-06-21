@@ -42,16 +42,25 @@ render plan, artifact metadata, and artifact-backed complete snapshot
 **And** no second provider call, model-provider plan, render plan, artifact
 metadata, or complete snapshot should be created
 
-### Scenario C - failure path: hidden provider output entity fails before storage
+### Scenario C - failure path: off-allowlist entity reference fails before storage
 
-**Given** a configured fake planner returns schema-valid provider output that
-mentions an entity outside the source snapshot's approved disclosure in the
-`ChartSpec`, axis metadata, notes, reasoning summary, or memory proposals
+The entity gate is structural (ADR-0023): it rejects off-allowlist entities only
+where they carry data-access or persistence meaning — chart-spec
+`series`/`overlays` sources and `memory_proposals` entity references — and ignores
+entity-shaped tokens in inert free-text fields.
+
+**Given** a configured fake planner returns schema-valid provider output whose
+chart-spec source or `memory_proposals` entity reference names an entity outside
+the source snapshot's approved disclosure
 **When** `job/snapshot` requests planning for that job
 **Then** the command should fail closed with
-`model_provider_chart_spec_hidden_entity`
+`model_provider_referenced_unapproved_entity`
 **And** no model-provider plan metadata, render-plan metadata, artifact
 metadata, or complete snapshot should be stored
+**And** provider output that merely contains an entity-shaped token in a
+free-text field (e.g. `chart_id`, `title`, axis metadata, `notes`,
+`reasoning_summary`) is not treated as a reference and renders to a complete
+snapshot
 
 ### Scenario D - failure path: invalid provider chart spec fails before storage
 

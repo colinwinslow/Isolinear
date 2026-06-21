@@ -10,7 +10,8 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from Isolinear.job_orchestration_model_provider_planning_anchor import (  # noqa: E402
     verify_cross_config_entry_model_provider_rejected_before_call,
     verify_hidden_provider_entity_rejected_before_storage,
-    verify_hidden_provider_output_rejected_recursively,
+    verify_hidden_memory_proposal_entity_rejected,
+    verify_entity_named_chart_id_renders,
     verify_invalid_provider_chart_spec_rejected_before_storage,
     verify_model_provider_plan_side_effect_boundaries,
     verify_model_provider_plans_stay_config_entry_scoped,
@@ -106,21 +107,26 @@ class JobOrchestrationModelProviderPlanningAnchorTests(unittest.TestCase):
         self.assertFalse(result["snapshot"]["orchestration"]["render_plan_bookkeeping_written"])
         self.assertFalse(result["snapshot"]["orchestration"]["artifact_metadata_bookkeeping_written"])
 
-    def test_hidden_provider_output_rejected_recursively(self):
-        result = verify_hidden_provider_output_rejected_recursively(REPO_ROOT)
+    def test_hidden_memory_proposal_entity_rejected(self):
+        case = verify_hidden_memory_proposal_entity_rejected(REPO_ROOT)["case"]
 
-        self.assertEqual(set(result["cases"]), {"x_axis", "y_axis", "notes", "reasoning_summary", "memory_proposals"})
-        for case in result["cases"].values():
-            self.assert_card_facing_model_provider_failure(
-                case["snapshot"],
-                "model_provider_referenced_unapproved_entity",
-            )
-            self.assertEqual(case["planner_call_count"], 1, case)
-            self.assertEqual(case["error_codes"], ["model_provider_referenced_unapproved_entity"], case)
-            self.assertEqual(case["provider_plans"], [], case)
-            self.assertEqual(case["render_plans"], [], case)
-            self.assertEqual(case["artifacts"], [], case)
-            self.assertEqual(case["complete_snapshots"], [], case)
+        self.assert_card_facing_model_provider_failure(
+            case["snapshot"],
+            "model_provider_referenced_unapproved_entity",
+        )
+        self.assertEqual(case["planner_call_count"], 1, case)
+        self.assertEqual(case["error_codes"], ["model_provider_referenced_unapproved_entity"], case)
+        self.assertEqual(case["provider_plans"], [], case)
+        self.assertEqual(case["render_plans"], [], case)
+        self.assertEqual(case["artifacts"], [], case)
+        self.assertEqual(case["complete_snapshots"], [], case)
+
+    def test_entity_named_chart_id_renders(self):
+        case = verify_entity_named_chart_id_renders(REPO_ROOT)["case"]
+
+        self.assertEqual(case["error_codes"], [], case)
+        self.assertEqual(case["snapshot"]["handler_result"]["snapshot"]["status"], "complete", case)
+        self.assertEqual(len(case["complete_snapshots"]), 1, case)
 
     def test_invalid_provider_chart_spec_rejected_before_storage(self):
         result = verify_invalid_provider_chart_spec_rejected_before_storage(REPO_ROOT)
