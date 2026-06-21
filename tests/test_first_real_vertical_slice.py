@@ -496,6 +496,38 @@ class RenderFamilyRoutingTests(unittest.TestCase):
         self.assertEqual(selection["entity_ids"][0], "sensor.living_room_temperature")
         self.assertIn("binary_sensor.living_room_ac", selection["entity_ids"])
 
+    def test_fuzzy_mixed_prompt_resolves_composite_despite_categorical_noise_match(self):
+        # Fix: categorical entity matching a shared token ("kitchen") must not
+        # block the numeric+binary composite detection path. Only the numeric
+        # primary and binary entities are forwarded; the categorical is discarded.
+        catalog = [
+            {
+                "entity_id": "sensor.kitchen_ecobee_current_temperature",
+                "domain": "sensor",
+                "unit_of_measurement": "°F",
+                "friendly_name": "Kitchen Ecobee Current Temperature",
+            },
+            {
+                "entity_id": "binary_sensor.kitchen_door",
+                "domain": "binary_sensor",
+                "friendly_name": "Kitchen Door",
+            },
+            {
+                "entity_id": "climate.kitchen_ecobee",
+                "domain": "climate",
+                "friendly_name": "Kitchen Ecobee",
+            },
+        ]
+        selection = job_orchestration.select_prompt_entity_ids(
+            "show me the kitchen temperature yesterday and when the kitchen door was open",
+            catalog,
+        )
+        self.assertTrue(selection["accepted"], selection)
+        self.assertEqual(selection["source"], "numeric_with_overlay")
+        self.assertEqual(selection["entity_ids"][0], "sensor.kitchen_ecobee_current_temperature")
+        self.assertIn("binary_sensor.kitchen_door", selection["entity_ids"])
+        self.assertNotIn("climate.kitchen_ecobee", selection["entity_ids"])
+
     def test_shared_word_prompt_picks_more_specific_entity(self):
         # ADR-0024 D1: "kitchen door" shares only "kitchen" with the ecobee but
         # matches "door" too, so the door wins without a clarification round-trip.
@@ -618,6 +650,43 @@ class RenderFamilyRoutingTests(unittest.TestCase):
             # Fails before the planner is called.
             self.assertEqual(len(planner.calls), 0)
             self.assertEqual(list(artifact_dir.glob("*.png")), [])
+
+
+    def test_validate_chart_spec_contract_rejects_duplicate_series_sources(self):
+        # A planner that returns two series from the same (entity_id, attribute)
+        # source is always wrong — the renderer would draw two identical lanes.
+        # This reproduces the "kitchen temperature mirrors door state" failure seen
+        # when a constrained planner hallucinated a temperature label on a door sensor.
+        chart_spec = {
+            "chart_id": "duplicate_source_test",
+            "chart_type": "timeline",
+            "title": "Duplicate Source Test",
+            "time_range": {"type": "absolute", "start": "2026-06-20T00:00:00+00:00", "end": "2026-06-21T00:00:00+00:00"},
+            "series": [
+                {
+                    "series_id": "s1",
+                    "label": "Kitchen Temperature",
+                    "source": {"type": "entity", "entity_id": "binary_sensor.kitchen_door", "attribute": None},
+                    "role": "primary",
+                    "render_as": "step",
+                    "transform": {"operation": "none", "window": None},
+                    "unit": "temperature",
+                },
+                {
+                    "series_id": "s2",
+                    "label": "Kitchen Door Open/Closed",
+                    "source": {"type": "entity", "entity_id": "binary_sensor.kitchen_door", "attribute": None},
+                    "role": "secondary",
+                    "render_as": "step",
+                    "transform": {"operation": "none", "window": None},
+                    "unit": None,
+                },
+            ],
+        }
+        result = job_orchestration.validate_chart_spec_contract(chart_spec)
+        self.assertFalse(result["accepted"], result)
+        self.assertEqual(result["code"], "invalid_chart_spec")
+        self.assertIn("duplicates the source of series[0]", result["error"])
 
 
 class InvalidPlannerResultPlanner(FakePlanner):

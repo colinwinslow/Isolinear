@@ -1401,9 +1401,12 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
         binary_matches = [item for item, kind in match_kinds if kind == "binary_state"]
         non_numeric_matches = [item for item, kind in match_kinds if kind != "numeric"]
         # Binary-only overlay composition (ADR-0022 D4): one numeric primary plus
-        # one or more binary entities. A non-binary categorical in the match set
-        # stays ambiguous and clarifies.
-        if len(numeric_matches) == 1 and binary_matches and len(non_numeric_matches) == len(binary_matches):
+        # one or more binary entities. Categorical entities that happen to match
+        # a shared token ("kitchen" matching both climate.kitchen_ecobee and
+        # binary_sensor.kitchen_door) are noise matches — they don't block the
+        # composite path. Only the numeric+binary pair is forwarded; the
+        # categorical match is discarded.
+        if len(numeric_matches) == 1 and binary_matches:
             return {
                 "accepted": True,
                 "code": "accepted",
@@ -4781,11 +4784,48 @@ def validate_chart_spec_contract(chart_spec: Any) -> dict[str, Any]:
             "code": "invalid_chart_spec",
             "error": str(exc),
         }
+    duplicate_error = _check_chart_spec_no_duplicate_series_sources(chart_spec)
+    if duplicate_error:
+        return duplicate_error
     return {
         "accepted": True,
         "code": "accepted",
         "schema": str(CHART_SPEC_SCHEMA_PATH),
     }
+
+
+def _check_chart_spec_no_duplicate_series_sources(chart_spec: Any) -> dict[str, Any] | None:
+    """Return an error if two series reference the same (type, entity_id, attribute) source.
+
+    A planner that returns two series from the same source is always wrong — the
+    renderer would draw two identical lanes (or a hallucinated label over real
+    data). This catches that class of model error before the chart reaches the
+    renderer.
+    """
+    if not isinstance(chart_spec, dict):
+        return None
+    series_list = chart_spec.get("series", [])
+    if not isinstance(series_list, list):
+        return None
+    seen: dict[tuple, int] = {}
+    for i, series in enumerate(series_list):
+        if not isinstance(series, dict):
+            continue
+        source = series.get("source")
+        if not isinstance(source, dict):
+            continue
+        key = (source.get("type"), source.get("entity_id"), source.get("attribute"))
+        if key in seen:
+            return {
+                "accepted": False,
+                "code": "invalid_chart_spec",
+                "error": (
+                    f"series[{i}] duplicates the source of series[{seen[key]}]: "
+                    f"type={key[0]!r} entity_id={key[1]!r} attribute={key[2]!r}"
+                ),
+            }
+        seen[key] = i
+    return None
 
 
 def validate_model_provider_chart_spec_entities(
