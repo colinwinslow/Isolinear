@@ -2091,5 +2091,353 @@ class OllamaPlannerClientDebugLoggingTests(unittest.TestCase):
         self.assertIn("chart_spec_ready", log_text)
 
 
+# ---------------------------------------------------------------------------
+# Helpers for D2 tests
+# ---------------------------------------------------------------------------
+
+class _FakeEntitySelector:
+    """A minimal planner stub with only select_entity; used for unit tests."""
+
+    def __init__(self, *, selects: set[str]) -> None:
+        self._selects = selects
+        self.calls: list[dict[str, Any]] = []
+
+    def provider_metadata(self) -> dict[str, str]:
+        return {"type": "ollama_compatible", "role": "planner", "endpoint_url": "", "model": "test"}
+
+    def select_entity(self, request: dict[str, Any], *, result_schema: dict[str, Any] | None = None) -> dict[str, Any]:
+        self.calls.append(request)
+        chosen = [eid for eid in request.get("candidate_entity_ids", []) if eid in self._selects]
+        if chosen:
+            return {
+                "accepted": True,
+                "code": "model_provider_entity_selection_received",
+                "provider": self.provider_metadata(),
+                "selection_result": {"status": "entity_selected", "entity_ids": chosen},
+                "provider_response": {},
+            }
+        return {
+            "accepted": True,
+            "code": "model_provider_entity_selection_received",
+            "provider": self.provider_metadata(),
+            "selection_result": {"status": "clarification_needed"},
+            "provider_response": {},
+        }
+
+
+class _AbstainingEntitySelector:
+    """A planner stub that always returns clarification_needed from select_entity."""
+
+    def provider_metadata(self) -> dict[str, str]:
+        return {"type": "ollama_compatible", "role": "planner", "endpoint_url": "", "model": "test"}
+
+    def select_entity(self, request: dict[str, Any], *, result_schema: dict[str, Any] | None = None) -> dict[str, Any]:
+        return {
+            "accepted": True,
+            "code": "model_provider_entity_selection_received",
+            "provider": self.provider_metadata(),
+            "selection_result": {"status": "clarification_needed"},
+            "provider_response": {},
+        }
+
+
+class _D2FakePlanner(FakePlanner):
+    """FakePlanner extended with select_entity support for D2 integration tests.
+
+    ``selects``: the entity_id the selector picks, or None to abstain.
+    """
+
+    def __init__(self, *, selects: str | None) -> None:
+        super().__init__()
+        self._selects = selects
+        self.select_calls: int = 0
+        self.plan_calls: int = 0
+        self.last_select_request: dict[str, Any] = {}
+
+    def select_entity(
+        self, request: dict[str, Any], *, result_schema: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        self.select_calls += 1
+        self.last_select_request = request
+        if self._selects is not None and self._selects in request.get("candidate_entity_ids", []):
+            return {
+                "accepted": True,
+                "code": "model_provider_entity_selection_received",
+                "provider": self.provider_metadata(),
+                "selection_result": {"status": "entity_selected", "entity_ids": [self._selects]},
+                "provider_response": {},
+            }
+        return {
+            "accepted": True,
+            "code": "model_provider_entity_selection_received",
+            "provider": self.provider_metadata(),
+            "selection_result": {"status": "clarification_needed"},
+            "provider_response": {},
+        }
+
+    def plan_chart(
+        self, request: dict[str, Any], *, result_schema: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        self.plan_calls += 1
+        return super().plan_chart(request, result_schema=result_schema)
+
+
+_THERMOSTAT_METADATA = {
+    "climate.upstairs_thermostat": {
+        "friendly_name": "Upstairs Thermostat",
+        "domain": "climate",
+        "unit_of_measurement": "°F",
+    },
+    "climate.downstairs_thermostat": {
+        "friendly_name": "Downstairs Thermostat",
+        "domain": "climate",
+        "unit_of_measurement": "°F",
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# D2 test class
+# ---------------------------------------------------------------------------
+
+class EntitySelectionD2Tests(unittest.TestCase):
+    """ADR-0024 D2: model-driven entity selection on residual ambiguity."""
+
+    def _tied_catalog(self) -> list[dict[str, Any]]:
+        return [
+            {"entity_id": "climate.upstairs_thermostat", "domain": "climate", "friendly_name": "Upstairs Thermostat"},
+            {"entity_id": "climate.downstairs_thermostat", "domain": "climate", "friendly_name": "Downstairs Thermostat"},
+        ]
+
+    def _hass_with_planner(self, entry_id: str, planner: Any) -> FakeHass:
+        hass = FakeHass()
+        hass.data[DOMAIN].setdefault(entry_id, {})[DATA_MODEL_PROVIDER_PLANNER] = planner
+        return hass
+
+    # -- unit: select_prompt_entity_ids returns candidate_items ---------------
+
+    def test_clarification_result_includes_candidate_items_on_tie(self):
+        catalog = self._tied_catalog()
+        result = job_orchestration.select_prompt_entity_ids("show thermostat history", catalog)
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["code"], "entity_selection_requires_clarification")
+        self.assertIn("candidate_items", result)
+        candidate_ids = {item["entity_id"] for item in result["candidate_items"]}
+        self.assertEqual(candidate_ids, {"climate.upstairs_thermostat", "climate.downstairs_thermostat"})
+
+    def test_clarification_result_includes_candidate_items_on_zero_match(self):
+        catalog = self._tied_catalog()
+        result = job_orchestration.select_prompt_entity_ids("show humidity data", catalog)
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["code"], "entity_selection_requires_clarification")
+        self.assertIn("candidate_items", result)
+        # Full catalog when zero matches
+        self.assertEqual(len(result["candidate_items"]), 2)
+
+    # -- unit: _run_model_entity_selection ------------------------------------
+
+    def test_no_model_provider_returns_rejection(self):
+        hass = FakeHass()
+        result = job_orchestration._run_model_entity_selection(
+            hass, "entry-1", "show thermostat history",
+            catalog_items=self._tied_catalog(),
+            candidate_items=self._tied_catalog(),
+        )
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["code"], "no_model_provider_for_entity_selection")
+
+    def test_model_without_select_entity_returns_rejection(self):
+        # A planner that only has plan_chart but not select_entity (e.g. FakePlanner)
+        # should not cause an error — D2 is silently skipped.
+        planner = FakePlanner()
+        hass = self._hass_with_planner("entry-1", planner)
+        result = job_orchestration._run_model_entity_selection(
+            hass, "entry-1", "show thermostat history",
+            catalog_items=self._tied_catalog(),
+            candidate_items=self._tied_catalog(),
+        )
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["code"], "no_model_provider_for_entity_selection")
+
+    def test_model_picks_valid_entity_accepted(self):
+        catalog = self._tied_catalog()
+        planner = _FakeEntitySelector(selects={"climate.upstairs_thermostat"})
+        hass = self._hass_with_planner("entry-1", planner)
+        result = job_orchestration._run_model_entity_selection(
+            hass, "entry-1", "show upstairs thermostat history",
+            catalog_items=catalog,
+            candidate_items=catalog,
+        )
+        self.assertTrue(result["accepted"], result)
+        self.assertEqual(result["source"], "model_entity_selection")
+        self.assertEqual(result["entity_ids"], ["climate.upstairs_thermostat"])
+
+    def test_model_abstains_returns_rejection(self):
+        catalog = self._tied_catalog()
+        hass = self._hass_with_planner("entry-1", _AbstainingEntitySelector())
+        result = job_orchestration._run_model_entity_selection(
+            hass, "entry-1", "show thermostat history",
+            catalog_items=catalog,
+            candidate_items=catalog,
+        )
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["code"], "model_entity_selection_abstained")
+
+    def test_model_picks_entity_not_in_candidate_set_fail_closed(self):
+        # Simulates a model that bypasses the enum pin and returns an entity
+        # outside the disclosed candidate set — the integration rejects it.
+        catalog = self._tied_catalog()
+
+        class _UnconstrainedSelector:
+            def provider_metadata(self):
+                return {"type": "ollama_compatible", "role": "planner", "endpoint_url": "", "model": "test"}
+
+            def select_entity(self, request, *, result_schema=None):
+                return {
+                    "accepted": True,
+                    "code": "model_provider_entity_selection_received",
+                    "provider": self.provider_metadata(),
+                    "selection_result": {"status": "entity_selected", "entity_ids": ["sensor.unlisted_entity"]},
+                    "provider_response": {},
+                }
+
+        hass = self._hass_with_planner("entry-1", _UnconstrainedSelector())
+        result = job_orchestration._run_model_entity_selection(
+            hass, "entry-1", "show thermostat history",
+            catalog_items=catalog,
+            candidate_items=catalog,
+        )
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["code"], "model_entity_selection_out_of_allowlist")
+
+    def test_model_picks_entity_not_in_allowlist_fail_closed(self):
+        # Even if the entity was in the candidate list (shouldn't happen in practice),
+        # it must also be in the full catalog (allowlist boundary).
+        catalog = self._tied_catalog()
+        planner = _FakeEntitySelector(selects={"climate.unlisted_thermostat"})
+        hass = self._hass_with_planner("entry-1", planner)
+        result = job_orchestration._run_model_entity_selection(
+            hass, "entry-1", "show thermostat history",
+            catalog_items=catalog,
+            # Candidate not in catalog — should still fail closed
+            candidate_items=catalog + [{"entity_id": "climate.unlisted_thermostat", "domain": "climate"}],
+        )
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["code"], "model_entity_selection_out_of_allowlist")
+
+    def test_selector_schema_pins_entity_ids_to_enum(self):
+        from custom_components.isolinear.model_provider import load_entity_selector_schema
+        schema = load_entity_selector_schema(["climate.upstairs_thermostat", "climate.downstairs_thermostat"])
+        self.assertEqual(schema["type"], "object")
+        self.assertIn("entity_selected", schema["properties"]["status"]["enum"])
+        self.assertIn("clarification_needed", schema["properties"]["status"]["enum"])
+        items_schema = schema["properties"]["entity_ids"]["items"]
+        self.assertIn("enum", items_schema)
+        self.assertIn("climate.upstairs_thermostat", items_schema["enum"])
+        self.assertIn("climate.downstairs_thermostat", items_schema["enum"])
+
+    # -- integration: full job/start → snapshot path -------------------------
+
+    def test_tie_model_picks_proceeds_to_render(self):
+        """Tie → model picks upstairs → renders without clarification (BDD Scenario A)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            planner = _D2FakePlanner(selects="climate.upstairs_thermostat")
+            hass, entry = configured_real_slice_hass(
+                planner=planner,
+                artifact_dir=Path(temp_dir),
+                extra_metadata_by_entity=_THERMOSTAT_METADATA,
+            )
+            start = _start_job(hass, entry, prompt="show thermostat history")
+            self.assertTrue(start["accepted"], start)
+            job_id = start["snapshot"]["job_id"]
+
+            snapshot = _snapshot_job(hass, entry, job_id)
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot["snapshot"])
+            # D2 selector called once; chart planner called once
+            self.assertEqual(planner.select_calls, 1)
+            self.assertEqual(planner.plan_calls, 1)
+            # Model was offered both tied candidates
+            self.assertIn(
+                "climate.upstairs_thermostat",
+                planner.last_select_request["candidate_entity_ids"],
+            )
+            self.assertIn(
+                "climate.downstairs_thermostat",
+                planner.last_select_request["candidate_entity_ids"],
+            )
+
+    def test_tie_model_abstains_clarification_shown(self):
+        """Tie → model abstains → clarification snapshot (BDD Scenario B)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            planner = _D2FakePlanner(selects=None)
+            hass, entry = configured_real_slice_hass(
+                planner=planner,
+                artifact_dir=Path(temp_dir),
+                extra_metadata_by_entity=_THERMOSTAT_METADATA,
+            )
+            start = _start_job(hass, entry, prompt="show thermostat history")
+            self.assertTrue(start["accepted"], start)
+            self.assertEqual(start["snapshot"]["status"], "clarification_needed", start["snapshot"])
+            option_ids = {o["option_id"] for o in start["snapshot"]["clarification"]["options"]}
+            self.assertIn("climate_upstairs_thermostat", option_ids)
+            self.assertIn("climate_downstairs_thermostat", option_ids)
+            # Selector called; planner not called
+            self.assertEqual(planner.select_calls, 1)
+            self.assertEqual(planner.plan_calls, 0)
+
+    def test_no_model_shows_clarification_without_selector_call(self):
+        """No model provider → clarification immediately, no model call (BDD Scenario C)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            hass, entry = configured_real_slice_hass(
+                planner=None,
+                artifact_dir=Path(temp_dir),
+                extra_metadata_by_entity=_THERMOSTAT_METADATA,
+            )
+            start = _start_job(hass, entry, prompt="show thermostat history")
+            self.assertTrue(start["accepted"], start)
+            self.assertEqual(start["snapshot"]["status"], "clarification_needed", start["snapshot"])
+
+    def test_invalid_entity_from_model_falls_back_to_clarification(self):
+        """Model returns off-allowlist entity → fail closed → clarification (BDD Scenario D)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            planner = _D2FakePlanner(selects="climate.secret_unlisted_entity")
+            hass, entry = configured_real_slice_hass(
+                planner=planner,
+                artifact_dir=Path(temp_dir),
+                extra_metadata_by_entity=_THERMOSTAT_METADATA,
+            )
+            start = _start_job(hass, entry, prompt="show thermostat history")
+            self.assertTrue(start["accepted"], start)
+            self.assertEqual(start["snapshot"]["status"], "clarification_needed", start["snapshot"])
+            # Selector called; pick rejected; chart planner never reached
+            self.assertEqual(planner.select_calls, 1)
+            self.assertEqual(planner.plan_calls, 0)
+
+    def test_zero_matches_model_picks_from_full_catalog(self):
+        """Zero matches → D2 called with full catalog → model picks → renders (BDD Scenario E)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            planner = _D2FakePlanner(selects="sensor.upstairs_temperature")
+            hass, entry = configured_real_slice_hass(
+                planner=planner,
+                artifact_dir=Path(temp_dir),
+            )
+            # "humidity" matches nothing in the default catalog
+            start = _start_job(hass, entry, prompt="show humidity")
+            self.assertTrue(start["accepted"], start)
+            job_id = start["snapshot"]["job_id"]
+
+            snapshot = _snapshot_job(hass, entry, job_id)
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot["snapshot"])
+            self.assertEqual(planner.select_calls, 1)
+            self.assertEqual(planner.plan_calls, 1)
+            # Full catalog offered as candidates for zero-match case
+            self.assertIn(
+                "sensor.upstairs_temperature",
+                planner.last_select_request["candidate_entity_ids"],
+            )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

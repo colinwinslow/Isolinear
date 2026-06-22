@@ -165,6 +165,32 @@ def load_planner_result_schema(
     return schema
 
 
+def load_entity_selector_schema(candidate_entity_ids: list[str]) -> dict[str, Any]:
+    """Build a structured-output schema for entity selection (ADR-0024 D2).
+
+    Pins candidate entity IDs to an enum so the provider's constrained
+    decoding cannot return an entity outside the disclosed candidate set.
+    """
+    deduped = list(dict.fromkeys(
+        eid for eid in candidate_entity_ids if isinstance(eid, str) and eid
+    ))
+    entity_id_items: dict[str, Any] = {"enum": deduped} if deduped else {"type": "string"}
+    return {
+        "type": "object",
+        "required": ["status"],
+        "additionalProperties": False,
+        "properties": {
+            "status": {"enum": ["entity_selected", "clarification_needed"]},
+            "entity_ids": {
+                "type": "array",
+                "minItems": 1,
+                "items": entity_id_items,
+            },
+            "reasoning_summary": {"type": ["string", "null"]},
+        },
+    }
+
+
 def planner_client_metadata(planner: Any) -> dict[str, str]:
     """Return schema-safe provider metadata from a planner client."""
     if hasattr(planner, "provider_metadata"):
@@ -288,6 +314,102 @@ class OllamaCompatiblePlannerClient:
             "provider": self.provider_metadata(),
             "planner_result": planner_result,
             "provider_response": _provider_response_summary(response_payload),
+        }
+
+    def select_entity(
+        self,
+        request: dict[str, Any],
+        *,
+        result_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Call /api/chat to select an approved entity for the prompt (ADR-0024 D2)."""
+        schema = result_schema or load_entity_selector_schema(request.get("candidate_entity_ids", []))
+        payload = self._entity_selector_payload(request, schema)
+        encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        chat_url = _ollama_chat_url(self.endpoint_url)
+        http_request = urllib.request.Request(
+            chat_url,
+            data=encoded,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        _LOGGER.debug(
+            "Isolinear -> Ollama select_entity request: model=%s url=%s body=%s",
+            self.planner_model,
+            chat_url,
+            json.dumps(payload, separators=(",", ":")),
+        )
+        try:
+            with urllib.request.urlopen(http_request, timeout=self.timeout_seconds) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            _LOGGER.debug("Isolinear <- Ollama select_entity HTTP error: %s", exc)
+            return _provider_failure("model_provider_http_error", str(exc), retry_safe=True)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            _LOGGER.debug("Isolinear <- Ollama select_entity connection error: %s", exc)
+            return _provider_failure("model_provider_connection_error", str(exc), retry_safe=True)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            _LOGGER.debug("Isolinear <- Ollama select_entity response error: %s", exc)
+            return _provider_failure("model_provider_response_error", str(exc), retry_safe=False)
+        _LOGGER.debug(
+            "Isolinear <- Ollama select_entity response: %s",
+            json.dumps(response_payload, separators=(",", ":")),
+        )
+        message = response_payload.get("message") if isinstance(response_payload, dict) else None
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str) or not content.strip():
+            return _provider_failure(
+                "model_provider_empty_response",
+                "Entity selector response content was empty.",
+                retry_safe=True,
+            )
+        try:
+            selection_result = json.loads(content)
+        except json.JSONDecodeError as exc:
+            return _provider_failure("model_provider_non_json_response", str(exc), retry_safe=False)
+        return {
+            "accepted": True,
+            "code": "model_provider_entity_selection_received",
+            "provider": self.provider_metadata(),
+            "selection_result": selection_result,
+            "provider_response": _provider_response_summary(response_payload),
+        }
+
+    def _entity_selector_payload(
+        self, request: dict[str, Any], result_schema: dict[str, Any]
+    ) -> dict[str, Any]:
+        prompt_payload = {
+            "task": "Select the approved Home Assistant entity (or entities) the user is asking about.",
+            "rules": [
+                "Choose only from the candidate_entity_ids list.",
+                "Return status entity_selected with a non-empty entity_ids list if the user's intent is clear.",
+                "Return status clarification_needed if you genuinely cannot determine which entity the user means.",
+                "Do not guess when genuinely ambiguous.",
+                "Do not include raw Home Assistant data, secrets, tokens, or prose outside JSON.",
+            ],
+            "entity_selector_request": deepcopy(request),
+            "entity_selector_result_schema": result_schema,
+        }
+        return {
+            "model": self.planner_model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are the Isolinear entity selector. Return only JSON that validates "
+                        "against the supplied entity_selector_result_schema."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(prompt_payload, separators=(",", ":")),
+                },
+            ],
+            "stream": False,
+            "format": result_schema,
+            "options": {
+                "temperature": 0,
+            },
         }
 
     def check_health(self, request: dict[str, Any]) -> dict[str, Any]:

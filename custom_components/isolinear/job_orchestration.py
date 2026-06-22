@@ -37,6 +37,7 @@ from .job_state import (
 )
 from .model_provider import (
     get_model_provider_planner,
+    load_entity_selector_schema,
     load_planner_result_schema,
     planner_client_metadata,
 )
@@ -362,6 +363,13 @@ def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]
 
     catalog_items = _approved_catalog_items(hass, entry_id)
     selection = select_prompt_entity_ids(command["prompt"], catalog_items)
+    if not selection["accepted"] and selection["code"] == "entity_selection_requires_clarification":
+        d2 = _run_model_entity_selection(
+            hass, entry_id, command["prompt"], catalog_items,
+            candidate_items=selection.get("candidate_items", catalog_items),
+        )
+        if d2["accepted"]:
+            selection = d2
     if not selection["accepted"]:
         missing_entity_ids = []
         run_result_code = selection["code"]
@@ -755,6 +763,13 @@ def handle_job_orchestration_retry_ws_command(hass: Any, command: dict[str, Any]
     _append_retry_accepted_snapshot(job, failed_snapshot=retryable["snapshot"])
     catalog_items = _approved_catalog_items(hass, entry_id)
     selection = select_prompt_entity_ids(job["prompt"], catalog_items)
+    if not selection["accepted"] and selection["code"] == "entity_selection_requires_clarification":
+        d2 = _run_model_entity_selection(
+            hass, entry_id, job["prompt"], catalog_items,
+            candidate_items=selection.get("candidate_items", catalog_items),
+        )
+        if d2["accepted"]:
+            selection = d2
     if not selection["accepted"]:
         missing_entity_ids = []
         run_result_code = selection["code"]
@@ -1367,6 +1382,70 @@ def _record_artifact_snapshot_for_source(
     )
 
 
+def _run_model_entity_selection(
+    hass: Any,
+    entry_id: str,
+    prompt: str,
+    catalog_items: list[dict[str, Any]],
+    candidate_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Try model-driven entity selection for the residue path (ADR-0024 D2).
+
+    Called when the deterministic fast-path cannot resolve (tie or zero
+    matches). Returns an accepted selection with ``source: model_entity_selection``
+    when the model picks a valid approved set, or a rejected result when the
+    model abstains, the provider is absent, or the chosen IDs are off-allowlist.
+    The caller falls through to user clarification on any rejection.
+    """
+    planner = get_model_provider_planner(hass, entry_id)
+    if planner is None or not hasattr(planner, "select_entity"):
+        return {"accepted": False, "code": "no_model_provider_for_entity_selection"}
+
+    candidate_entity_ids = [item["entity_id"] for item in candidate_items]
+    if not candidate_entity_ids:
+        return {"accepted": False, "code": "no_candidates_for_entity_selection"}
+
+    catalog_entity_ids = {item["entity_id"] for item in catalog_items}
+    request = {
+        "prompt": prompt,
+        "candidate_entity_ids": candidate_entity_ids,
+        "candidate_labels": {
+            item["entity_id"]: item.get("friendly_name") or item["entity_id"]
+            for item in candidate_items
+        },
+    }
+    schema = load_entity_selector_schema(candidate_entity_ids)
+    result = planner.select_entity(request, result_schema=schema)
+    if not result.get("accepted"):
+        return {"accepted": False, "code": "model_entity_selection_provider_failure"}
+
+    selection_result = result.get("selection_result")
+    if not isinstance(selection_result, dict):
+        return {"accepted": False, "code": "model_entity_selection_malformed_result"}
+
+    if selection_result.get("status") != "entity_selected":
+        return {"accepted": False, "code": "model_entity_selection_abstained"}
+
+    chosen_ids = selection_result.get("entity_ids")
+    if not isinstance(chosen_ids, list) or not chosen_ids:
+        return {"accepted": False, "code": "model_entity_selection_empty_result"}
+
+    candidate_set = set(candidate_entity_ids)
+    invalid_ids = [
+        eid for eid in chosen_ids
+        if not isinstance(eid, str) or eid not in catalog_entity_ids or eid not in candidate_set
+    ]
+    if invalid_ids:
+        return {"accepted": False, "code": "model_entity_selection_out_of_allowlist"}
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "entity_ids": list(dict.fromkeys(eid for eid in chosen_ids if isinstance(eid, str))),
+        "source": "model_entity_selection",
+    }
+
+
 def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -> dict[str, Any]:
     """Deterministically select scaffold entity IDs from prompt text and catalog labels."""
     explicit_entity_ids = _unique(ENTITY_ID_IN_PROMPT.findall(prompt.lower()))
@@ -1434,6 +1513,7 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
             "code": "entity_selection_requires_clarification",
             "message": "Multiple approved entities match this question; choose one.",
             "options": [_clarification_option_for_item(item) for item in top_matches],
+            "candidate_items": top_matches,
         }
 
     return {
@@ -1445,6 +1525,7 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
             else "No approved entities are available for this config entry."
         ),
         "options": [_clarification_option_for_item(item) for item in catalog_items],
+        "candidate_items": catalog_items,
     }
 
 
