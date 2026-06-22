@@ -144,8 +144,102 @@ class StreamingPlannerTransportTests(unittest.TestCase):
             result = client.plan_chart({"approved_entity_ids": []})
 
         self.assertFalse(captured["body"]["stream"])
+        # Non-streaming calls must not request thinking tokens (would change
+        # the single-read behavior unnecessarily).
+        self.assertNotIn("think", captured["body"])
         self.assertTrue(result["accepted"], result)
         self.assertEqual(result["planner_result"]["status"], "chart_spec_ready")
+
+    def test_streaming_request_sets_think_true(self):
+        """Streaming chat payload must send think:true so thinking-capable
+        models actually emit thinking tokens for on_reasoning."""
+        client = self._client()
+        captured = {}
+        chunks = [
+            {
+                "message": {
+                    "thinking": "ponder",
+                    "content": json.dumps(
+                        {"status": "chart_spec_ready", "chart_spec": {"ok": True}}
+                    ),
+                },
+                "done": True,
+            },
+        ]
+
+        def fake_urlopen(req, timeout=None):
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return _FakeUrlopenCtx(_ndjson_response(chunks))
+
+        with unittest.mock.patch.object(
+            model_provider.urllib.request, "urlopen", fake_urlopen
+        ):
+            client.plan_chart({"approved_entity_ids": []}, on_reasoning=lambda _t: None)
+
+        self.assertTrue(captured["body"]["stream"])
+        self.assertTrue(captured["body"]["think"])
+
+    def test_streaming_select_entity_request_sets_think_true(self):
+        client = self._client()
+        captured = {}
+        chunks = [
+            {
+                "message": {
+                    "thinking": "pick",
+                    "content": json.dumps(
+                        {
+                            "status": "entity_selected",
+                            "entity_ids": ["sensor.upstairs_temperature"],
+                        }
+                    ),
+                },
+                "done": True,
+            },
+        ]
+
+        def fake_urlopen(req, timeout=None):
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return _FakeUrlopenCtx(_ndjson_response(chunks))
+
+        with unittest.mock.patch.object(
+            model_provider.urllib.request, "urlopen", fake_urlopen
+        ):
+            client.select_entity(
+                {"candidate_entity_ids": ["sensor.upstairs_temperature"]},
+                on_reasoning=lambda _t: None,
+            )
+
+        self.assertTrue(captured["body"]["stream"])
+        self.assertTrue(captured["body"]["think"])
+
+    def test_non_streaming_select_entity_omits_think(self):
+        client = self._client()
+        captured = {}
+        final = {
+            "message": {
+                "content": json.dumps(
+                    {
+                        "status": "entity_selected",
+                        "entity_ids": ["sensor.upstairs_temperature"],
+                    }
+                )
+            },
+            "done": True,
+        }
+
+        def fake_urlopen(req, timeout=None):
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return _FakeUrlopenCtx(io.BytesIO(json.dumps(final).encode("utf-8")))
+
+        with unittest.mock.patch.object(
+            model_provider.urllib.request, "urlopen", fake_urlopen
+        ):
+            client.select_entity(
+                {"candidate_entity_ids": ["sensor.upstairs_temperature"]}
+            )
+
+        self.assertFalse(captured["body"]["stream"])
+        self.assertNotIn("think", captured["body"])
 
     def test_streaming_accumulates_thinking_and_invokes_callback(self):
         client = self._client()

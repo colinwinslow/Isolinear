@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "isolinear"
 NAME = "Isolinear"
-INTEGRATION_VERSION = "0.1.32"
+INTEGRATION_VERSION = "0.1.33"
 CONFIG_ENTRY_AUTO = "auto"
 
 INTEGRATION_WS_VERSION = 1

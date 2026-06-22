@@ -5941,7 +5941,10 @@ def _parse_window_timestamp(value: Any) -> datetime | None:
     except ValueError:
         return None
     if parsed.tzinfo is None:
-        return None
+        # The model often returns naive ISO 8601 (no offset). Treat these as
+        # UTC rather than rejecting them, which previously forced the 24-hour
+        # fallback window even when the model understood the requested range.
+        parsed = parsed.replace(tzinfo=timezone.utc)
     return parsed
 
 

@@ -455,10 +455,12 @@ class OllamaCompatiblePlannerClient:
         """Read an Ollama NDJSON chat stream, accumulating thinking + content.
 
         Calls ``on_reasoning`` with the sanitized accumulated thinking after each
-        delta that carries thinking (falling back to content deltas when the
-        model emits no separate thinking trace). Returns the fully assembled
-        final ``message.content`` (the structured-output JSON) and the last raw
-        chunk as the response summary source.
+        delta that carries thinking. Models that emit no separate thinking trace
+        produce no reasoning callbacks at all — the D6 graceful fallback per
+        ADR-0025 (nothing is shown), not a fall-through to content deltas.
+        Returns the fully assembled final ``message.content`` (the
+        structured-output JSON) and the last raw chunk as the response summary
+        source.
         """
         thinking_parts: list[str] = []
         content_parts: list[str] = []
@@ -481,8 +483,8 @@ class OllamaCompatiblePlannerClient:
                 thinking_parts.append(thinking_delta)
             if isinstance(content_delta, str) and content_delta != "":
                 content_parts.append(content_delta)
-            # Surface accumulated thinking (preferred) or, for non-thinking
-            # models that stream prose content, the accumulated content.
+            # Surface accumulated thinking only. Non-thinking models emit no
+            # reasoning (D6 graceful fallback per ADR-0025).
             if saw_thinking:
                 on_reasoning(sanitize_reasoning("".join(thinking_parts)))
         return "".join(content_parts), last_chunk
@@ -518,6 +520,9 @@ class OllamaCompatiblePlannerClient:
                 },
             ],
             "stream": stream,
+            # Only request thinking tokens when streaming; non-streaming calls
+            # keep their existing single-read behavior unchanged.
+            **({"think": True} if stream else {}),
             "format": result_schema,
             "options": {
                 "temperature": 0,
@@ -639,6 +644,9 @@ class OllamaCompatiblePlannerClient:
                 },
             ],
             "stream": stream,
+            # Only request thinking tokens when streaming; non-streaming calls
+            # keep their existing single-read behavior unchanged.
+            **({"think": True} if stream else {}),
             "format": result_schema,
             "options": {
                 "temperature": 0,

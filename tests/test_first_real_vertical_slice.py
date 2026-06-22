@@ -1835,12 +1835,22 @@ class ResolveHistoryWindowTests(unittest.TestCase):
         self.assertFalse(window["model_resolved"])
         self.assertEqual(window["start"], _iso(NOW - timedelta(hours=24)))
 
-    def test_naive_timestamps_fall_back_to_24h(self):
+    def test_naive_timestamps_are_treated_as_utc(self):
+        # The model frequently returns naive ISO 8601 (no offset). These are
+        # interpreted as UTC and honored, not rejected to the 24h fallback.
         window = resolve_history_window(
             self._spec("2026-06-17T12:00:00", "2026-06-18T12:00:00"),
             now=NOW,
         )
-        self.assertFalse(window["model_resolved"])
+        self.assertTrue(window["model_resolved"])
+        self.assertEqual(window["start"], "2026-06-17T12:00:00+00:00")
+        self.assertEqual(window["end"], "2026-06-18T12:00:00+00:00")
+
+    def test_parse_window_timestamp_attaches_utc_to_naive(self):
+        parsed = job_orchestration._parse_window_timestamp("2026-06-22T04:49:00")
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.tzinfo, timezone.utc)
+        self.assertEqual(parsed.isoformat(), "2026-06-22T04:49:00+00:00")
 
     def test_relative_or_missing_range_falls_back_to_24h(self):
         self.assertFalse(
