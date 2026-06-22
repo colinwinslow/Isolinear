@@ -1352,18 +1352,41 @@ entity with hallucinated labels. Verification: full suite `406 passed, 3 failed`
 resolved via ADR-0022 D4 amendment. The repository is ready for a live HACS `0.1.30`
 retest with a numeric temperature sensor + binary door sensor in the allowlist.
 
+The model-driven entity selection packet (ADR-0024 D2) is complete (`0.1.31`).
+When the deterministic specificity fast-path cannot resolve — a top-score tie
+among candidates or zero catalog matches — the orchestrator now asks the model
+to select the entity before showing the user a clarification card. A new
+`select_entity` call on the planner client sends the candidate entity IDs as a
+JSON Schema enum (constrained decoding, same pattern as the 0.1.27 planner
+enum-pin) and returns the model's selection. The returned IDs are validated
+against both the candidate set and the full approved catalog; any off-allowlist
+result fails closed, and model abstention (`clarification_needed`) falls through
+to the existing D3 clarification path. When no model provider is configured the
+D2 step is skipped entirely. `select_prompt_entity_ids` was extended to include
+`candidate_items` in its clarification return so D2 receives the narrowed
+candidate set on ties and the full catalog on zero-matches. The BDD (5 scenarios
+A–E) is accepted with 14 tests passing. Verification: full suite `420 passed, 3
+failed` (pre-existing codegen-sandbox matplotlib subprocess flake, confirmed not
+introduced by this packet), all evals `PASS`, BDD-evidence review `OK`,
+architecture review `OK`.
+
 ## Next recommended packet
 
-**ADR-0024 D2 — model-driven entity selection on residual ambiguity.** When the
-deterministic specificity fast-path can't resolve (a top-score tie, or zero
-matches against a non-trivial catalog), ask the model to pick the entity (or
-entity set) from the approved catalog before family routing; show the user a
-clarification only when the model returns `clarification_needed`. Needs an ADR-0024
-spec + BDD, a small pre-routing structured-output selection call (entity IDs, not
-a chart spec), and allowlist validation of the chosen IDs (fail closed). Then
-**ADR-0025** (live planner reasoning) so the wait across both model calls is
-narrated. The **ADR-0023 capability envelope** (histogram + aggregate_bar) remains
-open and may converge with D2 into a single envelope call (ADR-0024 D2 Open item).
+**Live HACS `0.1.31` retest** — confirm that tie-breaking and zero-match prompts
+no longer surface clarification cards when the model can resolve them. Key
+signals: a prompt that previously tied now renders directly; a vague prompt with
+a near-match still clarifies when the model returns `clarification_needed`.
+
+**ADR-0025 — live planner reasoning streaming.** Stream the model's reasoning
+into the card's chart slot as ephemeral wait-feedback (`stream:true` + a bounded,
+sanitized `progress.reasoning` on the active planning snapshot, surfaced through
+the existing ~1s poll loop, replaced by the chart on completion). Applies across
+both model calls (D2 `select_entity` + planner `plan_chart`). The cheaper
+"reasoning on the finished card" (Tier 1) was rejected by product direction.
+
+**ADR-0023 capability envelope** — histogram + aggregate_bar as the first live
+tranche; the deterministic envelope computation and post-plan family gate remain
+open.
 
 Confirm the live retest against real Home Assistant + Ollama:
 
