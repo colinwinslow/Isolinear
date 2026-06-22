@@ -1,6 +1,6 @@
 # Live Planner Reasoning Streaming — BDD Evidence
 
-**Run timestamp:** 2026-06-22 02:44 UTC
+**Run timestamp:** 2026-06-22 (re-run at closeout; redaction hardened in 0.1.34)
 
 **BDD file:** `bdd/dashboard-card/live-planner-reasoning-streaming-bdd.md`
 
@@ -55,7 +55,14 @@ Scenario mapping:
 - **E** (mid-stream transport error → failure code; no partial persistence) —
   `test_streaming_transport_error_returns_failure`
 - **F** (sanitization + 2000-char rolling-tail cap; entity IDs retained) —
-  the `SanitizeReasoningTests` group + schema `test_reasoning_is_capped_in_schema`
+  the `SanitizeReasoningTests` group + schema `test_reasoning_is_capped_in_schema`.
+  Hardened in 0.1.34 (closeout architecture-review finding): `sanitize_reasoning`
+  now also redacts the named secret vocabulary used by
+  `FORBIDDEN_WORKER_PROGRESS_TEXT` (`access_token`, `*_token`, `ollama_api_key`,
+  `api_key`) plus bare `sk-…` keys and JWTs, so the reasoning surface can't drift
+  from the other card-facing fields. New cases: `test_redacts_named_secret_with_value`,
+  `test_redacts_long_lived_access_token_keyword`, `test_redacts_openai_style_api_key`,
+  `test_redacts_bare_jwt`.
 - **G** (non-streaming fallback, no reasoning) —
   `test_non_streaming_default_unchanged`,
   `test_streaming_non_reasoning_model_never_calls_back`,
@@ -117,7 +124,7 @@ python3 -m pytest tests/ -q
 ```
 
 ```
-3 failed, 443 passed in 13.43s
+3 failed, 451 passed in 15.09s
 ```
 
 The 3 failures are the pre-existing codegen-sandbox subprocess flake

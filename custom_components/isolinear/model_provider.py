@@ -42,6 +42,20 @@ _REASONING_REDACTIONS: tuple[re.Pattern[str], ...] = (
     re.compile(r"https?://\S+"),
     # Bearer / authorization tokens.
     re.compile(r"(?i)bearer\s+\S+"),
+    # Named secret vocabulary, mirroring job_orchestration's
+    # FORBIDDEN_WORKER_PROGRESS_TEXT / FORBIDDEN_MODEL_PROVIDER_FAILURE_TEXT so
+    # the reasoning surface can't drift from the rest of the card-facing fields.
+    # Redact the key *and* any attached value (``access_token=...``, ``token: ...``).
+    re.compile(
+        r"(?i)\b(?:access_token|home_assistant_token|long_lived_access_token|"
+        r"worker_token|model_provider_token|ollama_api_key|api[_-]?key)\b"
+        r"(?:\s*[:=]\s*\S+)?"
+    ),
+    # Bare secret-like tokens: OpenAI-style ``sk-...`` keys and JWTs
+    # (three dot-separated base64url segments). The model can echo such
+    # material verbatim from a prompt; over-redacting wait-feedback is harmless.
+    re.compile(r"\bsk-[A-Za-z0-9_-]{8,}"),
+    re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"),
     # Windows filesystem paths (drive-letter rooted).
     re.compile(r"[A-Za-z]:\\[^\s\"']+"),
     # Unix-ish absolute paths with at least two segments (avoid eating prose

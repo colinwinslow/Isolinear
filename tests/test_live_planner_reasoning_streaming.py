@@ -97,6 +97,26 @@ class SanitizeReasoningTests(unittest.TestCase):
         out = sanitize_reasoning(r"reading C:\Users\hass\token.txt here")
         self.assertNotIn(r"C:\Users\hass\token.txt", out)
 
+    def test_redacts_named_secret_with_value(self):
+        # ADR-0025 D5: named secret vocabulary mirrors job_orchestration's
+        # forbidden-text guard. The key and its attached value are both removed.
+        out = sanitize_reasoning("using access_token=eyJhbG.foo.bar to call HA")
+        self.assertNotIn("eyJhbG.foo.bar", out)
+        self.assertNotIn("access_token=", out)
+
+    def test_redacts_long_lived_access_token_keyword(self):
+        out = sanitize_reasoning("the long_lived_access_token is set")
+        self.assertNotIn("long_lived_access_token", out)
+
+    def test_redacts_openai_style_api_key(self):
+        out = sanitize_reasoning("key sk-proj-AAAA1111BBBB2222 echoed by model")
+        self.assertNotIn("sk-proj-AAAA1111BBBB2222", out)
+
+    def test_redacts_bare_jwt(self):
+        jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w"
+        out = sanitize_reasoning(f"token {jwt} leaked")
+        self.assertNotIn(jwt, out)
+
     def test_keeps_approved_entity_id(self):
         out = sanitize_reasoning("The entity sensor.upstairs_temperature is approved.")
         self.assertIn("sensor.upstairs_temperature", out)

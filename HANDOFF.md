@@ -1370,23 +1370,65 @@ failed` (pre-existing codegen-sandbox matplotlib subprocess flake, confirmed not
 introduced by this packet), all evals `PASS`, BDD-evidence review `OK`,
 architecture review `OK`.
 
+**ADR-0025 — live planner reasoning streaming — shipped in `0.1.32`,
+bug-fixed in `0.1.33`, hardened in `0.1.34`.** The full workflow landed in
+`0.1.32` (ADR accepted, spec, BDD, TDD with 23 tests, frontend bundle rebuild):
+the Ollama-compatible planner now streams (`stream: true`), the model's thinking
+trace is sanitized and length-capped (2000-char rolling tail) into a per-job
+live-reasoning slot, surfaced as `progress.reasoning` + a coarse phase label on
+the active planning snapshot through the existing poll loop, and replaced by the
+chart (or failure card) on completion. The reasoning is never persisted — the
+stored snapshot is never mutated and the slot is cleared in a `finally` on any
+terminal state. Streaming spans both model calls (D2 `select_entity` +
+`plan_chart`); non-streaming/non-thinking providers fall back gracefully (D6,
+nothing shown). The Lit card renders a monospace reasoning block
+(`data-testid="planning-reasoning"`) in the chart slot during the wait.
+
+`0.1.33` fixed two bugs found in live testing: (1) thinking-capable Ollama
+models never streamed because `"think": true` was never sent — it is now sent on
+streaming planner + entity-selector requests only (non-streaming calls
+untouched); (2) `resolve_history_window` forced the 24h fallback whenever the
+model returned naive ISO 8601 (no offset) — `_parse_window_timestamp` now treats
+naive datetimes as UTC instead of rejecting them. Both fixes are test-covered
+(`test_streaming_request_sets_think_true`,
+`test_streaming_select_entity_request_sets_think_true`,
+`test_non_streaming_select_entity_omits_think`,
+`test_naive_timestamps_are_treated_as_utc`,
+`test_parse_window_timestamp_attaches_utc_to_naive`).
+
+`0.1.34` closed a redaction gap found by this closeout's architecture review:
+`sanitize_reasoning` redacted URLs, `Bearer …`, and filesystem paths but **not**
+the named secret vocabulary the rest of the card-facing surface already guards
+against (`access_token`, `*_token`, `ollama_api_key`, `api_key`), nor bare
+secret-like tokens (`sk-…` keys, JWTs). Since the thinking trace is unsanitized
+model echo of a prompt that can contain such material, this was an invariant-3 /
+ADR-0025 D5 gap. `sanitize_reasoning` now mirrors
+`FORBIDDEN_WORKER_PROGRESS_TEXT`'s vocabulary plus `sk-…`/JWT patterns, with four
+new redaction tests; entity IDs and the user prompt are still retained. No core
+schema change. Verification: full suite `451 passed, 3 failed` (the 3 = the
+pre-existing codegen-sandbox subprocess flake), all evals `PASS`, BDD-evidence
+review `OK`, architecture review CONCERNS resolved by the `0.1.34` hardening.
+
 ## Next recommended packet
 
-**Live HACS `0.1.31` retest** — confirm that tie-breaking and zero-match prompts
-no longer surface clarification cards when the model can resolve them. Key
-signals: a prompt that previously tied now renders directly; a vague prompt with
-a near-match still clarifies when the model returns `clarification_needed`.
+**Live HACS `0.1.33` retest (now #1).** Confirm the live planner reasoning
+streams across both model calls against real Home Assistant + Ollama with a
+thinking-capable model. Key signals: the card's chart slot shows growing
+sanitized reasoning during "Selecting entities…" then "Planning chart…", no
+secrets/URLs/paths/tokens appear in the trace, the reasoning is replaced by the
+rendered PNG (or a failure card) on completion, and a prompt with a naive
+model-returned timestamp resolves to the intended window instead of silently
+falling back to last-24h. (This subsumes the previous `0.1.31`/`0.1.32` retest
+item — those changes are all retested together as `0.1.33`/`0.1.34` now.)
 
-**ADR-0025 — live planner reasoning streaming.** Stream the model's reasoning
-into the card's chart slot as ephemeral wait-feedback (`stream:true` + a bounded,
-sanitized `progress.reasoning` on the active planning snapshot, surfaced through
-the existing ~1s poll loop, replaced by the chart on completion). Applies across
-both model calls (D2 `select_entity` + planner `plan_chart`). The cheaper
-"reasoning on the finished card" (Tier 1) was rejected by product direction.
+**ADR-0023 capability envelope (now #2)** — histogram + aggregate_bar as the
+first live tranche; the deterministic envelope computation and post-plan family
+gate (`model_provider_chart_family_out_of_envelope`) remain open.
 
-**ADR-0023 capability envelope** — histogram + aggregate_bar as the first live
-tranche; the deterministic envelope computation and post-plan family gate remain
-open.
+**Night mode (now #3)** — item (h): dark theme for the chart PNG + card UI,
+auto-following the Home Assistant theme. Needs a spec plus likely an ADR (the
+resolved theme must be plumbed card -> `job/start` -> render request, which is
+schema-touching, and the Pillow renderer needs a second dark palette).
 
 Confirm the live retest against real Home Assistant + Ollama:
 
