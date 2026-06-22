@@ -5958,7 +5958,7 @@ def _catalog_item_meaningful_tokens(item: dict[str, Any]) -> set[str]:
     return {
         token
         for token in item_tokens
-        if len(token) >= 4 and token not in {"sensor", "binary", "temperature"}
+        if len(token) >= 4 and token not in {"sensor", "binary"}
     }
 
 

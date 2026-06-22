@@ -1409,6 +1409,44 @@ schema change. Verification: full suite `451 passed, 3 failed` (the 3 = the
 pre-existing codegen-sandbox subprocess flake), all evals `PASS`, BDD-evidence
 review `OK`, architecture review CONCERNS resolved by the `0.1.34` hardening.
 
+`0.1.35` fixed two bugs found while retesting the `0.1.34` reasoning-streaming
+build, both correcting existing behavior (no new architecture):
+
+1. **`think`/`format` mutual exclusivity (ADR-0025 D1 correction).** A
+   thinking-capable Ollama model still emitted no reasoning because the streaming
+   payloads sent `think: true` *and* the structured-output `format` schema
+   together — and Ollama silently suppresses thinking whenever `format` is set.
+   ADR-0025 D1 had assumed both could coexist; they cannot. The streaming
+   (reasoning) path now sends `think: true` and **omits** `format`, relying on
+   system-prompt schema guidance plus a new `_strip_markdown_json` helper that
+   strips the markdown code fences thinking-mode models wrap around their JSON.
+   The non-streaming fallback keeps `format` for strict constrained decoding (it
+   requests no thinking). This was confirmed as the last blocker to live
+   reasoning streaming for thinking-capable models. ADR-0025 D1 and the streaming
+   spec carry a correction note; the existing streaming-payload tests
+   (`test_streaming_request_sets_think_true`,
+   `test_streaming_select_entity_request_sets_think_true`,
+   `test_non_streaming_select_entity_omits_think`) cover the contract and the BDD
+   evidence file was refreshed (30 tests).
+
+2. **Stopword fix for distinctive-token scoring (ADR-0022/0024 path).**
+   `"temperature"` was wrongly excluded from the distinctive-token set in
+   `_catalog_item_meaningful_tokens` (alongside the HA component prefixes
+   `sensor`/`binary`), so a "kitchen temperature" prompt scored only on
+   `kitchen` and tied with `kitchen_door`. `temperature` now counts toward the
+   score, so an ecobee temperature sensor outscores a co-located door sensor
+   instead of tying. Covered by the existing vertical-slice entity-selection
+   tests.
+
+No core schema change. These are bug fixes in existing mechanisms, so no new
+spec/BDD/ADR was created (only correction notes to the ADR-0025/streaming-spec
+text the `format` discovery invalidated) and a full architecture-review subagent
+was not run (one-line fixes in documented mechanisms, below the review bar).
+Verification: full suite `451 passed, 3 failed` (the 3 = the pre-existing
+codegen-sandbox subprocess flake, confirmed identical on the clean baseline),
+relevant model-provider/streaming/entity-resolution evals `PASS`, BDD-evidence
+review `OK`.
+
 ## Next recommended packet
 
 **Semantic alias live wiring — learned entity knowledge (now #1).**
@@ -1475,16 +1513,19 @@ code or specs.
 
 ---
 
-**Live HACS `0.1.34` retest (now #2).** Confirm reasoning streaming and correct
-time window in the field after HACS update + HA restart. Key signals: reasoning
-text appears in chart slot during planning (requires a thinking-capable Ollama
-model — if model doesn't support `think: true`, D6 graceful fallback is
-expected); "last 4 hours" prompt resolves to a 4-hour window, not 24h.
+**Live HACS reasoning-streaming retest — RESOLVED in `0.1.35`.** The blocker
+behind the `0.1.34` retest item (reasoning text not appearing for
+thinking-capable models) was the `think`/`format` mutual-exclusivity bug, now
+fixed: with `format` dropped on the streaming path, a thinking-capable Ollama
+model emits reasoning into the chart slot during planning. A live HACS `0.1.35`
+retest is still worth a quick confirmation in the field (reasoning text appears
+in the chart slot during planning; "last 4 hours" resolves to a 4-hour window,
+not 24h), but it is no longer a blocking unknown.
 
-**ADR-0023 capability envelope (now #3)** — histogram + aggregate_bar first
+**ADR-0023 capability envelope (now #2)** — histogram + aggregate_bar first
 tranche; spec + BDD drafted, ADR accepted — implementation-ready.
 
-**Night mode (now #4)** — dark theme for chart PNG + card UI, auto-following
+**Night mode (now #3)** — dark theme for chart PNG + card UI, auto-following
 HA theme. Needs spec + likely an ADR (schema-touching: theme plumbed card →
 render request).
 

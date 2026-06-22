@@ -51,11 +51,21 @@ artifact and never shown on the finished card.
 
 1. **D1 — Streaming planner transport.** The Ollama client issues the model
    call with `stream: true` and reads the NDJSON chunk stream, accumulating the
-   `message.thinking` (and/or `message.content`) deltas. The structured-output
-   `format` schema still governs the final content; thinking is a side channel.
-   The call still runs synchronously on the executor worker thread (off the HA
-   event loop, per the ADR-0020/0023 offload), so streaming reads never block the
-   loop. A non-streaming path remains as fallback (D6).
+   `message.thinking` (and/or `message.content`) deltas. Thinking is a side
+   channel. The call still runs synchronously on the executor worker thread (off
+   the HA event loop, per the ADR-0020/0023 offload), so streaming reads never
+   block the loop. A non-streaming path remains as fallback (D6).
+
+   **D1 implementation correction (0.1.35):** D1 originally assumed the
+   structured-output `format` schema could still govern the final content while
+   thinking streamed alongside it. In practice Ollama silently *suppresses*
+   thinking whenever `format` is set, so the two are mutually exclusive. The
+   streaming (reasoning) path therefore sends `think: true` and **omits**
+   `format`, relying on system-prompt schema guidance plus a `_strip_markdown_json`
+   post-processing step to strip the code fences thinking-mode models wrap around
+   their JSON output. The non-streaming fallback (D6) keeps `format` for strict
+   constrained decoding (it requests no thinking). This corrects the original D1
+   wording but does not change the decision or any contract surface.
 
 2. **D2 — Partial reasoning lives on the active snapshot.** As chunks arrive, the
    planner thread writes the accumulated, **sanitized, length-capped** reasoning

@@ -90,8 +90,14 @@ def select_entity(
   reads the NDJSON chunk stream line-by-line, accumulating `message.thinking`
   (and, if absent, `message.content`) deltas. After each delta it calls
   `on_reasoning(accumulated_text)` with the full accumulated raw thinking so far.
-  The final assembled `message.content` (the structured-output JSON) is parsed
-  exactly as today; the `format` schema still governs the final content.
+  The final assembled `message.content` (the structured-output JSON) is parsed,
+  stripping any markdown code fences a thinking-mode model wraps it in
+  (`_strip_markdown_json`). **`think` and `format` are mutually exclusive on
+  Ollama:** when `format` is set, Ollama silently suppresses thinking, so the
+  streaming path sends `think: true` and omits `format`, relying on the
+  system-prompt schema guidance plus `_strip_markdown_json` post-processing
+  rather than constrained decoding. The non-streaming fallback keeps `format`
+  for strict constrained decoding (no thinking requested there).
 - The return shape is identical in both modes (`accepted`, `code`, `provider`,
   `planner_result`/`selection_result`, `provider_response`).
 - The call still runs synchronously on the executor worker thread (ADR-0020/0023

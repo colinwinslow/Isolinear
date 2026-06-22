@@ -1,6 +1,6 @@
 # Live Planner Reasoning Streaming — BDD Evidence
 
-**Run timestamp:** 2026-06-22 (re-run at closeout; redaction hardened in 0.1.34)
+**Run timestamp:** 2026-06-22 (re-run at closeout; think/format mutual-exclusivity fix in 0.1.35)
 
 **BDD file:** `bdd/dashboard-card/live-planner-reasoning-streaming-bdd.md`
 
@@ -13,22 +13,29 @@ python3 -m pytest tests/test_live_planner_reasoning_streaming.py -v
 ```
 
 ```
-collected 23 items
+collected 30 items
 
 SanitizeReasoningTests::test_cap_is_2000 PASSED
 SanitizeReasoningTests::test_empty_in_empty_out PASSED
 SanitizeReasoningTests::test_keeps_approved_entity_id PASSED
+SanitizeReasoningTests::test_redacts_bare_jwt PASSED
 SanitizeReasoningTests::test_redacts_bearer_token PASSED
 SanitizeReasoningTests::test_redacts_https_endpoint PASSED
+SanitizeReasoningTests::test_redacts_long_lived_access_token_keyword PASSED
+SanitizeReasoningTests::test_redacts_named_secret_with_value PASSED
+SanitizeReasoningTests::test_redacts_openai_style_api_key PASSED
 SanitizeReasoningTests::test_redacts_unix_path PASSED
 SanitizeReasoningTests::test_redacts_windows_path PASSED
 SanitizeReasoningTests::test_redacts_worker_url PASSED
 SanitizeReasoningTests::test_rolling_tail_caps_to_2000_with_leading_ellipsis PASSED
 SanitizeReasoningTests::test_short_clean_text_passes_through PASSED
 StreamingPlannerTransportTests::test_non_streaming_default_unchanged PASSED
+StreamingPlannerTransportTests::test_non_streaming_select_entity_omits_think PASSED
 StreamingPlannerTransportTests::test_streaming_accumulates_thinking_and_invokes_callback PASSED
 StreamingPlannerTransportTests::test_streaming_non_reasoning_model_never_calls_back PASSED
+StreamingPlannerTransportTests::test_streaming_request_sets_think_true PASSED
 StreamingPlannerTransportTests::test_streaming_select_entity_also_streams PASSED
+StreamingPlannerTransportTests::test_streaming_select_entity_request_sets_think_true PASSED
 StreamingPlannerTransportTests::test_streaming_transport_error_returns_failure PASSED
 ApplyLiveReasoningTests::test_empty_text_omits_reasoning PASSED
 ApplyLiveReasoningTests::test_injects_reasoning_and_stage_and_revalidates PASSED
@@ -39,8 +46,20 @@ ApplyLiveReasoningTests::test_reasoning_is_capped_in_schema PASSED
 EndToEndLiveReasoningTests::test_in_progress_poll_surfaces_reasoning_then_png_clears_it PASSED
 EndToEndLiveReasoningTests::test_non_streaming_planner_shows_no_reasoning PASSED
 
-23 passed in 0.25s
+30 passed in 0.28s
 ```
+
+> **0.1.35 fix — `think`/`format` mutual exclusivity (ADR-0025 D1 correction).**
+> Ollama silently suppresses thinking tokens when the structured-output `format`
+> parameter is also set, so a thinking-capable model emitted no reasoning while
+> `format` governed decoding. Fix: the streaming (reasoning) payload now sends
+> `think: true` and omits `format`; the non-streaming fallback keeps `format`.
+> Markdown code fences a thinking-mode model wraps around its JSON output are
+> stripped by `_strip_markdown_json` before parsing. New raw coverage:
+> `test_streaming_request_sets_think_true`,
+> `test_streaming_select_entity_request_sets_think_true`,
+> `test_non_streaming_select_entity_omits_think` (asserting `think` is absent and
+> `format` retained on the non-streaming path).
 
 Scenario mapping:
 

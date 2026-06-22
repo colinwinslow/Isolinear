@@ -349,7 +349,7 @@ class OllamaCompatiblePlannerClient:
             return _provider_failure("model_provider_empty_response", "Planner response content was empty.", retry_safe=True)
 
         try:
-            planner_result = json.loads(content)
+            planner_result = json.loads(_strip_markdown_json(content))
         except json.JSONDecodeError as exc:
             return _provider_failure("model_provider_non_json_response", str(exc), retry_safe=False)
 
@@ -394,7 +394,7 @@ class OllamaCompatiblePlannerClient:
                 retry_safe=True,
             )
         try:
-            selection_result = json.loads(content)
+            selection_result = json.loads(_strip_markdown_json(content))
         except json.JSONDecodeError as exc:
             return _provider_failure("model_provider_non_json_response", str(exc), retry_safe=False)
         return {
@@ -534,10 +534,12 @@ class OllamaCompatiblePlannerClient:
                 },
             ],
             "stream": stream,
-            # Only request thinking tokens when streaming; non-streaming calls
-            # keep their existing single-read behavior unchanged.
-            **({"think": True} if stream else {}),
-            "format": result_schema,
+            # Thinking mode and Ollama structured-output format are mutually
+            # exclusive: Ollama suppresses thinking when format is set.  When
+            # streaming (reasoning requested) we omit format and rely on the
+            # system-prompt schema guidance + _strip_markdown_json post-processing.
+            # Non-streaming calls keep format for strict constrained decoding.
+            **({"think": True} if stream else {"format": result_schema}),
             "options": {
                 "temperature": 0,
             },
@@ -658,10 +660,12 @@ class OllamaCompatiblePlannerClient:
                 },
             ],
             "stream": stream,
-            # Only request thinking tokens when streaming; non-streaming calls
-            # keep their existing single-read behavior unchanged.
-            **({"think": True} if stream else {}),
-            "format": result_schema,
+            # Thinking mode and Ollama structured-output format are mutually
+            # exclusive: Ollama suppresses thinking when format is set.  When
+            # streaming (reasoning requested) we omit format and rely on the
+            # system-prompt schema guidance + _strip_markdown_json post-processing.
+            # Non-streaming calls keep format for strict constrained decoding.
+            **({"think": True} if stream else {"format": result_schema}),
             "options": {
                 "temperature": 0,
             },
@@ -702,6 +706,19 @@ def _has_ollama_planner_config(config_data: Any) -> bool:
         and isinstance(config_data.get("planner_model"), str)
         and bool(config_data["planner_model"].strip())
     )
+
+
+def _strip_markdown_json(text: str) -> str:
+    """Strip markdown code fences that thinking-mode models wrap around JSON output."""
+    text = text.strip()
+    if text.startswith("```"):
+        # Drop the opening fence line (```json or ```)
+        text = text.split("\n", 1)[-1]
+        # Drop the closing fence
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+    return text
 
 
 def _ollama_chat_url(endpoint_url: str) -> str:
