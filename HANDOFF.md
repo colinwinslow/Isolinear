@@ -1411,24 +1411,82 @@ review `OK`, architecture review CONCERNS resolved by the `0.1.34` hardening.
 
 ## Next recommended packet
 
-**Live HACS `0.1.33` retest (now #1).** Confirm the live planner reasoning
-streams across both model calls against real Home Assistant + Ollama with a
-thinking-capable model. Key signals: the card's chart slot shows growing
-sanitized reasoning during "Selecting entities…" then "Planning chart…", no
-secrets/URLs/paths/tokens appear in the trace, the reasoning is replaced by the
-rendered PNG (or a failure card) on completion, and a prompt with a naive
-model-returned timestamp resolves to the intended window instead of silently
-falling back to last-24h. (This subsumes the previous `0.1.31`/`0.1.32` retest
-item — those changes are all retested together as `0.1.33`/`0.1.34` now.)
+**Semantic alias live wiring — learned entity knowledge (now #1).**
 
-**ADR-0023 capability envelope (now #2)** — histogram + aggregate_bar as the
-first live tranche; the deterministic envelope computation and post-plan family
-gate (`model_provider_chart_family_out_of_envelope`) remain open.
+Root cause: the kitchen ecobee climate entity controls whole-house AC but is
+named for its location. The model has no way to know "AC running" →
+`climate.kitchen_ecobee`. This pattern is universal (HVAC entities named for
+sensor location, not function) and aliases are the right fix.
 
-**Night mode (now #3)** — item (h): dark theme for the chart PNG + card UI,
-auto-following the Home Assistant theme. Needs a spec plus likely an ADR (the
-resolved theme must be plumbed card -> `job/start` -> render request, which is
-schema-touching, and the Pillow renderer needs a second dark palette).
+**What's already in place (do not re-implement):**
+- `SemanticAlias` + `SemanticMemoryStore` schemas fully designed (four meaning
+  types: `entity`, `state_interval`, `threshold_interval`, `aggregate`).
+- `src/Isolinear/fake_slice.py` has alias matching, invalidation, and
+  `saved_semantic_aliases` proposal logic — port this to the live path, don't
+  rewrite it.
+- Evals: `semantic_memory_store_envelope.py`, `semantic_alias_invalidation.py`,
+  `threshold_interval_use_once.py`, `threshold_interval_alias_reuse.py`,
+  `threshold_interval_use_and_remember.py`.
+- ADR-0009 (accepted): HA integration owns the memory store.
+- ADR-0010 (accepted): semantic memory store envelope.
+
+**Tranche 1 — load/match/inject (the foundational path):**
+1. Persist `SemanticMemoryStore` to HA storage (`hass.data` / `Store`) keyed by
+   `config_entry_id`. Load at integration setup; save on write.
+2. At entity-resolution time, match enabled aliases against the user's prompt
+   tokens (same scoring logic as `fake_slice.py`). Inject matching alias
+   entity IDs into the approved entity catalog so the specificity fast-path
+   and model-driven D2 selector both see them.
+3. Mark alias-resolved entities distinctly in the catalog entry so the planner
+   can use them (and the validation gate enforces allowlist membership still
+   applies — aliases cannot bypass the allowlist boundary, invariant #1).
+4. New spec + BDD for Tranche 1 before any code (ADR-0009 + ADR-0010 are
+   already accepted; check if a new ADR is needed for the live wiring contract).
+
+**Tranche 2 — propose/confirm/save (the learning path):**
+5. Extend the live planner result schema with optional `saved_semantic_aliases`
+   (already in `fake_slice.py` result shape; wire it into the planner output
+   schema and validate).
+6. After a successful render, if the model proposed aliases, surface a
+   "Remember this?" confirmation in the card (new card UI state).
+7. On user confirm: write alias to storage. On reject: no-op.
+8. Spec + BDD for Tranche 2 before implementing the card UI.
+
+**For the AC case specifically**, the alias the system should eventually learn:
+```json
+{
+  "alias_id": "whole_house_ac",
+  "natural_names": ["ac", "air conditioning", "central air", "air conditioner"],
+  "meaning": {
+    "type": "state_interval",
+    "entity_id": "climate.kitchen_ecobee",
+    "attribute": "hvac_action",
+    "active_values": ["cooling"]
+  }
+}
+```
+In the meantime, manually seeding this alias into the store (by editing the
+storage JSON) is a valid workaround while Tranche 2 is pending.
+
+**Session start for this packet:** read ADR-0009, ADR-0010,
+`src/Isolinear/fake_slice.py` (alias matching section), `semantic-alias.schema.json`,
+`semantic-memory-store.schema.json`, and the existing evals before writing any
+code or specs.
+
+---
+
+**Live HACS `0.1.34` retest (now #2).** Confirm reasoning streaming and correct
+time window in the field after HACS update + HA restart. Key signals: reasoning
+text appears in chart slot during planning (requires a thinking-capable Ollama
+model — if model doesn't support `think: true`, D6 graceful fallback is
+expected); "last 4 hours" prompt resolves to a 4-hour window, not 24h.
+
+**ADR-0023 capability envelope (now #3)** — histogram + aggregate_bar first
+tranche; spec + BDD drafted, ADR accepted — implementation-ready.
+
+**Night mode (now #4)** — dark theme for chart PNG + card UI, auto-following
+HA theme. Needs spec + likely an ADR (schema-touching: theme plumbed card →
+render request).
 
 Confirm the live retest against real Home Assistant + Ollama:
 
