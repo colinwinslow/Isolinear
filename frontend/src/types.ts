@@ -42,6 +42,10 @@ export interface IsolinearJobSnapshot {
   progress?: {
     stage: string;
     message: string;
+    // ADR-0025: ephemeral, sanitized, length-capped live model reasoning shown
+    // in the chart slot during the planning wait; never present on a
+    // complete/failed snapshot.
+    reasoning?: string;
   };
   clarification?: {
     question_id: string;

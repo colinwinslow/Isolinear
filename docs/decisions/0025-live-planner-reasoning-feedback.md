@@ -1,8 +1,8 @@
 ---
 id: 0025
 title: Live planner reasoning as in-place wait feedback in the card
-status: draft
-date: 2026-06-21
+status: accepted
+date: 2026-06-22
 supersedes: []
 superseded-by: null
 tags:
@@ -15,10 +15,12 @@ tags:
 
 # ADR-0025: Live planner reasoning as in-place wait feedback in the card
 
-> **Status: draft.** Captures the decision; implementation is deferred until
-> after ADR-0024 D2 (model-driven entity selection) lands, so the feature can
-> stream across the whole model phase (selection + planning) rather than just the
-> chart-planning call. Accepts when the implementation anchor lands.
+> **Status: accepted (2026-06-22).** ADR-0024 D2 (model-driven entity selection)
+> landed in `0.1.31`, so the implementation anchor exists and the feature can
+> stream across the whole model phase (selection + planning). The open items
+> below are now pinned (see "Resolved open items"); implementation proceeds under
+> spec `docs/specs/live-planner-reasoning-streaming-spec.md` + BDD
+> `docs/bdd/live-planner-reasoning.feature`.
 
 ## Context
 
@@ -111,29 +113,56 @@ artifact and never shown on the finished card.
 - Streaming stays stdlib (`urllib` NDJSON line reads) — no new dependency,
   consistent with the existing planner client.
 
+## Resolved open items (pinned on acceptance)
+
+The draft's open items are pinned here so the spec/BDD/implementation have a
+single authority:
+
+- **R1 — Character cap: 2000 characters.** `progress.reasoning` is capped at
+  2000 characters. The cap bounds snapshot size against a runaway trace (D5) and
+  is comfortably enough text to read as wait-feedback at the ~1s poll cadence.
+  The cap is enforced server-side (in the integration) before the field is
+  written to the snapshot, never relying on the card to truncate.
+
+- **R2 — Rolling tail, not full accumulation.** The 2000-char field holds the
+  **tail** of the accumulated reasoning (the most recent characters). The model's
+  newest thinking is the most relevant wait-feedback, and a rolling tail keeps
+  the field bounded without dropping the "live" feel as the trace grows past the
+  cap. When the tail is taken mid-trace, a leading `…` ellipsis marks the elision.
+
+- **R3 — Coarse phase label, surfaced via `progress.stage`.** A phase label is
+  shown, derived from which model call is active: `"Selecting entities…"` during
+  the ADR-0024 D2 `select_entity` call and `"Planning chart…"` during the
+  `plan_chart` call. This reuses the existing `progress.stage` / `state_label`
+  plumbing (no new field): the active-planning snapshot's stage carries the
+  coarse phase while `progress.reasoning` carries the live trace. (D7.)
+
+- **R4 — Mid-stream transport error → failure card.** If the provider transport
+  fails mid-stream, the job falls straight to the existing failure card; partial
+  reasoning is **not** preserved (it is ephemeral wait-feedback, D4, and a
+  truncated half-thought is not a useful result). This matches the draft's lean
+  and keeps the failure path identical to today's non-streaming transport-error
+  handling (D6).
+
+- **R5 — Card presentation: monospace, tail-anchored.** The card renders
+  `progress.reasoning` in the chart slot as preformatted monospace text,
+  visually anchored to its tail (newest content), replaced wholesale by the PNG
+  on `complete` or the failure card on `failed` (D4). Verified in the mounted
+  Vitest smoke.
+
 ## Consequences
 
 **Enables:**
 - The user watches the model reason in the chart area instead of a dead spinner,
   across both ADR-0024 model calls.
 - A natural place for future "model is selecting entities… / planning the
-  chart…" phase labels alongside the reasoning.
+  chart…" phase labels alongside the reasoning (now realized as R3).
 
 **Constrains:**
 - Adds a bounded optional field to the job-snapshot schema (synced copies,
   schema-first) and a streaming mode to the planner client.
 - Feedback granularity is the poll interval, not per-token (accepted; D3).
-- Sanitization + length cap are load-bearing and must be tested as such (D5).
-
-**Open:**
-- Exact `progress.reasoning` cap (characters) and whether to keep a rolling tail
-  vs. full accumulation — pin in the spec/BDD.
-- Whether to show a coarse phase label ("selecting entities" / "planning")
-  derived from which model call is active (ties to ADR-0024 D2 plumbing).
-- Card presentation details (monospace vs. prose, fade/scroll behavior) — spec +
-  the mounted Vitest smoke.
-- Whether any provider transport-error mid-stream should surface partial
-  reasoning or fall straight to the failure card (lean: failure card; D6).
+- Sanitization + length cap are load-bearing and must be tested as such (D5/R1).
 
 ## Alternatives considered
 

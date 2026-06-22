@@ -50,4 +50,4 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0022 — `Categorical timeline render family via the model-driven path`
 - 0023 — `Model-proposed render family within a deterministic capability envelope`
 - 0024 — `Model-driven entity selection with a deterministic disambiguation fast-path`
-- 0025 — `Live planner reasoning as in-place wait feedback in the card` (draft)
+- 0025 — `Live planner reasoning as in-place wait feedback in the card`

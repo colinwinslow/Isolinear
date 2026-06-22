@@ -235,10 +235,14 @@ export class IsolinearCard extends LitElement {
     }
 
     if (snapshot.status === "planning") {
+      const reasoning = snapshot.progress?.reasoning;
       return html`
         <section class="active">
           <h3>${snapshot.progress?.stage ?? "Planning"}</h3>
           <p>${snapshot.progress?.message}</p>
+          ${reasoning
+            ? html`<pre class="planning-reasoning" data-testid="planning-reasoning">${reasoning}</pre>`
+            : nothing}
           ${this.renderValidation(snapshot)}
         </section>
       `;
@@ -601,6 +605,28 @@ export class IsolinearCard extends LitElement {
     .clarification {
       display: grid;
       gap: 10px;
+    }
+
+    /* ADR-0025 R5: live model reasoning in the chart slot during the wait —
+       monospace, scrollable, anchored to its tail (newest content visible). */
+    .planning-reasoning {
+      background: #0f1419;
+      border: 1px solid var(--divider-color, #d8dee8);
+      border-radius: 6px;
+      color: #c7d0db;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      margin: 0;
+      max-height: 240px;
+      min-height: 120px;
+      overflow-y: auto;
+      padding: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      /* Keep the newest content in view as the trace grows. */
+      display: flex;
+      flex-direction: column-reverse;
     }
 
     .choice {

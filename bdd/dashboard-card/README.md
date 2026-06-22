@@ -24,11 +24,16 @@ integration boundary.
   integration-owned WebSocket schemas, while worker render requests use
   integration-owned bearer authentication that is rejected and redacted when
   invalid.
+- **Live planner reasoning** - While the model runs (entity selection then chart
+  planning), the card streams the model's sanitized, length-capped reasoning into
+  the chart slot as ephemeral wait feedback, then replaces it with the PNG (or
+  failure card) on completion. (ADR-0025)
 
 ## Related docs
 
 - Spec: [docs/specs/dashboard-card-spec.md](../../docs/specs/dashboard-card-spec.md)
 - Spec: [docs/specs/integration-api-transport-auth-spec.md](../../docs/specs/integration-api-transport-auth-spec.md)
+- Spec: [docs/specs/live-planner-reasoning-streaming-spec.md](../../docs/specs/live-planner-reasoning-streaming-spec.md)
 - ADR: [docs/decisions/0001-home-assistant-integration-plus-worker.md](../../docs/decisions/0001-home-assistant-integration-plus-worker.md)
 - ADR: [docs/decisions/0002-dashboard-card-first-ui.md](../../docs/decisions/0002-dashboard-card-first-ui.md)
 - ADR: [docs/decisions/0008-read-only-mvp-and-sandbox-security.md](../../docs/decisions/0008-read-only-mvp-and-sandbox-security.md)
@@ -39,9 +44,11 @@ integration boundary.
 - Paired BDD: [custom-card-anchor-bdd.md](custom-card-anchor-bdd.md)
 - Paired BDD: [home-assistant-dashboard-card-long-running-smoke-bdd.md](home-assistant-dashboard-card-long-running-smoke-bdd.md)
 - Paired BDD: [integration-api-transport-auth-bdd.md](integration-api-transport-auth-bdd.md)
+- Paired BDD: [live-planner-reasoning-streaming-bdd.md](live-planner-reasoning-streaming-bdd.md)
 - Evidence: [custom-card-anchor-evidence.md](custom-card-anchor-evidence.md)
 - Evidence: [home-assistant-dashboard-card-long-running-smoke-evidence.md](home-assistant-dashboard-card-long-running-smoke-evidence.md)
 - Evidence: [integration-api-transport-auth-evidence.md](integration-api-transport-auth-evidence.md)
+- Evidence: [live-planner-reasoning-streaming-evidence.md](live-planner-reasoning-streaming-evidence.md)
 - Eval: [evals/dashboard_card_anchor.py](../../evals/dashboard_card_anchor.py)
 - Eval: [evals/integration_api_transport_auth.py](../../evals/integration_api_transport_auth.py)
 

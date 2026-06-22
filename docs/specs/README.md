@@ -54,6 +54,7 @@ implementing slice produces an evidence file proving each scenario was hit.
 - `home-assistant-websocket-command-registration-spec.md` — Production Home Assistant WebSocket command registration boundary
 - `integration-api-transport-auth-spec.md` — Integration WebSocket API and worker transport authentication
 - `integration-spec.md` — Home Assistant custom integration interface
+- `live-planner-reasoning-streaming-spec.md` — Live planner reasoning streamed into the chart slot as ephemeral wait feedback (ADR-0025)
 - `model-provider-spec.md` — Ollama-compatible model provider contract
 - `product-spec.md` — Product-level feature set
 - `render-family-capability-envelope.md` — Model-proposed chart family within a deterministic capability envelope (ADR-0023); first live renderer tranche + fail-soft (draft)

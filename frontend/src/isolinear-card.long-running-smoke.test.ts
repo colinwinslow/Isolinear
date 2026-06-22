@@ -479,4 +479,45 @@ describe("Isolinear mounted card long-running smoke", () => {
     expect(card.snapshot.failure?.message).toContain("config entry");
     expect(card.shadowRoot!.querySelector("[data-testid='failure-details']")).not.toBeNull();
   });
+
+  // ADR-0025 R5: live model reasoning renders in the chart slot during the wait,
+  // with the coarse phase as the heading, then is replaced by the PNG on
+  // completion (never shown after the wait).
+  it("renders live planner reasoning in the chart slot during planning and the PNG on completion", async () => {
+    const card = new IsolinearCard();
+    document.body.append(card);
+    card.setConfig({ type: "custom:isolinear-card", config_entry_id: "auto", title: "Isolinear" });
+
+    card.snapshot = {
+      ...planningSnapshot,
+      progress: {
+        stage: "Planning chart…",
+        message: "The model is drafting a chart spec.",
+        reasoning: "Reading sensor.upstairs_temperature history\nChoosing a time_series line…",
+      },
+    };
+    await card.updateComplete;
+
+    const reasoningBlock = card.shadowRoot!.querySelector<HTMLPreElement>(
+      "[data-testid='planning-reasoning']",
+    );
+    expect(reasoningBlock).not.toBeNull();
+    expect(reasoningBlock!.textContent).toContain("sensor.upstairs_temperature");
+    expect(card.shadowRoot!.querySelector(".active h3")!.textContent).toBe("Planning chart…");
+
+    const planningEvidence = {
+      heading: card.shadowRoot!.querySelector(".active h3")!.textContent,
+      reasoning_present: reasoningBlock !== null,
+      reasoning_text: reasoningBlock!.textContent,
+    };
+    console.info("CARD_REASONING_EVIDENCE", JSON.stringify(planningEvidence, null, 2));
+
+    // On completion the chart replaces the reasoning (D4).
+    card.snapshot = completeSnapshot;
+    await card.updateComplete;
+    expect(card.shadowRoot!.querySelector("[data-testid='planning-reasoning']")).toBeNull();
+    expect(
+      card.shadowRoot!.querySelector<HTMLImageElement>("[data-testid='chart-image']")!.getAttribute("src"),
+    ).toBe(SERVED_PNG_URL);
+  });
 });

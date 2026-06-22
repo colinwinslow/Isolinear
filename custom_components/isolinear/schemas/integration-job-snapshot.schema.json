@@ -61,6 +61,10 @@
         "message": {
           "type": "string",
           "pattern": "\\S"
+        },
+        "reasoning": {
+          "type": "string",
+          "maxLength": 2000
         }
       }
     },

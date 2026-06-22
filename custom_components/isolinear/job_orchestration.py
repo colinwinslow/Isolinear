@@ -87,6 +87,14 @@ CHART_SPEC_SCHEMA_PATH = schema_path("chart-spec.schema.json")
 THREAD_LOCK_TYPE = type(threading.Lock())
 ARTIFACT_SNAPSHOT_LOCKS_GUARD = threading.Lock()
 
+# ADR-0025 R3: coarse phase labels surfaced via progress.stage / state_label
+# while the model runs, derived from which model call is active.
+SELECT_ENTITY_PHASE_LABEL = "Selecting entities…"
+PLAN_CHART_PHASE_LABEL = "Planning chart…"
+# ADR-0025 D2/D3: per-job slot holding the latest sanitized, length-capped
+# reasoning tail (+ active phase) so concurrent in-progress polls can surface it.
+DATA_LIVE_REASONING = "live_reasoning"
+
 ENTITY_ID_IN_PROMPT = re.compile(r"\b[a-z0-9_]+\.[a-z0-9_]+\b")
 FORBIDDEN_WORKER_PROGRESS_TEXT = re.compile(
     r"\bBearer\s+\S+|access_token|home_assistant_token|long_lived_access_token|worker_token",
@@ -123,6 +131,92 @@ NO_JOB_ORCHESTRATION_CALLS = {
 
 MAX_WORKER_PROGRESS_EVENTS = 5
 WORKER_RENDERER_NAME = "worker_renderer"
+
+
+def apply_live_reasoning(
+    snapshot: dict[str, Any], slot: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Return a copy of an in-progress planning snapshot with live reasoning.
+
+    ADR-0025 D2/D3/R3: when a poll returns the in-progress active-planning
+    snapshot, the integration injects the per-job live-reasoning ``slot`` — the
+    coarse phase label as ``progress.stage`` / ``state_label`` and the
+    sanitized, capped tail as ``progress.reasoning`` (omitted when empty). The
+    returned snapshot is re-validated against the schema before use; the stored
+    snapshot is never mutated, so reasoning never lands on a persisted snapshot
+    (D4). When ``slot`` is None the snapshot is returned unchanged.
+    """
+    if not slot:
+        return snapshot
+    updated = deepcopy(snapshot)
+    progress = updated.setdefault("progress", {})
+    stage = slot.get("stage")
+    if stage:
+        progress["stage"] = stage
+        updated["state_label"] = stage
+    text = slot.get("text") or ""
+    if text:
+        progress["reasoning"] = text
+    else:
+        progress.pop("reasoning", None)
+    validation = validate_job_snapshot_contract(updated)
+    if not validation["accepted"]:
+        # A bad reasoning injection must never corrupt the poll; fall back to the
+        # plain snapshot (graceful degradation, D6).
+        return snapshot
+    return updated
+
+
+def _live_reasoning_store(store: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return store.setdefault(DATA_LIVE_REASONING, {})
+
+
+def _live_reasoning_slot(store: dict[str, Any], job_id: str) -> dict[str, Any] | None:
+    return _live_reasoning_store(store).get(job_id)
+
+
+def _set_live_reasoning(
+    store: dict[str, Any], job_id: str, *, stage: str, text: str
+) -> None:
+    _live_reasoning_store(store)[job_id] = {"stage": stage, "text": text}
+
+
+def _clear_live_reasoning(store: dict[str, Any], job_id: str) -> None:
+    _live_reasoning_store(store).pop(job_id, None)
+
+
+def _live_reasoning_callback(
+    store: dict[str, Any], job_id: str, *, stage: str
+):
+    """Build an on_reasoning callback that writes the slot for one model call."""
+
+    def _on_reasoning(text: str) -> None:
+        _set_live_reasoning(store, job_id, stage=stage, text=text)
+
+    return _on_reasoning
+
+
+def _call_planner_with_optional_reasoning(
+    method: Any,
+    request: dict[str, Any],
+    *,
+    result_schema: dict[str, Any] | None,
+    on_reasoning: Any | None,
+) -> dict[str, Any]:
+    """Call a planner method, passing on_reasoning when the method accepts it.
+
+    ADR-0025 streaming is additive (D6): planners that predate the callback (and
+    test doubles that don't accept it) are called the original way. We pass the
+    callback only when requested and the method advertises the keyword.
+    """
+    if on_reasoning is not None:
+        try:
+            return method(request, result_schema=result_schema, on_reasoning=on_reasoning)
+        except TypeError:
+            # Older planner signature without on_reasoning — fall back (no live
+            # reasoning, plain planning state).
+            pass
+    return method(request, result_schema=result_schema)
 
 
 def setup_job_orchestration(hass: Any, entry: Any) -> dict[str, Any]:
@@ -367,6 +461,7 @@ def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]
         d2 = _run_model_entity_selection(
             hass, entry_id, command["prompt"], catalog_items,
             candidate_items=selection.get("candidate_items", catalog_items),
+            store=store, job_id=job["job_id"],
         )
         if d2["accepted"]:
             selection = d2
@@ -767,6 +862,7 @@ def handle_job_orchestration_retry_ws_command(hass: Any, command: dict[str, Any]
         d2 = _run_model_entity_selection(
             hass, entry_id, job["prompt"], catalog_items,
             candidate_items=selection.get("candidate_items", catalog_items),
+            store=store, job_id=job["job_id"],
         )
         if d2["accepted"]:
             selection = d2
@@ -1079,10 +1175,16 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
 
     planning_lock = _artifact_snapshot_lock_for_job(store, job["job_id"])
     if not planning_lock.acquire(blocking=False):
+        # ADR-0025 D2/D3: another poll is driving the model phase under the
+        # single-flight lock. Surface the latest live reasoning tail (+ coarse
+        # phase) on the transient in-progress snapshot the card sees this poll.
+        in_progress_snapshot = apply_live_reasoning(
+            latest_snapshot, _live_reasoning_slot(store, job["job_id"])
+        )
         return _accepted_artifact_snapshot(
             "job_orchestration_artifact_snapshot_in_progress",
             command,
-            latest_snapshot,
+            in_progress_snapshot,
             artifact=existing_artifact,
             render_plan=existing_render_plan,
             model_provider_plan=existing_model_provider_plan,
@@ -1172,6 +1274,11 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
             source_snapshot=latest_snapshot,
         )
     finally:
+        # ADR-0025 D4: the model phase for this poll has concluded (the terminal
+        # complete/failed snapshot is now stored). The live reasoning is
+        # ephemeral wait-feedback and is never written to the stored snapshot, so
+        # discard the slot — the next poll surfaces the chart or failure card.
+        _clear_live_reasoning(store, job["job_id"])
         planning_lock.release()
 
 
@@ -1388,6 +1495,9 @@ def _run_model_entity_selection(
     prompt: str,
     catalog_items: list[dict[str, Any]],
     candidate_items: list[dict[str, Any]],
+    *,
+    store: dict[str, Any] | None = None,
+    job_id: str | None = None,
 ) -> dict[str, Any]:
     """Try model-driven entity selection for the residue path (ADR-0024 D2).
 
@@ -1415,7 +1525,17 @@ def _run_model_entity_selection(
         },
     }
     schema = load_entity_selector_schema(candidate_entity_ids)
-    result = planner.select_entity(request, result_schema=schema)
+    # ADR-0025 D1/D7: stream the selection thinking into the per-job live slot so
+    # the wait-feedback covers this model call too. Only when streaming is
+    # supported (callback accepted) and we have a job to attribute it to.
+    on_reasoning = (
+        _live_reasoning_callback(store, job_id, stage=SELECT_ENTITY_PHASE_LABEL)
+        if store is not None and job_id is not None
+        else None
+    )
+    result = _call_planner_with_optional_reasoning(
+        planner.select_entity, request, result_schema=schema, on_reasoning=on_reasoning
+    )
     if not result.get("accepted"):
         return {"accepted": False, "code": "model_entity_selection_provider_failure"}
 
@@ -2640,7 +2760,14 @@ def _record_model_provider_plan(
     result_schema = load_planner_result_schema(
         planner_family, entity_ids=request["approved_entity_ids"]
     )
-    provider_response = planner.plan_chart(request, result_schema=result_schema)
+    # ADR-0025 D1: stream the chart-planning thinking into the per-job live slot
+    # so concurrent ~1s polls surface it in the chart area while the model runs.
+    plan_on_reasoning = _live_reasoning_callback(
+        store, job["job_id"], stage=PLAN_CHART_PHASE_LABEL
+    )
+    provider_response = _call_planner_with_optional_reasoning(
+        planner.plan_chart, request, result_schema=result_schema, on_reasoning=plan_on_reasoning
+    )
     provider_summary = {
         "provider": planner_client_metadata(planner),
         "response_code": provider_response.get("code") if isinstance(provider_response, dict) else None,

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import urllib.error
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from typing import Any
 
@@ -25,6 +26,51 @@ PLANNER_RESULT_SCHEMA_PATH = schema_path("planner-result.schema.json")
 # model real headroom (ADR-0024 also adds a model entity-selection round-trip).
 DEFAULT_OLLAMA_TIMEOUT_SECONDS = 90
 MODEL_PROVIDER_HEALTH_PATH = "/api/tags"
+
+# ADR-0025 R1: the live reasoning trace surfaced to the card is capped to this
+# many characters. The cap bounds snapshot size against a runaway model trace
+# (D5) and is mirrored by `progress.reasoning.maxLength` in the snapshot schema.
+REASONING_CHAR_CAP = 2000
+
+# ADR-0025 D5: the model thinking trace is unsanitized output. Before it reaches
+# the card it gets the same redaction posture as every card-facing field — no
+# tokens, endpoints/worker URLs, or local filesystem paths. Approved entity IDs
+# and the user's own prompt may remain (already disclosed). These patterns are
+# intentionally broad; over-redaction of wait-feedback is harmless.
+_REASONING_REDACTIONS: tuple[re.Pattern[str], ...] = (
+    # http(s) endpoints / worker URLs (host, port, path).
+    re.compile(r"https?://\S+"),
+    # Bearer / authorization tokens.
+    re.compile(r"(?i)bearer\s+\S+"),
+    # Windows filesystem paths (drive-letter rooted).
+    re.compile(r"[A-Za-z]:\\[^\s\"']+"),
+    # Unix-ish absolute paths with at least two segments (avoid eating prose
+    # like "and/or"; require a leading slash and a path separator).
+    re.compile(r"(?<!\w)/[\w.-]+(?:/[\w.-]+)+"),
+)
+_REASONING_REDACTION_PLACEHOLDER = "[redacted]"
+
+
+def sanitize_reasoning(raw: str) -> str:
+    """Redact off-limit material and roll-tail-cap a model thinking trace.
+
+    ADR-0025 D5 (redaction), R1 (2000-char cap), R2 (rolling tail). Returns the
+    trailing ``REASONING_CHAR_CAP`` characters of the redacted trace; when
+    content was elided from the front a single leading ``…`` marks the cut.
+    An empty input (or one that redacts to nothing) returns an empty string and
+    the caller omits the field.
+    """
+    if not raw:
+        return ""
+    text = raw
+    for pattern in _REASONING_REDACTIONS:
+        text = pattern.sub(_REASONING_REDACTION_PLACEHOLDER, text)
+    if len(text) <= REASONING_CHAR_CAP:
+        return text
+    # Rolling tail: keep the newest content, mark the elision with an ellipsis
+    # that itself counts toward the cap.
+    tail = text[-(REASONING_CHAR_CAP - 1):]
+    return "…" + tail
 
 
 def setup_model_provider_planner(hass: Any, entry: Any) -> dict[str, Any]:
@@ -253,18 +299,20 @@ class OllamaCompatiblePlannerClient:
         request: dict[str, Any],
         *,
         result_schema: dict[str, Any] | None = None,
+        on_reasoning: Callable[[str], None] | None = None,
     ) -> dict[str, Any]:
-        """Call `/api/chat` with structured output and return a PlannerResult."""
+        """Call `/api/chat` with structured output and return a PlannerResult.
+
+        When ``on_reasoning`` is provided the call streams (ADR-0025 D1): the
+        NDJSON chunk stream is read line-by-line and the callback is invoked
+        with the sanitized accumulated thinking trace after each delta. The
+        structured-output ``format`` schema still governs the final content;
+        thinking is a side channel. When ``on_reasoning`` is None the call is
+        the unchanged non-streaming single-read (D6 fallback).
+        """
         schema = result_schema or load_planner_result_schema()
-        payload = self._chat_payload(request, schema)
-        encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        payload = self._chat_payload(request, schema, stream=on_reasoning is not None)
         chat_url = _ollama_chat_url(self.endpoint_url)
-        http_request = urllib.request.Request(
-            chat_url,
-            data=encoded,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
 
         # DEBUG-only: surface exactly what is sent to the provider so new chart
         # families can be diagnosed without a packet capture. Contains the user
@@ -278,28 +326,11 @@ class OllamaCompatiblePlannerClient:
             json.dumps(payload, separators=(",", ":")),
         )
 
-        try:
-            with urllib.request.urlopen(http_request, timeout=self.timeout_seconds) as response:
-                response_payload = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            _LOGGER.debug("Isolinear <- Ollama plan_chart HTTP error: %s", exc)
-            return _provider_failure("model_provider_http_error", str(exc), retry_safe=True)
-        except (urllib.error.URLError, TimeoutError) as exc:
-            _LOGGER.debug("Isolinear <- Ollama plan_chart connection error: %s", exc)
-            return _provider_failure("model_provider_connection_error", str(exc), retry_safe=True)
-        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-            _LOGGER.debug("Isolinear <- Ollama plan_chart response error: %s", exc)
-            return _provider_failure("model_provider_response_error", str(exc), retry_safe=False)
-
-        # DEBUG-only: surface exactly what the provider returned (raw chat
-        # response, including the structured chart_spec content the model chose).
-        _LOGGER.debug(
-            "Isolinear <- Ollama plan_chart response: %s",
-            json.dumps(response_payload, separators=(",", ":")),
+        content, response_payload, failure = self._read_chat(
+            chat_url, payload, label="plan_chart", on_reasoning=on_reasoning
         )
-
-        message = response_payload.get("message") if isinstance(response_payload, dict) else None
-        content = message.get("content") if isinstance(message, dict) else None
+        if failure is not None:
+            return failure
         if not isinstance(content, str) or not content.strip():
             return _provider_failure("model_provider_empty_response", "Planner response content was empty.", retry_safe=True)
 
@@ -321,42 +352,27 @@ class OllamaCompatiblePlannerClient:
         request: dict[str, Any],
         *,
         result_schema: dict[str, Any] | None = None,
+        on_reasoning: Callable[[str], None] | None = None,
     ) -> dict[str, Any]:
-        """Call /api/chat to select an approved entity for the prompt (ADR-0024 D2)."""
+        """Call /api/chat to select an approved entity for the prompt (ADR-0024 D2).
+
+        Streams the model's thinking when ``on_reasoning`` is provided (ADR-0025
+        D1/D7 — the wait-feedback spans this call and the chart-planning call).
+        """
         schema = result_schema or load_entity_selector_schema(request.get("candidate_entity_ids", []))
-        payload = self._entity_selector_payload(request, schema)
-        encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        payload = self._entity_selector_payload(request, schema, stream=on_reasoning is not None)
         chat_url = _ollama_chat_url(self.endpoint_url)
-        http_request = urllib.request.Request(
-            chat_url,
-            data=encoded,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
         _LOGGER.debug(
             "Isolinear -> Ollama select_entity request: model=%s url=%s body=%s",
             self.planner_model,
             chat_url,
             json.dumps(payload, separators=(",", ":")),
         )
-        try:
-            with urllib.request.urlopen(http_request, timeout=self.timeout_seconds) as response:
-                response_payload = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            _LOGGER.debug("Isolinear <- Ollama select_entity HTTP error: %s", exc)
-            return _provider_failure("model_provider_http_error", str(exc), retry_safe=True)
-        except (urllib.error.URLError, TimeoutError) as exc:
-            _LOGGER.debug("Isolinear <- Ollama select_entity connection error: %s", exc)
-            return _provider_failure("model_provider_connection_error", str(exc), retry_safe=True)
-        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-            _LOGGER.debug("Isolinear <- Ollama select_entity response error: %s", exc)
-            return _provider_failure("model_provider_response_error", str(exc), retry_safe=False)
-        _LOGGER.debug(
-            "Isolinear <- Ollama select_entity response: %s",
-            json.dumps(response_payload, separators=(",", ":")),
+        content, response_payload, failure = self._read_chat(
+            chat_url, payload, label="select_entity", on_reasoning=on_reasoning
         )
-        message = response_payload.get("message") if isinstance(response_payload, dict) else None
-        content = message.get("content") if isinstance(message, dict) else None
+        if failure is not None:
+            return failure
         if not isinstance(content, str) or not content.strip():
             return _provider_failure(
                 "model_provider_empty_response",
@@ -375,8 +391,104 @@ class OllamaCompatiblePlannerClient:
             "provider_response": _provider_response_summary(response_payload),
         }
 
+    def _read_chat(
+        self,
+        chat_url: str,
+        payload: dict[str, Any],
+        *,
+        label: str,
+        on_reasoning: Callable[[str], None] | None,
+    ) -> tuple[str | None, dict[str, Any] | None, dict[str, Any] | None]:
+        """Execute one /api/chat POST and return (content, response, failure).
+
+        Exactly one of ``failure`` (a sanitized provider-failure dict) or the
+        ``(content, response)`` pair is meaningful. When ``on_reasoning`` is
+        provided the body is streamed NDJSON (ADR-0025 D1); otherwise it is a
+        single JSON read. Transport errors mid-stream return the same failures
+        the non-streaming path returns (R4).
+        """
+        encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        http_request = urllib.request.Request(
+            chat_url,
+            data=encoded,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(http_request, timeout=self.timeout_seconds) as response:
+                if on_reasoning is None:
+                    response_payload = json.loads(response.read().decode("utf-8"))
+                    message = (
+                        response_payload.get("message")
+                        if isinstance(response_payload, dict)
+                        else None
+                    )
+                    content = message.get("content") if isinstance(message, dict) else None
+                    _LOGGER.debug(
+                        "Isolinear <- Ollama %s response: %s",
+                        label,
+                        json.dumps(response_payload, separators=(",", ":")),
+                    )
+                    return content, response_payload, None
+                content, response_payload = self._consume_ndjson(response, on_reasoning)
+                _LOGGER.debug(
+                    "Isolinear <- Ollama %s streamed response: %s",
+                    label,
+                    json.dumps(response_payload, separators=(",", ":")),
+                )
+                return content, response_payload, None
+        except urllib.error.HTTPError as exc:
+            _LOGGER.debug("Isolinear <- Ollama %s HTTP error: %s", label, exc)
+            return None, None, _provider_failure("model_provider_http_error", str(exc), retry_safe=True)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            _LOGGER.debug("Isolinear <- Ollama %s connection error: %s", label, exc)
+            return None, None, _provider_failure("model_provider_connection_error", str(exc), retry_safe=True)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            _LOGGER.debug("Isolinear <- Ollama %s response error: %s", label, exc)
+            return None, None, _provider_failure("model_provider_response_error", str(exc), retry_safe=False)
+
+    def _consume_ndjson(
+        self,
+        response: Any,
+        on_reasoning: Callable[[str], None],
+    ) -> tuple[str, dict[str, Any]]:
+        """Read an Ollama NDJSON chat stream, accumulating thinking + content.
+
+        Calls ``on_reasoning`` with the sanitized accumulated thinking after each
+        delta that carries thinking (falling back to content deltas when the
+        model emits no separate thinking trace). Returns the fully assembled
+        final ``message.content`` (the structured-output JSON) and the last raw
+        chunk as the response summary source.
+        """
+        thinking_parts: list[str] = []
+        content_parts: list[str] = []
+        last_chunk: dict[str, Any] = {}
+        for raw_line in response:
+            line = raw_line.decode("utf-8").strip() if isinstance(raw_line, (bytes, bytearray)) else str(raw_line).strip()
+            if not line:
+                continue
+            chunk = json.loads(line)
+            if not isinstance(chunk, dict):
+                continue
+            last_chunk = chunk
+            message = chunk.get("message")
+            if not isinstance(message, dict):
+                continue
+            thinking_delta = message.get("thinking")
+            content_delta = message.get("content")
+            saw_thinking = isinstance(thinking_delta, str) and thinking_delta != ""
+            if saw_thinking:
+                thinking_parts.append(thinking_delta)
+            if isinstance(content_delta, str) and content_delta != "":
+                content_parts.append(content_delta)
+            # Surface accumulated thinking (preferred) or, for non-thinking
+            # models that stream prose content, the accumulated content.
+            if saw_thinking:
+                on_reasoning(sanitize_reasoning("".join(thinking_parts)))
+        return "".join(content_parts), last_chunk
+
     def _entity_selector_payload(
-        self, request: dict[str, Any], result_schema: dict[str, Any]
+        self, request: dict[str, Any], result_schema: dict[str, Any], *, stream: bool = False
     ) -> dict[str, Any]:
         prompt_payload = {
             "task": "Select the approved Home Assistant entity (or entities) the user is asking about.",
@@ -405,7 +517,7 @@ class OllamaCompatiblePlannerClient:
                     "content": json.dumps(prompt_payload, separators=(",", ":")),
                 },
             ],
-            "stream": False,
+            "stream": stream,
             "format": result_schema,
             "options": {
                 "temperature": 0,
@@ -460,7 +572,7 @@ class OllamaCompatiblePlannerClient:
             },
         }
 
-    def _chat_payload(self, request: dict[str, Any], result_schema: dict[str, Any]) -> dict[str, Any]:
+    def _chat_payload(self, request: dict[str, Any], result_schema: dict[str, Any], *, stream: bool = False) -> dict[str, Any]:
         chart_type, render_as = _chart_family_from_schema(result_schema)
         prompt_payload = {
             "task": "Return one PlannerResult JSON object for an Isolinear chart plan.",
@@ -526,7 +638,7 @@ class OllamaCompatiblePlannerClient:
                     "content": json.dumps(prompt_payload, separators=(",", ":")),
                 },
             ],
-            "stream": False,
+            "stream": stream,
             "format": result_schema,
             "options": {
                 "temperature": 0,
