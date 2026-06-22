@@ -171,55 +171,48 @@ class StreamingPlannerTransportTests(unittest.TestCase):
         self.assertEqual(result["planner_result"]["status"], "chart_spec_ready")
 
     def test_streaming_request_sets_think_true(self):
-        """Streaming chat payload must send think:true so thinking-capable
-        models actually emit thinking tokens for on_reasoning."""
+        """Streaming plan_chart makes two calls: the first (think pass) must
+        carry stream:true + think:true; the second (plan pass) carries format."""
         client = self._client()
-        captured = {}
-        chunks = [
-            {
-                "message": {
-                    "thinking": "ponder",
-                    "content": json.dumps(
-                        {"status": "chart_spec_ready", "chart_spec": {"ok": True}}
-                    ),
-                },
-                "done": True,
-            },
-        ]
+        think_chunks = [{"message": {"thinking": "ponder", "content": ""}, "done": True}]
+        plan_response = {"message": {"content": json.dumps({"status": "chart_spec_ready", "chart_spec": {"ok": True}}), "role": "assistant"}, "done": True}
+        calls: list[dict] = []
 
         def fake_urlopen(req, timeout=None):
-            captured["body"] = json.loads(req.data.decode("utf-8"))
-            return _FakeUrlopenCtx(_ndjson_response(chunks))
+            body = json.loads(req.data.decode("utf-8"))
+            calls.append(body)
+            if body.get("stream"):
+                return _FakeUrlopenCtx(_ndjson_response(think_chunks))
+            return _FakeUrlopenCtx(io.BytesIO(json.dumps(plan_response).encode("utf-8")))
 
         with unittest.mock.patch.object(
             model_provider.urllib.request, "urlopen", fake_urlopen
         ):
             client.plan_chart({"approved_entity_ids": []}, on_reasoning=lambda _t: None)
 
-        self.assertTrue(captured["body"]["stream"])
-        self.assertTrue(captured["body"]["think"])
+        self.assertEqual(len(calls), 2)
+        # First call is the think pass.
+        self.assertTrue(calls[0]["stream"])
+        self.assertTrue(calls[0]["think"])
+        self.assertNotIn("format", calls[0])
+        # Second call is the plan pass.
+        self.assertFalse(calls[1]["stream"])
+        self.assertNotIn("think", calls[1])
+        self.assertIn("format", calls[1])
 
     def test_streaming_select_entity_request_sets_think_true(self):
+        """Streaming select_entity also makes two calls: think pass then select pass."""
         client = self._client()
-        captured = {}
-        chunks = [
-            {
-                "message": {
-                    "thinking": "pick",
-                    "content": json.dumps(
-                        {
-                            "status": "entity_selected",
-                            "entity_ids": ["sensor.upstairs_temperature"],
-                        }
-                    ),
-                },
-                "done": True,
-            },
-        ]
+        think_chunks = [{"message": {"thinking": "pick", "content": ""}, "done": True}]
+        select_response = {"message": {"content": json.dumps({"status": "entity_selected", "entity_ids": ["sensor.upstairs_temperature"]}), "role": "assistant"}, "done": True}
+        calls: list[dict] = []
 
         def fake_urlopen(req, timeout=None):
-            captured["body"] = json.loads(req.data.decode("utf-8"))
-            return _FakeUrlopenCtx(_ndjson_response(chunks))
+            body = json.loads(req.data.decode("utf-8"))
+            calls.append(body)
+            if body.get("stream"):
+                return _FakeUrlopenCtx(_ndjson_response(think_chunks))
+            return _FakeUrlopenCtx(io.BytesIO(json.dumps(select_response).encode("utf-8")))
 
         with unittest.mock.patch.object(
             model_provider.urllib.request, "urlopen", fake_urlopen
@@ -229,8 +222,13 @@ class StreamingPlannerTransportTests(unittest.TestCase):
                 on_reasoning=lambda _t: None,
             )
 
-        self.assertTrue(captured["body"]["stream"])
-        self.assertTrue(captured["body"]["think"])
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(calls[0]["stream"])
+        self.assertTrue(calls[0]["think"])
+        self.assertNotIn("format", calls[0])
+        self.assertFalse(calls[1]["stream"])
+        self.assertNotIn("think", calls[1])
+        self.assertIn("format", calls[1])
 
     def test_non_streaming_select_entity_omits_think(self):
         client = self._client()
@@ -262,26 +260,24 @@ class StreamingPlannerTransportTests(unittest.TestCase):
         self.assertNotIn("think", captured["body"])
 
     def test_streaming_accumulates_thinking_and_invokes_callback(self):
+        """Think pass streams reasoning to callback; plan pass provides valid JSON."""
         client = self._client()
-        captured = {}
-        chunks = [
+        think_chunks = [
             {"message": {"thinking": "First I read ", "content": ""}, "done": False},
             {"message": {"thinking": "the entities.", "content": ""}, "done": False},
-            {
-                "message": {
-                    "thinking": "",
-                    "content": json.dumps(
-                        {"status": "chart_spec_ready", "chart_spec": {"ok": True}}
-                    ),
-                },
-                "done": True,
-            },
+            {"message": {"thinking": "", "content": ""}, "done": True},
         ]
+        plan_response = {
+            "message": {"content": json.dumps({"status": "chart_spec_ready", "chart_spec": {"ok": True}}), "role": "assistant"},
+            "done": True,
+        }
         seen: list[str] = []
 
         def fake_urlopen(req, timeout=None):
-            captured["body"] = json.loads(req.data.decode("utf-8"))
-            return _FakeUrlopenCtx(_ndjson_response(chunks))
+            body = json.loads(req.data.decode("utf-8"))
+            if body.get("stream"):
+                return _FakeUrlopenCtx(_ndjson_response(think_chunks))
+            return _FakeUrlopenCtx(io.BytesIO(json.dumps(plan_response).encode("utf-8")))
 
         with unittest.mock.patch.object(
             model_provider.urllib.request, "urlopen", fake_urlopen
@@ -290,36 +286,32 @@ class StreamingPlannerTransportTests(unittest.TestCase):
                 {"approved_entity_ids": []}, on_reasoning=seen.append
             )
 
-        self.assertTrue(captured["body"]["stream"])
         self.assertTrue(result["accepted"], result)
         self.assertEqual(result["planner_result"]["status"], "chart_spec_ready")
-        # Callback saw accumulated thinking, growing each delta.
+        # Callback saw accumulated thinking from the think pass, growing each delta.
         self.assertTrue(seen)
         self.assertIn("First I read ", seen[-1])
         self.assertIn("the entities.", seen[-1])
         self.assertGreaterEqual(len(seen[-1]), len(seen[0]))
 
     def test_streaming_select_entity_also_streams(self):
+        """Think pass streams reasoning; select pass provides valid selection JSON."""
         client = self._client()
-        chunks = [
+        think_chunks = [
             {"message": {"thinking": "Pick the ", "content": ""}, "done": False},
-            {
-                "message": {
-                    "thinking": "best entity.",
-                    "content": json.dumps(
-                        {
-                            "status": "entity_selected",
-                            "entity_ids": ["sensor.upstairs_temperature"],
-                        }
-                    ),
-                },
-                "done": True,
-            },
+            {"message": {"thinking": "best entity.", "content": ""}, "done": True},
         ]
+        select_response = {
+            "message": {"content": json.dumps({"status": "entity_selected", "entity_ids": ["sensor.upstairs_temperature"]}), "role": "assistant"},
+            "done": True,
+        }
         seen: list[str] = []
 
         def fake_urlopen(req, timeout=None):
-            return _FakeUrlopenCtx(_ndjson_response(chunks))
+            body = json.loads(req.data.decode("utf-8"))
+            if body.get("stream"):
+                return _FakeUrlopenCtx(_ndjson_response(think_chunks))
+            return _FakeUrlopenCtx(io.BytesIO(json.dumps(select_response).encode("utf-8")))
 
         with unittest.mock.patch.object(
             model_provider.urllib.request, "urlopen", fake_urlopen
@@ -334,22 +326,21 @@ class StreamingPlannerTransportTests(unittest.TestCase):
         self.assertIn("best entity.", seen[-1])
 
     def test_streaming_non_reasoning_model_never_calls_back(self):
-        """A model that emits no thinking degrades gracefully (D6)."""
+        """A model that emits no thinking in the think pass degrades gracefully (D6)."""
         client = self._client()
-        chunks = [
-            {
-                "message": {
-                    "content": json.dumps(
-                        {"status": "chart_spec_ready", "chart_spec": {"ok": True}}
-                    )
-                },
-                "done": True,
-            },
-        ]
+        # Think pass: model emits no thinking tokens.
+        think_chunks = [{"message": {"content": ""}, "done": True}]
+        plan_response = {
+            "message": {"content": json.dumps({"status": "chart_spec_ready", "chart_spec": {"ok": True}}), "role": "assistant"},
+            "done": True,
+        }
         seen: list[str] = []
 
         def fake_urlopen(req, timeout=None):
-            return _FakeUrlopenCtx(_ndjson_response(chunks))
+            body = json.loads(req.data.decode("utf-8"))
+            if body.get("stream"):
+                return _FakeUrlopenCtx(_ndjson_response(think_chunks))
+            return _FakeUrlopenCtx(io.BytesIO(json.dumps(plan_response).encode("utf-8")))
 
         with unittest.mock.patch.object(
             model_provider.urllib.request, "urlopen", fake_urlopen

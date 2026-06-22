@@ -67,6 +67,23 @@ artifact and never shown on the finished card.
    constrained decoding (it requests no thinking). This corrects the original D1
    wording but does not change the decision or any contract surface.
 
+   **D1 two-pass correction (0.1.36):** Dropping `format` to unblock thinking
+   (the 0.1.35 fix) removed constrained decoding from the *only* call, so without
+   `format`'s structural guarantee the model produced invalid JSON structure
+   (wrong field names, missing required fields) on harder prompts — jobs that
+   asked about entities outside `approved_entity_ids` failed with
+   `invalid_planner_result` because the model hallucinated schema structure.
+   The fix is **two sequential calls** whenever `on_reasoning` is provided:
+   *Pass 1 (think pass)* — `stream:true, think:true, no format` — streams
+   reasoning chunks to the card via `on_reasoning`; its content is discarded and
+   its failures are non-fatal (reasoning is presentational, D6). *Pass 2 (plan /
+   select pass)* — `stream:false, format:result_schema, no think` — returns
+   reliable, schema-constrained JSON. This restores constrained decoding for the
+   result while still delivering live reasoning, at the cost of a second call.
+   When `on_reasoning` is None the sole call is Pass 2 (unchanged D6 fallback).
+   No contract surface changes; `_strip_markdown_json` is no longer load-bearing
+   for the result path because Pass 2 keeps `format`.
+
 2. **D2 — Partial reasoning lives on the active snapshot.** As chunks arrive, the
    planner thread writes the accumulated, **sanitized, length-capped** reasoning
    text onto the job's active `planning` snapshot — the `progress` object is its

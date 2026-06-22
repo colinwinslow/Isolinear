@@ -83,23 +83,27 @@ def select_entity(
 ) -> dict: ...
 ```
 
-- When `on_reasoning is None` (default): unchanged non-streaming behavior
-  (`"stream": False`, single JSON read). This is the D6 fallback path and keeps
-  every existing caller/test green.
-- When `on_reasoning` is provided: the payload sets `"stream": True`; the client
-  reads the NDJSON chunk stream line-by-line, accumulating `message.thinking`
-  (and, if absent, `message.content`) deltas. After each delta it calls
-  `on_reasoning(accumulated_text)` with the full accumulated raw thinking so far.
-  The final assembled `message.content` (the structured-output JSON) is parsed,
-  stripping any markdown code fences a thinking-mode model wraps it in
-  (`_strip_markdown_json`). **`think` and `format` are mutually exclusive on
-  Ollama:** when `format` is set, Ollama silently suppresses thinking, so the
-  streaming path sends `think: true` and omits `format`, relying on the
-  system-prompt schema guidance plus `_strip_markdown_json` post-processing
-  rather than constrained decoding. The non-streaming fallback keeps `format`
-  for strict constrained decoding (no thinking requested there).
+- When `on_reasoning is None` (default): unchanged non-streaming behavior — a
+  single call with `"stream": False, format: result_schema` (no `think`). This is
+  the D6 fallback path and keeps every existing caller/test green.
+- When `on_reasoning` is provided: **two sequential calls** (the 0.1.36 two-pass
+  correction). `think` and `format` are mutually exclusive on Ollama — when
+  `format` is set Ollama silently suppresses thinking, and without `format` the
+  model produces structurally invalid JSON on harder prompts — so reasoning and
+  constrained decoding cannot share one call:
+  - **Pass 1 — think pass** (`stream:true, think:true, no format`): the client
+    reads the NDJSON chunk stream line-by-line, accumulating `message.thinking`
+    (and, if absent, `message.content`) deltas, and after each delta calls
+    `on_reasoning(accumulated_text)` with the full accumulated raw thinking so
+    far. The think-pass *content* is discarded; think-pass *failures are
+    non-fatal* (reasoning is presentational — planning proceeds regardless, D6).
+  - **Pass 2 — plan / select pass** (`stream:false, format:result_schema, no
+    think`): the same request as the non-streaming fallback; returns reliable,
+    schema-constrained JSON. This is the call whose result is parsed and
+    validated; `on_reasoning` is **not** passed to it.
 - The return shape is identical in both modes (`accepted`, `code`, `provider`,
-  `planner_result`/`selection_result`, `provider_response`).
+  `planner_result`/`selection_result`, `provider_response`) — it always comes
+  from the format-constrained pass.
 - The call still runs synchronously on the executor worker thread (ADR-0020/0023
   offload); streaming line-reads never touch the HA event loop.
 - A non-reasoning model (no `thinking`, empty deltas) simply never invokes the

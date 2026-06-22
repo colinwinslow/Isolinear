@@ -1447,6 +1447,33 @@ codegen-sandbox subprocess flake, confirmed identical on the clean baseline),
 relevant model-provider/streaming/entity-resolution evals `PASS`, BDD-evidence
 review `OK`.
 
+`0.1.36` corrected the `0.1.35` fix again — the same ADR-0025 D1 mechanism, one
+more layer down. Dropping `format` from the streaming call (the `0.1.35` change)
+restored thinking, but it also removed `format`'s constrained decoding from the
+*only* model call, and without that structural guarantee the model produced
+invalid JSON structure on harder prompts (wrong field names, missing required
+fields). Jobs that asked about entities **not** in `approved_entity_ids` — e.g.
+"show me temperature and when the AC was running" — failed with
+`invalid_planner_result` because the model hallucinated the schema structure.
+The fix is a **two-pass approach**: when `on_reasoning` is provided, both
+`plan_chart` and `select_entity` now make two sequential `/api/chat` calls.
+*Pass 1 (think pass)* — `stream:true, think:true, no format` — streams the
+reasoning chunks to the card via `on_reasoning`; its content is discarded and its
+failures are non-fatal (reasoning is presentational, D6). *Pass 2 (plan/select
+pass)* — `stream:false, format:result_schema, no think` — returns reliable,
+schema-constrained JSON; this is the call whose result is parsed and validated.
+When `on_reasoning` is None the sole call is Pass 2 (unchanged D6 fallback), so
+`_strip_markdown_json` is no longer load-bearing for the result path. This
+restores both live reasoning *and* constrained decoding at the cost of one extra
+call. ADR-0025 D1 carries a "two-pass correction (0.1.36)" note and the streaming
+spec's "Streaming planner transport (D1)" section was rewritten; no contract,
+schema, or BDD change (transport-layer fix in a documented mechanism). Tests:
+five cases in `tests/test_live_planner_reasoning_streaming.py` were updated to
+handle the two-call pattern (routing the fake transport on the request `stream`
+flag); `30 passed`. Verification: full suite `451 passed, 3 failed` (same
+pre-existing codegen-sandbox flake, identical on clean baseline via `git stash`),
+model-provider planning eval `PASS`, BDD-evidence review `OK`.
+
 ## Next recommended packet
 
 **Semantic alias live wiring — learned entity knowledge (now #1).**

@@ -1,6 +1,6 @@
 # Live Planner Reasoning Streaming — BDD Evidence
 
-**Run timestamp:** 2026-06-22 (re-run at closeout; think/format mutual-exclusivity fix in 0.1.35)
+**Run timestamp:** 2026-06-22 (re-run at closeout; two-pass reasoning streaming fix in 0.1.36)
 
 **BDD file:** `bdd/dashboard-card/live-planner-reasoning-streaming-bdd.md`
 
@@ -60,6 +60,22 @@ EndToEndLiveReasoningTests::test_non_streaming_planner_shows_no_reasoning PASSED
 > `test_streaming_select_entity_request_sets_think_true`,
 > `test_non_streaming_select_entity_omits_think` (asserting `think` is absent and
 > `format` retained on the non-streaming path).
+
+> **0.1.36 fix — two-pass reasoning streaming (ADR-0025 D1 correction).**
+> Dropping `format` (the 0.1.35 fix) restored thinking but removed constrained
+> decoding from the only call, so the model produced structurally invalid JSON on
+> harder prompts (out-of-allowlist prompts failed with `invalid_planner_result`).
+> Fix: when `on_reasoning` is provided, `plan_chart`/`select_entity` now make two
+> sequential calls — Pass 1 `stream:true, think:true, no format` (streams
+> reasoning; content discarded; failures non-fatal) and Pass 2 `stream:false,
+> format:result_schema, no think` (reliable validated result). When
+> `on_reasoning` is None the sole call is Pass 2 (unchanged). Five tests were
+> updated to route the fake transport on the request `stream` flag and assert the
+> two-call pattern: `test_streaming_request_sets_think_true`,
+> `test_streaming_select_entity_request_sets_think_true`,
+> `test_streaming_accumulates_thinking_and_invokes_callback`,
+> `test_streaming_select_entity_also_streams`,
+> `test_streaming_transport_error_returns_failure`.
 
 Scenario mapping:
 

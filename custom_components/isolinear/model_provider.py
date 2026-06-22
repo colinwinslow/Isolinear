@@ -317,31 +317,40 @@ class OllamaCompatiblePlannerClient:
     ) -> dict[str, Any]:
         """Call `/api/chat` with structured output and return a PlannerResult.
 
-        When ``on_reasoning`` is provided the call streams (ADR-0025 D1): the
-        NDJSON chunk stream is read line-by-line and the callback is invoked
-        with the sanitized accumulated thinking trace after each delta. The
-        structured-output ``format`` schema still governs the final content;
-        thinking is a side channel. When ``on_reasoning`` is None the call is
-        the unchanged non-streaming single-read (D6 fallback).
+        When ``on_reasoning`` is provided the call uses two passes (ADR-0025 D1):
+        Pass 1 streams with ``think:true`` (no format) so reasoning chunks are
+        delivered to the card via the callback. Pass 2 is a non-streaming call
+        with ``format:result_schema`` for reliable schema-constrained JSON —
+        Ollama suppresses thinking when format is set, so they cannot share a
+        single call. When ``on_reasoning`` is None a single format-constrained
+        call is made (D6 fallback, unchanged behavior).
         """
         schema = result_schema or load_planner_result_schema()
-        payload = self._chat_payload(request, schema, stream=on_reasoning is not None)
         chat_url = _ollama_chat_url(self.endpoint_url)
 
-        # DEBUG-only: surface exactly what is sent to the provider so new chart
-        # families can be diagnosed without a packet capture. Contains the user
-        # prompt + disclosed entity IDs + the structured-output schema; no tokens
-        # or secrets travel this path (local Ollama, no auth). Off by default;
-        # enable with the custom_components.isolinear.model_provider logger.
+        if on_reasoning is not None:
+            # Pass 1 — thinking only: stream reasoning to the card, ignore content.
+            think_payload = self._chat_payload(request, schema, stream=True)
+            _LOGGER.debug(
+                "Isolinear -> Ollama plan_chart think request: model=%s url=%s body=%s",
+                self.planner_model,
+                chat_url,
+                json.dumps(think_payload, separators=(",", ":")),
+            )
+            self._read_chat(chat_url, think_payload, label="plan_chart_think", on_reasoning=on_reasoning)
+            # Thinking-pass content is discarded; failures are non-fatal since
+            # reasoning is presentational — planning proceeds regardless.
+
+        # Pass 2 (or sole pass when not streaming): format-constrained structured output.
+        plan_payload = self._chat_payload(request, schema, stream=False)
         _LOGGER.debug(
             "Isolinear -> Ollama plan_chart request: model=%s url=%s body=%s",
             self.planner_model,
             chat_url,
-            json.dumps(payload, separators=(",", ":")),
+            json.dumps(plan_payload, separators=(",", ":")),
         )
-
         content, response_payload, failure = self._read_chat(
-            chat_url, payload, label="plan_chart", on_reasoning=on_reasoning
+            chat_url, plan_payload, label="plan_chart", on_reasoning=None
         )
         if failure is not None:
             return failure
@@ -370,20 +379,32 @@ class OllamaCompatiblePlannerClient:
     ) -> dict[str, Any]:
         """Call /api/chat to select an approved entity for the prompt (ADR-0024 D2).
 
-        Streams the model's thinking when ``on_reasoning`` is provided (ADR-0025
-        D1/D7 — the wait-feedback spans this call and the chart-planning call).
+        Uses the same two-pass approach as plan_chart when ``on_reasoning`` is
+        provided: a streaming think pass delivers reasoning to the card, then a
+        format-constrained pass returns the validated selection result.
         """
         schema = result_schema or load_entity_selector_schema(request.get("candidate_entity_ids", []))
-        payload = self._entity_selector_payload(request, schema, stream=on_reasoning is not None)
         chat_url = _ollama_chat_url(self.endpoint_url)
+
+        if on_reasoning is not None:
+            think_payload = self._entity_selector_payload(request, schema, stream=True)
+            _LOGGER.debug(
+                "Isolinear -> Ollama select_entity think request: model=%s url=%s body=%s",
+                self.planner_model,
+                chat_url,
+                json.dumps(think_payload, separators=(",", ":")),
+            )
+            self._read_chat(chat_url, think_payload, label="select_entity_think", on_reasoning=on_reasoning)
+
+        select_payload = self._entity_selector_payload(request, schema, stream=False)
         _LOGGER.debug(
             "Isolinear -> Ollama select_entity request: model=%s url=%s body=%s",
             self.planner_model,
             chat_url,
-            json.dumps(payload, separators=(",", ":")),
+            json.dumps(select_payload, separators=(",", ":")),
         )
         content, response_payload, failure = self._read_chat(
-            chat_url, payload, label="select_entity", on_reasoning=on_reasoning
+            chat_url, select_payload, label="select_entity", on_reasoning=None
         )
         if failure is not None:
             return failure
