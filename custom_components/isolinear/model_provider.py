@@ -620,7 +620,13 @@ class OllamaCompatiblePlannerClient:
             "task": "Return one PlannerResult JSON object for an Isolinear chart plan.",
             "rules": [
                 "Use only approved_entity_ids supplied in the request.",
-                "Return status chart_spec_ready with a ChartSpec for this packet.",
+                "If the prompt asks about a device, sensor, appliance, or concept (such as AC, thermostat, door, alarm, etc.) "
+                "that is NOT represented by any entity in approved_entity_ids, return status clarification_needed with a "
+                "clarification_question explaining what could not be found. Never invent, relabel, or reuse an existing "
+                "entity to stand in for a missing one.",
+                "Only return status chart_spec_ready if every piece of information the user asked for can be represented "
+                "using only the approved_entity_ids provided.",
+                "Each series must represent a distinct approved entity. Never create multiple series for the same entity_id.",
                 "The chart_spec must use chart_type, not graph_type.",
                 "Each series must include series_id, label, source, role, render_as, transform, and unit.",
                 "Each entity series source must be {\"type\":\"entity\",\"entity_id\":\"<approved id>\",\"attribute\":null}.",

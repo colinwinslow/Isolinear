@@ -1474,6 +1474,32 @@ flag); `30 passed`. Verification: full suite `451 passed, 3 failed` (same
 pre-existing codegen-sandbox flake, identical on clean baseline via `git stash`),
 model-provider planning eval `PASS`, BDD-evidence review `OK`.
 
+`0.1.37` fixed a semantic bug exposed by the `0.1.36` constrained-decoding pass.
+The `_chat_payload` planning rules carried an unconditional rule 2 — "Return
+status chart_spec_ready with a ChartSpec for this packet." With Pass 2 now
+reliably producing schema-valid JSON, the model satisfied that rule even on
+prompts asking about something **not** in `approved_entity_ids`, by relabeling or
+reusing an approved entity to stand in for the missing one. For "show me maren's
+room temperature and when the AC was running" with only
+`sensor.maren_ecobee_sensor_temperature` approved, it returned two series both
+sourced from that one temperature entity ("Room Temperature" + "Kitchen AC
+Status") — structurally valid, semantically wrong, and a soft brush against
+invariant 1 (clarify, never silent guess). The fix replaces the unconditional
+rule with three: (1) return `clarification_needed` with a `clarification_question`
+when the prompt references a device/sensor/concept not represented by any
+approved entity — never invent, relabel, or reuse an entity to stand in for a
+missing one; (2) return `chart_spec_ready` only if every requested piece of
+information is satisfiable with approved entities; (3) each series must represent
+a distinct approved entity, never multiple series for the same `entity_id`. This
+is a prompt-engineering change inside `_chat_payload`; the `plan_chart` docstring
+documents the two-pass streaming mechanism (ADR-0025), not the rule content, and
+the statuses plus clarify-not-guess behavior are already the documented contract
+(invariant 1, entity-clarification / entity-allowlist BDD), so no schema, spec,
+ADR, or BDD change was needed. Verified live against Ollama (the maren/AC prompt
+now returns `clarification_needed` with an appropriate question); full suite
+`451 passed, 3 failed` (same pre-existing codegen-sandbox flake; no codegen file
+touched), model-provider planning eval `PASS`, BDD-evidence review `OK`.
+
 ## Next recommended packet
 
 **Semantic alias live wiring — learned entity knowledge (now #1).**
