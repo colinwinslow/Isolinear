@@ -45,3 +45,27 @@ Feature: Semantic memory
     Given the model proposes a new semantic alias
     When the user selects "Use once"
     Then the integration should not save the alias for future prompts
+
+  # Live wiring (Tranche 1: load -> match -> inject). See
+  # bdd/semantic-memory/semantic-alias-live-wiring-bdd.md and
+  # docs/specs/semantic-alias-live-wiring.md.
+
+  Scenario: Saved alias injects an entity the prompt never named by name
+    Given a valid enabled alias "AC running" maps to "climate.kitchen_ecobee"
+    And "climate.kitchen_ecobee" is approved and visible to the agent
+    When the user prompts "show kitchen temp and when the AC was running"
+    Then the resolved entities should include "climate.kitchen_ecobee" from the matched alias
+    And the resolution source should be "semantic_alias"
+    And no clarification should be raised for the aliased concept
+
+  Scenario: Disabled or invalid aliases are not injected
+    Given an alias for "climate.kitchen_ecobee" that is disabled or references a missing or hidden entity
+    When the user prompts "show me when the AC was running"
+    Then the alias should not be injected into the resolved entities
+    And the prompt should resolve as if the alias were absent
+
+  Scenario: A prompt with no alias token overlap is unaffected
+    Given a valid enabled alias "dishwasher running"
+    When the user prompts "show kitchen temperature today"
+    Then no semantic alias should match
+    And entity selection should resolve exactly as it would with no aliases present

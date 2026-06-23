@@ -16,6 +16,7 @@ from .model_provider import setup_model_provider_planner
 from .model_provider_health import setup_model_provider_health
 from .worker_health import setup_worker_health
 from .worker_health_polling import async_setup_worker_health_polling, unload_worker_health_polling
+from .semantic_memory import async_setup_semantic_memory
 from .worker_token_lifecycle import async_setup_worker_token_lifecycle
 from .worker_readiness import setup_worker_readiness
 from .worker_renderer import setup_worker_renderer
@@ -45,6 +46,7 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
     entry_data["job_state"] = ensure_job_state_store(hass, entry_id)
     entry_data["model_provider_setup"] = setup_model_provider_planner(hass, entry)
     entry_data["model_provider_health_setup"] = setup_model_provider_health(hass, entry)
+    entry_data["semantic_memory_setup"] = await async_setup_semantic_memory(hass, entry)
     entry_data["worker_token_lifecycle_setup"] = await async_setup_worker_token_lifecycle(hass, entry)
     if not entry_data["worker_token_lifecycle_setup"].get("accepted"):
         return False

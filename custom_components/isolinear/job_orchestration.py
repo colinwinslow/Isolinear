@@ -42,6 +42,7 @@ from .model_provider import (
     load_planner_result_schema,
     planner_client_metadata,
 )
+from .semantic_memory import resolve_alias_injection, semantic_memory_store_for
 from .worker_renderer import (
     build_worker_transport_request,
     get_worker_render_client,
@@ -460,6 +461,7 @@ def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]
 
     catalog_items = _approved_catalog_items(hass, entry_id)
     selection = select_prompt_entity_ids(command["prompt"], catalog_items)
+    selection = _inject_semantic_aliases(hass, entry_id, command["prompt"], catalog_items, selection)
     if not selection["accepted"] and selection["code"] == "entity_selection_requires_clarification":
         d2 = _run_model_entity_selection(
             hass, entry_id, command["prompt"], catalog_items,
@@ -1566,6 +1568,50 @@ def _run_model_entity_selection(
         "code": "accepted",
         "entity_ids": list(dict.fromkeys(eid for eid in chosen_ids if isinstance(eid, str))),
         "source": "model_entity_selection",
+    }
+
+
+def _inject_semantic_aliases(
+    hass: Any,
+    entry_id: str,
+    prompt: str,
+    catalog_items: list[dict[str, Any]],
+    selection: dict[str, Any],
+) -> dict[str, Any]:
+    """Compose user-confirmed semantic-alias entities into the entity selection.
+
+    A saved alias whose natural names match the prompt resolves a concept the
+    prompt's own words never name (e.g. "AC" -> ``climate.kitchen_ecobee``). The
+    mapping was user-confirmed, so selecting it is deterministic, not a silent
+    guess (invariant #1); the injected entities compose with whatever resolved
+    directly. With no store (the default) or no match, the selection is returned
+    unchanged. See ADR-0009/0010 and docs/specs/semantic-alias-live-wiring.md.
+    """
+    store = semantic_memory_store_for(hass, entry_id)
+    injection = resolve_alias_injection(
+        semantic_memory_store=store,
+        entity_catalog=catalog_items,
+        prompt=prompt,
+    )
+    injected = injection["injected_entity_ids"]
+    if not injected:
+        return selection
+
+    direct_ids = list(selection["entity_ids"]) if selection.get("accepted") else []
+    composed = direct_ids + [eid for eid in injected if eid not in direct_ids]
+    _LOGGER.debug(
+        "Isolinear entity resolution: semantic alias injection matched %s -> "
+        "injected %s; composed selection %s (source: semantic_alias)",
+        injection["matched_alias_ids"],
+        injected,
+        composed,
+    )
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "entity_ids": composed,
+        "source": "semantic_alias",
+        "matched_alias_ids": injection["matched_alias_ids"],
     }
 
 

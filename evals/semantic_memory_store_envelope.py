@@ -8,6 +8,7 @@ from evidence import print_case
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(REPO_ROOT / "custom_components"))
 
 from Isolinear.contracts import validate_contract  # noqa: E402
 from Isolinear.fake_slice import (  # noqa: E402
@@ -16,6 +17,7 @@ from Isolinear.fake_slice import (  # noqa: E402
     iso_timestamp,
     prepare_semantic_memory_for_planning,
 )
+from isolinear.semantic_memory import resolve_alias_injection  # noqa: E402
 
 
 def assert_equal(actual, expected, message):
@@ -239,6 +241,80 @@ def main():
             "store_error": duplicate_alias_context["store_error"],
         },
     )
+    # ---- Tranche-1 injection CASE: AC alias composes with direct match ----
+    # Anchor artifact: a seeded store with the AC alias resolves climate.kitchen_ecobee
+    # alongside the directly-matched kitchen temperature sensor.
+    ac_alias = {
+        "alias_id": "whole_house_ac",
+        "natural_names": ["AC", "AC running"],
+        "meaning": {
+            "type": "state_interval",
+            "entity_id": "climate.kitchen_ecobee",
+            "active_values": ["cool", "heat"],
+        },
+        "source": "user_confirmed",
+        "created_from_prompt": "show kitchen temp and when the AC was running",
+        "created_at": iso_timestamp(now),
+        "last_used_at": iso_timestamp(now),
+        "enabled": True,
+    }
+    ac_store = {
+        "store_version": 1,
+        "config_entry_id": "fake-config-entry",
+        "created_at": iso_timestamp(now),
+        "updated_at": iso_timestamp(now),
+        "aliases": [ac_alias],
+    }
+    injection_catalog = [
+        {
+            "entity_id": "sensor.kitchen_temperature",
+            "label": "Kitchen Temperature",
+            "visible_to_agent": True,
+        },
+        {
+            "entity_id": "climate.kitchen_ecobee",
+            "label": "Kitchen Ecobee",
+            "visible_to_agent": True,
+        },
+    ]
+    injection_result = resolve_alias_injection(
+        semantic_memory_store=ac_store,
+        entity_catalog=injection_catalog,
+        prompt="show kitchen temp and when the AC was running",
+    )
+    assert_equal(
+        injection_result["matched_alias_ids"],
+        ["whole_house_ac"],
+        "AC alias should match on 'AC running' tokens.",
+    )
+    assert_equal(
+        injection_result["injected_entity_ids"],
+        ["climate.kitchen_ecobee"],
+        "AC alias should inject the climate entity.",
+    )
+    assert_equal(
+        injection_result["store_error"],
+        None,
+        "Valid store should not produce a store error.",
+    )
+
+    print_case(
+        "semantic_alias_injection",
+        given={
+            "semantic_memory_store": ac_store,
+            "entity_catalog": injection_catalog,
+            "prompt": "show kitchen temp and when the AC was running",
+        },
+        when={
+            "operation": "resolve_alias_injection",
+        },
+        then={
+            "matched_alias_ids": injection_result["matched_alias_ids"],
+            "injected_entity_ids": injection_result["injected_entity_ids"],
+            "store_error": injection_result["store_error"],
+        },
+    )
+
     print("PASS semantic_memory_store_envelope")
 
 
