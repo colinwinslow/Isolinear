@@ -237,7 +237,7 @@ describe("Isolinear mounted card long-running smoke", () => {
   it("polls job/snapshot until a delayed prompt renders a PNG chart", async () => {
     const { hass, calls } = createDelayedHass();
     const card = new IsolinearCard();
-    card.snapshotPollIntervalMs = 5;
+    card.snapshotPollIntervalMs = 20;
     document.body.append(card);
     card.setConfig({
       type: "custom:isolinear-card",
@@ -302,7 +302,7 @@ describe("Isolinear mounted card long-running smoke", () => {
   it("keeps polling after a transient snapshot timeout and renders the later PNG chart", async () => {
     const { hass, calls } = createTimeoutThenCompleteHass();
     const card = new IsolinearCard();
-    card.snapshotPollIntervalMs = 5;
+    card.snapshotPollIntervalMs = 20;
     document.body.append(card);
     card.setConfig({
       type: "custom:isolinear-card",
@@ -349,7 +349,7 @@ describe("Isolinear mounted card long-running smoke", () => {
   it("keeps polling after repeated Home Assistant timeout wrappers and renders the later PNG chart", async () => {
     const { hass, calls } = createRepeatedHomeAssistantTimeoutThenCompleteHass();
     const card = new IsolinearCard();
-    card.snapshotPollIntervalMs = 5;
+    card.snapshotPollIntervalMs = 20;
     document.body.append(card);
     card.setConfig({
       type: "custom:isolinear-card",
@@ -404,7 +404,7 @@ describe("Isolinear mounted card long-running smoke", () => {
   it("shows a visible failure when snapshot polling receives a terminal Isolinear rejection", async () => {
     const { hass, calls } = createTerminalSnapshotRejectionHass();
     const card = new IsolinearCard();
-    card.snapshotPollIntervalMs = 5;
+    card.snapshotPollIntervalMs = 20;
     document.body.append(card);
     card.setConfig({
       type: "custom:isolinear-card",

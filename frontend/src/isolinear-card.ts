@@ -432,23 +432,33 @@ export class IsolinearCard extends LitElement {
 
     this.pollTimer = undefined;
 
+    // Schedule the next poll BEFORE awaiting, so concurrent in-progress polls
+    // can return live reasoning while the long-running model poll is still in
+    // flight. The generation check guards against stale responses racing.
+    this.scheduleSnapshotPoll(generation);
+
+    let snap: IsolinearJobSnapshot;
     try {
-      this.snapshot = await createIsolinearApi(this.hass, this.config).getSnapshot(this.snapshot.job_id);
+      snap = await createIsolinearApi(this.hass, this.config).getSnapshot(this.snapshot.job_id);
       this.transientSnapshotPollFailures = 0;
-      this.notifyCallsChanged();
     } catch (error) {
+      if (generation !== this.pollGeneration) return;
       if (this.shouldRetrySnapshotPoll(error)) {
         this.transientSnapshotPollFailures += 1;
-        this.scheduleSnapshotPoll(generation);
+        // Next poll already scheduled above; no need to re-schedule.
         return;
       }
+      this.cancelSnapshotPolling();
       this.snapshot = this.snapshotPollingFailure(error);
       this.notifyCallsChanged();
       return;
     }
 
-    if (generation === this.pollGeneration && ACTIVE_JOB_STATUSES.has(this.snapshot.status)) {
-      this.scheduleSnapshotPoll(generation);
+    if (generation !== this.pollGeneration) return;
+    this.snapshot = snap;
+    this.notifyCallsChanged();
+    if (!ACTIVE_JOB_STATUSES.has(this.snapshot.status)) {
+      this.cancelSnapshotPolling();
     }
   }
 

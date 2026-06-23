@@ -883,20 +883,21 @@ var Q = class extends U {
 		}, this.snapshotPollIntervalMs));
 	}
 	async pollSnapshot(e) {
-		if (!(e !== this.pollGeneration || !this.hass || !this.config || !this.snapshot.job_id || !X.has(this.snapshot.status))) {
-			this.pollTimer = void 0;
-			try {
-				this.snapshot = await J(this.hass, this.config).getSnapshot(this.snapshot.job_id), this.transientSnapshotPollFailures = 0, this.notifyCallsChanged();
-			} catch (t) {
-				if (this.shouldRetrySnapshotPoll(t)) {
-					this.transientSnapshotPollFailures += 1, this.scheduleSnapshotPoll(e);
-					return;
-				}
-				this.snapshot = this.snapshotPollingFailure(t), this.notifyCallsChanged();
+		if (e !== this.pollGeneration || !this.hass || !this.config || !this.snapshot.job_id || !X.has(this.snapshot.status)) return;
+		this.pollTimer = void 0, this.scheduleSnapshotPoll(e);
+		let t;
+		try {
+			t = await J(this.hass, this.config).getSnapshot(this.snapshot.job_id), this.transientSnapshotPollFailures = 0;
+		} catch (t) {
+			if (e !== this.pollGeneration) return;
+			if (this.shouldRetrySnapshotPoll(t)) {
+				this.transientSnapshotPollFailures += 1;
 				return;
 			}
-			e === this.pollGeneration && X.has(this.snapshot.status) && this.scheduleSnapshotPoll(e);
+			this.cancelSnapshotPolling(), this.snapshot = this.snapshotPollingFailure(t), this.notifyCallsChanged();
+			return;
 		}
+		e === this.pollGeneration && (this.snapshot = t, this.notifyCallsChanged(), X.has(this.snapshot.status) || this.cancelSnapshotPolling());
 	}
 	cancelSnapshotPolling() {
 		this.pollGeneration += 1, this.pollTimer !== void 0 && (window.clearTimeout(this.pollTimer), this.pollTimer = void 0), this.transientSnapshotPollFailures = 0;
