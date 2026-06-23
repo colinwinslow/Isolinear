@@ -1474,6 +1474,25 @@ flag); `30 passed`. Verification: full suite `451 passed, 3 failed` (same
 pre-existing codegen-sandbox flake, identical on clean baseline via `git stash`),
 model-provider planning eval `PASS`, BDD-evidence review `OK`.
 
+`0.1.38` fixed the final reason reasoning never appeared in the card. The
+architecture (ADR-0025 D3: "surfaced through the existing poll loop at ~1s
+granularity") was correct; the implementation failed to achieve the stated
+granularity. The poll loop was **sequential** — each poll awaited the WebSocket
+response before scheduling the next. The first post-submit poll acquires
+`planning_lock` and drives all model calls (~40 s); no second poll fired during
+that window, so every in-progress snapshot carrying `progress.reasoning` was
+computed but never delivered. The fix (in `isolinear-card.ts`): call
+`scheduleSnapshotPoll(generation)` **before** `await getSnapshot()`. Polls now
+fire every 1 s regardless of response time. Concurrent polls hit the held
+`planning_lock`, return in-progress snapshots with live reasoning immediately
+(< 1 ms server cost), and the card renders them. The `pollGeneration` counter
+plus `cancelSnapshotPolling()` guard stale responses when the main poll
+eventually returns the complete snapshot. No server-side change. No ADR update
+(D3 matches the behavior; the polling mechanism is implementation detail).
+Frontend smoke tests: poll interval bumped 5 ms → 20 ms (longer than the 5 ms
+mock response) so call-count assertions remain exact. Architecture review not
+run (frontend-only polling bug fix; no invariant affected).
+
 `0.1.37` fixed a semantic bug exposed by the `0.1.36` constrained-decoding pass.
 The `_chat_payload` planning rules carried an unconditional rule 2 — "Return
 status chart_spec_ready with a ChartSpec for this packet." With Pass 2 now

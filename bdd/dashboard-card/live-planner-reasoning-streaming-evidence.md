@@ -1,6 +1,6 @@
 # Live Planner Reasoning Streaming — BDD Evidence
 
-**Run timestamp:** 2026-06-22 (re-run at closeout; two-pass reasoning streaming fix in 0.1.36)
+**Run timestamp:** 2026-06-23 (re-run at closeout; concurrent polling fix in 0.1.38)
 
 **BDD file:** `bdd/dashboard-card/live-planner-reasoning-streaming-bdd.md`
 
@@ -108,7 +108,7 @@ Scenario mapping:
 ## Card mounted smoke (Scenario H)
 
 ```
-cd frontend && npx vitest run isolinear-card.long-running-smoke --reporter=verbose
+cd frontend && npm test
 ```
 
 ```
@@ -118,11 +118,21 @@ CARD_REASONING_EVIDENCE {
   "reasoning_present": true,
   "reasoning_text": "Reading sensor.upstairs_temperature history\nChoosing a time_series line…"
 }
- ✓ src/isolinear-card.long-running-smoke.test.ts > Isolinear mounted card long-running smoke > renders live planner reasoning in the chart slot during planning and the PNG on completion 7ms
 
- Test Files  1 passed (1)
-      Tests  9 passed (9)
+ Test Files  2 passed (2)
+      Tests  13 passed (13)
 ```
+
+> **0.1.38 fix — concurrent snapshot polling (ADR-0025 D3 correction).**
+> The poll loop was sequential — each poll awaited its WebSocket response before
+> scheduling the next. Since the first post-submit poll acquires the
+> `planning_lock` and drives all model calls (~40 s), no second poll ever fired
+> during the think pass. Fix: `scheduleSnapshotPoll(generation)` is now called
+> **before** `await getSnapshot()`, so polls fire at the stated ~1s interval
+> regardless of how long the current response takes. The generation counter +
+> `cancelSnapshotPolling()` guard stale responses. Smoke test poll interval
+> bumped from 5 ms → 20 ms so the mock response (5 ms) resolves before the
+> pre-scheduled poll fires, keeping call-count assertions exact.
 
 The mounted card showed a `data-testid="planning-reasoning"` block in the chart
 slot with the coarse phase "Planning chart…" as the heading during planning, and
@@ -159,7 +169,7 @@ python3 -m pytest tests/ -q
 ```
 
 ```
-3 failed, 451 passed in 15.09s
+3 failed, 451 passed in 14.22s
 ```
 
 The 3 failures are the pre-existing codegen-sandbox subprocess flake
