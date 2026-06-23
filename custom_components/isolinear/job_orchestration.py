@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 import re
 import threading
 from copy import deepcopy
@@ -49,6 +50,8 @@ from .worker_renderer import (
     worker_client_token,
 )
 
+
+_LOGGER = logging.getLogger(__name__)
 
 DATA_JOB_ORCHESTRATION = "job_orchestration"
 DATA_JOB_ORCHESTRATION_SETUP = "job_orchestration_setup"
@@ -1568,8 +1571,18 @@ def _run_model_entity_selection(
 
 def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -> dict[str, Any]:
     """Deterministically select scaffold entity IDs from prompt text and catalog labels."""
+    _LOGGER.debug(
+        "Isolinear entity resolution: catalog has %d approved entities: %s",
+        len(catalog_items),
+        [item.get("entity_id") for item in catalog_items],
+    )
+
     explicit_entity_ids = _unique(ENTITY_ID_IN_PROMPT.findall(prompt.lower()))
     if explicit_entity_ids:
+        _LOGGER.debug(
+            "Isolinear entity resolution: explicit entity IDs in prompt -> %s",
+            explicit_entity_ids,
+        )
         return {
             "accepted": True,
             "code": "accepted",
@@ -1582,7 +1595,21 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
         for item in catalog_items
         if _catalog_item_matches_prompt(prompt, item)
     ]
+    _LOGGER.debug(
+        "Isolinear entity resolution: %d catalog match(es) for prompt %r: %s",
+        len(matches),
+        prompt,
+        [
+            {"entity_id": item.get("entity_id"), "score": _catalog_item_match_score(prompt, item)}
+            for item in matches
+        ],
+    )
+
     if len(matches) == 1:
+        _LOGGER.debug(
+            "Isolinear entity resolution: single match -> %s (source: catalog_label)",
+            matches[0].get("entity_id"),
+        )
         return {
             "accepted": True,
             "code": "accepted",
@@ -1606,11 +1633,19 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
         # composite path. Only the numeric+binary pair is forwarded; the
         # categorical match is discarded.
         if len(numeric_matches) == 1 and binary_matches:
+            selected = [numeric_matches[0]["entity_id"]] + [item["entity_id"] for item in binary_matches]
+            _LOGGER.debug(
+                "Isolinear entity resolution: overlay composition "
+                "(1 numeric + %d binary) -> %s (source: numeric_with_overlay); "
+                "non-numeric non-binary matches discarded: %s",
+                len(binary_matches),
+                selected,
+                [item.get("entity_id") for item, kind in match_kinds if kind not in ("numeric", "binary_state")],
+            )
             return {
                 "accepted": True,
                 "code": "accepted",
-                "entity_ids": [numeric_matches[0]["entity_id"]]
-                + [item["entity_id"] for item in binary_matches],
+                "entity_ids": selected,
                 "source": "numeric_with_overlay",
             }
         # Specificity tie-break (ADR-0024 D1): when one candidate matches strictly
@@ -1621,13 +1656,29 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
         scored = [(item, _catalog_item_match_score(prompt, item)) for item in matches]
         best_score = max(score for _, score in scored)
         top_matches = [item for item, score in scored if score == best_score]
+        _LOGGER.debug(
+            "Isolinear entity resolution: specificity scores %s; best=%d; "
+            "top_matches=%s",
+            [(item.get("entity_id"), score) for item, score in scored],
+            best_score,
+            [item.get("entity_id") for item in top_matches],
+        )
         if len(top_matches) == 1:
+            _LOGGER.debug(
+                "Isolinear entity resolution: unique top scorer -> %s (source: catalog_label_specificity)",
+                top_matches[0].get("entity_id"),
+            )
             return {
                 "accepted": True,
                 "code": "accepted",
                 "entity_ids": [top_matches[0]["entity_id"]],
                 "source": "catalog_label_specificity",
             }
+        _LOGGER.debug(
+            "Isolinear entity resolution: tie at score %d -> clarification needed for %s",
+            best_score,
+            [item.get("entity_id") for item in top_matches],
+        )
         return {
             "accepted": False,
             "code": "entity_selection_requires_clarification",

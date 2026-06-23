@@ -563,6 +563,11 @@ class OllamaCompatiblePlannerClient:
             **({"think": True} if stream else {"format": result_schema}),
             "options": {
                 "temperature": 0,
+                # Cap thinking tokens on the think pass so simple queries don't
+                # spend 30-40 s generating 1500+ reasoning tokens. The result
+                # pass (stream=False) is uncapped: it produces the final JSON and
+                # needs enough tokens to complete the structured output.
+                **({"num_predict": 512} if stream else {}),
             },
         }
 
@@ -695,6 +700,11 @@ class OllamaCompatiblePlannerClient:
             **({"think": True} if stream else {"format": result_schema}),
             "options": {
                 "temperature": 0,
+                # Cap thinking tokens on the think pass so simple queries don't
+                # spend 30-40 s generating 1500+ reasoning tokens. The result
+                # pass (stream=False) is uncapped: it produces the final JSON and
+                # needs enough tokens to complete the structured output.
+                **({"num_predict": 512} if stream else {}),
             },
         }
 
