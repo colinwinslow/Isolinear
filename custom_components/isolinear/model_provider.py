@@ -532,6 +532,14 @@ class OllamaCompatiblePlannerClient:
             "rules": [
                 "Choose only from the candidate_entity_ids list.",
                 "Return status entity_selected with a non-empty entity_ids list if the user's intent is clear.",
+                "Home Assistant climate entities represent HVAC systems (thermostats, "
+                "heat pumps, mini-splits, AC units); map functional words like 'AC', "
+                "'air conditioning', 'heating', or 'the cooling' to the matching climate entity.",
+                "If already_selected_entity_ids is present, those entities were resolved "
+                "for part of the request. Confirm them and ADD any other candidate entities "
+                "the prompt also refers to (a prompt may mention several distinct concepts). "
+                "Return the complete entity_ids set, keeping the already-selected ones unless "
+                "one is clearly wrong for the prompt.",
                 "Return status clarification_needed if you genuinely cannot determine which entity the user means.",
                 "Do not guess when genuinely ambiguous.",
                 "Do not include raw Home Assistant data, secrets, tokens, or prose outside JSON.",

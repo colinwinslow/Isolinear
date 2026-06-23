@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 date: 2026-06-23
 depends-on-adrs: [0009, 0010, 0024, 0003, 0005]
 ---
@@ -8,10 +8,27 @@ depends-on-adrs: [0009, 0010, 0024, 0003, 0005]
 
 ## Status
 
-Draft. Defines the second live tranche of ADR-0009/0010 semantic memory: when
-a user answers an entity-selection clarification with `remember: true`, the
-integration **saves** a `SemanticAlias` to the persisted HA Store. Tranche 1
-(load/match/inject) is a prerequisite; this spec extends it.
+Accepted — implemented in `0.1.42`. Defines the second live tranche of
+ADR-0009/0010 semantic memory: when a user answers an entity-selection
+clarification with `remember: true`, the integration **saves** a `SemanticAlias`
+to the persisted HA Store. Tranche 1 (load/match/inject) is a prerequisite; this
+spec extends it.
+
+### Implementation deviations from the draft (recorded at acceptance)
+
+- **Synchronous `save_alias`, not `async def async_save_alias`.** The
+  `clarification/answer` command runs in a Home Assistant **executor thread**
+  (`websocket_api.async_handle_registered_ws_command` dispatches via
+  `hass.async_add_executor_job`), not on the event loop. The save therefore
+  mirrors `worker_token_lifecycle.write_token_entry`: a synchronous method that
+  validates, updates the in-memory store (immediate Tranche 1 availability), and
+  schedules a debounced HA Store write via `Store.async_delay_save`. §5 step 3's
+  "await on the event loop" premise was incorrect.
+- **No schema change needed.** The `aliases` field already existed on
+  `IntegrationJobSnapshot` (both schema copies, identical) — only the
+  `append_validated_job_snapshot` passthrough was added.
+- **Version `0.1.42`, not `0.1.41`.** `0.1.41` shipped the ADR-0024 D2 expansion
+  packet first; Tranche 2 is the next patch.
 
 ## Related docs
 

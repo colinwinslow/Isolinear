@@ -14,13 +14,17 @@ The validity/extraction logic mirrors the reference implementation in
 
 from __future__ import annotations
 
+import logging
 import re
 from copy import deepcopy
+from datetime import datetime, timezone
 from typing import Any
 
 from ._paths import load_schema_document, schema_path
 from .const import DOMAIN
 from .entity_catalog import EntityCatalogValidationError, _validate_json_schema
+
+_LOGGER = logging.getLogger(__name__)
 
 try:  # pragma: no cover - exercised only inside a real Home Assistant runtime
     from homeassistant.helpers.storage import Store as HomeAssistantStore
@@ -53,7 +57,31 @@ _SEMANTIC_ALIAS_TRIVIAL_TOKENS = {
 # a two-character token like "ac" is the entire signal.
 _TOKEN_RE = re.compile(r"[a-z0-9_]+")
 
+# Stripped from a prompt before deriving an alias's natural name (Tranche 2).
+# Extends the matcher's trivial set with common chart-action words so a prompt
+# like "show me when the AC was running" yields a clean "ac running" name rather
+# than dragging in "show"/"when"/"me".
+_ALIAS_EXCLUDE_TOKENS = {
+    "the", "a", "an", "is", "was", "are", "of", "and", "to", "on",
+    "show", "display", "chart", "graph", "plot", "when", "what", "how",
+    "give", "get", "find", "render", "me", "my",
+}
+
+# Secret-like material is never written to ``created_from_prompt`` (boundary
+# hygiene mirroring the model-provider reasoning sanitizer). Prompts rarely
+# carry secrets, but a pasted token must not land in durable storage.
+_SECRETISH_PATTERNS = (
+    re.compile(r"\bsk-[A-Za-z0-9_-]{8,}"),
+    re.compile(r"(?i)bearer\s+\S+"),
+    re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),  # JWT-ish
+)
+
 _STORE_SCHEMA_PATH = schema_path("semantic-memory-store.schema.json")
+_ALIAS_SCHEMA_PATH = schema_path("semantic-alias.schema.json")
+
+# Per-entry SemanticMemoryStore envelope version (distinct from the HA Store
+# document version that wraps every entry's envelope).
+SEMANTIC_MEMORY_STORE_ENVELOPE_VERSION = 1
 
 
 class SemanticMemoryStoreError(ValueError):
@@ -110,6 +138,59 @@ class SemanticMemoryStorageHelper:
         write surface and it does not persist on its own.
         """
         self.data["stores"][entry_id] = deepcopy(store)
+
+    def save_alias(self, entry_id: str, alias: dict[str, Any]) -> dict[str, Any]:
+        """Persist one alias to ``entry_id``'s store, replacing any record with
+        the same ``alias_id`` (ADR-0009/0010, Tranche 2).
+
+        Synchronous, mirroring ``worker_token_lifecycle.write_token_entry``: the
+        clarification-answer handler runs in an executor thread (not the event
+        loop), so this validates and updates the in-memory store — making the
+        alias immediately available for Tranche 1 injection — then schedules a
+        debounced HA Store write. Returns ``{"accepted": True}`` on success or
+        ``{"accepted": False, "error": ...}`` on validation/save failure; the
+        caller treats failure as non-blocking.
+        """
+        try:
+            now = _iso_utc_now()
+            existing = self.data["stores"].get(entry_id)
+            if isinstance(existing, dict) and isinstance(existing.get("aliases"), list):
+                store = deepcopy(existing)
+            else:
+                store = {
+                    "store_version": SEMANTIC_MEMORY_STORE_ENVELOPE_VERSION,
+                    "config_entry_id": entry_id,
+                    "created_at": now,
+                    "updated_at": now,
+                    "aliases": [],
+                }
+            store["aliases"] = [
+                existing_alias
+                for existing_alias in store["aliases"]
+                if existing_alias.get("alias_id") != alias["alias_id"]
+            ]
+            store["aliases"].append(deepcopy(alias))
+            store["updated_at"] = now
+
+            validation = validate_semantic_memory_store_contract(store)
+            if not validation["accepted"]:
+                return {"accepted": False, "error": validation["error"]}
+
+            self.data["stores"][entry_id] = store
+            self._schedule_save()
+            return {"accepted": True}
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"accepted": False, "error": str(exc)}
+
+    def _schedule_save(self) -> None:
+        # delay=0 is an intentional near-immediate write (not debounced): an
+        # alias the user just confirmed should survive a restart right away, and
+        # saves are rare (one per "remember"). Mirrors worker_token_lifecycle.
+        # async_delay_save still hands the write to the event loop, which is
+        # required since this runs in an executor thread.
+        async_delay_save = getattr(self._ha_store, "async_delay_save", None)
+        if callable(async_delay_save):
+            async_delay_save(lambda: deepcopy(self.data), 0)
 
     def summary(self) -> dict[str, Any]:
         return {
@@ -301,6 +382,70 @@ def _invalid_semantic_alias_entities(
         )
 
     return invalid_entities
+
+
+def validate_semantic_alias_contract(alias: Any) -> dict[str, Any]:
+    """Validate one SemanticAlias record against the bundled JSON Schema."""
+    try:
+        schema = load_schema_document(_ALIAS_SCHEMA_PATH)
+        _validate_json_schema(alias, schema, root_schema=schema, path="$")
+    except (EntityCatalogValidationError, KeyError, TypeError, OSError, ValueError) as exc:
+        return {"accepted": False, "code": "semantic_alias_invalid", "error": str(exc)}
+    return {"accepted": True, "code": "accepted"}
+
+
+def _entity_id_to_alias_id(entity_id: str) -> str:
+    """Slugify an entity_id into a deterministic, schema-valid alias_id."""
+    return re.sub(r"[^a-z0-9]+", "_", entity_id.lower()).strip("_")
+
+
+def derive_alias_natural_names(
+    prompt: str,
+    entity_id: str,
+    entity_label: str,
+) -> list[str]:
+    """Return the natural name(s) to propose for a semantic alias (Tranche 2).
+
+    Takes the prompt tokens, removes trivial/chart-action words and the entity's
+    own label tokens (length >= 4), and returns the remainder as a single phrase.
+    Falls back to the entity label when no distinctive tokens remain.
+    """
+    prompt_toks = set(_TOKEN_RE.findall(prompt.lower()))
+    prompt_toks -= _ALIAS_EXCLUDE_TOKENS
+
+    entity_toks = set(
+        _TOKEN_RE.findall((entity_id.replace(".", " ") + " " + entity_label).lower())
+    )
+    entity_toks = {token for token in entity_toks if len(token) >= 4}
+
+    distinctive = sorted(prompt_toks - entity_toks)
+    if distinctive:
+        return [" ".join(distinctive)]
+    return [entity_label]
+
+
+def _sanitize_prompt_for_storage(prompt: Any) -> str | None:
+    """Strip/truncate a prompt for ``created_from_prompt``; drop if secret-like."""
+    if not isinstance(prompt, str):
+        return None
+    text = prompt.strip()
+    if not text:
+        return None
+    if any(pattern.search(text) for pattern in _SECRETISH_PATTERNS):
+        return None
+    return text[:200]
+
+
+def _iso_utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def save_semantic_alias(hass: Any, entry_id: str, alias: dict[str, Any]) -> dict[str, Any]:
+    """Validate and persist one user-confirmed alias via the entry's helper."""
+    validation = validate_semantic_alias_contract(alias)
+    if not validation["accepted"]:
+        return {"accepted": False, "error": validation["error"]}
+    return get_semantic_memory_storage(hass).save_alias(entry_id, alias)
 
 
 def _tokens(value: str) -> list[str]:

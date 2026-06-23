@@ -52,12 +52,35 @@ Resolution uses a three-stage pipeline (ADR-0024):
    top-scoring entity without clarification. A top-score tie or zero matches
    falls through to stage 2.
 
-2. **Model-driven selection (D2)** — when stage 1 cannot resolve and a model
-   provider is configured, ask the model to pick the entity (or entity set)
-   from the approved candidates. The model returns either a chosen set or an
-   explicit `clarification_needed`. Chosen entity IDs must be in the approved
-   catalog; any off-allowlist choice fails closed and falls through to stage 3.
-   When no model provider is configured, skip directly to stage 3.
+2. **Model-driven selection (D2)** — runs in two modes:
+
+   - **Residue mode** — when stage 1 cannot resolve (a top-score tie or zero
+     matches) and a model provider is configured, ask the model to pick the
+     entity (or entity set) from the approved candidates. The model returns
+     either a chosen set or an explicit `clarification_needed`. On a clear
+     pick the job proceeds; on abstention or an off-allowlist choice it falls
+     through to stage 3.
+
+   - **Expansion mode** (ADR-0024 D2 expansion) — when stage 1 *confidently*
+     resolves a single entity by token match (`catalog_label` /
+     `catalog_label_specificity`), re-run the model against the **full**
+     catalog with the D1 pick supplied as `already_selected_entity_ids`. The
+     model validates the D1 selection and adds any entity the prompt mentions
+     that token scoring missed (e.g. "AC" → `climate.kitchen_ecobee`, which
+     shares no token with the word "AC"); it may confirm, expand, or correct
+     the D1 set. **If the model abstains, is absent, or returns an off-catalog
+     pick, D1's confident result stands** — expansion never downgrades a
+     confident resolution to a clarification. Expansion is skipped for
+     explicit-entity-id, overlay-composition, and semantic-alias results
+     (already certain or user-confirmed), and when D1 already covers the whole
+     catalog (nothing to add). The `select_entity` prompt carries a one-sentence
+     HA domain hint ("climate entities represent HVAC systems …") so functional
+     vocabulary maps to HA domains without hard-coded word lists.
+
+   Chosen entity IDs must be in the approved catalog at every stage; any
+   off-allowlist choice fails closed. When no model provider is configured,
+   stage 1's result stands (confident resolution) or selection skips directly
+   to stage 3 (clarification residue).
 
 3. **User clarification (D3 fallback)** — show the user a clarification card
    when neither the fast-path nor the model can resolve. For a tie, offer only

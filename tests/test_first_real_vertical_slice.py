@@ -2157,9 +2157,14 @@ class _D2FakePlanner(FakePlanner):
     ``selects``: the entity_id the selector picks, or None to abstain.
     """
 
-    def __init__(self, *, selects: str | None) -> None:
+    def __init__(self, *, selects: str | list[str] | None) -> None:
         super().__init__()
-        self._selects = selects
+        if selects is None:
+            self._selects: list[str] = []
+        elif isinstance(selects, str):
+            self._selects = [selects]
+        else:
+            self._selects = list(selects)
         self.select_calls: int = 0
         self.plan_calls: int = 0
         self.last_select_request: dict[str, Any] = {}
@@ -2169,12 +2174,14 @@ class _D2FakePlanner(FakePlanner):
     ) -> dict[str, Any]:
         self.select_calls += 1
         self.last_select_request = request
-        if self._selects is not None and self._selects in request.get("candidate_entity_ids", []):
+        candidates = request.get("candidate_entity_ids", [])
+        chosen = [eid for eid in self._selects if eid in candidates]
+        if chosen:
             return {
                 "accepted": True,
                 "code": "model_provider_entity_selection_received",
                 "provider": self.provider_metadata(),
-                "selection_result": {"status": "entity_selected", "entity_ids": [self._selects]},
+                "selection_result": {"status": "entity_selected", "entity_ids": chosen},
                 "provider_response": {},
             }
         return {
@@ -2447,6 +2454,191 @@ class EntitySelectionD2Tests(unittest.TestCase):
                 "sensor.upstairs_temperature",
                 planner.last_select_request["candidate_entity_ids"],
             )
+
+    # -- D2 expansion (ADR-0024, 2026-06-23) ----------------------------------
+    #
+    # After a confident single-entity D1 result, D2 re-runs against the full
+    # catalog to add concepts D1's token scoring missed (e.g. "AC").
+
+    def _kitchen_catalog(self) -> list[dict[str, Any]]:
+        return [
+            {"entity_id": "sensor.kitchen_temperature", "domain": "sensor",
+             "friendly_name": "Kitchen Temperature", "unit_of_measurement": "°F"},
+            {"entity_id": "climate.kitchen_ecobee", "domain": "climate",
+             "friendly_name": "Kitchen Ecobee"},
+        ]
+
+    def _confident_d1_selection(self) -> dict[str, Any]:
+        # What select_prompt_entity_ids returns for "show kitchen temperature":
+        # the temperature sensor uniquely outscores the climate entity.
+        return {
+            "accepted": True,
+            "code": "accepted",
+            "entity_ids": ["sensor.kitchen_temperature"],
+            "source": "catalog_label_specificity",
+        }
+
+    def test_d1_confidently_resolves_then_misses_ac_concept(self):
+        # Establishes the gap D2 expansion closes: D1 picks only the temp sensor.
+        selection = job_orchestration.select_prompt_entity_ids(
+            "show kitchen temperature and when the AC was running", self._kitchen_catalog()
+        )
+        self.assertTrue(selection["accepted"], selection)
+        self.assertEqual(selection["entity_ids"], ["sensor.kitchen_temperature"])
+        self.assertEqual(selection["source"], "catalog_label_specificity")
+
+    def test_d2_expansion_adds_missed_entity(self):
+        planner = _D2FakePlanner(selects=["sensor.kitchen_temperature", "climate.kitchen_ecobee"])
+        hass = self._hass_with_planner("entry-1", planner)
+        resolved = job_orchestration._resolve_entity_selection_with_model(
+            hass, "entry-1", "show kitchen temperature and when the AC was running",
+            self._kitchen_catalog(), self._confident_d1_selection(),
+        )
+        self.assertTrue(resolved["accepted"], resolved)
+        self.assertEqual(resolved["source"], "model_entity_selection")
+        self.assertEqual(
+            set(resolved["entity_ids"]),
+            {"sensor.kitchen_temperature", "climate.kitchen_ecobee"},
+        )
+        self.assertEqual(planner.select_calls, 1)
+        # D2 was offered the full catalog and told what D1 had already picked.
+        self.assertIn("climate.kitchen_ecobee", planner.last_select_request["candidate_entity_ids"])
+        self.assertEqual(
+            planner.last_select_request["already_selected_entity_ids"],
+            ["sensor.kitchen_temperature"],
+        )
+
+    def test_d2_expansion_confirms_d1_unchanged(self):
+        # Model validates the D1 pick and adds nothing — selection is preserved.
+        planner = _D2FakePlanner(selects=["sensor.kitchen_temperature"])
+        hass = self._hass_with_planner("entry-1", planner)
+        resolved = job_orchestration._resolve_entity_selection_with_model(
+            hass, "entry-1", "show kitchen temperature",
+            self._kitchen_catalog(), self._confident_d1_selection(),
+        )
+        self.assertTrue(resolved["accepted"], resolved)
+        self.assertEqual(resolved["entity_ids"], ["sensor.kitchen_temperature"])
+        self.assertEqual(planner.select_calls, 1)
+
+    def test_d2_expansion_falls_back_to_d1_when_model_abstains(self):
+        planner = _D2FakePlanner(selects=None)
+        hass = self._hass_with_planner("entry-1", planner)
+        d1 = self._confident_d1_selection()
+        resolved = job_orchestration._resolve_entity_selection_with_model(
+            hass, "entry-1", "show kitchen temperature", self._kitchen_catalog(), d1,
+        )
+        # D1's confident answer stands; no clarification surfaced.
+        self.assertEqual(resolved, d1)
+        self.assertEqual(planner.select_calls, 1)
+
+    def test_d2_expansion_off_catalog_pick_falls_back_to_d1(self):
+        # Model returns an off-allowlist entity → fail closed → D1 result stands.
+        planner = _D2FakePlanner(selects="sensor.unlisted_entity")
+        hass = self._hass_with_planner("entry-1", planner)
+        d1 = self._confident_d1_selection()
+        resolved = job_orchestration._resolve_entity_selection_with_model(
+            hass, "entry-1", "show kitchen temperature", self._kitchen_catalog(), d1,
+        )
+        self.assertEqual(resolved, d1)
+
+    def test_d2_expansion_skipped_without_model(self):
+        # Planner without select_entity → expansion silently skipped, no error.
+        hass = self._hass_with_planner("entry-1", FakePlanner())
+        d1 = self._confident_d1_selection()
+        resolved = job_orchestration._resolve_entity_selection_with_model(
+            hass, "entry-1", "show kitchen temperature", self._kitchen_catalog(), d1,
+        )
+        self.assertEqual(resolved, d1)
+
+    def test_d2_expansion_skipped_for_explicit_entity_id(self):
+        planner = _D2FakePlanner(selects=["climate.kitchen_ecobee"])
+        hass = self._hass_with_planner("entry-1", planner)
+        d1 = {"accepted": True, "code": "accepted",
+              "entity_ids": ["sensor.kitchen_temperature"], "source": "explicit_entity_id"}
+        resolved = job_orchestration._resolve_entity_selection_with_model(
+            hass, "entry-1", "show sensor.kitchen_temperature", self._kitchen_catalog(), d1,
+        )
+        self.assertEqual(resolved, d1)
+        self.assertEqual(planner.select_calls, 0)
+
+    def test_d2_expansion_skipped_for_overlay_composition(self):
+        planner = _D2FakePlanner(selects=["climate.kitchen_ecobee"])
+        hass = self._hass_with_planner("entry-1", planner)
+        d1 = {"accepted": True, "code": "accepted",
+              "entity_ids": ["sensor.kitchen_temperature", "binary_sensor.kitchen_door"],
+              "source": "numeric_with_overlay"}
+        resolved = job_orchestration._resolve_entity_selection_with_model(
+            hass, "entry-1", "kitchen temp and door", self._kitchen_catalog(), d1,
+        )
+        self.assertEqual(resolved, d1)
+        self.assertEqual(planner.select_calls, 0)
+
+    def test_d2_expansion_skipped_for_semantic_alias(self):
+        # A user-confirmed alias already resolved the concept deterministically.
+        planner = _D2FakePlanner(selects=["climate.kitchen_ecobee"])
+        hass = self._hass_with_planner("entry-1", planner)
+        d1 = {"accepted": True, "code": "accepted",
+              "entity_ids": ["sensor.kitchen_temperature", "climate.kitchen_ecobee"],
+              "source": "semantic_alias", "matched_alias_ids": ["whole_house_ac"]}
+        resolved = job_orchestration._resolve_entity_selection_with_model(
+            hass, "entry-1", "show kitchen temp and the AC", self._kitchen_catalog(), d1,
+        )
+        self.assertEqual(resolved, d1)
+        self.assertEqual(planner.select_calls, 0)
+
+    def test_d2_expansion_skipped_when_d1_covers_whole_catalog(self):
+        # Single-entity catalog: nothing for the model to expand to → no call.
+        planner = _D2FakePlanner(selects=["sensor.kitchen_temperature"])
+        hass = self._hass_with_planner("entry-1", planner)
+        catalog = [{"entity_id": "sensor.kitchen_temperature", "domain": "sensor",
+                    "friendly_name": "Kitchen Temperature"}]
+        d1 = self._confident_d1_selection()
+        resolved = job_orchestration._resolve_entity_selection_with_model(
+            hass, "entry-1", "show kitchen temperature", catalog, d1,
+        )
+        self.assertEqual(resolved, d1)
+        self.assertEqual(planner.select_calls, 0)
+
+    def test_d2_expansion_integration_renders_both_entities(self):
+        """AC prompt: D1 picks temp sensor, D2 expands to include the climate
+        entity, both flow to planning and render (ADR-0024 D2 expansion)."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            planner = _D2FakePlanner(
+                selects=["sensor.kitchen_temperature", "climate.kitchen_ecobee"]
+            )
+            hass, entry = configured_real_slice_hass(
+                planner=planner,
+                artifact_dir=Path(temp_dir),
+                extra_metadata_by_entity={
+                    "sensor.kitchen_temperature": {
+                        "friendly_name": "Kitchen Temperature",
+                        "device_class": "temperature", "state_class": "measurement",
+                        "unit_of_measurement": "degF", "area": "Kitchen",
+                    },
+                    "climate.kitchen_ecobee": {
+                        "friendly_name": "Kitchen Ecobee",
+                        "state_class": "measurement", "unit_of_measurement": "degF",
+                        "area": "Kitchen",
+                    },
+                },
+            )
+            start = _start_job(
+                hass, entry,
+                prompt="show kitchen temperature and when the AC was running",
+            )
+            self.assertTrue(start["accepted"], start)
+            job_id = start["snapshot"]["job_id"]
+
+            snapshot = _snapshot_job(hass, entry, job_id)
+            self.assertTrue(snapshot["accepted"], snapshot)
+            self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot["snapshot"])
+            self.assertEqual(planner.select_calls, 1)
+            self.assertEqual(planner.plan_calls, 1)
+            # Both the directly-matched sensor and the D2-expanded climate entity
+            # were forwarded to planning.
+            planned_ids = set(planner.calls[0]["approved_entity_ids"])
+            self.assertIn("sensor.kitchen_temperature", planned_ids)
+            self.assertIn("climate.kitchen_ecobee", planned_ids)
 
 
 if __name__ == "__main__":

@@ -17,7 +17,12 @@ from Isolinear.fake_slice import (  # noqa: E402
     iso_timestamp,
     prepare_semantic_memory_for_planning,
 )
-from isolinear.semantic_memory import resolve_alias_injection  # noqa: E402
+from isolinear.semantic_memory import (  # noqa: E402
+    SemanticMemoryStorageHelper,
+    _entity_id_to_alias_id,
+    derive_alias_natural_names,
+    resolve_alias_injection,
+)
 
 
 def assert_equal(actual, expected, message):
@@ -312,6 +317,61 @@ def main():
             "matched_alias_ids": injection_result["matched_alias_ids"],
             "injected_entity_ids": injection_result["injected_entity_ids"],
             "store_error": injection_result["store_error"],
+        },
+    )
+
+    # ---- Tranche-2 round trip CASE: save a user-confirmed alias, then inject ----
+    # Anchor artifact: deriving + saving an alias from an answered clarification
+    # makes a reworded future prompt resolve the same entity with no clarification.
+    save_prompt = "show me the air conditioning"
+    saved_entity = "climate.kitchen_ecobee"
+    saved_alias = {
+        "alias_id": _entity_id_to_alias_id(saved_entity),
+        "natural_names": derive_alias_natural_names(save_prompt, saved_entity, "Kitchen Ecobee"),
+        "meaning": {"type": "entity", "entity_id": saved_entity},
+        "source": "user_confirmed",
+        "created_from_prompt": save_prompt,
+        "created_at": iso_timestamp(now),
+        "enabled": True,
+    }
+    helper = SemanticMemoryStorageHelper()
+    save_result = helper.save_alias("fake-config-entry", saved_alias)
+    assert_equal(save_result["accepted"], True, "Saving a user-confirmed alias should succeed.")
+    assert_equal(saved_alias["alias_id"], "climate_kitchen_ecobee", "Alias ID should be slugified.")
+    assert_equal(saved_alias["natural_names"], ["air conditioning"], "Derived name strips action words.")
+
+    reworded_prompt = "when was the air conditioning on"
+    reuse_result = resolve_alias_injection(
+        semantic_memory_store=helper.store_for("fake-config-entry"),
+        entity_catalog=injection_catalog,
+        prompt=reworded_prompt,
+    )
+    assert_equal(
+        reuse_result["matched_alias_ids"],
+        ["climate_kitchen_ecobee"],
+        "Saved alias should match the reworded prompt.",
+    )
+    assert_equal(
+        reuse_result["injected_entity_ids"],
+        [saved_entity],
+        "Saved alias should inject the climate entity on the next request.",
+    )
+
+    print_case(
+        "semantic_alias_save_and_reuse",
+        given={
+            "save_prompt": save_prompt,
+            "saved_alias": saved_alias,
+            "reworded_prompt": reworded_prompt,
+            "entity_catalog": injection_catalog,
+        },
+        when={
+            "operation": "save_alias -> resolve_alias_injection",
+        },
+        then={
+            "save_accepted": save_result["accepted"],
+            "matched_alias_ids": reuse_result["matched_alias_ids"],
+            "injected_entity_ids": reuse_result["injected_entity_ids"],
         },
     )
 

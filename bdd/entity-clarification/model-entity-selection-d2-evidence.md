@@ -1,6 +1,7 @@
 # Model-Driven Entity Selection D2 — BDD Evidence
 
-**Run timestamp:** 2026-06-22 01:53 UTC
+**Run timestamp:** 2026-06-23 19:25 UTC (D2 expansion, 0.1.41) — earlier
+residue-path run preserved below.
 
 **BDD file:** `bdd/entity-clarification/model-entity-selection-d2-bdd.md`
 
@@ -35,11 +36,36 @@ EntitySelectionD2Tests::test_zero_matches_model_picks_from_full_catalog PASSED
 
 ---
 
+## D2 expansion run (0.1.41, 2026-06-23)
+
+```
+python3 -m pytest tests/test_first_real_vertical_slice.py -k "EntitySelection" -v
+25 passed, 57 deselected in 0.40s
+```
+
+All 11 D2-expansion tests pass alongside the 14 original residue-path tests
+(no regression):
+
+```
+test_d1_confidently_resolves_then_misses_ac_concept PASSED
+test_d2_expansion_adds_missed_entity PASSED
+test_d2_expansion_confirms_d1_unchanged PASSED
+test_d2_expansion_falls_back_to_d1_when_model_abstains PASSED
+test_d2_expansion_integration_renders_both_entities PASSED
+test_d2_expansion_off_catalog_pick_falls_back_to_d1 PASSED
+test_d2_expansion_skipped_for_explicit_entity_id PASSED
+test_d2_expansion_skipped_for_overlay_composition PASSED
+test_d2_expansion_skipped_for_semantic_alias PASSED
+test_d2_expansion_skipped_when_d1_covers_whole_catalog PASSED
+test_d2_expansion_skipped_without_model PASSED
+```
+
 ## Full suite
 
 ```
 python3 -m pytest tests/ -q
-420 passed, 3 failed
+495 passed, 3 failed   (0.1.41, 2026-06-23)
+420 passed, 3 failed   (earlier residue-path run)
 ```
 
 The 3 failures are the pre-existing codegen-sandbox matplotlib subprocess flake
@@ -92,6 +118,44 @@ The 3 failures are the pre-existing codegen-sandbox matplotlib subprocess flake
 - Model picks `sensor.upstairs_temperature`
 - Final snapshot: `status: complete`
 - Tests: `test_zero_matches_model_picks_from_full_catalog` ✓
+
+### Scenario F: D2 expansion adds a concept D1 missed
+
+- Catalog: `sensor.kitchen_temperature` + `climate.kitchen_ecobee`
+- Prompt: `"show kitchen temperature and when the AC was running"`
+- D1: `source: catalog_label_specificity`, `entity_ids: [sensor.kitchen_temperature]`
+  (verified by `test_d1_confidently_resolves_then_misses_ac_concept`)
+- D2 invoked against full catalog with
+  `already_selected_entity_ids: [sensor.kitchen_temperature]`
+- Model returns both entities → resolved `source: model_entity_selection`,
+  `entity_ids: {sensor.kitchen_temperature, climate.kitchen_ecobee}`
+- Integration: both entities forwarded to planning, `status: complete`,
+  `select_calls: 1`, `plan_calls: 1`
+- Tests: `test_d2_expansion_adds_missed_entity`,
+  `test_d2_expansion_integration_renders_both_entities` ✓
+
+### Scenario G: D2 expansion confirms D1 and adds nothing
+
+- Prompt: `"show kitchen temperature"`; model returns only the temp sensor
+- Resolved selection: exactly `[sensor.kitchen_temperature]`, accepted
+- Test: `test_d2_expansion_confirms_d1_unchanged` ✓
+
+### Scenario H: D2 expansion falls back to the confident D1 result
+
+- Model abstains / absent / off-catalog → D1's confident result stands; no
+  clarification surfaced
+- Tests: `test_d2_expansion_falls_back_to_d1_when_model_abstains`,
+  `test_d2_expansion_skipped_without_model`,
+  `test_d2_expansion_off_catalog_pick_falls_back_to_d1` ✓
+
+### Scenario I: D2 expansion skipped where it cannot help
+
+- No `select_entity` call for sources `explicit_entity_id`,
+  `numeric_with_overlay`, `semantic_alias`, nor when D1 covers the whole catalog
+- Tests: `test_d2_expansion_skipped_for_explicit_entity_id`,
+  `test_d2_expansion_skipped_for_overlay_composition`,
+  `test_d2_expansion_skipped_for_semantic_alias`,
+  `test_d2_expansion_skipped_when_d1_covers_whole_catalog` ✓
 
 ---
 

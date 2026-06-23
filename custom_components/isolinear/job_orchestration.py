@@ -42,7 +42,15 @@ from .model_provider import (
     load_planner_result_schema,
     planner_client_metadata,
 )
-from .semantic_memory import resolve_alias_injection, semantic_memory_store_for
+from .semantic_memory import (
+    _entity_id_to_alias_id,
+    _iso_utc_now,
+    _sanitize_prompt_for_storage,
+    derive_alias_natural_names,
+    resolve_alias_injection,
+    save_semantic_alias,
+    semantic_memory_store_for,
+)
 from .worker_renderer import (
     build_worker_transport_request,
     get_worker_render_client,
@@ -462,14 +470,10 @@ def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]
     catalog_items = _approved_catalog_items(hass, entry_id)
     selection = select_prompt_entity_ids(command["prompt"], catalog_items)
     selection = _inject_semantic_aliases(hass, entry_id, command["prompt"], catalog_items, selection)
-    if not selection["accepted"] and selection["code"] == "entity_selection_requires_clarification":
-        d2 = _run_model_entity_selection(
-            hass, entry_id, command["prompt"], catalog_items,
-            candidate_items=selection.get("candidate_items", catalog_items),
-            store=store, job_id=job["job_id"],
-        )
-        if d2["accepted"]:
-            selection = d2
+    selection = _resolve_entity_selection_with_model(
+        hass, entry_id, command["prompt"], catalog_items, selection,
+        store=store, job_id=job["job_id"],
+    )
     if not selection["accepted"]:
         missing_entity_ids = []
         run_result_code = selection["code"]
@@ -478,6 +482,7 @@ def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]
                 job,
                 message=selection["message"],
                 options=selection["options"],
+                candidate_items=selection.get("candidate_items", []),
             )
             result_code = "job_orchestration_scaffold_clarification_needed"
         else:
@@ -519,6 +524,11 @@ def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]
         )
 
     requested_entity_ids = selection["entity_ids"]
+    # Tranche 2: stash matched-alias display entries so the complete snapshot can
+    # show which user-confirmed aliases resolved the prompt. Fail-open display.
+    job["alias_display"] = _alias_display_entries(
+        hass, entry_id, selection.get("matched_alias_ids", [])
+    )
     rejected_entity_ids = [
         entity_id
         for entity_id in requested_entity_ids
@@ -703,6 +713,12 @@ def handle_job_orchestration_clarification_answer_ws_command(
         entity_id=selected_entity_id,
         remember=command["remember"],
     )
+    if command["remember"] is True:
+        _maybe_save_semantic_alias(
+            hass, entry_id, job,
+            option_id=command["option_id"],
+            selected_entity_id=selected_entity_id,
+        )
     if first_real_vertical_slice_enabled(hass, entry_id):
         return _defer_history_to_planning(
             store=store,
@@ -863,14 +879,10 @@ def handle_job_orchestration_retry_ws_command(hass: Any, command: dict[str, Any]
     _append_retry_accepted_snapshot(job, failed_snapshot=retryable["snapshot"])
     catalog_items = _approved_catalog_items(hass, entry_id)
     selection = select_prompt_entity_ids(job["prompt"], catalog_items)
-    if not selection["accepted"] and selection["code"] == "entity_selection_requires_clarification":
-        d2 = _run_model_entity_selection(
-            hass, entry_id, job["prompt"], catalog_items,
-            candidate_items=selection.get("candidate_items", catalog_items),
-            store=store, job_id=job["job_id"],
-        )
-        if d2["accepted"]:
-            selection = d2
+    selection = _resolve_entity_selection_with_model(
+        hass, entry_id, job["prompt"], catalog_items, selection,
+        store=store, job_id=job["job_id"],
+    )
     if not selection["accepted"]:
         missing_entity_ids = []
         run_result_code = selection["code"]
@@ -879,6 +891,7 @@ def handle_job_orchestration_retry_ws_command(hass: Any, command: dict[str, Any]
                 job,
                 message=selection["message"],
                 options=selection["options"],
+                candidate_items=selection.get("candidate_items", []),
             )
             result_code = "job_orchestration_retry_continuation_clarification_needed"
         else:
@@ -1494,6 +1507,70 @@ def _record_artifact_snapshot_for_source(
     )
 
 
+# ADR-0024 D2 expansion: deterministic D1 results whose token scoring may be
+# *incomplete* and so warrant a model validation/expansion pass. Explicit
+# entity IDs (already certain), overlay composition (a deliberate multi-entity
+# read), and semantic-alias injection (user-confirmed, deterministic) are left
+# unchanged.
+_D2_EXPANSION_SOURCES = frozenset({"catalog_label", "catalog_label_specificity"})
+
+
+def _resolve_entity_selection_with_model(
+    hass: Any,
+    entry_id: str,
+    prompt: str,
+    catalog_items: list[dict[str, Any]],
+    selection: dict[str, Any],
+    *,
+    store: dict[str, Any] | None = None,
+    job_id: str | None = None,
+) -> dict[str, Any]:
+    """Apply ADR-0024 D2 model entity selection to a D1 result.
+
+    * **Residue path** — D1 returned a clarification (tie / zero match). The
+      model picks from the candidate set; on acceptance it replaces the
+      clarification, otherwise the caller falls through to user clarification.
+    * **Expansion path** — D1 confidently resolved a single token-match entity
+      (``catalog_label`` / ``catalog_label_specificity``). The model re-runs
+      against the full catalog with the D1 pick as context to confirm, expand,
+      or correct it. If the model abstains or is absent, D1's result stands.
+
+    Other accepted sources (explicit entity ID, overlay composition, semantic
+    alias) are returned unchanged.
+    """
+    if not selection["accepted"]:
+        if selection["code"] != "entity_selection_requires_clarification":
+            return selection
+        d2 = _run_model_entity_selection(
+            hass, entry_id, prompt, catalog_items,
+            candidate_items=selection.get("candidate_items", catalog_items),
+            store=store, job_id=job_id,
+        )
+        return d2 if d2["accepted"] else selection
+
+    if selection.get("source") not in _D2_EXPANSION_SOURCES:
+        return selection
+    d1_ids = selection["entity_ids"]
+    selected = set(d1_ids)
+    if all(item["entity_id"] in selected for item in catalog_items):
+        # D1 already covers the whole catalog — nothing left to expand to.
+        return selection
+    d2 = _run_model_entity_selection(
+        hass, entry_id, prompt, catalog_items,
+        candidate_items=catalog_items,
+        store=store, job_id=job_id,
+        d1_selected_ids=d1_ids,
+    )
+    if d2["accepted"]:
+        _LOGGER.debug(
+            "Isolinear entity resolution: D2 expansion %s -> %s (source: model_entity_selection)",
+            d1_ids,
+            d2["entity_ids"],
+        )
+        return d2
+    return selection
+
+
 def _run_model_entity_selection(
     hass: Any,
     entry_id: str,
@@ -1503,14 +1580,26 @@ def _run_model_entity_selection(
     *,
     store: dict[str, Any] | None = None,
     job_id: str | None = None,
+    d1_selected_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Try model-driven entity selection for the residue path (ADR-0024 D2).
+    """Try model-driven entity selection for ADR-0024 D2.
 
-    Called when the deterministic fast-path cannot resolve (tie or zero
-    matches). Returns an accepted selection with ``source: model_entity_selection``
-    when the model picks a valid approved set, or a rejected result when the
-    model abstains, the provider is absent, or the chosen IDs are off-allowlist.
-    The caller falls through to user clarification on any rejection.
+    Two callers, one mechanism:
+
+    * **Residue path** — D1 could not resolve (a top-score tie or zero matches).
+      ``candidate_items`` is the tied subset or the full catalog, and
+      ``d1_selected_ids`` is ``None``.
+    * **Expansion path** (D2 expansion, 2026-06-23) — D1 confidently resolved a
+      single token-match entity. ``candidate_items`` is the *full* catalog and
+      ``d1_selected_ids`` carries the D1 pick so the model can validate it and
+      add any entity the prompt mentions that token scoring missed (e.g. "AC"
+      → ``climate.kitchen_ecobee``, which shares no token with the word "AC").
+
+    Returns an accepted selection with ``source: model_entity_selection`` when
+    the model picks a valid approved set, or a rejected result when the model
+    abstains, the provider is absent, or the chosen IDs are off-allowlist. The
+    caller falls through to user clarification (residue) or to D1's confident
+    result (expansion) on any rejection.
     """
     planner = get_model_provider_planner(hass, entry_id)
     if planner is None or not hasattr(planner, "select_entity"):
@@ -1529,6 +1618,8 @@ def _run_model_entity_selection(
             for item in candidate_items
         },
     }
+    if d1_selected_ids:
+        request["already_selected_entity_ids"] = list(d1_selected_ids)
     schema = load_entity_selector_schema(candidate_entity_ids)
     # ADR-0025 D1/D7: stream the selection thinking into the per-job live slot so
     # the wait-feedback covers this model call too. Only when streaming is
@@ -1613,6 +1704,81 @@ def _inject_semantic_aliases(
         "source": "semantic_alias",
         "matched_alias_ids": injection["matched_alias_ids"],
     }
+
+
+def _alias_display_entries(
+    hass: Any,
+    entry_id: str,
+    matched_alias_ids: list[str],
+) -> list[dict[str, str]]:
+    """Build ``snapshot.aliases`` display entries for matched semantic aliases.
+
+    Fail-open: a missing store or unfound alias ID is silently skipped (display
+    sugar, not an error). See docs/specs/semantic-alias-save-tranche2.md.
+    """
+    if not matched_alias_ids:
+        return []
+    store = semantic_memory_store_for(hass, entry_id)
+    if not isinstance(store, dict):
+        return []
+    by_id = {alias["alias_id"]: alias for alias in store.get("aliases", [])}
+    entries: list[dict[str, str]] = []
+    for alias_id in matched_alias_ids:
+        alias = by_id.get(alias_id)
+        if not isinstance(alias, dict):
+            continue
+        names = alias.get("natural_names") or []
+        meaning = alias.get("meaning", {})
+        entity_id = meaning.get("entity_id")
+        meaning_type = meaning.get("type")
+        if names and entity_id and meaning_type:
+            entries.append({"name": names[0], "meaning": f"{entity_id} ({meaning_type})"})
+    return entries
+
+
+def _maybe_save_semantic_alias(
+    hass: Any,
+    entry_id: str,
+    job: dict[str, Any],
+    *,
+    option_id: str,
+    selected_entity_id: str,
+) -> None:
+    """Save a user-confirmed semantic alias on "Use and remember" (Tranche 2).
+
+    Best-effort and non-blocking: a missing suggestion (job started before this
+    version), a validation failure, or a save failure logs and returns — the
+    clarification answer proceeds exactly as ``remember: false`` would. See
+    docs/specs/semantic-alias-save-tranche2.md §5.
+    """
+    suggestion = job.get("alias_suggestions", {}).get(option_id)
+    if not suggestion or suggestion.get("entity_id") != selected_entity_id:
+        return
+
+    alias = {
+        "alias_id": suggestion["alias_id"],
+        "natural_names": suggestion["natural_names"],
+        "meaning": {"type": "entity", "entity_id": selected_entity_id},
+        "source": "user_confirmed",
+        "created_from_prompt": _sanitize_prompt_for_storage(job.get("prompt", "")),
+        "created_at": _iso_utc_now(),
+        "enabled": True,
+    }
+    result = save_semantic_alias(hass, entry_id, alias)
+    if result["accepted"]:
+        _LOGGER.info(
+            "Isolinear semantic memory: saved alias %s -> %s (names %s)",
+            alias["alias_id"],
+            selected_entity_id,
+            alias["natural_names"],
+        )
+    else:
+        _LOGGER.warning(
+            "Isolinear semantic memory: alias save failed for %s (%s); "
+            "clarification answer proceeds without remembering",
+            selected_entity_id,
+            result.get("error"),
+        )
 
 
 def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1729,7 +1895,9 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
             "accepted": False,
             "code": "entity_selection_requires_clarification",
             "message": "Multiple approved entities match this question; choose one.",
-            "options": [_clarification_option_for_item(item) for item in top_matches],
+            "options": [
+                _clarification_option_for_item(item, can_remember=True) for item in top_matches
+            ],
             "candidate_items": top_matches,
         }
 
@@ -1741,7 +1909,9 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
             if catalog_items
             else "No approved entities are available for this config entry."
         ),
-        "options": [_clarification_option_for_item(item) for item in catalog_items],
+        "options": [
+            _clarification_option_for_item(item, can_remember=True) for item in catalog_items
+        ],
         "candidate_items": catalog_items,
     }
 
@@ -2409,7 +2579,22 @@ def _append_clarification_snapshot(
     *,
     message: str,
     options: list[dict[str, Any]],
+    candidate_items: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    # Tranche 2: precompute the alias each option would save if answered with
+    # "remember", keyed by option_id. Internal job state only — never serialised
+    # to the card-facing snapshot. (docs/specs/semantic-alias-save-tranche2.md §2)
+    suggestions: dict[str, Any] = {}
+    prompt = job.get("prompt", "")
+    for item in candidate_items or []:
+        entity_id = item["entity_id"]
+        label = item.get("friendly_name") or entity_id
+        suggestions[_option_id_for_entity(entity_id)] = {
+            "alias_id": _entity_id_to_alias_id(entity_id),
+            "natural_names": derive_alias_natural_names(prompt, entity_id, label),
+            "entity_id": entity_id,
+        }
+    job["alias_suggestions"] = suggestions
     return append_validated_job_snapshot(
         job,
         status="clarification_needed",
@@ -5903,6 +6088,7 @@ def _append_artifact_complete_snapshot(
             {"entity_id": item["entity_id"], "label": item["label"]}
             for item in artifact["series"]
         ],
+        aliases=job.get("alias_display") or None,
         warnings=(
             (
                 [
@@ -6226,14 +6412,21 @@ def _snapshot_entities(catalog_items: list[dict[str, Any]], entity_ids: list[str
     return entities
 
 
-def _clarification_option_for_item(item: dict[str, Any]) -> dict[str, Any]:
+def _clarification_option_for_item(
+    item: dict[str, Any], *, can_remember: bool = False
+) -> dict[str, Any]:
+    # ``can_remember`` is opt-in per clarification type (Tranche 2): only the
+    # select_approved_entity flow has a defined save path, so it passes True
+    # explicitly. Future clarification types (threshold/state-interval) get the
+    # safe default until their save flow is specified, rather than silently
+    # inheriting a rememberable option from this shared builder.
     entity_id = item["entity_id"]
     label = item.get("friendly_name") or entity_id
     return {
         "option_id": _option_id_for_entity(entity_id),
         "label": label,
         "description": f"Use {entity_id}.",
-        "can_remember": False,
+        "can_remember": can_remember,
     }
 
 
