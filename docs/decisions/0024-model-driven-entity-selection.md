@@ -79,6 +79,35 @@ proposes; the allowlist disposes.
    allowlist and fail closed if out of set (the same belt-and-suspenders as the
    `source.entity_id` enum-pin + structural entity gate).
 
+   **D2 expansion (2026-06-23):** D2 should also run as a **validation and
+   expansion pass after a partial D1 success** — not only when D1 fails outright.
+   The motivating failure: "show kitchen temp and when the AC was running" with
+   `sensor.kitchen_ecobee_sensor_temperature` (score 2: kitchen + temperature)
+   and `climate.kitchen_ecobee` (score 1: kitchen only). D1 selects the
+   temperature sensor as the unique top scorer and stops — confident but
+   incomplete. The climate entity never becomes a candidate for D2 because D1
+   "succeeded." The user's prompt contained two distinct concepts, one of which
+   ("AC") has no token overlap with any entity name (brand/location naming vs.
+   functional vocabulary). D1 cannot detect this gap: token scoring measures
+   match quality, not prompt coverage.
+
+   The fix: after D1 produces a non-overlay, non-explicit-id result (including
+   a single confident match), **always invoke D2** with the full catalog and the
+   D1 selection as context. D2's role expands from "pick one when D1 ties" to
+   "validate D1's answer and add any entities the prompt mentions that D1 missed."
+   D2 may confirm the D1 selection unchanged, expand it (add the climate entity),
+   or narrow it (remove a false D1 match). The model call is cheap relative to
+   the planning call; the fast-path is retained for explicit entity_id and
+   zero-entity-catalog cases where the answer is already certain.
+
+   The `select_entity` prompt should include a one-sentence HA domain hint so the
+   model can map functional vocabulary to HA domains without guessing: *"climate
+   entities represent HVAC systems (thermostats, heat pumps, mini-splits, AC
+   units)."* This resolves "AC", "air con", "heating", "the cooling" and similar
+   phrasings without hard-coding vocabulary lists. Allowlist enforcement is
+   unchanged: D2's output is validated against the approved catalog; off-catalog
+   IDs are rejected regardless of model confidence.
+
 3. **D3 — Ordering.** Model entity selection runs *before* render-family routing
    (ADR-0022/0023); family routing then operates on the selected set. The
    selection call is a distinct, small structured-output call that returns entity
