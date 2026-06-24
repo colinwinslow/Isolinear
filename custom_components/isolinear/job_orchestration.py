@@ -6381,6 +6381,9 @@ def _collect_source_entity_ids(
         for entity_id in source.get("entity_ids", []):
             if isinstance(entity_id, str):
                 entity_ids.add(entity_id)
+        singular = source.get("entity_id")
+        if isinstance(singular, str) and singular:
+            entity_ids.add(singular)
         return
 
     unsupported_source_refs.append(
