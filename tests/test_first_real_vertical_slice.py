@@ -929,16 +929,22 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             )
 
             start = _start_job(hass, entry, prompt="Show me the temperature")
+            self.assertTrue(start["accepted"], start)
+            self.assertEqual(start["snapshot"]["status"], "planning")
+
+            poll = _snapshot_job(hass, entry, start["snapshot"]["job_id"], message_id=2)
+            self.assertTrue(poll["accepted"], poll)
+            self.assertEqual(poll["snapshot"]["status"], "clarification_needed")
+
             answer = _answer_clarification(
                 hass,
                 entry,
-                start["snapshot"],
+                poll["snapshot"],
                 "sensor_downstairs_temperature",
+                message_id=3,
             )
-            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"], message_id=3)
+            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"], message_id=4)
 
-            self.assertTrue(start["accepted"], start)
-            self.assertEqual(start["snapshot"]["status"], "clarification_needed")
             self.assertTrue(answer["accepted"], answer)
             self.assertEqual(answer["snapshot"]["status"], "planning")
             self.assertTrue(snapshot["accepted"], snapshot)
@@ -2395,8 +2401,12 @@ class EntitySelectionD2Tests(unittest.TestCase):
             )
             start = _start_job(hass, entry, prompt="show thermostat history")
             self.assertTrue(start["accepted"], start)
-            self.assertEqual(start["snapshot"]["status"], "clarification_needed", start["snapshot"])
-            option_ids = {o["option_id"] for o in start["snapshot"]["clarification"]["options"]}
+            self.assertEqual(start["snapshot"]["status"], "planning", start["snapshot"])
+
+            poll = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+            self.assertTrue(poll["accepted"], poll)
+            self.assertEqual(poll["snapshot"]["status"], "clarification_needed", poll["snapshot"])
+            option_ids = {o["option_id"] for o in poll["snapshot"]["clarification"]["options"]}
             self.assertIn("climate_upstairs_thermostat", option_ids)
             self.assertIn("climate_downstairs_thermostat", option_ids)
             # Selector called; planner not called
@@ -2404,7 +2414,7 @@ class EntitySelectionD2Tests(unittest.TestCase):
             self.assertEqual(planner.plan_calls, 0)
 
     def test_no_model_shows_clarification_without_selector_call(self):
-        """No model provider → clarification immediately, no model call (BDD Scenario C)."""
+        """No model provider → clarification on first poll, no model call (BDD Scenario C)."""
         with tempfile.TemporaryDirectory() as temp_dir:
             hass, entry = configured_real_slice_hass(
                 planner=None,
@@ -2413,7 +2423,11 @@ class EntitySelectionD2Tests(unittest.TestCase):
             )
             start = _start_job(hass, entry, prompt="show thermostat history")
             self.assertTrue(start["accepted"], start)
-            self.assertEqual(start["snapshot"]["status"], "clarification_needed", start["snapshot"])
+            self.assertEqual(start["snapshot"]["status"], "planning", start["snapshot"])
+
+            poll = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+            self.assertTrue(poll["accepted"], poll)
+            self.assertEqual(poll["snapshot"]["status"], "clarification_needed", poll["snapshot"])
 
     def test_invalid_entity_from_model_falls_back_to_clarification(self):
         """Model returns off-allowlist entity → fail closed → clarification (BDD Scenario D)."""
@@ -2426,7 +2440,11 @@ class EntitySelectionD2Tests(unittest.TestCase):
             )
             start = _start_job(hass, entry, prompt="show thermostat history")
             self.assertTrue(start["accepted"], start)
-            self.assertEqual(start["snapshot"]["status"], "clarification_needed", start["snapshot"])
+            self.assertEqual(start["snapshot"]["status"], "planning", start["snapshot"])
+
+            poll = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+            self.assertTrue(poll["accepted"], poll)
+            self.assertEqual(poll["snapshot"]["status"], "clarification_needed", poll["snapshot"])
             # Selector called; pick rejected; chart planner never reached
             self.assertEqual(planner.select_calls, 1)
             self.assertEqual(planner.plan_calls, 0)

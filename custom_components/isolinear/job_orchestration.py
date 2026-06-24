@@ -117,10 +117,19 @@ FORBIDDEN_MODEL_PROVIDER_FAILURE_TEXT = re.compile(
     r"worker_token|model_provider_token|ollama_api_key",
     re.IGNORECASE,
 )
+# ADR-0026: job/start and job/retry append this pending stage and return planning
+# immediately; the first snapshot poll resolves model entity selection under the
+# planning lock (so selection reasoning streams, realizing ADR-0025 D7). It is an
+# artifact-source stage so the poll picks it up, but it carries no resolved
+# entities — the locked handler routes it through _resolve_pending_entity_selection
+# before any planning/render.
+ENTITY_SELECTION_PENDING_STAGE = "job_orchestration_entity_selection_pending"
+
 ARTIFACT_SOURCE_PROGRESS_STAGES = {
     "job_orchestration_scaffold_ready",
     "job_orchestration_clarification_continuation_ready",
     "job_orchestration_retry_continuation_ready",
+    ENTITY_SELECTION_PENDING_STAGE,
 }
 
 NO_JOB_ORCHESTRATION_CALLS = {
@@ -447,6 +456,72 @@ def _defer_history_to_planning(
     )
 
 
+def _defer_selection_to_planning(
+    *,
+    store: dict[str, Any],
+    command: dict[str, Any],
+    job: dict[str, Any],
+    kind: str,
+    result_code: str,
+    accepted_code: str,
+    warnings_prefix: list[str],
+    extra_checks: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Defer model entity selection to the pollable planning phase (ADR-0026 D1).
+
+    job/start and job/retry call this instead of resolving entities inline. It
+    appends a schema-valid ``planning`` snapshot whose stage marks selection as
+    pending (no entities yet, no model call) and records ``kind`` on the job so
+    the first snapshot poll runs the deterministic+model selection under the
+    planning lock — where its reasoning streams to the card (ADR-0025 D7).
+    """
+    job["entity_selection_pending"] = {"kind": kind}
+    checks = [
+        {"name": "integration_job_state_scaffold", "status": "pass"},
+        *(extra_checks or []),
+        {"name": "approved_entity_catalog", "status": "pending_planning"},
+        {"name": "approved_history_retrieval", "status": "deferred_to_planning"},
+        {"name": "model_provider", "status": "not_called"},
+        {"name": "worker", "status": "not_called"},
+        {"name": "chart_rendering", "status": "not_called"},
+    ]
+    snapshot = append_validated_job_snapshot(
+        job,
+        status="planning",
+        state_label="Resolving entities",
+        message=(
+            "Isolinear is selecting the approved entities for this question; the "
+            "model resolves the time window and renders during planning."
+        ),
+        progress_stage=ENTITY_SELECTION_PENDING_STAGE,
+        progress_message="Selecting entities…",
+        validation_status="pass",
+        validation_summary="The orchestration accepted the prompt and deferred entity selection to the planning phase.",
+        validation_checks=checks,
+        warnings=[*warnings_prefix, "entity_selection_deferred_to_planning"],
+    )
+    run = _record_run(
+        store,
+        command=command,
+        job=job,
+        result_code=result_code,
+        requested_entity_ids=[],
+        history_entity_ids=[],
+        snapshot_ids=_snapshot_ids(job),
+    )
+    return _accepted(
+        accepted_code,
+        command,
+        snapshot,
+        run=run,
+        approved_entity_catalog_read=True,
+        home_assistant_history_read=False,
+        history_retrieval_written=False,
+        job_state_written=True,
+        job_orchestration_written=True,
+    )
+
+
 def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]) -> dict[str, Any]:
     """Compose job state, approved catalog, and approved history for job/start."""
     if command["type"] != INTEGRATION_COMMAND_TYPES["start_job"]:
@@ -468,6 +543,26 @@ def handle_job_orchestration_start_ws_command(hass: Any, command: dict[str, Any]
         return _orchestration_rejection("unknown_job", job_id=start_result.get("job_id"))
 
     catalog_items = _approved_catalog_items(hass, entry_id)
+
+    # ADR-0026: for the first-real-slice path, defer model entity selection to the
+    # pollable planning phase so job/start returns `planning` immediately and the
+    # selection reasoning streams to the card (ADR-0025 D7). An empty approved
+    # catalog is a pre-model structural rejection and stays synchronous here.
+    if first_real_vertical_slice_enabled(hass, entry_id):
+        if not catalog_items:
+            return _synchronous_empty_catalog_failure(
+                hass, entry_id, store=store, command=command, job=job
+            )
+        return _defer_selection_to_planning(
+            store=store,
+            command=command,
+            job=job,
+            kind="start",
+            result_code="entity_selection_deferred_to_planning",
+            accepted_code="job_orchestration_entity_selection_pending",
+            warnings_prefix=["first_real_vertical_slice"],
+        )
+
     selection = select_prompt_entity_ids(command["prompt"], catalog_items)
     selection = _inject_semantic_aliases(hass, entry_id, command["prompt"], catalog_items, selection)
     selection = _resolve_entity_selection_with_model(
@@ -878,6 +973,29 @@ def handle_job_orchestration_retry_ws_command(hass: Any, command: dict[str, Any]
 
     _append_retry_accepted_snapshot(job, failed_snapshot=retryable["snapshot"])
     catalog_items = _approved_catalog_items(hass, entry_id)
+
+    # ADR-0026 D5: retry defers model entity selection to the planning poll the
+    # same way job/start does, so retry returns `planning` immediately and the
+    # re-resolution streams reasoning. Empty catalog stays a synchronous rejection.
+    if first_real_vertical_slice_enabled(hass, entry_id):
+        if not catalog_items:
+            return _synchronous_empty_catalog_failure(
+                hass, entry_id, store=store, command=command, job=job, kind="retry"
+            )
+        return _defer_selection_to_planning(
+            store=store,
+            command=command,
+            job=job,
+            kind="retry",
+            result_code="retry_entity_selection_deferred_to_planning",
+            accepted_code="job_orchestration_entity_selection_pending",
+            warnings_prefix=[
+                "job_orchestration_retry_continuation_scaffold",
+                "first_real_vertical_slice",
+            ],
+            extra_checks=[{"name": "retry_command", "status": "pass"}],
+        )
+
     selection = select_prompt_entity_ids(job["prompt"], catalog_items)
     selection = _resolve_entity_selection_with_model(
         hass, entry_id, job["prompt"], catalog_items, selection,
@@ -1283,13 +1401,32 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
                 job_orchestration_written=False,
             )
 
+        # ADR-0026: a pending-selection placeholder means model entity selection
+        # was deferred from job/start/job/retry to this pollable phase. Resolve it
+        # under the lock — its reasoning streams to concurrent polls (ADR-0025 D7).
+        # On clarification/failure the resolved terminal snapshot is returned; on
+        # success we continue into planning/render with the entities-bearing
+        # source snapshot, all under this single lock acquisition.
+        source_snapshot = latest_snapshot
+        if latest_snapshot["progress"]["stage"] == ENTITY_SELECTION_PENDING_STAGE:
+            resolution = _resolve_pending_entity_selection(
+                hass,
+                command,
+                entry_id=entry_id,
+                store=store,
+                job=job,
+            )
+            if not resolution["proceed"]:
+                return resolution["result"]
+            source_snapshot = resolution["source_snapshot"]
+
         return _record_artifact_snapshot_for_source(
             hass,
             command,
             entry_id=entry_id,
             store=store,
             job=job,
-            source_snapshot=latest_snapshot,
+            source_snapshot=source_snapshot,
         )
     finally:
         # ADR-0025 D4: the model phase for this poll has concluded (the terminal
@@ -1298,6 +1435,157 @@ def handle_job_orchestration_snapshot_ws_command(hass: Any, command: dict[str, A
         # discard the slot — the next poll surfaces the chart or failure card.
         _clear_live_reasoning(store, job["job_id"])
         planning_lock.release()
+
+
+def _resolve_pending_entity_selection(
+    hass: Any,
+    command: dict[str, Any],
+    *,
+    entry_id: str,
+    store: dict[str, Any],
+    job: dict[str, Any],
+) -> dict[str, Any]:
+    """Run deferred model entity selection inside the planning lock (ADR-0026 D2/D3/D4).
+
+    Called by the snapshot poll when the source snapshot is the
+    ``ENTITY_SELECTION_PENDING_STAGE`` placeholder. Runs the same D1 → semantic
+    alias → D2 pipeline that job/start/job/retry ran inline before ADR-0026 — the
+    resolution logic is unchanged; only its call site moved. Returns either
+    ``{"proceed": False, "result": <ws result>}`` for a clarification/failure
+    outcome (terminal snapshot already appended), or
+    ``{"proceed": True, "source_snapshot": <planning snapshot>}`` on success so
+    the caller flows into planning/render under the same lock.
+
+    Idempotent: the model is invoked at most once per job because the first poll
+    holds the planning lock for the whole resolution; concurrent polls are served
+    the in-progress reasoning snapshot by the lock-contended path. The resolved
+    selection is cached on the job as a belt-and-suspenders guard.
+    """
+    pending = job.get("entity_selection_pending") or {}
+    kind = pending.get("kind", "start")
+    catalog_items = _approved_catalog_items(hass, entry_id)
+
+    selection = select_prompt_entity_ids(job["prompt"], catalog_items)
+    if kind == "start":
+        selection = _inject_semantic_aliases(
+            hass, entry_id, job["prompt"], catalog_items, selection
+        )
+    selection = _resolve_entity_selection_with_model(
+        hass, entry_id, job["prompt"], catalog_items, selection,
+        store=store, job_id=job["job_id"],
+    )
+
+    if not selection["accepted"]:
+        job.pop("entity_selection_pending", None)
+        if selection["code"] == "entity_selection_requires_clarification":
+            snapshot = _append_clarification_snapshot(
+                job,
+                message=selection["message"],
+                options=selection["options"],
+                candidate_items=selection.get("candidate_items", []),
+            )
+            run_result_code = (
+                "job_orchestration_retry_continuation_clarification_needed"
+                if kind == "retry"
+                else "job_orchestration_scaffold_clarification_needed"
+            )
+            ws_code = "job_orchestration_entity_selection_clarification_needed"
+            missing_entity_ids: list[str] = []
+        else:
+            failure = _catalog_selection_failure(hass, entry_id, selection)
+            missing_entity_ids = failure.get("missing_entity_ids", [])
+            checks = [
+                {"name": "integration_job_state_scaffold", "status": "pass"},
+                *([{"name": "retry_command", "status": "pass"}] if kind == "retry" else []),
+                {"name": "approved_entity_catalog", "status": "fail"},
+                {"name": "approved_history_retrieval", "status": "not_run"},
+                {"name": "model_provider", "status": "not_called"},
+                {"name": "worker", "status": "not_called"},
+            ]
+            snapshot = _append_failed_snapshot(
+                job,
+                code=failure["code"],
+                stage="approved_entity_catalog",
+                message=failure["message"],
+                checks=checks,
+            )
+            run_result_code = failure["code"]
+            ws_code = "job_orchestration_entity_selection_failed"
+        run = _record_run(
+            store,
+            command=command,
+            job=job,
+            result_code=run_result_code,
+            requested_entity_ids=[],
+            history_entity_ids=[],
+            snapshot_ids=_snapshot_ids(job),
+            missing_entity_ids=missing_entity_ids,
+        )
+        return {
+            "proceed": False,
+            "result": _accepted_artifact_snapshot(
+                ws_code,
+                command,
+                snapshot,
+                artifact=None,
+                render_plan=None,
+                model_provider_plan=None,
+                worker_dispatch=None,
+                artifact_metadata_written=False,
+                render_plan_written=False,
+                model_provider_plan_written=False,
+                worker_dispatch_written=False,
+                model_provider_called=False,
+                worker_called=False,
+                chart_rendering_called=False,
+                job_state_written=True,
+                job_orchestration_written=True,
+            ),
+        }
+
+    requested_entity_ids = selection["entity_ids"]
+    job["entity_selection"] = {
+        "entity_ids": list(requested_entity_ids),
+        "source": selection.get("source"),
+    }
+    # Tranche 2: stash matched-alias display for the complete snapshot. Fail-open.
+    job["alias_display"] = _alias_display_entries(
+        hass, entry_id, selection.get("matched_alias_ids", [])
+    )
+    job.pop("entity_selection_pending", None)
+
+    if kind == "retry":
+        progress_stage = "job_orchestration_retry_continuation_ready"
+        result_code = "retry_entities_ready_for_planning"
+        accepted_code = "job_orchestration_retry_continuation_ready"
+        warnings_prefix = [
+            "job_orchestration_retry_continuation_scaffold",
+            "first_real_vertical_slice",
+        ]
+        extra_checks = [{"name": "retry_command", "status": "pass"}]
+    else:
+        progress_stage = "job_orchestration_scaffold_ready"
+        result_code = "approved_entities_ready_for_planning"
+        accepted_code = "job_orchestration_scaffold_ready"
+        warnings_prefix = ["first_real_vertical_slice"]
+        extra_checks = None
+
+    # Reuse the established resolved-planning snapshot builder so the post-selection
+    # source snapshot is byte-identical to the pre-ADR-0026 job/start output; we
+    # discard its _accepted wrapper and continue to planning under the same lock.
+    _defer_history_to_planning(
+        store=store,
+        command=command,
+        job=job,
+        catalog_items=catalog_items,
+        requested_entity_ids=requested_entity_ids,
+        progress_stage=progress_stage,
+        result_code=result_code,
+        accepted_code=accepted_code,
+        warnings_prefix=warnings_prefix,
+        extra_checks=extra_checks,
+    )
+    return {"proceed": True, "source_snapshot": job["latest_snapshot"]}
 
 
 def _record_artifact_snapshot_for_source(
@@ -5642,6 +5930,65 @@ def _approved_catalog_items(hass: Any, entry_id: str) -> list[dict[str, Any]]:
         for item in items
         if isinstance(item, dict) and item.get("visible_to_agent") is True
     ]
+
+
+def _synchronous_empty_catalog_failure(
+    hass: Any,
+    entry_id: str,
+    *,
+    store: dict[str, Any],
+    command: dict[str, Any],
+    job: dict[str, Any],
+    kind: str = "start",
+) -> dict[str, Any]:
+    """Fail job/start or job/retry synchronously when the catalog is empty (ADR-0026).
+
+    An empty/unresolvable catalog is a pre-model structural rejection, so it is
+    surfaced immediately rather than deferred to the planning poll. Mirrors the
+    `no_approved_entities_available` branch of the legacy synchronous path; makes
+    no model call.
+    """
+    selection = select_prompt_entity_ids(job["prompt"], [])
+    failure = _catalog_selection_failure(hass, entry_id, selection)
+    snapshot = _append_failed_snapshot(
+        job,
+        code=failure["code"],
+        stage="approved_entity_catalog",
+        message=failure["message"],
+        checks=[
+            {"name": "integration_job_state_scaffold", "status": "pass"},
+            *([{"name": "retry_command", "status": "pass"}] if kind == "retry" else []),
+            {"name": "approved_entity_catalog", "status": "fail"},
+            {"name": "approved_history_retrieval", "status": "not_run"},
+            {"name": "model_provider", "status": "not_called"},
+            {"name": "worker", "status": "not_called"},
+        ],
+    )
+    run = _record_run(
+        store,
+        command=command,
+        job=job,
+        result_code=failure["code"],
+        requested_entity_ids=[],
+        history_entity_ids=[],
+        snapshot_ids=_snapshot_ids(job),
+        missing_entity_ids=failure.get("missing_entity_ids", []),
+    )
+    accepted_code = (
+        "job_orchestration_retry_continuation_failed"
+        if kind == "retry"
+        else "job_orchestration_scaffold_failed"
+    )
+    return _accepted(
+        accepted_code,
+        command,
+        snapshot,
+        run=run,
+        approved_entity_catalog_read=True,
+        job_state_written=True,
+        job_orchestration_written=True,
+        **({"retry_behavior_called": True} if kind == "retry" else {}),
+    )
 
 
 def _catalog_selection_failure(

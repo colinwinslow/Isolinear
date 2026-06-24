@@ -186,14 +186,17 @@ class SaveTranche2IntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             hass, entry = self._ac_hass(temp_dir)
             start = _start_job(hass, entry, prompt="show me the air conditioning")
-            self.assertEqual(start["snapshot"]["status"], "clarification_needed", start["snapshot"])
-            option_ids = {o["option_id"] for o in start["snapshot"]["clarification"]["options"]}
+            self.assertEqual(start["snapshot"]["status"], "planning", start["snapshot"])
+
+            poll = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+            self.assertEqual(poll["snapshot"]["status"], "clarification_needed", poll["snapshot"])
+            option_ids = {o["option_id"] for o in poll["snapshot"]["clarification"]["options"]}
             self.assertIn("climate_kitchen_ecobee", option_ids)
             # Every entity option is rememberable now.
-            self.assertTrue(all(o["can_remember"] for o in start["snapshot"]["clarification"]["options"]))
+            self.assertTrue(all(o["can_remember"] for o in poll["snapshot"]["clarification"]["options"]))
 
             answer = _answer_clarification(
-                hass, entry, start["snapshot"], "climate_kitchen_ecobee", remember=True
+                hass, entry, poll["snapshot"], "climate_kitchen_ecobee", remember=True
             )
             self.assertTrue(answer["accepted"], answer)
 
@@ -209,8 +212,10 @@ class SaveTranche2IntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             hass, entry = self._ac_hass(temp_dir)
             start = _start_job(hass, entry, prompt="show me the air conditioning")
+            poll = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+            self.assertEqual(poll["snapshot"]["status"], "clarification_needed", poll["snapshot"])
             _answer_clarification(
-                hass, entry, start["snapshot"], "climate_kitchen_ecobee", remember=False
+                hass, entry, poll["snapshot"], "climate_kitchen_ecobee", remember=False
             )
             store = semantic_memory_store_for(hass, entry.entry_id)
             self.assertIsNone(store)
@@ -219,8 +224,10 @@ class SaveTranche2IntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             hass, entry = self._ac_hass(temp_dir)
             start = _start_job(hass, entry, prompt="show me the air conditioning")
+            poll = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+            self.assertEqual(poll["snapshot"]["status"], "clarification_needed", poll["snapshot"])
             _answer_clarification(
-                hass, entry, start["snapshot"], "climate_kitchen_ecobee", remember=True
+                hass, entry, poll["snapshot"], "climate_kitchen_ecobee", remember=True
             )
 
             # New job, same concept worded differently: Tranche 1 injection fires.
@@ -238,6 +245,8 @@ class SaveTranche2IntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             hass, entry = self._ac_hass(temp_dir)
             start = _start_job(hass, entry, prompt="show me the air conditioning")
+            poll = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+            self.assertEqual(poll["snapshot"]["status"], "clarification_needed", poll["snapshot"])
 
             # Force the save to fail by making the helper's save_alias raise.
             from custom_components.isolinear import semantic_memory
@@ -247,7 +256,7 @@ class SaveTranche2IntegrationTests(unittest.TestCase):
             helper.save_alias = lambda *a, **k: {"accepted": False, "error": "simulated"}
             try:
                 answer = _answer_clarification(
-                    hass, entry, start["snapshot"], "climate_kitchen_ecobee", remember=True
+                    hass, entry, poll["snapshot"], "climate_kitchen_ecobee", remember=True
                 )
             finally:
                 helper.save_alias = original
