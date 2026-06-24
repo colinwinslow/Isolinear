@@ -138,14 +138,14 @@ class TestResolveRenderEnvelope(unittest.TestCase):
         self.assertEqual(routing["families"], ["time_series_overlay"])
         self.assertEqual(routing["shape"], "numeric_with_overlay")
 
-    def test_mixed_unsupported_gets_empty_families(self):
-        # Two numeric + binary is mixed (ADR-0022 D4 scope)
+    def test_multi_numeric_with_overlay_gets_overlay_family(self):
+        # Two numeric + binary now composes into overlay (both numerics plot)
         routing = _resolve_render_envelope(
             CATALOG, ["sensor.upstairs_temp", "sensor.basement_temp", "binary_sensor.kitchen_door"]
         )
-        self.assertEqual(routing["families"], [])
-        self.assertEqual(routing["shape"], "mixed_unsupported")
-        self.assertEqual(routing["family"], "mixed")  # ADR-0022 key unchanged
+        self.assertEqual(routing["families"], ["time_series_overlay"])
+        self.assertEqual(routing["shape"], "numeric_with_overlay")
+        self.assertEqual(routing["family"], "time_series_overlay")
 
     def test_envelope_is_superset_of_resolve_render_family(self):
         """_resolve_render_envelope must not change the ADR-0022 routing keys."""

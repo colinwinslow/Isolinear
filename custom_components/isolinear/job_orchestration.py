@@ -2114,30 +2114,34 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
             "source": "catalog_label",
         }
     if len(matches) > 1:
-        # A fuzzy prompt that matches exactly one numeric series plus one or more
-        # binary/categorical entities composes deterministically into a numeric
-        # line + shaded overlays (ADR-0022 D4) rather than asking the user to
-        # pick one. Any other multi-match (e.g. two numeric series) stays
-        # ambiguous and clarifies.
+        # A fuzzy prompt that matches one or more numeric series plus one or more
+        # state (binary/categorical) entities composes deterministically into
+        # numeric lines + shaded overlays rather than asking the user to pick one.
+        # All-numeric and all-state multi-matches still clarify.
         match_kinds = [(item, classify_series_kind(item)) for item in matches]
         numeric_matches = [item for item, kind in match_kinds if kind == "numeric"]
         binary_matches = [item for item, kind in match_kinds if kind == "binary_state"]
-        non_numeric_matches = [item for item, kind in match_kinds if kind != "numeric"]
-        # Binary-only overlay composition (ADR-0022 D4): one numeric primary plus
-        # one or more binary entities. Categorical entities that happen to match
-        # a shared token ("kitchen" matching both climate.kitchen_ecobee and
-        # binary_sensor.kitchen_door) are noise matches — they don't block the
-        # composite path. Only the numeric+binary pair is forwarded; the
-        # categorical match is discarded.
-        if len(numeric_matches) == 1 and binary_matches:
-            selected = [numeric_matches[0]["entity_id"]] + [item["entity_id"] for item in binary_matches]
+        categorical_matches = [item for item, kind in match_kinds if kind not in ("numeric", "binary_state")]
+        # Categorical entities (e.g. climate) compose as overlays only when the
+        # match included a domain synonym token — otherwise it's a noise match on a
+        # shared location word like "kitchen". Binary entities always compose.
+        prompt_token_set = set(_prompt_tokens(prompt))
+        intentional_categorical = [
+            item for item in categorical_matches
+            if _entity_matches_via_domain_synonym(item, prompt_token_set)
+        ]
+        state_matches = binary_matches + intentional_categorical
+        if numeric_matches and state_matches:
+            selected = (
+                [item["entity_id"] for item in numeric_matches]
+                + [item["entity_id"] for item in state_matches]
+            )
             _LOGGER.debug(
                 "Isolinear entity resolution: overlay composition "
-                "(1 numeric + %d binary) -> %s (source: numeric_with_overlay); "
-                "non-numeric non-binary matches discarded: %s",
-                len(binary_matches),
+                "(%d numeric + %d state) -> %s (source: numeric_with_overlay)",
+                len(numeric_matches),
+                len(state_matches),
                 selected,
-                [item.get("entity_id") for item, kind in match_kinds if kind not in ("numeric", "binary_state")],
             )
             return {
                 "accepted": True,
@@ -5781,10 +5785,10 @@ def _resolve_render_family(
             state_entity_ids.append(entity_id)
     has_numeric = bool(numeric_entity_ids)
     has_state = bool(state_entity_ids)
-    # Overlay composition: exactly one numeric primary + one or more state entities
-    # (binary or categorical). Binary entities shade "on" regions; categorical
-    # entities shade per-state-value colored bands (e.g. climate cooling/heating).
-    overlay_eligible = len(numeric_entity_ids) == 1 and bool(state_entity_ids)
+    # Overlay composition: one or more numeric series + one or more state entities
+    # (binary or categorical). All numerics plot; state entities shade colored
+    # bands behind them (binary = "on" region; categorical = per-value colored).
+    overlay_eligible = bool(numeric_entity_ids) and bool(state_entity_ids)
     if has_numeric and has_state:
         family = "time_series_overlay" if overlay_eligible else "mixed"
     elif has_state:
@@ -6686,6 +6690,16 @@ def _parse_window_timestamp(value: Any) -> datetime | None:
     return parsed
 
 
+# Domain-level synonym tokens that supplement entity_id/friendly_name for matching.
+# These bypass the ≥4-char filter so short abbreviations like "ac" work.
+_DOMAIN_SYNONYMS: dict[str, frozenset[str]] = {
+    "climate": frozenset({
+        "ac", "hvac", "thermostat", "conditioning",
+        "cooling", "heating", "heat", "cool", "furnace",
+    }),
+}
+
+
 def _catalog_item_meaningful_tokens(item: dict[str, Any]) -> set[str]:
     item_tokens = set(_prompt_tokens(" ".join(str(value or "") for value in [
         item.get("entity_id", "").replace(".", " "),
@@ -6693,11 +6707,20 @@ def _catalog_item_meaningful_tokens(item: dict[str, Any]) -> set[str]:
         item.get("area", ""),
         item.get("device_name", ""),
     ])))
-    return {
+    meaningful = {
         token
         for token in item_tokens
         if len(token) >= 4 and token not in {"sensor", "binary"}
     }
+    domain = item.get("entity_id", "").split(".")[0]
+    meaningful |= _DOMAIN_SYNONYMS.get(domain, frozenset())
+    return meaningful
+
+
+def _entity_matches_via_domain_synonym(item: dict[str, Any], prompt_token_set: set[str]) -> bool:
+    """True if the entity matched the prompt on at least one domain synonym token."""
+    domain = item.get("entity_id", "").split(".")[0]
+    return bool(_DOMAIN_SYNONYMS.get(domain, frozenset()) & prompt_token_set)
 
 
 def _catalog_item_match_score(prompt: str, item: dict[str, Any]) -> int:

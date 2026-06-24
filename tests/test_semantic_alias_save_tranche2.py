@@ -41,11 +41,19 @@ _AC_METADATA = {
         "unit_of_measurement": "degF",
         "area": "Kitchen",
     },
+    # Two climate entities so "air conditioning" is ambiguous — both match the
+    # domain synonym "conditioning" with equal score → clarification needed.
+    # Both have unit_of_measurement so FakePlanner can render time_series after
+    # the user picks one via clarification or alias.
     "climate.kitchen_ecobee": {
         "friendly_name": "Kitchen Ecobee",
-        "state_class": "measurement",
         "unit_of_measurement": "degF",
         "area": "Kitchen",
+    },
+    "climate.upstairs_ecobee": {
+        "friendly_name": "Upstairs Ecobee",
+        "unit_of_measurement": "degF",
+        "area": "Upstairs",
     },
 }
 

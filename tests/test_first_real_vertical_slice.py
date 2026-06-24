@@ -273,13 +273,15 @@ class RenderFamilyRoutingTests(unittest.TestCase):
         self.assertEqual(overlay_routing["family"], "time_series_overlay")
         self.assertEqual(overlay_routing["numeric_entity_ids"], ["sensor.temp"])
         self.assertEqual(overlay_routing["categorical_entity_ids"], ["binary_sensor.door"])
-        # Two numeric series + a binary stays ambiguous (no deterministic primary).
-        self.assertEqual(
-            job_orchestration._resolve_render_family(
-                catalog, ["sensor.temp", "sensor.humidity", "binary_sensor.door"]
-            )["family"],
-            "mixed",
+        # Two numeric series + a binary now composes into overlay (both numerics
+        # plot; binary shades behind them).
+        multi_routing = job_orchestration._resolve_render_family(
+            catalog, ["sensor.temp", "sensor.humidity", "binary_sensor.door"]
         )
+        self.assertEqual(multi_routing["family"], "time_series_overlay")
+        self.assertIn("sensor.temp", multi_routing["numeric_entity_ids"])
+        self.assertIn("sensor.humidity", multi_routing["numeric_entity_ids"])
+        self.assertEqual(multi_routing["overlay_entity_ids"], ["binary_sensor.door"])
         # A non-binary categorical mixed with numeric now routes to overlay (categorical
         # entities render per-state-value colored bands behind the numeric line).
         catalog_cat = catalog + [{"entity_id": "sensor.washer_status", "domain": "sensor"}]
@@ -510,6 +512,29 @@ class RenderFamilyRoutingTests(unittest.TestCase):
         self.assertIn("heating", overlay["color_map"])
         self.assertNotIn("active_values", overlay)
 
+    def test_climate_entity_matches_ac_and_thermostat_synonyms(self):
+        catalog = [
+            {
+                "entity_id": "sensor.living_room_temperature",
+                "domain": "sensor",
+                "state_class": "measurement",
+                "friendly_name": "Living Room Temperature",
+            },
+            {
+                "entity_id": "climate.kitchen_ecobee",
+                "domain": "climate",
+                "friendly_name": "Kitchen Ecobee",
+            },
+        ]
+        for phrase in ["ac", "air conditioning", "thermostat", "furnace", "hvac"]:
+            selection = job_orchestration.select_prompt_entity_ids(
+                f"show me the living room temperature when the {phrase} was running", catalog
+            )
+            self.assertTrue(selection["accepted"], f"Failed for phrase: {phrase!r}")
+            self.assertEqual(selection["source"], "numeric_with_overlay", f"Wrong source for {phrase!r}")
+            self.assertIn("sensor.living_room_temperature", selection["entity_ids"])
+            self.assertIn("climate.kitchen_ecobee", selection["entity_ids"])
+
     def test_fuzzy_mixed_prompt_resolves_numeric_primary_plus_overlay(self):
         catalog = [
             {
@@ -533,9 +558,9 @@ class RenderFamilyRoutingTests(unittest.TestCase):
         self.assertIn("binary_sensor.living_room_ac", selection["entity_ids"])
 
     def test_fuzzy_mixed_prompt_resolves_composite_despite_categorical_noise_match(self):
-        # Fix: categorical entity matching a shared token ("kitchen") must not
-        # block the numeric+binary composite detection path. Only the numeric
-        # primary and binary entities are forwarded; the categorical is discarded.
+        # A climate entity that matched only on a location token ("kitchen") is a
+        # noise match and must not appear in the overlay set. Only categorical entities
+        # that matched on a domain synonym token (e.g. "ac", "thermostat") are included.
         catalog = [
             {
                 "entity_id": "sensor.kitchen_ecobee_current_temperature",
@@ -560,8 +585,9 @@ class RenderFamilyRoutingTests(unittest.TestCase):
         )
         self.assertTrue(selection["accepted"], selection)
         self.assertEqual(selection["source"], "numeric_with_overlay")
-        self.assertEqual(selection["entity_ids"][0], "sensor.kitchen_ecobee_current_temperature")
+        self.assertIn("sensor.kitchen_ecobee_current_temperature", selection["entity_ids"])
         self.assertIn("binary_sensor.kitchen_door", selection["entity_ids"])
+        # Climate entity matched only on "kitchen" — no synonym token — so it's excluded.
         self.assertNotIn("climate.kitchen_ecobee", selection["entity_ids"])
 
     def test_shared_word_prompt_picks_more_specific_entity(self):
@@ -644,9 +670,9 @@ class RenderFamilyRoutingTests(unittest.TestCase):
             self.assertEqual(len(png_files), 1, png_files)
             self.assertEqual(png_files[0].read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
 
-    def test_two_numeric_plus_binary_fails_closed_with_mixed_code(self):
-        # Two numeric series mixed with a binary entity has no deterministic
-        # primary line, so it still fails closed (ADR-0022 D4 boundary).
+    def test_two_numeric_plus_binary_renders_overlay_png(self):
+        # Two numeric series + a binary entity now composes into an overlay chart:
+        # both temperature lines plot with the door state shaded behind them.
         planner = FakePlanner()
         with tempfile.TemporaryDirectory() as temp_dir:
             artifact_dir = Path(temp_dir)
@@ -678,14 +704,21 @@ class RenderFamilyRoutingTests(unittest.TestCase):
             snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
 
             self.assertTrue(snapshot["accepted"], snapshot)
-            self.assertEqual(snapshot["snapshot"]["status"], "failed")
-            self.assertEqual(
-                snapshot["snapshot"]["failure"]["code"],
-                "mixed_chart_composition_unsupported",
-            )
-            # Fails before the planner is called.
-            self.assertEqual(len(planner.calls), 0)
-            self.assertEqual(list(artifact_dir.glob("*.png")), [])
+            self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot["snapshot"])
+            # Planner was called with both numeric entity IDs, not the binary.
+            self.assertEqual(len(planner.calls), 1)
+            self.assertIn("sensor.upstairs_temperature", planner.calls[0]["approved_entity_ids"])
+            self.assertIn("sensor.basement_temperature", planner.calls[0]["approved_entity_ids"])
+            self.assertNotIn("binary_sensor.kitchen_door", planner.calls[0]["approved_entity_ids"])
+            # Binary overlay was injected into the chart spec.
+            store = _orchestration_store(hass, entry)
+            render_plan = store["render_plans"][store["render_plan_order"][-1]]
+            overlays = render_plan["chart_spec"]["overlays"]
+            self.assertEqual(len(overlays), 1)
+            self.assertEqual(overlays[0]["source"]["entity_id"], "binary_sensor.kitchen_door")
+            # PNG was rendered.
+            png_files = list(artifact_dir.glob("*.png"))
+            self.assertEqual(len(png_files), 1, png_files)
 
 
     def test_validate_chart_spec_contract_rejects_duplicate_series_sources(self):
@@ -2532,14 +2565,16 @@ class EntitySelectionD2Tests(unittest.TestCase):
             "source": "catalog_label_specificity",
         }
 
-    def test_d1_confidently_resolves_then_misses_ac_concept(self):
-        # Establishes the gap D2 expansion closes: D1 picks only the temp sensor.
+    def test_d1_resolves_ac_synonym_as_overlay(self):
+        # Domain synonyms now let D1 resolve "AC" directly to climate.kitchen_ecobee
+        # as an overlay entity alongside the numeric series — no D2 expansion needed.
         selection = job_orchestration.select_prompt_entity_ids(
             "show kitchen temperature and when the AC was running", self._kitchen_catalog()
         )
         self.assertTrue(selection["accepted"], selection)
-        self.assertEqual(selection["entity_ids"], ["sensor.kitchen_temperature"])
-        self.assertEqual(selection["source"], "catalog_label_specificity")
+        self.assertEqual(selection["source"], "numeric_with_overlay")
+        self.assertIn("sensor.kitchen_temperature", selection["entity_ids"])
+        self.assertIn("climate.kitchen_ecobee", selection["entity_ids"])
 
     def test_d2_expansion_adds_missed_entity(self):
         planner = _D2FakePlanner(selects=["sensor.kitchen_temperature", "climate.kitchen_ecobee"])
