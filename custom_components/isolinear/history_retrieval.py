@@ -884,6 +884,7 @@ def _normalize_history_series(
             record_result["state"],
             timestamp=timestamp,
             kind=kind,
+            attributes=record_result.get("attributes"),
         )
         warnings.extend(point_result["warnings"])
         points.append(point_result["point"])
@@ -956,6 +957,7 @@ def _normalize_history_record(entity_id: str, record: Any, *, path: str) -> dict
         "code": "accepted",
         "state": state,
         "timestamp": timestamp_result["dt"],
+        "attributes": attributes if isinstance(attributes, dict) else {},
     }
 
 
@@ -965,6 +967,7 @@ def _history_point_for_state(
     *,
     timestamp: datetime,
     kind: str,
+    attributes: dict | None = None,
 ) -> dict[str, Any]:
     if state in MISSING_STATE_QUALITIES:
         return {
@@ -1000,15 +1003,15 @@ def _history_point_for_state(
             "warnings": [],
         }
 
-    return {
-        "point": {
-            "ts": _isoformat(timestamp),
-            "value": state,
-            "raw_state": state,
-            "quality": "ok",
-        },
-        "warnings": [],
+    point: dict[str, Any] = {
+        "ts": _isoformat(timestamp),
+        "value": state,
+        "raw_state": state,
+        "quality": "ok",
     }
+    if kind == "categorical_state" and attributes:
+        point["attrs"] = attributes
+    return {"point": point, "warnings": []}
 
 
 def classify_series_kind(catalog_item: dict[str, Any]) -> str:

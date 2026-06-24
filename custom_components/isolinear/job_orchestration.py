@@ -5842,6 +5842,7 @@ def _compose_state_overlays(
             domain = entity_id.split(".")[0] if "." in entity_id else ""
             if domain == "climate":
                 overlay["color_map"] = dict(_CLIMATE_OVERLAY_COLOR_MAP)
+                overlay["source"]["attribute"] = "hvac_action"
         overlays.append(overlay)
     composed["overlays"] = overlays
     return composed

@@ -328,6 +328,7 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
         overlay_label = overlay.get("label") or entity_id
         color_map = overlay.get("color_map")
         active_values = overlay.get("active_values")
+        attribute_key = source.get("attribute") if isinstance(source, dict) else None
 
         if isinstance(color_map, dict) and color_map:
             # Categorical overlay with explicit per-state colors.
@@ -348,7 +349,7 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
         else:
             # Binary overlay: shade all active_values with a single color.
             fill = _OVERLAY_COLORS[overlay_index % len(_OVERLAY_COLORS)]
-            regions = _binary_on_regions(history, set(active_values), window_end=t_max)
+            regions = _binary_on_regions(history, set(active_values), window_end=t_max, attribute_key=attribute_key)
             for start, end in regions:
                 x0 = max(x_px(min(max(start, t_min), t_max)), plot_left)
                 x1 = min(max(x_px(min(max(end, t_min), t_max)), x0 + 1), plot_right)
@@ -359,12 +360,12 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
 
         # Draw per-state colored bands and add per-state legend entries.
         for state_value, fill in per_state:
-            regions = _binary_on_regions(history, {state_value}, window_end=t_max)
+            regions = _binary_on_regions(history, {state_value}, window_end=t_max, attribute_key=attribute_key)
             for start, end in regions:
                 x0 = max(x_px(min(max(start, t_min), t_max)), plot_left)
                 x1 = min(max(x_px(min(max(end, t_min), t_max)), x0 + 1), plot_right)
                 draw.rectangle([(x0, plot_top), (x1, plot_bottom)], fill=fill)
-            overlay_legend.append((f"{overlay_label} – {state_value}", fill))
+            overlay_legend.append((f"{overlay_label} - {state_value}", fill))
         overlays_plotted.append(overlay.get("overlay_id") or f"overlay-{overlay_index + 1:03d}")
 
     # Horizontal gridlines and y-axis tick labels.
@@ -501,23 +502,33 @@ def _state_segments(
     points: list[dict[str, Any]],
     *,
     window_end: datetime,
+    attribute_key: str | None = None,
 ) -> list[tuple[datetime, datetime, str]]:
     """Collapse history points into held-until-next-change state segments.
 
     Each point's state is held from its timestamp until the next state change;
     the final state is held to ``window_end``. Consecutive equal states merge.
     Missing-quality points end the current segment without starting a new one.
+    When ``attribute_key`` is set, the segment value comes from that attribute
+    rather than the entity state (e.g. ``hvac_action`` for climate entities).
     """
     rows: list[tuple[datetime, str | None]] = []
     for point in points:
         if not isinstance(point, dict):
             continue
         quality = point.get("quality")
-        value = point.get("value")
-        if quality in _MISSING_TIMELINE_QUALITIES or value is None:
-            rows.append((_parse_timestamp(point.get("ts")), None))
-            continue
-        rows.append((_parse_timestamp(point.get("ts")), str(value)))
+        if attribute_key is not None:
+            raw_val = (point.get("attrs") or {}).get(attribute_key)
+            if quality in _MISSING_TIMELINE_QUALITIES or raw_val is None:
+                rows.append((_parse_timestamp(point.get("ts")), None))
+                continue
+            rows.append((_parse_timestamp(point.get("ts")), str(raw_val)))
+        else:
+            value = point.get("value")
+            if quality in _MISSING_TIMELINE_QUALITIES or value is None:
+                rows.append((_parse_timestamp(point.get("ts")), None))
+                continue
+            rows.append((_parse_timestamp(point.get("ts")), str(value)))
     rows.sort(key=lambda row: row[0])
 
     segments: list[tuple[datetime, datetime, str]] = []
@@ -538,15 +549,20 @@ def _binary_on_regions(
     active_values: set[str] | frozenset[str],
     *,
     window_end: datetime,
+    attribute_key: str | None = None,
 ) -> list[tuple[datetime, datetime]]:
     """Return [(start, end)] spans where the series state is "on"/active.
 
     Shared primitive (ADR-0022 D2): a binary "on" region is the same shape
     whether drawn as a standalone timeline lane or as an overlay band behind a
     numeric line (the 0.1.26 overlay layer reuses this directly).
+    When ``attribute_key`` is set, span detection uses that attribute value
+    rather than entity state (e.g. ``hvac_action`` for climate overlays).
     """
     normalized = {str(value).lower() for value in active_values}
-    segments = _state_segments(history_series.get("points", []), window_end=window_end)
+    segments = _state_segments(
+        history_series.get("points", []), window_end=window_end, attribute_key=attribute_key
+    )
     return [(start, end) for start, end, value in segments if value.lower() in normalized]
 
 

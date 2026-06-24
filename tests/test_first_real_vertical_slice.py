@@ -511,6 +511,8 @@ class RenderFamilyRoutingTests(unittest.TestCase):
         self.assertIn("cooling", overlay["color_map"])
         self.assertIn("heating", overlay["color_map"])
         self.assertNotIn("active_values", overlay)
+        # Climate overlays use hvac_action attribute so "cooling"/"heating" match
+        self.assertEqual(overlay["source"]["attribute"], "hvac_action")
 
     def test_climate_entity_matches_ac_and_thermostat_synonyms(self):
         catalog = [
