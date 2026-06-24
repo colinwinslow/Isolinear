@@ -3295,8 +3295,8 @@ def _record_model_provider_plan(
                 "accepted": False,
                 "code": "mixed_chart_composition_unsupported",
                 "error": (
-                    "This question mixes more than one numeric series with a binary entity, so the primary "
-                    "chart cannot be chosen automatically; ask about a single numeric series with the binary "
+                    "This question mixes more than one numeric series with a state entity, so the primary "
+                    "chart cannot be chosen automatically; ask about a single numeric series with the state "
                     "overlay."
                 ),
                 "kinds": routing["kinds"],
@@ -3305,8 +3305,8 @@ def _record_model_provider_plan(
 
     # The model only ever produces the chartable *series* (ADR-0022 D5): for the
     # overlay composition it plans the single numeric primary as a time_series
-    # line, and the integration injects the binary entities as shaded_intervals
-    # overlays afterwards. The planner is disclosed only the series entities.
+    # line, and the integration injects the state entities (binary or categorical)
+    # as shaded_intervals overlays afterwards. The planner sees only series entities.
     is_overlay = routing["family"] == "time_series_overlay"
     planner_family = "time_series" if is_overlay else routing["family"]
     series_entity_ids = (
@@ -3417,9 +3417,9 @@ def _record_model_provider_plan(
             "model_provider": provider_summary,
         }
 
-    # Deterministically inject binary shaded_intervals overlays (ADR-0022 D4/D5).
+    # Deterministically inject state overlays (binary + categorical) as shaded_intervals (ADR-0022 D4/D5).
     if is_overlay and isinstance(chart_spec, dict):
-        chart_spec = _compose_binary_overlays(
+        chart_spec = _compose_state_overlays(
             chart_spec,
             overlay_entity_ids=routing["overlay_entity_ids"],
             catalog_items=catalog_items,
@@ -5781,12 +5781,10 @@ def _resolve_render_family(
             state_entity_ids.append(entity_id)
     has_numeric = bool(numeric_entity_ids)
     has_state = bool(state_entity_ids)
-    # Overlay composition is binary-only (ADR-0022 D4 scope): shaded_intervals
-    # shade an "on" region. A non-binary categorical mixed with numeric has no
-    # "on" region, so it stays ambiguous (mixed) rather than shading nothing.
-    overlay_eligible = (
-        len(numeric_entity_ids) == 1 and binary_entity_ids and len(state_entity_ids) == len(binary_entity_ids)
-    )
+    # Overlay composition: exactly one numeric primary + one or more state entities
+    # (binary or categorical). Binary entities shade "on" regions; categorical
+    # entities shade per-state-value colored bands (e.g. climate cooling/heating).
+    overlay_eligible = len(numeric_entity_ids) == 1 and bool(state_entity_ids)
     if has_numeric and has_state:
         family = "time_series_overlay" if overlay_eligible else "mixed"
     elif has_state:
@@ -5798,12 +5796,51 @@ def _resolve_render_family(
         "kinds": sorted(kinds),
         "numeric_entity_ids": numeric_entity_ids,
         "categorical_entity_ids": state_entity_ids,
-        "overlay_entity_ids": binary_entity_ids,
+        "overlay_entity_ids": state_entity_ids,
     }
 
 
 # Binary states treated as "on"/active for shaded_intervals overlays (ADR-0022).
 _OVERLAY_ACTIVE_VALUES = ["on"]
+
+# Color maps for well-known categorical overlay domains (hex RGB strings, light tints).
+_CLIMATE_OVERLAY_COLOR_MAP = {"cooling": "#B8D4EE", "heating": "#FFCF9E"}
+
+
+def _compose_state_overlays(
+    chart_spec: dict[str, Any],
+    *,
+    overlay_entity_ids: list[str],
+    catalog_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Inject state entities as shaded_intervals overlays on a numeric spec.
+
+    Binary entities shade "on" regions (ADR-0022 D4/D5). Categorical entities
+    shade per-state-value colored bands: climate entities use blue for cooling
+    and orange for heating; other categorical entities use a renderer auto-palette.
+    """
+    by_id = {item["entity_id"]: item for item in catalog_items}
+    composed = deepcopy(chart_spec)
+    overlays = list(composed.get("overlays") or [])
+    for index, entity_id in enumerate(overlay_entity_ids, start=1):
+        item = by_id.get(entity_id, {})
+        label = item.get("friendly_name") or entity_id
+        kind = classify_series_kind(item)
+        overlay: dict[str, Any] = {
+            "overlay_id": f"overlay-{index:03d}",
+            "label": label,
+            "source": {"type": "entity", "entity_id": entity_id, "attribute": None},
+            "render_as": "shaded_intervals",
+        }
+        if kind == "binary_state":
+            overlay["active_values"] = list(_OVERLAY_ACTIVE_VALUES)
+        else:
+            domain = entity_id.split(".")[0] if "." in entity_id else ""
+            if domain == "climate":
+                overlay["color_map"] = dict(_CLIMATE_OVERLAY_COLOR_MAP)
+        overlays.append(overlay)
+    composed["overlays"] = overlays
+    return composed
 
 
 def _compose_binary_overlays(
@@ -5812,29 +5849,12 @@ def _compose_binary_overlays(
     overlay_entity_ids: list[str],
     catalog_items: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Inject binary entities as shaded_intervals overlays on a numeric spec (ADR-0022 D4/D5).
-
-    The model plans only the numeric primary series; the integration appends one
-    overlay per binary entity deterministically so the model never composes the
-    overlay. The overlay source is the approved binary entity; "on" regions are
-    shaded behind the primary line.
-    """
-    by_id = {item["entity_id"]: item for item in catalog_items}
-    composed = deepcopy(chart_spec)
-    overlays = list(composed.get("overlays") or [])
-    for index, entity_id in enumerate(overlay_entity_ids, start=1):
-        label = by_id.get(entity_id, {}).get("friendly_name") or entity_id
-        overlays.append(
-            {
-                "overlay_id": f"overlay-{index:03d}",
-                "label": label,
-                "source": {"type": "entity", "entity_id": entity_id, "attribute": None},
-                "render_as": "shaded_intervals",
-                "active_values": list(_OVERLAY_ACTIVE_VALUES),
-            }
-        )
-    composed["overlays"] = overlays
-    return composed
+    """Backward-compatible alias for _compose_state_overlays."""
+    return _compose_state_overlays(
+        chart_spec,
+        overlay_entity_ids=overlay_entity_ids,
+        catalog_items=catalog_items,
+    )
 
 
 def _accepted(

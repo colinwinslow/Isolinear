@@ -165,8 +165,8 @@ def _unsupported_time_series_request(render_request: dict[str, Any]) -> list[dic
         return [{"path": "$.chart_spec", "reason": "must_be_object"}]
     if chart_spec.get("chart_type") != "time_series":
         unsupported.append({"path": "$.chart_spec.chart_type", "reason": "time_series_required"})
-    # Binary shaded_intervals overlays from an entity source are supported
-    # (ADR-0022 D4/D5); any other overlay render_as or source is not.
+    # shaded_intervals overlays from an entity source are supported (binary and
+    # categorical); any other overlay render_as or source type is not.
     for index, overlay in enumerate(chart_spec.get("overlays") or []):
         if not isinstance(overlay, dict):
             unsupported.append({"path": f"$.chart_spec.overlays[{index}]", "reason": "must_be_object"})
@@ -310,11 +310,12 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
     def y_px(value: float) -> float:
         return plot_bottom - (value - v_min) / v_span * (plot_bottom - plot_top)
 
-    # Binary shaded_intervals overlays (ADR-0022 D4/D5) are the backmost layer:
-    # vertical bands across the full plot height where the binary entity is
-    # "on", drawn behind gridlines, statistics bands, and the series lines.
+    # Shaded_intervals overlays are the backmost layer: vertical bands drawn
+    # behind gridlines and series lines. Binary overlays shade "on" regions;
+    # categorical overlays shade per-state-value colored bands.
     overlays_plotted: list[str] = []
     overlay_legend: list[tuple[str, tuple[int, int, int]]] = []
+    _categorical_auto_palette = [(173, 216, 230), (255, 200, 150), (200, 230, 200), (220, 200, 240)]
     for overlay_index, overlay in enumerate(chart_spec.get("overlays") or []):
         if not isinstance(overlay, dict) or overlay.get("render_as") != "shaded_intervals":
             continue
@@ -324,15 +325,47 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
         if history is None:
             warnings.append(f"No history for overlay entity {entity_id}.")
             continue
-        active_values = overlay.get("active_values") or list(_BINARY_ON_VALUES)
-        regions = _binary_on_regions(history, set(active_values), window_end=t_max)
-        fill = _OVERLAY_COLORS[overlay_index % len(_OVERLAY_COLORS)]
-        for start, end in regions:
-            x0 = max(x_px(min(max(start, t_min), t_max)), plot_left)
-            x1 = min(max(x_px(min(max(end, t_min), t_max)), x0 + 1), plot_right)
-            draw.rectangle([(x0, plot_top), (x1, plot_bottom)], fill=fill)
+        overlay_label = overlay.get("label") or entity_id
+        color_map = overlay.get("color_map")
+        active_values = overlay.get("active_values")
+
+        if isinstance(color_map, dict) and color_map:
+            # Categorical overlay with explicit per-state colors.
+            per_state: list[tuple[str, tuple[int, int, int]]] = []
+            for state_value, hex_color in color_map.items():
+                try:
+                    fill = _hex_to_rgb(hex_color)
+                except Exception:
+                    fill = _OVERLAY_COLORS[overlay_index % len(_OVERLAY_COLORS)]
+                per_state.append((state_value, fill))
+        elif active_values is None:
+            # Categorical overlay with no color map: auto-assign palette per distinct state.
+            seen_states = _categorical_overlay_states(history)
+            per_state = [
+                (sv, _categorical_auto_palette[i % len(_categorical_auto_palette)])
+                for i, sv in enumerate(seen_states)
+            ]
+        else:
+            # Binary overlay: shade all active_values with a single color.
+            fill = _OVERLAY_COLORS[overlay_index % len(_OVERLAY_COLORS)]
+            regions = _binary_on_regions(history, set(active_values), window_end=t_max)
+            for start, end in regions:
+                x0 = max(x_px(min(max(start, t_min), t_max)), plot_left)
+                x1 = min(max(x_px(min(max(end, t_min), t_max)), x0 + 1), plot_right)
+                draw.rectangle([(x0, plot_top), (x1, plot_bottom)], fill=fill)
+            overlays_plotted.append(overlay.get("overlay_id") or f"overlay-{overlay_index + 1:03d}")
+            overlay_legend.append((overlay_label, fill))
+            continue
+
+        # Draw per-state colored bands and add per-state legend entries.
+        for state_value, fill in per_state:
+            regions = _binary_on_regions(history, {state_value}, window_end=t_max)
+            for start, end in regions:
+                x0 = max(x_px(min(max(start, t_min), t_max)), plot_left)
+                x1 = min(max(x_px(min(max(end, t_min), t_max)), x0 + 1), plot_right)
+                draw.rectangle([(x0, plot_top), (x1, plot_bottom)], fill=fill)
+            overlay_legend.append((f"{overlay_label} – {state_value}", fill))
         overlays_plotted.append(overlay.get("overlay_id") or f"overlay-{overlay_index + 1:03d}")
-        overlay_legend.append((overlay.get("label") or entity_id, fill))
 
     # Horizontal gridlines and y-axis tick labels.
     for index in range(6):
@@ -441,6 +474,27 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
 _BINARY_ON_VALUES = frozenset({"on", "true", "open", "detected", "home", "1"})
 _BINARY_OFF_VALUES = frozenset({"off", "false", "closed", "clear", "not_home", "away", "0"})
 _MISSING_TIMELINE_QUALITIES = frozenset({"missing", "unavailable", "invalid", "unknown"})
+_CATEGORICAL_SKIP_STATES = frozenset({"off", "idle", "unavailable", "unknown", "none", ""})
+
+
+def _hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
+    h = hex_str.lstrip("#")
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def _categorical_overlay_states(history_series: dict[str, Any]) -> list[str]:
+    """Return distinct non-trivial state values from a categorical series, in first-seen order."""
+    seen: dict[str, None] = {}
+    for point in history_series.get("points", []):
+        if not isinstance(point, dict):
+            continue
+        value = point.get("value")
+        if not isinstance(value, str):
+            continue
+        low = value.lower()
+        if low not in _CATEGORICAL_SKIP_STATES and low not in seen:
+            seen[low] = None
+    return list(seen)
 
 
 def _state_segments(

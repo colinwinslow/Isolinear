@@ -746,7 +746,7 @@ class OllamaCompatiblePlannerClient:
             )
         overlay_entity_ids: list[str] = request.get("overlay_entity_ids") or []
         overlay_rule = (
-            f"The integration will automatically add binary state overlays for these entities: "
+            f"The integration will automatically add shaded overlays for these entities: "
             f"{overlay_entity_ids}. Do NOT include them in series and do NOT treat them as missing — "
             "they are handled by the system. Return status chart_spec_ready for the numeric series only."
         ) if overlay_entity_ids else None

@@ -280,15 +280,14 @@ class RenderFamilyRoutingTests(unittest.TestCase):
             )["family"],
             "mixed",
         )
-        # A non-binary categorical mixed with numeric is NOT an overlay (it has no
-        # "on" region to shade) — it stays ambiguous rather than shading nothing.
+        # A non-binary categorical mixed with numeric now routes to overlay (categorical
+        # entities render per-state-value colored bands behind the numeric line).
         catalog_cat = catalog + [{"entity_id": "sensor.washer_status", "domain": "sensor"}]
-        self.assertEqual(
-            job_orchestration._resolve_render_family(
-                catalog_cat, ["sensor.temp", "sensor.washer_status"]
-            )["family"],
-            "mixed",
+        cat_routing = job_orchestration._resolve_render_family(
+            catalog_cat, ["sensor.temp", "sensor.washer_status"]
         )
+        self.assertEqual(cat_routing["family"], "time_series_overlay")
+        self.assertEqual(cat_routing["overlay_entity_ids"], ["sensor.washer_status"])
         # All-binary multi-entity is still the timeline family (not overlay).
         self.assertEqual(
             job_orchestration._resolve_render_family(
@@ -438,7 +437,7 @@ class RenderFamilyRoutingTests(unittest.TestCase):
             )
             self.assertEqual(list(artifact_dir.glob("*.png")), [])
 
-    def test_compose_binary_overlays_injects_shaded_intervals(self):
+    def test_compose_state_overlays_binary_injects_active_values(self):
         chart_spec = {
             "chart_id": "c",
             "chart_type": "time_series",
@@ -460,19 +459,56 @@ class RenderFamilyRoutingTests(unittest.TestCase):
             "y_axis": {},
             "notes": [],
         }
-        composed = job_orchestration._compose_binary_overlays(
+        composed = job_orchestration._compose_state_overlays(
             chart_spec,
             overlay_entity_ids=["binary_sensor.kitchen_door"],
-            catalog_items=[{"entity_id": "binary_sensor.kitchen_door", "friendly_name": "Kitchen Door"}],
+            catalog_items=[{"entity_id": "binary_sensor.kitchen_door", "domain": "binary_sensor", "friendly_name": "Kitchen Door"}],
         )
         self.assertEqual(len(composed["overlays"]), 1)
         overlay = composed["overlays"][0]
         self.assertEqual(overlay["render_as"], "shaded_intervals")
         self.assertEqual(overlay["source"]["entity_id"], "binary_sensor.kitchen_door")
         self.assertEqual(overlay["active_values"], ["on"])
+        self.assertNotIn("color_map", overlay)
         self.assertEqual(overlay["label"], "Kitchen Door")
         # The original spec is not mutated.
         self.assertEqual(chart_spec["overlays"], [])
+
+    def test_compose_state_overlays_climate_injects_color_map(self):
+        chart_spec = {
+            "chart_id": "c",
+            "chart_type": "time_series",
+            "title": "Temp",
+            "time_range": {"type": "relative", "duration": "24h"},
+            "series": [
+                {
+                    "series_id": "temp",
+                    "label": "Temp",
+                    "source": {"type": "entity", "entity_id": "sensor.kitchen_temp", "attribute": None},
+                    "role": "primary",
+                    "render_as": "line",
+                    "transform": {"operation": "none", "window": None},
+                    "unit": "degF",
+                }
+            ],
+            "overlays": [],
+            "x_axis": {"type": "time"},
+            "y_axis": {},
+            "notes": [],
+        }
+        composed = job_orchestration._compose_state_overlays(
+            chart_spec,
+            overlay_entity_ids=["climate.kitchen_ecobee"],
+            catalog_items=[{"entity_id": "climate.kitchen_ecobee", "friendly_name": "Kitchen Ecobee"}],
+        )
+        self.assertEqual(len(composed["overlays"]), 1)
+        overlay = composed["overlays"][0]
+        self.assertEqual(overlay["render_as"], "shaded_intervals")
+        self.assertEqual(overlay["source"]["entity_id"], "climate.kitchen_ecobee")
+        self.assertIn("color_map", overlay)
+        self.assertIn("cooling", overlay["color_map"])
+        self.assertIn("heating", overlay["color_map"])
+        self.assertNotIn("active_values", overlay)
 
     def test_fuzzy_mixed_prompt_resolves_numeric_primary_plus_overlay(self):
         catalog = [
