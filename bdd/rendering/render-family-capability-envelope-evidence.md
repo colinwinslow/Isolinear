@@ -63,8 +63,8 @@ Eval CASE `aggregate_bar_render` output:
     "renderer": "in_process_pillow",
     "png_byte_count": 46336,
     "series_plotted": ["temp-avg"],
-    "x_min": "2026-06-14",
-    "x_max": "2026-06-18",
+    "x_min": null,
+    "x_max": null,
     "codegen_attempts": 0
   }
 }

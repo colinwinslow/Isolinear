@@ -827,13 +827,11 @@ def _render_histogram_png(render_request: dict[str, Any]) -> tuple[bytes, dict[s
 
     buffer = BytesIO()
     image.save(buffer, format="PNG")
-    v_min_str = f"{all_bins[0][0]:.4f}" if all_bins else None
-    v_max_str = f"{all_bins[-1][1]:.4f}" if all_bins else None
     return buffer.getvalue(), {
         "series_plotted": series_plotted,
         "overlays_plotted": [],
-        "x_min": v_min_str,
-        "x_max": v_max_str,
+        "x_min": None,
+        "x_max": None,
         "warnings": warnings,
     }
 
@@ -1036,8 +1034,8 @@ def _render_aggregate_bar_png(render_request: dict[str, Any]) -> tuple[bytes, di
     return buffer.getvalue(), {
         "series_plotted": series_plotted,
         "overlays_plotted": [],
-        "x_min": all_bars[0][0] if all_bars else None,
-        "x_max": all_bars[-1][0] if all_bars else None,
+        "x_min": None,
+        "x_max": None,
         "warnings": warnings,
     }
 
