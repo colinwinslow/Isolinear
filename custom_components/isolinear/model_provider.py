@@ -744,6 +744,12 @@ class OllamaCompatiblePlannerClient:
                 f"Use chart_type {chart_type}, render_as {render_as}, transform operation none, "
                 "x_axis type time, and overlays []."
             )
+        overlay_entity_ids: list[str] = request.get("overlay_entity_ids") or []
+        overlay_rule = (
+            f"The integration will automatically add binary state overlays for these entities: "
+            f"{overlay_entity_ids}. Do NOT include them in series and do NOT treat them as missing — "
+            "they are handled by the system. Return status chart_spec_ready for the numeric series only."
+        ) if overlay_entity_ids else None
         prompt_payload = {
             "task": "Return one PlannerResult JSON object for an Isolinear chart plan.",
             "rules": [
@@ -759,6 +765,7 @@ class OllamaCompatiblePlannerClient:
                 "Each series must include series_id, label, source, role, render_as, transform, and unit.",
                 "Each entity series source must be {\"type\":\"entity\",\"entity_id\":\"<approved id>\",\"attribute\":null}.",
                 chart_type_rule,
+                *([overlay_rule] if overlay_rule else []),
                 "Resolve the requested time window into an absolute time_range "
                 "{\"type\":\"absolute\",\"start\":<ISO8601>,\"end\":<ISO8601>} using the "
                 "request now and time_zone. Interpret fuzzy phrases (for example "

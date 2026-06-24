@@ -3319,6 +3319,7 @@ def _record_model_provider_plan(
         job=job,
         source_snapshot=source_snapshot,
         entity_ids=series_entity_ids or None,
+        overlay_entity_ids=routing.get("overlay_entity_ids") or [] if is_overlay else [],
     )
     # Pass the full capability envelope so chart_type becomes a multi-value enum
     # when multiple families are available (ADR-0023 D2).  Entity IDs remain
@@ -6289,11 +6290,12 @@ def _model_provider_planner_request(
     job: dict[str, Any],
     source_snapshot: dict[str, Any],
     entity_ids: list[str] | None = None,
+    overlay_entity_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     # ``entity_ids`` restricts what the planner may chart as series; for the
     # overlay composition only the numeric primary is disclosed (ADR-0022 D5).
     entity_ids = entity_ids if entity_ids is not None else _source_snapshot_entity_ids(source_snapshot)
-    return {
+    request: dict[str, Any] = {
         "prompt": job.get("prompt") if isinstance(job.get("prompt"), str) else "",
         "approved_entity_ids": entity_ids,
         "history_entity_ids": entity_ids,
@@ -6301,6 +6303,9 @@ def _model_provider_planner_request(
         "time_zone": _hass_time_zone(hass),
         "output_schema": "PlannerResult",
     }
+    if overlay_entity_ids:
+        request["overlay_entity_ids"] = list(overlay_entity_ids)
+    return request
 
 
 def _hass_time_zone(hass: Any) -> str:

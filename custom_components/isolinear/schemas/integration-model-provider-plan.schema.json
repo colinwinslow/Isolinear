@@ -99,6 +99,13 @@
         },
         "output_schema": {
           "const": "PlannerResult"
+        },
+        "overlay_entity_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "\\S"
+          }
         }
       }
     },
