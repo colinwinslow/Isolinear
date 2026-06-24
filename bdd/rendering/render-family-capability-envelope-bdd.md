@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft. Paired with
+Accepted. Implemented in 0.1.44. Paired with
 [docs/specs/render-family-capability-envelope.md](../../docs/specs/render-family-capability-envelope.md).
 
 ## Why this BDD exists

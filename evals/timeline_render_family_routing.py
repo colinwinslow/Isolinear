@@ -1,9 +1,11 @@
-"""Eval: deterministic render-family routing + categorical timeline (ADR-0022).
+"""Eval: deterministic render-family routing + categorical timeline (ADR-0022/0023).
 
 Exercises the pre-planning `_series_kind` routing (numeric -> time_series,
 binary/categorical -> timeline, mixed -> fail closed), the shared
-`_binary_on_regions` primitive, and a standalone binary timeline render,
-emitting CASE evidence. No live model or recorder is required.
+`_binary_on_regions` primitive, and a standalone binary timeline render.
+Also covers the ADR-0023 capability envelope (single-numeric gets a 3-family
+envelope; histogram and aggregate_bar render from the live Pillow path).
+Emits CASE evidence. No live model or recorder is required.
 """
 
 import sys
@@ -16,7 +18,11 @@ from evidence import print_case
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from custom_components.isolinear.job_orchestration import _resolve_render_family  # noqa: E402
+from custom_components.isolinear.job_orchestration import (  # noqa: E402
+    _resolve_render_envelope,
+    _resolve_render_family,
+    validate_model_provider_chart_family,
+)
 from custom_components.isolinear.model_provider import load_planner_result_schema  # noqa: E402
 from custom_components.isolinear.in_process_renderer import (  # noqa: E402
     _BINARY_ON_VALUES,
@@ -264,6 +270,195 @@ def main() -> None:
             "overlays_plotted": overlay_result["render_result"]["render_metadata"]["overlays_plotted"],
             "series_plotted": overlay_result["render_result"]["render_metadata"]["series_plotted"],
             "png_signature_ok": overlay_result["png_bytes"][:8] == b"\x89PNG\r\n\x1a\n",
+        },
+    )
+
+    # --- ADR-0023 capability envelope routing ---
+    env_single_numeric = _resolve_render_envelope(CATALOG, ["sensor.attic_temperature"])
+    env_multi_numeric = _resolve_render_envelope(
+        CATALOG, ["sensor.attic_temperature", "sensor.basement_temperature"]
+    )
+    env_binary = _resolve_render_envelope(CATALOG, ["binary_sensor.kitchen_door"])
+    env_overlay = _resolve_render_envelope(
+        CATALOG, ["sensor.attic_temperature", "binary_sensor.kitchen_door"]
+    )
+    env_mixed = _resolve_render_envelope(
+        CATALOG, ["sensor.attic_temperature", "sensor.basement_temperature", "binary_sensor.kitchen_door"]
+    )
+
+    assert_equal(
+        env_single_numeric["families"], ["time_series", "histogram", "aggregate_bar"],
+        "Single numeric entity gets a 3-family envelope."
+    )
+    assert_equal(env_multi_numeric["families"], ["time_series"], "Multi-numeric gets time_series only.")
+    assert_equal(env_binary["families"], ["timeline"], "Binary gets timeline only.")
+    assert_equal(env_overlay["families"], ["time_series_overlay"], "Overlay gets overlay only.")
+    assert_equal(env_mixed["families"], [], "Mixed gets empty envelope (fail closed).")
+
+    # Schema for single-numeric multi-family envelope has widened chart_type enum.
+    multi_schema = load_planner_result_schema(
+        "time_series", envelope=env_single_numeric["families"]
+    )["properties"]["chart_spec"]["properties"]
+    assert_true(
+        set(["time_series", "histogram", "bar"]) <= set(multi_schema["chart_type"]["enum"]),
+        "Multi-family schema chart_type enum includes time_series, histogram, bar."
+    )
+
+    # Out-of-envelope gate accepts in-envelope, rejects out-of-envelope choices.
+    gate_accept = validate_model_provider_chart_family(
+        {"chart_type": "histogram"}, env_single_numeric
+    )
+    gate_reject = validate_model_provider_chart_family(
+        {"chart_type": "scatter"}, env_single_numeric
+    )
+    assert_true(gate_accept["accepted"], "histogram is in the single-numeric envelope.")
+    assert_true(not gate_reject["accepted"], "scatter is NOT in the single-numeric envelope.")
+    assert_equal(gate_reject["code"], "model_provider_chart_family_out_of_envelope", "Rejection code.")
+
+    print_case(
+        "capability_envelope_routing",
+        given={"catalog_kinds": {item["entity_id"]: item.get("domain") for item in CATALOG}},
+        when={"operation": "_resolve_render_envelope + validate_model_provider_chart_family"},
+        then={
+            "single_numeric_families": env_single_numeric["families"],
+            "single_numeric_shape": env_single_numeric["shape"],
+            "multi_numeric_families": env_multi_numeric["families"],
+            "binary_families": env_binary["families"],
+            "overlay_families": env_overlay["families"],
+            "mixed_families": env_mixed["families"],
+            "multi_schema_chart_types": multi_schema["chart_type"]["enum"],
+            "gate_accept_histogram": gate_accept["accepted"],
+            "gate_reject_scatter": not gate_reject["accepted"],
+            "gate_reject_code": gate_reject["code"],
+        },
+    )
+
+    # --- Histogram render (ADR-0023 live renderer) ---
+    temp_hist_points = [
+        {
+            "ts": (datetime(2026, 6, 18, h, 0, 0, tzinfo=timezone.utc)).isoformat(timespec="seconds"),
+            "value": 19.0 + h * 0.15,
+            "quality": "ok",
+        }
+        for h in range(24)
+    ]
+    histogram_request = {
+        "request_id": "histogram-eval",
+        "render_mode": "safe",
+        "output": {"format": "png", "width": 1400, "height": 800},
+        "chart_spec": {
+            "chart_id": "hist-c",
+            "chart_type": "histogram",
+            "title": "Attic Temperature Distribution",
+            "time_range": {
+                "type": "absolute",
+                "start": "2026-06-18T00:00:00+00:00",
+                "end": "2026-06-18T23:00:00+00:00",
+            },
+            "series": [
+                {
+                    "series_id": "temp-dist",
+                    "label": "Attic Temperature",
+                    "source": {"type": "entity", "entity_id": "sensor.attic_temperature", "attribute": None},
+                    "role": "primary",
+                    "render_as": "histogram",
+                    "transform": {"operation": "none", "window": None},
+                    "unit": "°C",
+                }
+            ],
+            "x_axis": {"type": "value", "bin_count": 8},
+            "overlays": [], "y_axis": {}, "notes": [],
+        },
+        "history_series": [
+            {
+                "series_id": "temp-dist", "entity_id": "sensor.attic_temperature",
+                "label": "Attic Temperature", "kind": "numeric", "unit": "°C",
+                "points": temp_hist_points, "source": "recorder_states", "resolution": "raw",
+                "source_entity_ids": ["sensor.attic_temperature"], "warnings": [],
+            }
+        ],
+        "approved_entity_ids": ["sensor.attic_temperature"],
+        "source_snapshot_id": "snap-hist-eval",
+    }
+    hist_result = render_in_process_chart(histogram_request)
+    assert_true(hist_result["accepted"], "Histogram render must succeed.")
+    assert_equal(hist_result["render_result"]["status"], "success", "Histogram render status.")
+    assert_equal(hist_result["png_bytes"][:8], b"\x89PNG\r\n\x1a\n", "Histogram output is a real PNG.")
+    assert_equal(hist_result["render_result"]["render_metadata"]["codegen_attempts"], 0, "No codegen.")
+
+    print_case(
+        "histogram_render",
+        given={"entity": "sensor.attic_temperature", "kind": "numeric", "n_points": 24},
+        when={"operation": "render_in_process_chart(chart_type=histogram)"},
+        then={
+            "status": hist_result["render_result"]["status"],
+            "renderer": hist_result["renderer"],
+            "png_byte_count": hist_result["png_byte_count"],
+            "series_plotted": hist_result["render_result"]["render_metadata"]["series_plotted"],
+            "x_min": hist_result["render_result"]["render_metadata"]["x_min"],
+            "x_max": hist_result["render_result"]["render_metadata"]["x_max"],
+            "codegen_attempts": hist_result["render_result"]["render_metadata"]["codegen_attempts"],
+        },
+    )
+
+    # --- Aggregate bar render (ADR-0023 live renderer) ---
+    agg_points = []
+    for d in range(5):
+        for h in range(6):
+            ts = datetime(2026, 6, 14 + d, h * 4, 0, 0, tzinfo=timezone.utc)
+            agg_points.append({"ts": ts.isoformat(timespec="seconds"), "value": 20.0 + d + h * 0.4, "quality": "ok"})
+    bar_request = {
+        "request_id": "aggbar-eval",
+        "render_mode": "safe",
+        "output": {"format": "png", "width": 1400, "height": 800},
+        "chart_spec": {
+            "chart_id": "bar-c",
+            "chart_type": "bar",
+            "title": "Daily Average Attic Temperature",
+            "time_range": {
+                "type": "absolute",
+                "start": "2026-06-14T00:00:00+00:00",
+                "end": "2026-06-18T23:00:00+00:00",
+            },
+            "series": [
+                {
+                    "series_id": "temp-avg", "label": "Daily Average",
+                    "source": {"type": "aggregate", "entity_id": "sensor.attic_temperature", "operation": "mean"},
+                    "role": "primary", "render_as": "bar",
+                    "transform": {"operation": "none", "window": None}, "unit": "°C",
+                }
+            ],
+            "x_axis": {"type": "category", "group_by": "day"},
+            "overlays": [], "y_axis": {"label": "°C"}, "notes": [],
+        },
+        "history_series": [
+            {
+                "series_id": "temp-avg", "entity_id": "sensor.attic_temperature",
+                "label": "Attic Temperature", "kind": "numeric", "unit": "°C",
+                "points": agg_points, "source": "recorder_states", "resolution": "raw",
+                "source_entity_ids": ["sensor.attic_temperature"], "warnings": [],
+            }
+        ],
+        "approved_entity_ids": ["sensor.attic_temperature"],
+        "source_snapshot_id": "snap-bar-eval",
+    }
+    bar_result = render_in_process_chart(bar_request)
+    assert_true(bar_result["accepted"], "Aggregate bar render must succeed.")
+    assert_equal(bar_result["render_result"]["status"], "success", "Bar render status.")
+    assert_equal(bar_result["png_bytes"][:8], b"\x89PNG\r\n\x1a\n", "Bar output is a real PNG.")
+
+    print_case(
+        "aggregate_bar_render",
+        given={"entity": "sensor.attic_temperature", "kind": "numeric", "operation": "mean", "group_by": "day"},
+        when={"operation": "render_in_process_chart(chart_type=bar)"},
+        then={
+            "status": bar_result["render_result"]["status"],
+            "renderer": bar_result["renderer"],
+            "png_byte_count": bar_result["png_byte_count"],
+            "series_plotted": bar_result["render_result"]["render_metadata"]["series_plotted"],
+            "x_min": bar_result["render_result"]["render_metadata"]["x_min"],
+            "x_max": bar_result["render_result"]["render_metadata"]["x_max"],
+            "codegen_attempts": bar_result["render_result"]["render_metadata"]["codegen_attempts"],
         },
     )
 

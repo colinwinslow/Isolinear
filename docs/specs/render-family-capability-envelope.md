@@ -1,6 +1,7 @@
 ---
-status: draft
+status: accepted
 date: 2026-06-21
+accepted: 2026-06-24
 depends-on-adrs: [0023, 0022, 0021, 0019, 0006, 0005]
 ---
 
@@ -8,7 +9,7 @@ depends-on-adrs: [0023, 0022, 0021, 0019, 0006, 0005]
 
 ## Status
 
-Draft. Defines the contract surface for ADR-0023 (model-proposed render family
+Accepted. Implemented in 0.1.44. Defines the contract surface for ADR-0023 (model-proposed render family
 within a deterministic capability envelope), including the first live-renderer
 tranche (`histogram`, `aggregate_bar`) and the fail-soft sparse-render rule.
 

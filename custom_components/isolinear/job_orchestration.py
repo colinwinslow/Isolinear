@@ -37,6 +37,7 @@ from .job_state import (
     validate_job_snapshot_contract,
 )
 from .model_provider import (
+    PLANNER_RENDER_FAMILIES,
     get_model_provider_planner,
     load_entity_selector_schema,
     load_planner_result_schema,
@@ -3277,12 +3278,12 @@ def _record_model_provider_plan(
             "chart_spec": None,
         }
 
-    # Deterministic render-family routing (ADR-0022): classify each resolved
-    # entity by series kind *before* planning and select the matching planner
-    # schema. The model never chooses chart_type.
+    # Compute the capability envelope (ADR-0023): derives the ordered set of
+    # chart families the resolved entities can support, then lets the model
+    # select intent within that set.  Wraps ADR-0022 routing for backward compat.
     catalog_items = _approved_catalog_items(hass, entry_id)
     requested_entity_ids = _source_snapshot_entity_ids(source_snapshot)
-    routing = _resolve_render_family(catalog_items, requested_entity_ids)
+    routing = _resolve_render_envelope(catalog_items, requested_entity_ids)
     if routing["family"] == "mixed":
         return {
             "accepted": False,
@@ -3319,12 +3320,11 @@ def _record_model_provider_plan(
         source_snapshot=source_snapshot,
         entity_ids=series_entity_ids or None,
     )
-    # Pin the structured-output entity enum to exactly the disclosed entities so
-    # the provider cannot emit an off-allowlist entity (ADR-0022, invariant #1).
-    # request["approved_entity_ids"] is the resolved disclosure (series_entity_ids
-    # or the source-snapshot fallback inside _model_provider_planner_request).
+    # Pass the full capability envelope so chart_type becomes a multi-value enum
+    # when multiple families are available (ADR-0023 D2).  Entity IDs remain
+    # pinned to exactly the disclosed set (invariant #1).
     result_schema = load_planner_result_schema(
-        planner_family, entity_ids=request["approved_entity_ids"]
+        planner_family, envelope=routing["families"], entity_ids=request["approved_entity_ids"]
     )
     # ADR-0025 D1: stream the chart-planning thinking into the per-job live slot
     # so concurrent ~1s polls surface it in the chart area while the model runs.
@@ -3400,6 +3400,18 @@ def _record_model_provider_plan(
             "accepted": False,
             "code": "invalid_model_provider_chart_spec",
             "validation": chart_spec_validation,
+            "model_provider_called": True,
+            "model_provider": provider_summary,
+        }
+
+    # Out-of-envelope gate (ADR-0023 D3): reject a model-chosen chart_type that
+    # is outside the deterministic capability envelope computed before planning.
+    family_validation = validate_model_provider_chart_family(chart_spec, routing)
+    if not family_validation["accepted"]:
+        return {
+            "accepted": False,
+            "code": family_validation["code"],
+            "validation": family_validation,
             "model_provider_called": True,
             "model_provider": provider_summary,
         }
@@ -5661,6 +5673,78 @@ def validate_model_provider_output_entities(
         "code": "accepted",
         "approved_entity_ids": sorted(approved_entity_ids),
         "referenced_entity_ids": sorted(referenced_entity_ids),
+    }
+
+
+def _resolve_render_envelope(
+    catalog_items: list[dict[str, Any]],
+    requested_entity_ids: list[str],
+) -> dict[str, Any]:
+    """Compute the capability envelope for the resolved entity set (ADR-0023).
+
+    Returns the ADR-0022 routing dict augmented with:
+
+    - ``families``: ordered list of families the data shape can support (first
+      is the safe default; empty for ``mixed``).
+    - ``default_family``: first family in the list, or ``"mixed"`` when none.
+    - ``shape``: human-readable label for the resolved data shape.
+
+    Single-numeric entities get the full ``[time_series, histogram,
+    aggregate_bar]`` envelope so the model can choose intent.  All other shapes
+    keep a single-member envelope identical to the ADR-0022 single-family path.
+    """
+    routing = _resolve_render_family(catalog_items, requested_entity_ids)
+    family = routing["family"]
+    if family == "time_series":
+        if len(routing["numeric_entity_ids"]) == 1:
+            families: list[str] = ["time_series", "histogram", "aggregate_bar"]
+            shape = "single_numeric"
+        else:
+            families = ["time_series"]
+            shape = "multi_numeric"
+    elif family == "timeline":
+        families = ["timeline"]
+        shape = "all_categorical"
+    elif family == "time_series_overlay":
+        families = ["time_series_overlay"]
+        shape = "numeric_with_overlay"
+    else:
+        families = []
+        shape = "mixed_unsupported"
+    return {
+        **routing,
+        "families": families,
+        "default_family": families[0] if families else family,
+        "shape": shape,
+    }
+
+
+def validate_model_provider_chart_family(
+    chart_spec: dict[str, Any],
+    envelope: dict[str, Any],
+) -> dict[str, Any]:
+    """Gate: reject a model-chosen chart_type outside the capability envelope (ADR-0023 D3).
+
+    ``envelope`` is the routing dict returned by ``_resolve_render_envelope``.
+    When the envelope is empty (mixed shape) or has a single member, this gate
+    is a no-op — existing mixed/overlay checks already handle those cases.
+    """
+    families = envelope.get("families") or []
+    if len(families) <= 1:
+        return {"accepted": True}
+    allowed_chart_types = [
+        PLANNER_RENDER_FAMILIES[f]["chart_type"]
+        for f in families
+        if f in PLANNER_RENDER_FAMILIES
+    ]
+    chosen = chart_spec.get("chart_type") if isinstance(chart_spec, dict) else None
+    if chosen in allowed_chart_types:
+        return {"accepted": True}
+    return {
+        "accepted": False,
+        "code": "model_provider_chart_family_out_of_envelope",
+        "chosen_family": chosen,
+        "allowed_families": allowed_chart_types,
     }
 
 

@@ -121,34 +121,41 @@ def get_model_provider_planner(hass: Any, entry_id: str) -> Any | None:
     return planner if planner is not None else None
 
 
-# Render families the integration may request from the planner (ADR-0022). The
-# integration deterministically selects the family from each resolved entity's
-# series kind; the model never chooses chart_type.
+# Render families the integration may request from the planner.
+# ADR-0022: the integration deterministically picks the family from each
+# resolved entity's series kind.  ADR-0023 extends this: the envelope can
+# contain multiple families so the model selects intent within the set.
 PLANNER_RENDER_FAMILIES = {
     "time_series": {"chart_type": "time_series", "render_as": "line"},
     "timeline": {"chart_type": "timeline", "render_as": "step"},
+    "histogram": {"chart_type": "histogram", "render_as": "histogram"},
+    "aggregate_bar": {"chart_type": "bar", "render_as": "bar"},
 }
 
 
 def load_planner_result_schema(
     family: str = "time_series",
     *,
+    envelope: list[str] | None = None,
     entity_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Load the PlannerResult JSON Schema for Ollama structured output.
 
-    ``family`` selects the deterministically-chosen render family (ADR-0022):
-    ``time_series`` (numeric line) or ``timeline`` (binary/categorical step).
+    ``family`` is the default/fallback render family (ADR-0022).  ``envelope``
+    is the full ADR-0023 capability list; when it contains more than one family
+    the ``chart_type`` enum is widened to all members so the model can choose
+    intent within the set.  When ``envelope`` has exactly one member (or is
+    omitted) the schema is identical to the single-family ADR-0022 form.
 
-    ``entity_ids`` are the entities the integration disclosed to the planner for
-    this job. When supplied, the chart-spec ``source.entity_id`` is pinned to an
-    enum of exactly those IDs so the provider's constrained decoding cannot emit
-    an off-allowlist entity (invariant #1) — turning a hallucinated entity from a
-    post-plan ``model_provider_referenced_unapproved_entity`` failure into a
-    structural impossibility. Without it the field stays a free string.
+    ``entity_ids`` pins ``source.entity_id`` to an enum of exactly the
+    disclosed IDs so constrained decoding cannot emit an off-allowlist entity
+    (invariant #1).  Without it the field stays a free string.
     """
-    spec = PLANNER_RENDER_FAMILIES.get(family, PLANNER_RENDER_FAMILIES["time_series"])
-    schema = load_schema_document(PLANNER_RESULT_SCHEMA_PATH)
+    effective_envelope = [f for f in (envelope or []) if f in PLANNER_RENDER_FAMILIES]
+    if not effective_envelope:
+        effective_envelope = [family]
+    is_multi_family = len(effective_envelope) > 1
+
     disclosed_entity_ids = [
         entity_id for entity_id in (entity_ids or []) if isinstance(entity_id, str) and entity_id
     ]
@@ -157,7 +164,34 @@ def load_planner_result_schema(
         if disclosed_entity_ids
         else {"type": "string"}
     )
-    schema.setdefault("properties", {})["chart_spec"] = {
+
+    if is_multi_family:
+        chart_spec_fragment = _multi_family_chart_spec_schema(effective_envelope, entity_id_schema)
+    else:
+        single_spec = PLANNER_RENDER_FAMILIES.get(effective_envelope[0], PLANNER_RENDER_FAMILIES["time_series"])
+        chart_spec_fragment = _single_family_chart_spec_schema(single_spec, entity_id_schema)
+
+    schema = load_schema_document(PLANNER_RESULT_SCHEMA_PATH)
+    schema.setdefault("properties", {})["chart_spec"] = chart_spec_fragment
+    return schema
+
+
+def _time_range_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "required": ["type", "start", "end"],
+        "additionalProperties": False,
+        "properties": {
+            "type": {"const": "absolute"},
+            "start": {"type": "string", "format": "date-time"},
+            "end": {"type": "string", "format": "date-time"},
+        },
+    }
+
+
+def _single_family_chart_spec_schema(spec: dict[str, Any], entity_id_schema: dict[str, Any]) -> dict[str, Any]:
+    """Build the chart_spec schema fragment for a single-family (ADR-0022) envelope."""
+    return {
         "type": "object",
         "required": ["chart_id", "chart_type", "title", "time_range", "series"],
         "additionalProperties": False,
@@ -165,23 +199,14 @@ def load_planner_result_schema(
             "chart_id": {"type": "string"},
             "chart_type": {"enum": [spec["chart_type"]]},
             "title": {"type": "string"},
-            "time_range": {
-                "type": "object",
-                "required": ["type", "start", "end"],
-                "additionalProperties": False,
-                "properties": {
-                    "type": {"const": "absolute"},
-                    "start": {"type": "string", "format": "date-time"},
-                    "end": {"type": "string", "format": "date-time"},
-                },
-            },
+            "time_range": _time_range_schema(),
             "series": {
                 "type": "array",
                 "minItems": 1,
                 "items": {
-                "type": "object",
-                "required": ["series_id", "label", "source", "role", "render_as", "transform", "unit"],
-                "additionalProperties": False,
+                    "type": "object",
+                    "required": ["series_id", "label", "source", "role", "render_as", "transform", "unit"],
+                    "additionalProperties": False,
                     "properties": {
                         "series_id": {"type": "string"},
                         "label": {"type": "string"},
@@ -210,19 +235,87 @@ def load_planner_result_schema(
                     },
                 },
             },
-            "overlays": {
-                "type": "array",
-                "items": {"type": "object"},
-            },
+            "overlays": {"type": "array", "items": {"type": "object"}},
             "x_axis": {"type": "object"},
             "y_axis": {"type": "object"},
-            "notes": {
-                "type": "array",
-                "items": {"type": "string"},
-            },
+            "notes": {"type": "array", "items": {"type": "string"}},
         },
     }
-    return schema
+
+
+def _multi_family_chart_spec_schema(families: list[str], entity_id_schema: dict[str, Any]) -> dict[str, Any]:
+    """Build the chart_spec schema fragment for a multi-family (ADR-0023) envelope.
+
+    ``chart_type`` is an enum of all families' chart_type values; ``render_as``
+    and ``source.type`` are permissive enough for all families.  The
+    out-of-envelope gate + renderer validate the actual choice post-hoc.
+    """
+    chart_types = list(dict.fromkeys(
+        PLANNER_RENDER_FAMILIES[f]["chart_type"] for f in families if f in PLANNER_RENDER_FAMILIES
+    ))
+    render_as_values = list(dict.fromkeys(
+        PLANNER_RENDER_FAMILIES[f]["render_as"] for f in families if f in PLANNER_RENDER_FAMILIES
+    ))
+    has_aggregate = "aggregate_bar" in families
+    source_types: list[str] = ["entity", "aggregate"] if has_aggregate else ["entity"]
+    return {
+        "type": "object",
+        "required": ["chart_id", "chart_type", "title", "time_range", "series"],
+        "additionalProperties": False,
+        "properties": {
+            "chart_id": {"type": "string"},
+            "chart_type": {"enum": chart_types},
+            "title": {"type": "string"},
+            "time_range": _time_range_schema(),
+            "series": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "type": "object",
+                    "required": ["series_id", "label", "source", "role", "render_as", "transform", "unit"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "series_id": {"type": "string"},
+                        "label": {"type": "string"},
+                        "source": {
+                            "type": "object",
+                            "required": ["type", "entity_id"],
+                            "additionalProperties": False,
+                            "properties": {
+                                "type": {"enum": source_types},
+                                "entity_id": entity_id_schema,
+                                "attribute": {"type": ["string", "null"]},
+                                "operation": {"enum": ["mean", "min", "max", "sum", "count"]},
+                            },
+                        },
+                        "role": {"enum": ["primary", "comparison", "secondary", "annotation"]},
+                        "render_as": {"enum": render_as_values},
+                        "transform": {
+                            "type": "object",
+                            "required": ["operation", "window"],
+                            "additionalProperties": False,
+                            "properties": {
+                                "operation": {"enum": ["none"]},
+                                "window": {"type": ["string", "null"]},
+                            },
+                        },
+                        "unit": {"type": ["string", "null"]},
+                    },
+                },
+            },
+            "overlays": {"type": "array", "items": {"type": "object"}},
+            "x_axis": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string"},
+                    "bin_count": {"type": "integer", "minimum": 1},
+                    "group_by": {"type": "string"},
+                },
+            },
+            "y_axis": {"type": "object"},
+            "notes": {"type": "array", "items": {"type": "string"}},
+        },
+    }
 
 
 def load_entity_selector_schema(candidate_entity_ids: list[str]) -> dict[str, Any]:
@@ -629,6 +722,28 @@ class OllamaCompatiblePlannerClient:
 
     def _chat_payload(self, request: dict[str, Any], result_schema: dict[str, Any], *, stream: bool = False) -> dict[str, Any]:
         chart_type, render_as = _chart_family_from_schema(result_schema)
+        # Detect multi-family envelope (ADR-0023): chart_type enum has >1 value.
+        try:
+            chart_type_enum: list[str] = result_schema["properties"]["chart_spec"]["properties"]["chart_type"]["enum"]
+        except (KeyError, TypeError):
+            chart_type_enum = [chart_type]
+        is_multi_family = len(chart_type_enum) > 1
+        if is_multi_family:
+            chart_type_rule = (
+                f"Choose chart_type from {chart_type_enum} to best match user intent: "
+                "time_series for trends over time, histogram for value distributions, "
+                "bar for aggregate/summary values per period. "
+                "Match render_as to the chosen type: line for time_series, histogram for histogram, bar for bar. "
+                "For histogram add x_axis with type 'value' and bin_count (default 8). "
+                "For bar add x_axis with type 'category' and group_by ('day' or 'hour'). "
+                "For bar series use source type 'aggregate' with entity_id and operation (mean/min/max/sum/count). "
+                "For time_series and histogram series use source type 'entity' with entity_id and attribute null."
+            )
+        else:
+            chart_type_rule = (
+                f"Use chart_type {chart_type}, render_as {render_as}, transform operation none, "
+                "x_axis type time, and overlays []."
+            )
         prompt_payload = {
             "task": "Return one PlannerResult JSON object for an Isolinear chart plan.",
             "rules": [
@@ -643,8 +758,7 @@ class OllamaCompatiblePlannerClient:
                 "The chart_spec must use chart_type, not graph_type.",
                 "Each series must include series_id, label, source, role, render_as, transform, and unit.",
                 "Each entity series source must be {\"type\":\"entity\",\"entity_id\":\"<approved id>\",\"attribute\":null}.",
-                f"Use chart_type {chart_type}, render_as {render_as}, transform operation none, "
-                "x_axis type time, and overlays [].",
+                chart_type_rule,
                 "Resolve the requested time window into an absolute time_range "
                 "{\"type\":\"absolute\",\"start\":<ISO8601>,\"end\":<ISO8601>} using the "
                 "request now and time_zone. Interpret fuzzy phrases (for example "

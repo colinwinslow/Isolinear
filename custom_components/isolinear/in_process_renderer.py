@@ -61,14 +61,19 @@ def render_in_process_chart(render_request: dict[str, Any]) -> dict[str, Any]:
     """Render a trusted ChartSpec to PNG bytes and a data URL."""
     chart_spec = render_request.get("chart_spec") if isinstance(render_request, dict) else None
     chart_type = chart_spec.get("chart_type") if isinstance(chart_spec, dict) else None
-    # Deterministic render-family dispatch (ADR-0022): categorical entities take
-    # the timeline/step renderer, everything else the numeric time-series path.
-    is_timeline = chart_type == "timeline"
-
-    if is_timeline:
+    # Dispatch by chart_type (ADR-0022 + ADR-0023).
+    if chart_type == "timeline":
         unsupported = _unsupported_timeline_request(render_request)
         unsupported_message = "The in-process renderer supports only safe binary/categorical timeline step tracks."
         render_png = _render_timeline_png
+    elif chart_type == "histogram":
+        unsupported = _unsupported_histogram_request(render_request)
+        unsupported_message = "The in-process renderer supports only safe numeric histogram charts."
+        render_png = _render_histogram_png
+    elif chart_type == "bar":
+        unsupported = _unsupported_aggregate_bar_request(render_request)
+        unsupported_message = "The in-process renderer supports only safe aggregate bar charts."
+        render_png = _render_aggregate_bar_png
     else:
         unsupported = _unsupported_time_series_request(render_request)
         unsupported_message = "The in-process renderer supports only safe numeric time-series line charts."
@@ -661,6 +666,378 @@ def _render_timeline_png(render_request: dict[str, Any]) -> tuple[bytes, dict[st
         "series_plotted": series_plotted,
         "x_min": t_min.isoformat(timespec="seconds"),
         "x_max": t_max.isoformat(timespec="seconds"),
+        "warnings": warnings,
+    }
+
+
+def _unsupported_histogram_request(render_request: dict[str, Any]) -> list[dict[str, Any]]:
+    unsupported: list[dict[str, Any]] = []
+    if render_request.get("render_mode") not in {RENDER_MODE_SAFE, RENDER_MODE_AUTO}:
+        unsupported.append({"path": "$.render_mode", "reason": "unsupported_render_mode"})
+    output = render_request.get("output") or {}
+    if output.get("format", "png") != "png":
+        unsupported.append({"path": "$.output.format", "reason": "png_required"})
+    chart_spec = render_request.get("chart_spec")
+    if not isinstance(chart_spec, dict):
+        return [{"path": "$.chart_spec", "reason": "must_be_object"}]
+    if chart_spec.get("chart_type") != "histogram":
+        unsupported.append({"path": "$.chart_spec.chart_type", "reason": "histogram_required"})
+    series = chart_spec.get("series")
+    if not isinstance(series, list) or not series:
+        unsupported.append({"path": "$.chart_spec.series", "reason": "must_be_non_empty_list"})
+        return unsupported
+    for index, item in enumerate(series):
+        if not isinstance(item, dict):
+            unsupported.append({"path": f"$.chart_spec.series[{index}]", "reason": "must_be_object"})
+            continue
+        source = item.get("source")
+        if not isinstance(source, dict) or source.get("type") != "entity":
+            unsupported.append({"path": f"$.chart_spec.series[{index}].source", "reason": "entity_source_required"})
+        if item.get("render_as", "histogram") != "histogram":
+            unsupported.append({"path": f"$.chart_spec.series[{index}].render_as", "reason": "histogram_required"})
+    history = render_request.get("history_series")
+    if not isinstance(history, list):
+        unsupported.append({"path": "$.history_series", "reason": "must_be_list"})
+    return unsupported
+
+
+def _render_histogram_png(render_request: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
+    """Render a histogram of numeric entity history values (ADR-0023).
+
+    Fail-soft density rule (ADR-0023 D6): sparse data renders a thin but valid
+    histogram — low density never triggers unsupported_chart_spec.  Only zero
+    numeric points in the window fails closed (caught in the series loop).
+    """
+    from PIL import Image, ImageDraw
+
+    chart_spec = render_request["chart_spec"]
+    output = render_request.get("output") or {}
+    width = max(int(output.get("width") or 1400), 200)
+    height = max(int(output.get("height") or 800), 150)
+
+    history_by_entity = {
+        item.get("entity_id"): item
+        for item in render_request.get("history_series", [])
+        if isinstance(item, dict) and isinstance(item.get("entity_id"), str)
+    }
+
+    x_axis = chart_spec.get("x_axis") or {}
+    bin_count = max(1, int(x_axis.get("bin_count") or 8))
+
+    series_plotted: list[str] = []
+    all_bins: list[tuple[float, float, int]] = []
+    series_label = ""
+    warnings: list[str] = []
+
+    for series_spec in chart_spec["series"]:
+        entity_id = series_spec["source"]["entity_id"]
+        history = history_by_entity.get(entity_id)
+        if history is None:
+            raise ValueError(f"Missing history for {entity_id}.")
+        if history.get("kind") != "numeric":
+            raise ValueError(f"History for {entity_id} is not numeric.")
+        values = [
+            float(point["value"])
+            for point in history.get("points", [])
+            if isinstance(point, dict)
+            and point.get("quality") == "ok"
+            and isinstance(point.get("value"), (int, float))
+            and not isinstance(point.get("value"), bool)
+        ]
+        if not values:
+            raise ValueError(f"History for {entity_id} has no numeric points.")
+        v_min = min(values)
+        v_max = max(values)
+        span = v_max - v_min or 1.0
+        counts = [0] * bin_count
+        for v in values:
+            idx = min(int((v - v_min) / span * bin_count), bin_count - 1)
+            counts[idx] += 1
+        bin_width = span / bin_count
+        all_bins = [(v_min + i * bin_width, v_min + (i + 1) * bin_width, counts[i]) for i in range(bin_count)]
+        series_label = series_spec.get("label") or entity_id
+        series_plotted.append(series_spec["series_id"])
+        break  # histogram shows the first numeric series; multi-series is unsupported
+
+    max_count = max((c for _, _, c in all_bins), default=1) or 1
+
+    image = Image.new("RGB", (width, height), (255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    title_font = _load_font(max(34, width // 24))
+    label_font = _load_font(max(24, width // 40))
+    tick_font = _load_font(max(20, width // 48))
+    axis_weight = max(3, width // 500)
+    grid_weight = max(2, width // 900)
+
+    title = chart_spec["title"]
+    title_w, title_h = _text_size(draw, title, title_font)
+    draw.text(((width - title_w) / 2, 20), title, fill=(20, 20, 20), font=title_font)
+
+    plot_left = max(120, width // 11)
+    plot_right = width - max(36, width // 36)
+    plot_top = 24 + title_h + 24
+    plot_bottom = height - max(104, height // 7)
+    plot_w = plot_right - plot_left
+    plot_h = plot_bottom - plot_top
+
+    bar_gap = max(1, plot_w // (len(all_bins) * 15)) if len(all_bins) > 1 else 0
+    bar_w = (plot_w - bar_gap * (len(all_bins) - 1)) / max(len(all_bins), 1)
+    color = _SERIES_COLORS[0]
+
+    for i, (bin_start, _bin_end, count) in enumerate(all_bins):
+        bar_h = count / max_count * plot_h
+        x0 = plot_left + i * (bar_w + bar_gap)
+        x1 = x0 + bar_w
+        y0 = plot_bottom - bar_h
+        if count > 0:
+            draw.rectangle([(x0, max(y0, plot_top)), (x1, plot_bottom)], fill=color)
+        tick_label = f"{bin_start:.1f}"
+        tw, _th = _text_size(draw, tick_label, tick_font)
+        if i % max(1, len(all_bins) // 6) == 0 or i == len(all_bins) - 1:
+            draw.text((x0, plot_bottom + 10), tick_label, fill=(90, 90, 90), font=tick_font)
+
+    for step in range(5):
+        count_val = max_count * step / 4
+        y = plot_bottom - count_val / max_count * plot_h
+        draw.line([(plot_left, y), (plot_right, y)], fill=(232, 232, 232), width=grid_weight)
+        lbl = str(int(round(count_val)))
+        lbl_w, lbl_h = _text_size(draw, lbl, tick_font)
+        draw.text((plot_left - 14 - lbl_w, y - lbl_h / 2), lbl, fill=(90, 90, 90), font=tick_font)
+
+    draw.line([(plot_left, plot_top), (plot_left, plot_bottom)], fill=(60, 60, 60), width=axis_weight)
+    draw.line([(plot_left, plot_bottom), (plot_right, plot_bottom)], fill=(60, 60, 60), width=axis_weight)
+
+    if series_label:
+        swatch_w = max(28, width // 50)
+        lbl_w, lbl_h = _text_size(draw, series_label, label_font)
+        entry_x = plot_right - (swatch_w + 10 + lbl_w) - 10
+        legend_y = plot_top + 10
+        draw.rectangle([(entry_x, legend_y), (entry_x + swatch_w, legend_y + lbl_h)], fill=color)
+        draw.text((entry_x + swatch_w + 10, legend_y), series_label, fill=(40, 40, 40), font=label_font)
+
+    _draw_vertical_text(image, "Count", 16, (plot_top + plot_bottom) / 2, label_font, (60, 60, 60))
+    value_label = _y_axis_label(chart_spec) or "Value"
+    vl_w, vl_h = _text_size(draw, value_label, label_font)
+    draw.text(
+        ((plot_left + plot_right) / 2 - vl_w / 2, height - vl_h - 16),
+        value_label,
+        fill=(60, 60, 60),
+        font=label_font,
+    )
+
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    v_min_str = f"{all_bins[0][0]:.4f}" if all_bins else None
+    v_max_str = f"{all_bins[-1][1]:.4f}" if all_bins else None
+    return buffer.getvalue(), {
+        "series_plotted": series_plotted,
+        "overlays_plotted": [],
+        "x_min": v_min_str,
+        "x_max": v_max_str,
+        "warnings": warnings,
+    }
+
+
+_AGGREGATE_OPERATIONS = {"mean", "min", "max", "sum", "count"}
+
+
+def _apply_aggregate(values: list[float], operation: str) -> float:
+    if operation == "min":
+        return min(values)
+    if operation == "max":
+        return max(values)
+    if operation == "sum":
+        return sum(values)
+    if operation == "count":
+        return float(len(values))
+    return sum(values) / len(values)  # mean (default)
+
+
+def _unsupported_aggregate_bar_request(render_request: dict[str, Any]) -> list[dict[str, Any]]:
+    unsupported: list[dict[str, Any]] = []
+    if render_request.get("render_mode") not in {RENDER_MODE_SAFE, RENDER_MODE_AUTO}:
+        unsupported.append({"path": "$.render_mode", "reason": "unsupported_render_mode"})
+    output = render_request.get("output") or {}
+    if output.get("format", "png") != "png":
+        unsupported.append({"path": "$.output.format", "reason": "png_required"})
+    chart_spec = render_request.get("chart_spec")
+    if not isinstance(chart_spec, dict):
+        return [{"path": "$.chart_spec", "reason": "must_be_object"}]
+    if chart_spec.get("chart_type") != "bar":
+        unsupported.append({"path": "$.chart_spec.chart_type", "reason": "bar_required"})
+    series = chart_spec.get("series")
+    if not isinstance(series, list) or not series:
+        unsupported.append({"path": "$.chart_spec.series", "reason": "must_be_non_empty_list"})
+        return unsupported
+    for index, item in enumerate(series):
+        if not isinstance(item, dict):
+            unsupported.append({"path": f"$.chart_spec.series[{index}]", "reason": "must_be_object"})
+            continue
+        source = item.get("source")
+        if not isinstance(source, dict) or source.get("type") != "aggregate":
+            unsupported.append({"path": f"$.chart_spec.series[{index}].source", "reason": "aggregate_source_required"})
+        elif source.get("operation") not in _AGGREGATE_OPERATIONS:
+            unsupported.append({"path": f"$.chart_spec.series[{index}].source.operation", "reason": "valid_operation_required"})
+        if item.get("render_as", "bar") != "bar":
+            unsupported.append({"path": f"$.chart_spec.series[{index}].render_as", "reason": "bar_required"})
+    history = render_request.get("history_series")
+    if not isinstance(history, list):
+        unsupported.append({"path": "$.history_series", "reason": "must_be_list"})
+    return unsupported
+
+
+def _render_aggregate_bar_png(render_request: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
+    """Render one aggregate bar per time bucket (ADR-0023).
+
+    Fail-soft: a single bucket or a window with sparse readings renders thin
+    but honestly.  Only zero numeric points in the window fails closed.
+    """
+    from PIL import Image, ImageDraw
+
+    chart_spec = render_request["chart_spec"]
+    output = render_request.get("output") or {}
+    width = max(int(output.get("width") or 1400), 200)
+    height = max(int(output.get("height") or 800), 150)
+
+    history_by_entity = {
+        item.get("entity_id"): item
+        for item in render_request.get("history_series", [])
+        if isinstance(item, dict) and isinstance(item.get("entity_id"), str)
+    }
+
+    x_axis = chart_spec.get("x_axis") or {}
+    group_by = str(x_axis.get("group_by") or "day").lower()
+
+    def _bucket_key(ts: datetime) -> str:
+        if group_by == "hour":
+            return ts.strftime("%Y-%m-%d %H:00")
+        return ts.strftime("%Y-%m-%d")
+
+    series_plotted: list[str] = []
+    all_bars: list[tuple[str, float]] = []
+    series_label = ""
+    warnings: list[str] = []
+
+    for series_spec in chart_spec["series"]:
+        source = series_spec.get("source") or {}
+        entity_id = source.get("entity_id")
+        operation = str(source.get("operation") or "mean")
+        history = history_by_entity.get(entity_id)
+        if history is None:
+            raise ValueError(f"Missing history for {entity_id}.")
+        if history.get("kind") != "numeric":
+            raise ValueError(f"History for {entity_id} is not numeric.")
+
+        from collections import defaultdict
+        buckets: dict[str, list[float]] = defaultdict(list)
+        for point in history.get("points", []):
+            if not isinstance(point, dict) or point.get("quality") != "ok":
+                continue
+            value = point.get("value")
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                continue
+            ts = _parse_timestamp(point.get("ts"))
+            buckets[_bucket_key(ts)].append(float(value))
+
+        if not buckets:
+            raise ValueError(f"History for {entity_id} has no numeric points.")
+
+        all_bars = [(key, _apply_aggregate(vals, operation)) for key, vals in sorted(buckets.items())]
+        series_label = series_spec.get("label") or entity_id
+        series_plotted.append(series_spec["series_id"])
+        break  # aggregate bar renders the first series; multi-series is unsupported
+
+    if not all_bars:
+        raise ValueError("No aggregate bars computed.")
+
+    bar_values = [v for _, v in all_bars]
+    v_min = min(bar_values)
+    v_max = max(bar_values)
+    if v_min == v_max:
+        v_min = 0.0 if v_max >= 0 else v_max * 1.1
+    v_pad = (v_max - v_min) * 0.05
+    v_min -= v_pad
+    v_max += v_pad
+    v_span = (v_max - v_min) or 1.0
+
+    image = Image.new("RGB", (width, height), (255, 255, 255))
+    draw = ImageDraw.Draw(image)
+    title_font = _load_font(max(34, width // 24))
+    label_font = _load_font(max(24, width // 40))
+    tick_font = _load_font(max(20, width // 48))
+    axis_weight = max(3, width // 500)
+    grid_weight = max(2, width // 900)
+
+    title = chart_spec["title"]
+    title_w, title_h = _text_size(draw, title, title_font)
+    draw.text(((width - title_w) / 2, 20), title, fill=(20, 20, 20), font=title_font)
+
+    plot_left = max(120, width // 11)
+    plot_right = width - max(36, width // 36)
+    plot_top = 24 + title_h + 24
+    plot_bottom = height - max(104, height // 7)
+    plot_w = plot_right - plot_left
+    plot_h = plot_bottom - plot_top
+
+    n = len(all_bars)
+    bar_gap = max(1, plot_w // (n * 10)) if n > 1 else 0
+    bar_w = (plot_w - bar_gap * (n - 1)) / max(n, 1)
+    color = _SERIES_COLORS[0]
+    zero_y = plot_bottom - max(0.0, (0.0 - v_min) / v_span * plot_h)
+
+    def y_px(v: float) -> float:
+        return plot_bottom - (v - v_min) / v_span * plot_h
+
+    for i, (bucket_key, value) in enumerate(all_bars):
+        x0 = plot_left + i * (bar_w + bar_gap)
+        x1 = x0 + bar_w
+        y_val = y_px(value)
+        y0 = min(y_val, zero_y)
+        y1 = max(y_val, zero_y)
+        y1 = max(y1, y0 + 1)
+        draw.rectangle([(x0, y0), (x1, y1)], fill=color)
+        if i % max(1, n // 8) == 0 or i == n - 1:
+            tick = bucket_key[-5:] if len(bucket_key) > 5 else bucket_key
+            tw, _th = _text_size(draw, tick, tick_font)
+            draw.text((x0 + bar_w / 2 - tw / 2, plot_bottom + 10), tick, fill=(90, 90, 90), font=tick_font)
+
+    for step in range(6):
+        v = v_min + v_span * step / 5
+        y = y_px(v)
+        draw.line([(plot_left, y), (plot_right, y)], fill=(232, 232, 232), width=grid_weight)
+        lbl = f"{v:.1f}"
+        lbl_w, lbl_h = _text_size(draw, lbl, tick_font)
+        draw.text((plot_left - 14 - lbl_w, y - lbl_h / 2), lbl, fill=(90, 90, 90), font=tick_font)
+
+    draw.line([(plot_left, plot_top), (plot_left, plot_bottom)], fill=(60, 60, 60), width=axis_weight)
+    draw.line([(plot_left, plot_bottom), (plot_right, plot_bottom)], fill=(60, 60, 60), width=axis_weight)
+
+    if series_label:
+        swatch_w = max(28, width // 50)
+        lbl_w, lbl_h = _text_size(draw, series_label, label_font)
+        entry_x = plot_right - (swatch_w + 10 + lbl_w) - 10
+        draw.rectangle([(entry_x, plot_top + 10), (entry_x + swatch_w, plot_top + 10 + lbl_h)], fill=color)
+        draw.text((entry_x + swatch_w + 10, plot_top + 10), series_label, fill=(40, 40, 40), font=label_font)
+
+    y_label = _y_axis_label(chart_spec)
+    if y_label:
+        _draw_vertical_text(image, y_label, 16, (plot_top + plot_bottom) / 2, label_font, (60, 60, 60))
+    period_label = "Day" if group_by == "day" else "Hour"
+    pl_w, pl_h = _text_size(draw, period_label, label_font)
+    draw.text(
+        ((plot_left + plot_right) / 2 - pl_w / 2, height - pl_h - 16),
+        period_label,
+        fill=(60, 60, 60),
+        font=label_font,
+    )
+
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue(), {
+        "series_plotted": series_plotted,
+        "overlays_plotted": [],
+        "x_min": all_bars[0][0] if all_bars else None,
+        "x_max": all_bars[-1][0] if all_bars else None,
         "warnings": warnings,
     }
 
