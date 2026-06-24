@@ -261,6 +261,35 @@
               ]
             }
           }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "entity_id",
+            "operation"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "aggregate"
+            },
+            "entity_id": {
+              "type": "string"
+            },
+            "attribute": {
+              "type": ["string", "null"]
+            },
+            "operation": {
+              "enum": [
+                "mean",
+                "min",
+                "max",
+                "sum",
+                "count"
+              ]
+            }
+          }
         }
       ]
     },

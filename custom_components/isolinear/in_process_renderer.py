@@ -815,7 +815,7 @@ def _render_histogram_png(render_request: dict[str, Any]) -> tuple[bytes, dict[s
         draw.rectangle([(entry_x, legend_y), (entry_x + swatch_w, legend_y + lbl_h)], fill=color)
         draw.text((entry_x + swatch_w + 10, legend_y), series_label, fill=(40, 40, 40), font=label_font)
 
-    _draw_vertical_text(image, "Count", 16, (plot_top + plot_bottom) / 2, label_font, (60, 60, 60))
+    _draw_vertical_text(image, "Readings", 16, (plot_top + plot_bottom) / 2, label_font, (60, 60, 60))
     value_label = _y_axis_label(chart_spec) or "Value"
     vl_w, vl_h = _text_size(draw, value_label, label_font)
     draw.text(
