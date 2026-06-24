@@ -1,7 +1,7 @@
 ---
 id: 0026
 title: Model entity selection runs in the pollable planning phase, not in blocking job/start
-status: draft
+status: accepted
 date: 2026-06-23
 supersedes: []
 superseded-by: null
@@ -15,12 +15,14 @@ tags:
 
 # ADR-0026: Model entity selection runs in the pollable planning phase, not in blocking job/start
 
-> **Status: draft (2026-06-23).** Diagnosed from a live `0.1.42` session on a
+> **Status: accepted (2026-06-24).** Diagnosed from a live `0.1.42` session on a
 > homelab Ollama (`gemma4:e4b` @ `10.0.1.39`): a measured `job/start` round-trip
 > took **15.2s** and returned `clarification_needed`, while the first
 > `job/snapshot` returned in ~0s. This ADR corrects the orchestration phase
 > boundary so ADR-0025 D7's "continuous reasoning from submit to chart" promise
-> is actually reachable. Spec + BDD to follow before implementation.
+> is actually reachable. Implemented and live-confirmed at `0.1.43` (commit
+> `7466ee5`): `job/start` now 0.01s, reasoning streams selection → planning →
+> chart. Spec + BDD + evidence under `docs/specs/` and `bdd/integration/`.
 
 ## Context
 
@@ -145,16 +147,18 @@ exactly as ADR-0025 D7 intended.
   new phase boundary (D5), including the live retest items already open in
   STATUS.md (AC-prompt D2 expansion; "Use and remember" alias reuse).
 
-**Open:**
-- Whether `job/start` should still surface *synchronous* rejections that occur
-  before any model work (e.g. unknown config entry, empty catalog,
-  malformed command) as direct errors, or also defer them to the first poll for
-  a uniform contract. Leaning: keep pre-model structural rejections synchronous
-  (they are cheap and already fail closed at the command boundary), defer only
-  the model-dependent outcomes. To be pinned in the spec.
-- Exact storage shape for the cached selection result on the job (new lock-
-  guarded field vs. reuse of an existing snapshot-staging structure) — an
-  implementation detail for the spec, not a contract surface.
+**Resolved during implementation:**
+- *Synchronous vs deferred rejections* — **pre-model structural rejections stay
+  synchronous.** An empty/unresolvable catalog fails closed on `job/start`
+  (`_synchronous_empty_catalog_failure`); only model-dependent outcomes (D2/D3,
+  planning, render) defer to the poll. Pinned in the spec's "Synchronous
+  rejections".
+- *Storage shape for the resolved selection* — **no auxiliary cache is written.**
+  Single-flight rests entirely on the existing `planning_lock` plus popping the
+  `entity_selection_pending` marker inside the lock before any terminal snapshot;
+  an early `job["entity_selection"]` cache field was implemented then removed as
+  dead state (architecture-review finding) because the lock + pop already
+  guarantee at-most-once model invocation.
 
 ## Alternatives considered
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft. Paired with
+Accepted (2026-06-24) — anchor + scenarios implemented and evidenced. Paired with
 [docs/specs/entity-selection-in-pollable-planning-phase.md](../../docs/specs/entity-selection-in-pollable-planning-phase.md).
 
 ADR-0026: model-driven entity selection (D1 + D2 + the D3 decision) moves out of

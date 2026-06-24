@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 date: 2026-06-23
 depends-on-adrs: [0026, 0025, 0024, 0011, 0020, 0023, 0008, 0005]
 ---
@@ -8,9 +8,11 @@ depends-on-adrs: [0026, 0025, 0024, 0011, 0020, 0023, 0008, 0005]
 
 ## Status
 
-Draft. Defines the contract surface for ADR-0026 (model entity selection runs in
-the pollable planning phase, not in blocking `job/start`). The ADR is `draft`;
-this spec turns its decisions D1–D6 into a concrete contract.
+Accepted (2026-06-24). Defines the contract surface for ADR-0026 (model entity
+selection runs in the pollable planning phase, not in blocking `job/start`).
+Implemented and live-confirmed at `0.1.43`; deviations recorded below (deferral
+gated on `first_real_vertical_slice_enabled`; single-flight rests on the lock +
+pending-marker pop with no auxiliary cache field).
 
 ## Related docs
 
@@ -100,13 +102,18 @@ Ordering inside the lock, on the first resolving poll:
 
 ### Single-flight idempotency (ADR-0026 D4)
 
-Entity selection must run **exactly once** per job and cache its result, so
-concurrent polls during the ~15s model phase do not double-call the model:
+Entity selection must run **exactly once** per job, so concurrent polls during
+the ~15s model phase do not double-call the model. The existing `planning_lock`
+already provides this with no separate result cache needed:
 
-- The resolved selection is stored write-once on the job as lock-guarded state
-  (`job["entity_selection"]`, alongside the existing planning/artifact
-  bookkeeping). A poll that acquires the lock and finds a cached selection skips
-  re-resolution.
+- The first poll acquires the lock and holds it for the *whole*
+  resolve-plan-render, and **pops the `entity_selection_pending` marker inside
+  the lock before appending any terminal snapshot**. So once resolution starts,
+  no later poll re-enters selection: a terminal clarification/failed snapshot is
+  no longer an artifact-source snapshot, and a successful resolution replaces the
+  source snapshot with the entities-bearing planning snapshot (stage no longer
+  `pending`). The pop + lock together guarantee single-flight; no auxiliary
+  cache field is written.
 - A poll that **cannot** acquire the lock (another poll is mid-resolution)
   returns the in-progress `planning` snapshot with the live-reasoning tail via
   the existing `apply_live_reasoning(latest_snapshot, slot)` path (`:1199`) —
@@ -184,8 +191,8 @@ Concrete-first:
    `job/start`; model-dependent outcomes defer to the poll — green.
 3. Idempotency unit tests: during a multi-poll resolution the model is invoked
    exactly once, concurrent polls return the in-progress `planning` snapshot with
-   the live-reasoning tail and `"Selecting entities…"` phase, and the cached
-   selection is reused — green.
+   the live-reasoning tail and `"Selecting entities…"` phase, and repeated polls
+   after resolution do not re-call the model — green.
 4. Retry unit tests: `job/retry` returns `planning`, first poll resolves
    selection/planning identically to start — green.
 5. **Full suite migrated and green.** Every test and eval that previously

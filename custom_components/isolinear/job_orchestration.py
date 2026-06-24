@@ -1457,9 +1457,9 @@ def _resolve_pending_entity_selection(
     the caller flows into planning/render under the same lock.
 
     Idempotent: the model is invoked at most once per job because the first poll
-    holds the planning lock for the whole resolution; concurrent polls are served
-    the in-progress reasoning snapshot by the lock-contended path. The resolved
-    selection is cached on the job as a belt-and-suspenders guard.
+    holds the planning lock for the whole resolution and pops the pending marker
+    inside the lock before any terminal snapshot; concurrent polls are served the
+    in-progress reasoning snapshot by the lock-contended path.
     """
     pending = job.get("entity_selection_pending") or {}
     kind = pending.get("kind", "start")
@@ -1544,10 +1544,6 @@ def _resolve_pending_entity_selection(
         }
 
     requested_entity_ids = selection["entity_ids"]
-    job["entity_selection"] = {
-        "entity_ids": list(requested_entity_ids),
-        "source": selection.get("source"),
-    }
     # Tranche 2: stash matched-alias display for the complete snapshot. Fail-open.
     job["alias_display"] = _alias_display_entries(
         hass, entry_id, selection.get("matched_alias_ids", [])
