@@ -839,12 +839,14 @@ def _history_record_from_state(entity_id: str, state: Any) -> dict[str, Any]:
             "entity_id": state.get("entity_id", entity_id),
             "state": state.get("state"),
             "last_changed": state.get("last_changed"),
+            "last_updated": state.get("last_updated"),
             "attributes": state.get("attributes", {}),
         }
     return {
         "entity_id": getattr(state, "entity_id", entity_id),
         "state": getattr(state, "state", None),
         "last_changed": getattr(state, "last_changed", None),
+        "last_updated": getattr(state, "last_updated", None),
         "attributes": getattr(state, "attributes", {}) or {},
     }
 
@@ -938,7 +940,16 @@ def _normalize_history_record(entity_id: str, record: Any, *, path: str) -> dict
     if not _is_json_primitive(state):
         errors.append({"path": f"{path}.state", "reason": "must_be_scalar_or_null"})
 
-    timestamp_result = _coerce_datetime(record.get("last_changed"), f"{path}.last_changed")
+    # Prefer last_updated as the point timestamp: it advances on every recorder
+    # write (state OR attribute change), whereas last_changed advances only when
+    # the state string changes. For a climate entity whose state is a constant
+    # ("cool" all day) while the hvac_action attribute cycles, last_changed is
+    # frozen — using it would collapse every cooling/idle snapshot onto a single
+    # timestamp and render one stale block. last_updated places each snapshot at
+    # the moment it took effect. Falls back to last_changed when absent (the
+    # required field), so records that supply only last_changed are unaffected.
+    timestamp_source = "last_updated" if record.get("last_updated") is not None else "last_changed"
+    timestamp_result = _coerce_datetime(record.get(timestamp_source), f"{path}.{timestamp_source}")
     if not timestamp_result["accepted"]:
         errors.extend(timestamp_result["errors"])
 

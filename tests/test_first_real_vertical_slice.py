@@ -2052,6 +2052,84 @@ class TieredHistoryRetrievalTests(unittest.TestCase):
         self.assertNotIn("value_min", series["points"][0])
 
 
+class ClimateAttributeTimestampTests(unittest.TestCase):
+    """Regression: climate overlays must use last_updated, not last_changed.
+
+    A climate entity's state is a constant HVAC mode ("cool" all day) while the
+    hvac_action attribute cycles cooling/idle. last_changed only advances on a
+    state-string change, so it stays frozen — using it collapses every snapshot
+    onto one timestamp and renders a single stale overlay block. last_updated
+    advances per attribute change and places each snapshot where it belongs.
+    """
+
+    def _climate_records(self):
+        base = datetime(2026, 6, 24, 7, 0, 0, tzinfo=timezone.utc)
+        frozen_last_changed = base.isoformat()  # state became "cool" at 07:00 and never changed
+        cycle = ["idle", "cooling", "cooling", "idle", "cooling", "idle"]
+        return base, [
+            {
+                "entity_id": "climate.kitchen_ecobee",
+                "state": "cool",
+                "last_changed": frozen_last_changed,
+                "last_updated": (base + timedelta(hours=index * 2)).isoformat(),
+                "attributes": {"hvac_action": action},
+            }
+            for index, action in enumerate(cycle)
+        ]
+
+    def test_last_updated_spreads_climate_snapshots_across_window(self):
+        base, records = self._climate_records()
+        catalog_item = {
+            "entity_id": "climate.kitchen_ecobee",
+            "friendly_name": "Kitchen ecobee",
+            "domain": "climate",
+        }
+        series = history_retrieval._normalize_history_series(
+            "climate.kitchen_ecobee",
+            catalog_item,
+            records,
+            range_start=base,
+            range_end=base + timedelta(hours=24),
+        )["series"]
+        # Each snapshot keeps its own timestamp; nothing collapses onto last_changed.
+        self.assertEqual(len(series["points"]), 6)
+        self.assertEqual(len({point["ts"] for point in series["points"]}), 6)
+        self.assertEqual(series["points"][0]["attrs"], {"hvac_action": "idle"})
+
+    def test_cooling_regions_are_discrete_not_one_block(self):
+        from custom_components.isolinear.in_process_renderer import _binary_on_regions
+
+        base, records = self._climate_records()
+        window_end = base + timedelta(hours=24)
+        series = history_retrieval._normalize_history_series(
+            "climate.kitchen_ecobee",
+            {"entity_id": "climate.kitchen_ecobee", "domain": "climate"},
+            records,
+            range_start=base,
+            range_end=window_end,
+        )["series"]
+        regions = _binary_on_regions(
+            series, {"cooling"}, window_end=window_end, attribute_key="hvac_action"
+        )
+        # cooling at index 1-2 (09:00-13:00) and index 4 (15:00-17:00) → two bands.
+        self.assertEqual(len(regions), 2)
+
+    def test_frozen_last_changed_without_last_updated_collapses(self):
+        # Documents the original failure mode: with only last_changed (frozen),
+        # all snapshots share one timestamp and the overlay collapses to nothing.
+        base, records = self._climate_records()
+        for record in records:
+            del record["last_updated"]
+        series = history_retrieval._normalize_history_series(
+            "climate.kitchen_ecobee",
+            {"entity_id": "climate.kitchen_ecobee", "domain": "climate"},
+            records,
+            range_start=base,
+            range_end=base + timedelta(hours=24),
+        )["series"]
+        self.assertEqual(len({point["ts"] for point in series["points"]}), 1)
+
+
 class ModelResolvedWindowEndToEndTests(unittest.TestCase):
     def _configure_now(self, hass):
         hass.data[DOMAIN][DATA_JOB_ORCHESTRATION_TIME_RANGE] = {"now": _iso(NOW)}
