@@ -86,6 +86,10 @@
               "invalid",
               "missing"
             ]
+          },
+          "attrs": {
+            "type": "object",
+            "description": "Selected entity attributes captured at each state change, keyed by attribute name. Used for categorical overlays that shade by attribute value rather than entity state (e.g. hvac_action for climate entities)."
           }
         }
       }
