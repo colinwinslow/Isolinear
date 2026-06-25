@@ -735,7 +735,6 @@ var Q = class extends U {
       <article class="card" data-layout=${Fe(t.status)}>
         <header class="header">
           <div>
-            <p class="eyebrow">Isolinear</p>
             <h2>${e?.title ?? "Isolinear"}</h2>
           </div>
           <span class="state" data-testid="job-state">${t.state_label}</span>
@@ -784,9 +783,7 @@ var Q = class extends U {
           <img data-testid="chart-image" src=${e.chart?.image_url ?? ""} alt=${e.chart?.title ?? "Generated chart"}>
           <div class="result-meta">
             <h3>${e.chart?.title}</h3>
-            <p>${e.chart?.time_range}</p>
             ${this.renderEntityDisclosure(e)}
-            ${this.renderValidation(e)}
           </div>
         </section>
       ` : M`

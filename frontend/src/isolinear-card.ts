@@ -197,7 +197,6 @@ export class IsolinearCard extends LitElement {
       <article class="card" data-layout=${statusLayout(snapshot.status)}>
         <header class="header">
           <div>
-            <p class="eyebrow">Isolinear</p>
             <h2>${config?.title ?? "Isolinear"}</h2>
           </div>
           <span class="state" data-testid="job-state">${snapshot.state_label}</span>
@@ -258,9 +257,7 @@ export class IsolinearCard extends LitElement {
           <img data-testid="chart-image" src=${snapshot.chart?.image_url ?? ""} alt=${snapshot.chart?.title ?? "Generated chart"}>
           <div class="result-meta">
             <h3>${snapshot.chart?.title}</h3>
-            <p>${snapshot.chart?.time_range}</p>
             ${this.renderEntityDisclosure(snapshot)}
-            ${this.renderValidation(snapshot)}
           </div>
         </section>
       `;
