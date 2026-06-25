@@ -16,6 +16,19 @@ export interface IsolinearCardConfig {
   render_preference?: "trusted" | "advanced";
 }
 
+export interface IsolinearLegendState {
+  label: string;
+  color: string;
+}
+
+export interface IsolinearLegendItem {
+  label: string;
+  entity_id: string;
+  color: string;
+  kind: "series" | "overlay";
+  states?: IsolinearLegendState[];
+}
+
 export interface IsolinearValidationSummary {
   status: string;
   summary: string;
@@ -57,6 +70,7 @@ export interface IsolinearJobSnapshot {
     title: string;
     image_url: string;
     time_range: string;
+    summary?: string;
     series: Array<{
       series_id: string;
       label: string;
@@ -67,6 +81,8 @@ export interface IsolinearJobSnapshot {
       label: string;
       entity_id: string;
     }>;
+    // ADR-0027: renderer color manifest the card renders as the legend.
+    legend?: IsolinearLegendItem[];
   };
   entities?: Array<{
     entity_id: string;
@@ -75,6 +91,7 @@ export interface IsolinearJobSnapshot {
   aliases?: Array<{
     name: string;
     meaning: string;
+    entity_id?: string;
   }>;
   failure?: {
     stage: string;

@@ -156,6 +156,17 @@
           "items": {
             "$ref": "#/$defs/chartItem"
           }
+        },
+        "summary": {
+          "type": "string",
+          "description": "Model-authored caption describing what the chart shows (ADR-0027 D3/C2). Optional; the card falls back to title when absent."
+        },
+        "legend": {
+          "type": "array",
+          "description": "Renderer color manifest the card renders as the legend (ADR-0027 D1/C4). Optional; absent for out-of-scope families and older artifacts.",
+          "items": {
+            "$ref": "#/$defs/legendItem"
+          }
         }
       }
     },
@@ -182,6 +193,10 @@
           "meaning": {
             "type": "string",
             "pattern": "\\S"
+          },
+          "entity_id": {
+            "type": "string",
+            "description": "Entity this alias resolved to, so the card can show it inside the matching legend row's disclosure (ADR-0027 D6/C5). Optional."
           }
         }
       }
@@ -280,6 +295,54 @@
         "entity_id": {
           "type": "string",
           "pattern": "\\S"
+        }
+      }
+    },
+    "legendItem": {
+      "type": "object",
+      "required": [
+        "label",
+        "entity_id",
+        "color",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "kind": {
+          "enum": [
+            "series",
+            "overlay"
+          ]
+        },
+        "states": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "label",
+              "color"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              }
+            }
+          }
         }
       }
     },

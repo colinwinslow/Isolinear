@@ -513,6 +513,44 @@ class RenderFamilyRoutingTests(unittest.TestCase):
         self.assertNotIn("active_values", overlay)
         # Climate overlays use hvac_action attribute so "cooling"/"heating" match
         self.assertEqual(overlay["source"]["attribute"], "hvac_action")
+        # No model label → falls back to the catalog friendly name.
+        self.assertEqual(overlay["label"], "Kitchen Ecobee")
+
+    def test_compose_state_overlays_applies_model_overlay_label(self):
+        # ADR-0027 D4: the model-authored overlay label wins over the friendly name.
+        chart_spec = {
+            "chart_id": "c", "chart_type": "time_series", "title": "Temp",
+            "time_range": {"type": "relative", "duration": "24h"},
+            "series": [{
+                "series_id": "temp", "label": "Temp",
+                "source": {"type": "entity", "entity_id": "sensor.kitchen_temp", "attribute": None},
+                "role": "primary", "render_as": "line",
+                "transform": {"operation": "none", "window": None}, "unit": "degF",
+            }],
+            "overlays": [], "x_axis": {"type": "time"}, "y_axis": {}, "notes": [],
+        }
+        catalog = [{"entity_id": "climate.kitchen_ecobee", "friendly_name": "Kitchen Ecobee"}]
+
+        # Model label applied verbatim.
+        composed = job_orchestration._compose_state_overlays(
+            chart_spec, overlay_entity_ids=["climate.kitchen_ecobee"], catalog_items=catalog,
+            overlay_labels={"climate.kitchen_ecobee": "AC running"},
+        )
+        self.assertEqual(composed["overlays"][0]["label"], "AC running")
+
+        # Entity-id-shaped model label is rejected → friendly-name fallback.
+        composed = job_orchestration._compose_state_overlays(
+            chart_spec, overlay_entity_ids=["climate.kitchen_ecobee"], catalog_items=catalog,
+            overlay_labels={"climate.kitchen_ecobee": "climate.kitchen_ecobee"},
+        )
+        self.assertEqual(composed["overlays"][0]["label"], "Kitchen Ecobee")
+
+        # No friendly name and no model label → derived "<id> — running state".
+        composed = job_orchestration._compose_state_overlays(
+            chart_spec, overlay_entity_ids=["climate.kitchen_ecobee"], catalog_items=[],
+            overlay_labels=None,
+        )
+        self.assertEqual(composed["overlays"][0]["label"], "climate.kitchen_ecobee — running state")
 
     def test_climate_entity_matches_ac_and_thermostat_synonyms(self):
         catalog = [
@@ -671,6 +709,16 @@ class RenderFamilyRoutingTests(unittest.TestCase):
             png_files = list(artifact_dir.glob("*.png"))
             self.assertEqual(len(png_files), 1, png_files)
             self.assertEqual(png_files[0].read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
+
+            # ADR-0027: the complete snapshot carries the renderer legend manifest
+            # (series + overlay), so the card can render the legend.
+            legend = snapshot["snapshot"]["chart"]["legend"]
+            kinds = [row["kind"] for row in legend]
+            self.assertIn("series", kinds)
+            self.assertIn("overlay", kinds)
+            overlay_row = next(row for row in legend if row["kind"] == "overlay")
+            self.assertEqual(overlay_row["entity_id"], "binary_sensor.kitchen_door")
+            self.assertTrue(overlay_row["color"].startswith("#"))
 
     def test_two_numeric_plus_binary_renders_overlay_png(self):
         # Two numeric series + a binary entity now composes into an overlay chart:
@@ -921,6 +969,16 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             chart_spec_schema["properties"]["series"]["items"]["properties"]["source"]["properties"]["type"]["enum"],
             ["entity"],
         )
+
+    def test_planner_schema_requires_summary_and_permits_overlay_labels(self):
+        # ADR-0027: constrained decoding requires a chart_spec.summary and allows
+        # a top-level overlay_labels map of {entity_id: label}.
+        schema = load_planner_result_schema("time_series")
+        chart_spec_schema = schema["properties"]["chart_spec"]
+        self.assertIn("summary", chart_spec_schema["required"])
+        self.assertEqual(chart_spec_schema["properties"]["summary"], {"type": "string"})
+        overlay_labels = schema["properties"]["overlay_labels"]
+        self.assertEqual(overlay_labels["additionalProperties"], {"type": "string"})
 
     def test_config_entry_setup_registers_artifact_static_path(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1799,6 +1857,98 @@ def _overlay_render_request(width: int = 1400, height: int = 800) -> dict[str, A
     }
 
 
+def _climate_overlay_render_request(width: int = 1400, height: int = 800) -> dict[str, Any]:
+    # Temperature line + climate hvac_action overlay with a cooling/heating
+    # color_map (ADR-0027: multi-state overlay legend manifest).
+    start = datetime(2026, 6, 18, 0, 0, 0, tzinfo=timezone.utc)
+    temp_points = [
+        {
+            "ts": (start + timedelta(hours=index)).isoformat(timespec="seconds"),
+            "value": 70.0 + index,
+            "raw_state": "x",
+            "quality": "ok",
+        }
+        for index in range(25)
+    ]
+    # hvac_action cycles: cooling early, idle, heating late.
+    actions = ["cooling", "cooling", "idle", "heating", "heating", "idle"]
+    climate_points = [
+        {
+            "ts": (start + timedelta(hours=i * 4)).isoformat(timespec="seconds"),
+            "value": "cool",
+            "raw_state": "cool",
+            "quality": "ok",
+            "attrs": {"hvac_action": action},
+        }
+        for i, action in enumerate(actions)
+    ]
+    return {
+        "request_id": "climate-overlay-anchor",
+        "render_mode": "safe",
+        "chart_spec": {
+            "chart_id": "c",
+            "chart_type": "time_series",
+            "title": "Temperature & AC",
+            "time_range": {
+                "type": "absolute",
+                "start": start.isoformat(timespec="seconds"),
+                "end": (start + timedelta(hours=24)).isoformat(timespec="seconds"),
+            },
+            "series": [
+                {
+                    "series_id": "temp",
+                    "label": "Living Room Temperature",
+                    "source": {"type": "entity", "entity_id": "sensor.living_room_temperature", "attribute": None},
+                    "role": "primary",
+                    "render_as": "line",
+                    "transform": {"operation": "none", "window": None},
+                    "unit": "degF",
+                }
+            ],
+            "overlays": [
+                {
+                    "overlay_id": "overlay-001",
+                    "label": "AC running",
+                    "source": {"type": "entity", "entity_id": "climate.kitchen_ecobee", "attribute": "hvac_action"},
+                    "render_as": "shaded_intervals",
+                    "color_map": {"cooling": "#B8D4EE", "heating": "#FFCF9E"},
+                }
+            ],
+            "x_axis": {"type": "time"},
+            "y_axis": {"label": "degF"},
+            "notes": [],
+        },
+        "history_series": [
+            {
+                "series_id": "temp",
+                "entity_id": "sensor.living_room_temperature",
+                "label": "Living Room Temperature",
+                "kind": "numeric",
+                "unit": "degF",
+                "points": temp_points,
+                "source_entity_ids": ["sensor.living_room_temperature"],
+                "warnings": [],
+            },
+            {
+                "series_id": "ecobee",
+                "entity_id": "climate.kitchen_ecobee",
+                "label": "Kitchen ecobee",
+                "kind": "categorical_state",
+                "unit": None,
+                "points": climate_points,
+                "source": "recorder_states",
+                "resolution": "raw",
+                "source_entity_ids": ["climate.kitchen_ecobee"],
+                "warnings": [],
+            },
+        ],
+        "derived_intervals": [],
+        "output": {"format": "png", "width": width, "height": height},
+        "theme": {},
+        "codegen": None,
+    }
+
+
 class InProcessOverlayRendererTests(unittest.TestCase):
     def _open(self, png_bytes: bytes):
         from io import BytesIO
@@ -1806,6 +1956,54 @@ class InProcessOverlayRendererTests(unittest.TestCase):
         from PIL import Image
 
         return Image.open(BytesIO(png_bytes)).convert("RGB")
+
+    def test_legend_manifest_lists_series_then_binary_overlay_with_colors(self):
+        result = render_in_process_chart(_overlay_render_request())
+        self.assertTrue(result["accepted"], result)
+        legend = result["render_result"]["render_metadata"]["legend"]
+        # Series first, then overlay (ADR-0027 D1).
+        self.assertEqual(legend[0], {
+            "label": "Living Room Temperature",
+            "entity_id": "sensor.living_room_temperature",
+            "color": "#1f77b4",  # _SERIES_COLORS[0]
+            "kind": "series",
+        })
+        overlay = legend[1]
+        self.assertEqual(overlay["kind"], "overlay")
+        self.assertEqual(overlay["entity_id"], "binary_sensor.ac")
+        self.assertEqual(overlay["label"], "AC Running")
+        # Binary overlay = single state → card draws a solid (not split) swatch.
+        self.assertEqual(len(overlay["states"]), 1)
+        self.assertEqual(overlay["color"], "#ffe0b2")
+
+    def test_legend_manifest_climate_overlay_has_per_state_colors(self):
+        result = render_in_process_chart(_climate_overlay_render_request())
+        self.assertTrue(result["accepted"], result)
+        legend = result["render_result"]["render_metadata"]["legend"]
+        overlay = next(item for item in legend if item["kind"] == "overlay")
+        self.assertEqual(overlay["entity_id"], "climate.kitchen_ecobee")
+        self.assertEqual(overlay["label"], "AC running")
+        states = {state["label"]: state["color"] for state in overlay["states"]}
+        self.assertEqual(states, {"cooling": "#b8d4ee", "heating": "#ffcf9e"})
+        # Row color is the first state's color (card builds the split swatch from states).
+        self.assertEqual(overlay["color"], overlay["states"][0]["color"])
+
+    def test_timeline_family_emits_no_legend_manifest(self):
+        # Out of ADR-0027 scope: timeline keeps its in-image legend, no manifest.
+        result = render_in_process_chart(_binary_timeline_render_request())
+        self.assertTrue(result["accepted"], result)
+        self.assertIsNone(result["render_result"]["render_metadata"].get("legend"))
+
+    def test_chart_spec_summary_flows_into_render_metadata(self):
+        # ADR-0027: the model summary rides render_metadata to reach the card caption.
+        request = _overlay_render_request()
+        request["chart_spec"]["summary"] = "Living room temperature with AC running overlaid."
+        result = render_in_process_chart(request)
+        self.assertTrue(result["accepted"], result)
+        self.assertEqual(
+            result["render_result"]["render_metadata"]["summary"],
+            "Living room temperature with AC running overlaid.",
+        )
 
     def test_numeric_line_with_binary_overlay_renders_band_and_line(self):
         result = render_in_process_chart(_overlay_render_request())

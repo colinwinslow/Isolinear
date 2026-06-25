@@ -6,6 +6,7 @@ import type {
   IsolinearCardConfig,
   IsolinearClarificationOption,
   IsolinearJobSnapshot,
+  IsolinearLegendItem,
 } from "./types";
 
 declare global {
@@ -256,8 +257,8 @@ export class IsolinearCard extends LitElement {
         <section class="result">
           <img data-testid="chart-image" src=${snapshot.chart?.image_url ?? ""} alt=${snapshot.chart?.title ?? "Generated chart"}>
           <div class="result-meta">
-            <h3>${snapshot.chart?.title}</h3>
-            ${this.renderEntityDisclosure(snapshot)}
+            <h3>${snapshot.chart?.summary ?? snapshot.chart?.title}</h3>
+            ${this.renderLegend(snapshot)}
           </div>
         </section>
       `;
@@ -311,16 +312,82 @@ export class IsolinearCard extends LitElement {
     `;
   }
 
-  private renderEntityDisclosure(snapshot: IsolinearJobSnapshot) {
+  private renderLegend(snapshot: IsolinearJobSnapshot) {
+    const legend = snapshot.chart?.legend;
+    if (!legend || legend.length === 0) {
+      // Graceful empty state (older artifacts / out-of-scope families): no legend.
+      return nothing;
+    }
     return html`
-      <details open>
-        <summary>Entities and aliases</summary>
-        <ul>
-          ${(snapshot.entities ?? []).map((entity) => html`<li>${entity.label}: ${entity.entity_id}</li>`)}
-          ${(snapshot.aliases ?? []).map((alias) => html`<li>${alias.name}: ${alias.meaning}</li>`)}
+      <details class="legend" open>
+        <summary>Legend</summary>
+        <ul class="legend-rows">
+          ${legend.map((item) => this.renderLegendRow(snapshot, item))}
         </ul>
       </details>
     `;
+  }
+
+  private renderLegendRow(snapshot: IsolinearJobSnapshot, item: IsolinearLegendItem) {
+    const label = this.legendLabel(item);
+    const states = item.kind === "overlay" ? item.states ?? [] : [];
+    const isSplit = states.length > 1;
+    const alias = (snapshot.aliases ?? []).find((entry) => entry.entity_id === item.entity_id);
+    const childStates = states.length > 1 ? states : [];
+    return html`
+      <li class="legend-row">
+        <details>
+          <summary>
+            <span
+              class="swatch"
+              style=${isSplit ? this.splitSwatchStyle(states) : `background:${item.color}`}
+            ></span>
+            <span class="legend-label">${label}</span>
+            ${item.kind === "overlay" ? html`<span class="legend-tag">overlay</span>` : nothing}
+          </summary>
+          <div class="legend-detail">
+            <span class="legend-entity">${item.entity_id}</span>
+            ${alias
+              ? html`<span class="legend-alias">alias: ${alias.name}</span>`
+              : nothing}
+            ${childStates.length > 0
+              ? html`
+                  <ul class="legend-states">
+                    ${childStates.map(
+                      (state) => html`
+                        <li>
+                          <span class="swatch swatch-sm" style=${`background:${state.color}`}></span>
+                          <span>running state: ${state.label}</span>
+                        </li>
+                      `,
+                    )}
+                  </ul>
+                `
+              : nothing}
+          </div>
+        </details>
+      </li>
+    `;
+  }
+
+  // A label is only descriptive if it is not an empty/whitespace string and not a
+  // raw entity-id (domain.object_id). Otherwise fall back to the entity_id's tail.
+  private legendLabel(item: IsolinearLegendItem): string {
+    const label = (item.label ?? "").trim();
+    if (label && !/^[a-z_]+\.[a-z0-9_]+$/.test(label)) {
+      return label;
+    }
+    const tail = item.entity_id.split(".").pop() ?? item.entity_id;
+    return tail.replace(/_/g, " ");
+  }
+
+  // Build a half/half (or evenly-split) swatch background from the state colors.
+  private splitSwatchStyle(states: Array<{ color: string }>): string {
+    const step = 100 / states.length;
+    const stops = states
+      .map((state, index) => `${state.color} ${index * step}% ${(index + 1) * step}%`)
+      .join(", ");
+    return `background:linear-gradient(90deg, ${stops})`;
   }
 
   private renderValidation(snapshot: IsolinearJobSnapshot) {
@@ -685,6 +752,93 @@ export class IsolinearCard extends LitElement {
       color: var(--secondary-text-color, #596579);
       flex-wrap: wrap;
       font-size: 0.9rem;
+    }
+
+    .legend > summary {
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--secondary-text-color, #596579);
+    }
+
+    .legend-rows {
+      list-style: none;
+      margin: 8px 0 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .legend-row > details > summary {
+      align-items: center;
+      cursor: pointer;
+      display: flex;
+      gap: 8px;
+      list-style: none;
+      padding: 3px 0;
+    }
+
+    .legend-row > details > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .swatch {
+      border: 1px solid rgba(0, 0, 0, 0.15);
+      border-radius: 3px;
+      display: inline-block;
+      flex: 0 0 auto;
+      height: 14px;
+      width: 22px;
+    }
+
+    .swatch-sm {
+      height: 12px;
+      width: 18px;
+    }
+
+    .legend-label {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .legend-tag {
+      background: var(--divider-color, #e3e8f0);
+      border-radius: 4px;
+      color: var(--secondary-text-color, #596579);
+      font-size: 0.7rem;
+      padding: 1px 6px;
+      text-transform: uppercase;
+    }
+
+    .legend-detail {
+      color: var(--secondary-text-color, #596579);
+      display: flex;
+      flex-direction: column;
+      font-size: 0.8rem;
+      gap: 4px;
+      padding: 2px 0 6px 30px;
+    }
+
+    .legend-entity {
+      font-family: var(--code-font-family, monospace);
+    }
+
+    .legend-states {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      list-style: none;
+      margin: 2px 0 0;
+      padding: 0;
+    }
+
+    .legend-states li {
+      align-items: center;
+      display: flex;
+      gap: 8px;
     }
   `;
 }

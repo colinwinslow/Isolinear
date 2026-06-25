@@ -245,9 +245,14 @@ class SaveTranche2IntegrationTests(unittest.TestCase):
 
             snapshot = _snapshot_job(hass, entry, second["snapshot"]["job_id"], message_id=11)
             self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot["snapshot"])
-            # Complete snapshot surfaces the matched alias.
+            # Complete snapshot surfaces the matched alias, carrying entity_id so
+            # the card can show it inside the matching legend row (ADR-0027 D6).
             aliases = snapshot["snapshot"].get("aliases")
-            self.assertEqual(aliases, [{"name": "air conditioning", "meaning": "climate.kitchen_ecobee (entity)"}])
+            self.assertEqual(aliases, [{
+                "name": "air conditioning",
+                "meaning": "climate.kitchen_ecobee (entity)",
+                "entity_id": "climate.kitchen_ecobee",
+            }])
 
     def test_save_failure_is_non_blocking(self):
         with tempfile.TemporaryDirectory() as temp_dir:

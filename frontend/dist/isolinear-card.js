@@ -782,8 +782,8 @@ var Q = class extends U {
         <section class="result">
           <img data-testid="chart-image" src=${e.chart?.image_url ?? ""} alt=${e.chart?.title ?? "Generated chart"}>
           <div class="result-meta">
-            <h3>${e.chart?.title}</h3>
-            ${this.renderEntityDisclosure(e)}
+            <h3>${e.chart?.summary ?? e.chart?.title}</h3>
+            ${this.renderLegend(e)}
           </div>
         </section>
       ` : M`
@@ -824,16 +824,55 @@ var Q = class extends U {
       </div>
     `;
 	}
-	renderEntityDisclosure(e) {
-		return M`
-      <details open>
-        <summary>Entities and aliases</summary>
-        <ul>
-          ${(e.entities ?? []).map((e) => M`<li>${e.label}: ${e.entity_id}</li>`)}
-          ${(e.aliases ?? []).map((e) => M`<li>${e.name}: ${e.meaning}</li>`)}
+	renderLegend(e) {
+		let t = e.chart?.legend;
+		return !t || t.length === 0 ? P : M`
+      <details class="legend" open>
+        <summary>Legend</summary>
+        <ul class="legend-rows">
+          ${t.map((t) => this.renderLegendRow(e, t))}
         </ul>
       </details>
     `;
+	}
+	renderLegendRow(e, t) {
+		let n = this.legendLabel(t), r = t.kind === "overlay" ? t.states ?? [] : [], i = r.length > 1, a = (e.aliases ?? []).find((e) => e.entity_id === t.entity_id), o = r.length > 1 ? r : [];
+		return M`
+      <li class="legend-row">
+        <details>
+          <summary>
+            <span
+              class="swatch"
+              style=${i ? this.splitSwatchStyle(r) : `background:${t.color}`}
+            ></span>
+            <span class="legend-label">${n}</span>
+            ${t.kind === "overlay" ? M`<span class="legend-tag">overlay</span>` : P}
+          </summary>
+          <div class="legend-detail">
+            <span class="legend-entity">${t.entity_id}</span>
+            ${a ? M`<span class="legend-alias">alias: ${a.name}</span>` : P}
+            ${o.length > 0 ? M`
+                  <ul class="legend-states">
+                    ${o.map((e) => M`
+                        <li>
+                          <span class="swatch swatch-sm" style=${`background:${e.color}`}></span>
+                          <span>running state: ${e.label}</span>
+                        </li>
+                      `)}
+                  </ul>
+                ` : P}
+          </div>
+        </details>
+      </li>
+    `;
+	}
+	legendLabel(e) {
+		let t = (e.label ?? "").trim();
+		return t && !/^[a-z_]+\.[a-z0-9_]+$/.test(t) ? t : (e.entity_id.split(".").pop() ?? e.entity_id).replace(/_/g, " ");
+	}
+	splitSwatchStyle(e) {
+		let t = 100 / e.length;
+		return `background:linear-gradient(90deg, ${e.map((e, n) => `${e.color} ${n * t}% ${(n + 1) * t}%`).join(", ")})`;
 	}
 	renderValidation(e) {
 		return M`
@@ -1092,6 +1131,93 @@ var Q = class extends U {
       color: var(--secondary-text-color, #596579);
       flex-wrap: wrap;
       font-size: 0.9rem;
+    }
+
+    .legend > summary {
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--secondary-text-color, #596579);
+    }
+
+    .legend-rows {
+      list-style: none;
+      margin: 8px 0 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .legend-row > details > summary {
+      align-items: center;
+      cursor: pointer;
+      display: flex;
+      gap: 8px;
+      list-style: none;
+      padding: 3px 0;
+    }
+
+    .legend-row > details > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .swatch {
+      border: 1px solid rgba(0, 0, 0, 0.15);
+      border-radius: 3px;
+      display: inline-block;
+      flex: 0 0 auto;
+      height: 14px;
+      width: 22px;
+    }
+
+    .swatch-sm {
+      height: 12px;
+      width: 18px;
+    }
+
+    .legend-label {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .legend-tag {
+      background: var(--divider-color, #e3e8f0);
+      border-radius: 4px;
+      color: var(--secondary-text-color, #596579);
+      font-size: 0.7rem;
+      padding: 1px 6px;
+      text-transform: uppercase;
+    }
+
+    .legend-detail {
+      color: var(--secondary-text-color, #596579);
+      display: flex;
+      flex-direction: column;
+      font-size: 0.8rem;
+      gap: 4px;
+      padding: 2px 0 6px 30px;
+    }
+
+    .legend-entity {
+      font-family: var(--code-font-family, monospace);
+    }
+
+    .legend-states {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      list-style: none;
+      margin: 2px 0 0;
+      padding: 0;
+    }
+
+    .legend-states li {
+      align-items: center;
+      display: flex;
+      gap: 8px;
     }
   `;
 	}

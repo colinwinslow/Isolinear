@@ -37,6 +37,13 @@
       },
       "default": []
     },
+    "overlay_labels": {
+      "type": "object",
+      "description": "Model-authored human labels for the overlay entities disclosed in the request, keyed by entity_id. The integration applies these to the composed overlays (ADR-0027 D4). Optional.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
     "reasoning_summary": {
       "type": [
         "string",

@@ -70,6 +70,17 @@
         "$ref": "#/$defs/chartItem"
       }
     },
+    "summary": {
+      "type": "string",
+      "description": "Model-authored chart caption (ADR-0027 D3). Optional; threaded into the complete snapshot's chart.summary."
+    },
+    "legend": {
+      "type": "array",
+      "description": "Renderer color manifest (ADR-0027 D1). Optional; threaded into the complete snapshot's chart.legend.",
+      "items": {
+        "$ref": "#/$defs/legendItem"
+      }
+    },
     "render_metadata": {
       "type": "object",
       "required": [
@@ -166,6 +177,54 @@
         "entity_id": {
           "type": "string",
           "pattern": "\\S"
+        }
+      }
+    },
+    "legendItem": {
+      "type": "object",
+      "required": [
+        "label",
+        "entity_id",
+        "color",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "kind": {
+          "enum": [
+            "series",
+            "overlay"
+          ]
+        },
+        "states": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "label",
+              "color"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              }
+            }
+          }
         }
       }
     }

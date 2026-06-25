@@ -29,6 +29,10 @@
     "title": {
       "type": "string"
     },
+    "summary": {
+      "type": "string",
+      "description": "Model-authored one-sentence description of what the chart shows, optionally a brief observation. Surfaced as the card caption (ADR-0027 D3). Optional for back-compat."
+    },
     "time_range": {
       "oneOf": [
         {

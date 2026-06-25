@@ -2017,7 +2017,13 @@ def _alias_display_entries(
         entity_id = meaning.get("entity_id")
         meaning_type = meaning.get("type")
         if names and entity_id and meaning_type:
-            entries.append({"name": names[0], "meaning": f"{entity_id} ({meaning_type})"})
+            # entity_id lets the card show the alias inside the matching legend
+            # row's disclosure rather than a separate list (ADR-0027 D6/C5).
+            entries.append({
+                "name": names[0],
+                "meaning": f"{entity_id} ({meaning_type})",
+                "entity_id": entity_id,
+            })
     return entries
 
 
@@ -3429,10 +3435,12 @@ def _record_model_provider_plan(
 
     # Deterministically inject state overlays (binary + categorical) as shaded_intervals (ADR-0022 D4/D5).
     if is_overlay and isinstance(chart_spec, dict):
+        overlay_labels = planner_result.get("overlay_labels") if isinstance(planner_result, dict) else None
         chart_spec = _compose_state_overlays(
             chart_spec,
             overlay_entity_ids=routing["overlay_entity_ids"],
             catalog_items=catalog_items,
+            overlay_labels=overlay_labels if isinstance(overlay_labels, dict) else None,
         )
         composed_validation = validate_chart_spec_contract(chart_spec)
         if not composed_validation["accepted"]:
@@ -4377,8 +4385,18 @@ def _build_in_process_artifact_metadata(
 ) -> dict[str, Any]:
     rendered = deepcopy(artifact)
     render_metadata = render_result.get("render_metadata") if isinstance(render_result, dict) else {}
+    if not isinstance(render_metadata, dict):
+        render_metadata = {}
     rendered["status"] = "rendered"
     rendered["image_url"] = image_url
+    # Carry the model summary and renderer color manifest onto the artifact so the
+    # complete snapshot can surface them as the caption and card legend (ADR-0027).
+    summary = render_metadata.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        rendered["summary"] = summary.strip()
+    legend = render_metadata.get("legend")
+    if isinstance(legend, list) and legend:
+        rendered["legend"] = legend
     rendered["render_metadata"] = {
         "renderer": IN_PROCESS_RENDERER_NAME,
         "render_attempted": True,
@@ -5817,24 +5835,50 @@ _OVERLAY_ACTIVE_VALUES = ["on"]
 _CLIMATE_OVERLAY_COLOR_MAP = {"cooling": "#B8D4EE", "heating": "#FFCF9E"}
 
 
+_ENTITY_ID_SHAPED = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
+
+
+def _resolve_overlay_label(
+    entity_id: str,
+    item: dict[str, Any],
+    overlay_labels: dict[str, Any] | None,
+) -> str:
+    """Resolve an overlay's display label (ADR-0027 D4/C3).
+
+    Fallback order: the model-authored ``overlay_labels`` entry (when present and
+    not just the raw entity_id) → the catalog friendly name → a derived
+    ``"<friendly_name> — running state"`` when only the entity_id is known.
+    """
+    model_label = (overlay_labels or {}).get(entity_id)
+    if isinstance(model_label, str) and model_label.strip() and not _ENTITY_ID_SHAPED.match(model_label.strip()):
+        return model_label.strip()
+    friendly = item.get("friendly_name")
+    if isinstance(friendly, str) and friendly.strip():
+        return friendly.strip()
+    return f"{entity_id} — running state"
+
+
 def _compose_state_overlays(
     chart_spec: dict[str, Any],
     *,
     overlay_entity_ids: list[str],
     catalog_items: list[dict[str, Any]],
+    overlay_labels: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Inject state entities as shaded_intervals overlays on a numeric spec.
 
     Binary entities shade "on" regions (ADR-0022 D4/D5). Categorical entities
     shade per-state-value colored bands: climate entities use blue for cooling
     and orange for heating; other categorical entities use a renderer auto-palette.
+    Overlay labels are model-authored (``overlay_labels``) with a deterministic
+    fallback (ADR-0027 D4); overlay structure stays integration-composed.
     """
     by_id = {item["entity_id"]: item for item in catalog_items}
     composed = deepcopy(chart_spec)
     overlays = list(composed.get("overlays") or [])
     for index, entity_id in enumerate(overlay_entity_ids, start=1):
         item = by_id.get(entity_id, {})
-        label = item.get("friendly_name") or entity_id
+        label = _resolve_overlay_label(entity_id, item, overlay_labels)
         kind = classify_series_kind(item)
         overlay: dict[str, Any] = {
             "overlay_id": f"overlay-{index:03d}",
@@ -6486,6 +6530,11 @@ def _append_artifact_complete_snapshot(
         "series": deepcopy(artifact["series"]),
         "overlays": deepcopy(artifact["overlays"]),
     }
+    # Optional ADR-0027 fields: caption summary and renderer color manifest.
+    if isinstance(artifact.get("summary"), str) and artifact["summary"].strip():
+        chart["summary"] = artifact["summary"].strip()
+    if isinstance(artifact.get("legend"), list) and artifact["legend"]:
+        chart["legend"] = deepcopy(artifact["legend"])
     worker_rendered = worker_dispatch is not None
     worker_artifact_rendered = artifact.get("render_metadata", {}).get("renderer") == WORKER_RENDERER_NAME
     in_process_rendered = artifact.get("render_metadata", {}).get("renderer") == IN_PROCESS_RENDERER_NAME

@@ -125,12 +125,16 @@ def render_in_process_chart(render_request: dict[str, Any]) -> dict[str, Any]:
         "error": None,
         "render_metadata": {
             "title": render_request["chart_spec"]["title"],
+            "summary": render_request["chart_spec"].get("summary"),
             "series_plotted": metadata["series_plotted"],
             "overlays_plotted": metadata.get("overlays_plotted", []),
             "x_min": metadata["x_min"],
             "x_max": metadata["x_max"],
             "warnings": metadata["warnings"],
             "codegen_attempts": 0,
+            # Legend color manifest (ADR-0027 D1); only the time_series family
+            # emits it today (the other renderers keep their in-image legends).
+            **({"legend": metadata["legend"]} if metadata.get("legend") else {}),
         },
     }
     data_url = PNG_DATA_URL_PREFIX + base64.b64encode(png_bytes).decode("ascii")
@@ -220,6 +224,7 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
     }
 
     series_plotted: list[str] = []
+    series_entity_ids: list[str] = []
     plotted: list[tuple[str, list[datetime], list[float], list[float] | None, list[float] | None]] = []
     all_timestamps: list[datetime] = []
     all_values: list[float] = []
@@ -270,6 +275,7 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
             all_values.extend(mins)
             all_values.extend(maxs)
         series_plotted.append(series_spec["series_id"])
+        series_entity_ids.append(entity_id)
 
     image = Image.new("RGB", (width, height), (255, 255, 255))
     draw = ImageDraw.Draw(image)
@@ -312,9 +318,11 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
 
     # Shaded_intervals overlays are the backmost layer: vertical bands drawn
     # behind gridlines and series lines. Binary overlays shade "on" regions;
-    # categorical overlays shade per-state-value colored bands.
+    # categorical overlays shade per-state-value colored bands. The legend is
+    # no longer drawn into the PNG (ADR-0027 D2) — instead we collect a color
+    # manifest the card renders as the legend.
     overlays_plotted: list[str] = []
-    overlay_legend: list[tuple[str, tuple[int, int, int]]] = []
+    overlay_manifest: list[dict[str, Any]] = []
     _categorical_auto_palette = [(173, 216, 230), (255, 200, 150), (200, 230, 200), (220, 200, 240)]
     for overlay_index, overlay in enumerate(chart_spec.get("overlays") or []):
         if not isinstance(overlay, dict) or overlay.get("render_as") != "shaded_intervals":
@@ -329,6 +337,7 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
         color_map = overlay.get("color_map")
         active_values = overlay.get("active_values")
         attribute_key = source.get("attribute") if isinstance(source, dict) else None
+        overlay_states: list[dict[str, str]] = []
 
         if isinstance(color_map, dict) and color_map:
             # Categorical overlay with explicit per-state colors.
@@ -347,7 +356,8 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
                 for i, sv in enumerate(seen_states)
             ]
         else:
-            # Binary overlay: shade all active_values with a single color.
+            # Binary overlay: shade all active_values with a single color. One
+            # legend state, so the card renders a solid (not split) swatch.
             fill = _OVERLAY_COLORS[overlay_index % len(_OVERLAY_COLORS)]
             regions = _binary_on_regions(history, set(active_values), window_end=t_max, attribute_key=attribute_key)
             for start, end in regions:
@@ -355,18 +365,31 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
                 x1 = min(max(x_px(min(max(end, t_min), t_max)), x0 + 1), plot_right)
                 draw.rectangle([(x0, plot_top), (x1, plot_bottom)], fill=fill)
             overlays_plotted.append(overlay.get("overlay_id") or f"overlay-{overlay_index + 1:03d}")
-            overlay_legend.append((overlay_label, fill))
+            overlay_manifest.append({
+                "label": overlay_label,
+                "entity_id": entity_id,
+                "color": _rgb_to_hex(fill),
+                "kind": "overlay",
+                "states": [{"label": overlay_label, "color": _rgb_to_hex(fill)}],
+            })
             continue
 
-        # Draw per-state colored bands and add per-state legend entries.
+        # Draw per-state colored bands and record each as a legend state.
         for state_value, fill in per_state:
             regions = _binary_on_regions(history, {state_value}, window_end=t_max, attribute_key=attribute_key)
             for start, end in regions:
                 x0 = max(x_px(min(max(start, t_min), t_max)), plot_left)
                 x1 = min(max(x_px(min(max(end, t_min), t_max)), x0 + 1), plot_right)
                 draw.rectangle([(x0, plot_top), (x1, plot_bottom)], fill=fill)
-            overlay_legend.append((f"{overlay_label} - {state_value}", fill))
+            overlay_states.append({"label": state_value, "color": _rgb_to_hex(fill)})
         overlays_plotted.append(overlay.get("overlay_id") or f"overlay-{overlay_index + 1:03d}")
+        overlay_manifest.append({
+            "label": overlay_label,
+            "entity_id": entity_id,
+            "color": overlay_states[0]["color"] if overlay_states else _rgb_to_hex(_OVERLAY_COLORS[overlay_index % len(_OVERLAY_COLORS)]),
+            "kind": "overlay",
+            "states": overlay_states,
+        })
 
     # Horizontal gridlines and y-axis tick labels.
     for index in range(6):
@@ -421,29 +444,19 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
         else:
             draw.line(points, fill=color, width=series_weight, joint="curve")
 
-    # Legend (top-right inside the plot).
-    legend_y = plot_top + 10
-    swatch_w = max(28, width // 50)
-    for index, (label, _, _, _, _) in enumerate(plotted):
-        color = _SERIES_COLORS[index % len(_SERIES_COLORS)]
-        label_w, label_h = _text_size(draw, label, label_font)
-        entry_w = swatch_w + 10 + label_w
-        entry_x = plot_right - entry_w - 10
-        draw.line(
-            [(entry_x, legend_y + label_h / 2), (entry_x + swatch_w, legend_y + label_h / 2)],
-            fill=color,
-            width=series_weight,
-        )
-        draw.text((entry_x + swatch_w + 10, legend_y), label, fill=(40, 40, 40), font=label_font)
-        legend_y += label_h + 10
-
-    # Overlay legend entries (filled swatch + label).
-    for label, fill in overlay_legend:
-        label_w, label_h = _text_size(draw, label, label_font)
-        entry_x = plot_right - (swatch_w + 10 + label_w) - 10
-        draw.rectangle([(entry_x, legend_y), (entry_x + swatch_w, legend_y + label_h)], fill=fill)
-        draw.text((entry_x + swatch_w + 10, legend_y), label, fill=(40, 40, 40), font=label_font)
-        legend_y += label_h + 10
+    # Legend manifest (ADR-0027 D1): the single source of truth for legend colors,
+    # consumed by the card. The legend is no longer drawn into the PNG — series
+    # first (in draw order), then overlays.
+    legend_manifest: list[dict[str, Any]] = [
+        {
+            "label": label,
+            "entity_id": series_entity_ids[index],
+            "color": _rgb_to_hex(_SERIES_COLORS[index % len(_SERIES_COLORS)]),
+            "kind": "series",
+        }
+        for index, (label, _, _, _, _) in enumerate(plotted)
+    ]
+    legend_manifest.extend(overlay_manifest)
 
     # Y-axis label (rotated) and x-axis label.
     y_label = _y_axis_label(chart_spec)
@@ -469,6 +482,7 @@ def _render_time_series_png(render_request: dict[str, Any]) -> tuple[bytes, dict
         "x_min": x_min,
         "x_max": x_max,
         "warnings": warnings,
+        "legend": legend_manifest,
     }
 
 
@@ -481,6 +495,10 @@ _CATEGORICAL_SKIP_STATES = frozenset({"off", "idle", "unavailable", "unknown", "
 def _hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
     h = hex_str.lstrip("#")
     return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
+    return "#{:02x}{:02x}{:02x}".format(*rgb)
 
 
 def _categorical_overlay_states(history_series: dict[str, Any]) -> list[str]:

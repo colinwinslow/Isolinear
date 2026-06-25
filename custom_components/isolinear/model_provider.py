@@ -193,12 +193,13 @@ def _single_family_chart_spec_schema(spec: dict[str, Any], entity_id_schema: dic
     """Build the chart_spec schema fragment for a single-family (ADR-0022) envelope."""
     return {
         "type": "object",
-        "required": ["chart_id", "chart_type", "title", "time_range", "series"],
+        "required": ["chart_id", "chart_type", "title", "summary", "time_range", "series"],
         "additionalProperties": False,
         "properties": {
             "chart_id": {"type": "string"},
             "chart_type": {"enum": [spec["chart_type"]]},
             "title": {"type": "string"},
+            "summary": {"type": "string"},
             "time_range": _time_range_schema(),
             "series": {
                 "type": "array",
@@ -260,12 +261,13 @@ def _multi_family_chart_spec_schema(families: list[str], entity_id_schema: dict[
     source_types: list[str] = ["entity", "aggregate"] if has_aggregate else ["entity"]
     return {
         "type": "object",
-        "required": ["chart_id", "chart_type", "title", "time_range", "series"],
+        "required": ["chart_id", "chart_type", "title", "summary", "time_range", "series"],
         "additionalProperties": False,
         "properties": {
             "chart_id": {"type": "string"},
             "chart_type": {"enum": chart_types},
             "title": {"type": "string"},
+            "summary": {"type": "string"},
             "time_range": _time_range_schema(),
             "series": {
                 "type": "array",
@@ -748,7 +750,9 @@ class OllamaCompatiblePlannerClient:
         overlay_rule = (
             f"The integration will automatically add shaded overlays for these entities: "
             f"{overlay_entity_ids}. Do NOT include them in series and do NOT treat them as missing — "
-            "they are handled by the system. Return status chart_spec_ready for the numeric series only."
+            "they are handled by the system. For each one, add an entry to a top-level overlay_labels "
+            "object mapping the entity_id to a short human label for the overlay, anchored on the user's "
+            "own wording (for example \"AC running\"). Return status chart_spec_ready for the numeric series only."
         ) if overlay_entity_ids else None
         prompt_payload = {
             "task": "Return one PlannerResult JSON object for an Isolinear chart plan.",
@@ -764,6 +768,9 @@ class OllamaCompatiblePlannerClient:
                 "The chart_spec must use chart_type, not graph_type.",
                 "Each series must include series_id, label, source, role, render_as, transform, and unit.",
                 "Each entity series source must be {\"type\":\"entity\",\"entity_id\":\"<approved id>\",\"attribute\":null}.",
+                "Set chart_spec.summary to one plain-language sentence describing what the chart shows — a rephrase "
+                "of the user's request that names the series, optionally with a brief observation. Do not echo the "
+                "prompt verbatim and do not include entity IDs.",
                 chart_type_rule,
                 *([overlay_rule] if overlay_rule else []),
                 "Resolve the requested time window into an absolute time_range "
@@ -779,6 +786,7 @@ class OllamaCompatiblePlannerClient:
                 "chart_id": f"approved_entity_{chart_type}",
                 "chart_type": chart_type,
                 "title": "Approved entity history",
+                "summary": "The approved entity's recent history.",
                 "time_range": {
                     "type": "absolute",
                     "start": "2026-06-17T00:00:00+00:00",

@@ -73,6 +73,13 @@
             "null"
           ]
         },
+        "summary": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Model-authored chart summary copied from chart_spec.summary (ADR-0027). Surfaced as the card caption."
+        },
         "series_plotted": {
           "type": "array",
           "items": {
@@ -112,6 +119,60 @@
           "type": "integer",
           "minimum": 0,
           "default": 0
+        },
+        "legend": {
+          "type": "array",
+          "description": "Color manifest: one entry per drawn series/overlay, the single source of truth for legend colors (ADR-0027 D1). Present for time_series and time_series_overlay families.",
+          "items": {
+            "type": "object",
+            "required": [
+              "label",
+              "entity_id",
+              "color",
+              "kind"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "label": {
+                "type": "string"
+              },
+              "entity_id": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string",
+                "pattern": "^#[0-9a-fA-F]{6}$"
+              },
+              "kind": {
+                "enum": [
+                  "series",
+                  "overlay"
+                ]
+              },
+              "states": {
+                "type": "array",
+                "description": "Per-state band colors for an overlay row (omitted for series).",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "label",
+                    "color"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "color": {
+                      "type": "string",
+                      "pattern": "^#[0-9a-fA-F]{6}$"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": []
         }
       },
       "default": {}
