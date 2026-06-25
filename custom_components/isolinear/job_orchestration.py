@@ -2131,6 +2131,12 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
             if _entity_matches_via_domain_synonym(item, prompt_token_set)
         ]
         state_matches = binary_matches + intentional_categorical
+        # Type-hint filter: when the prompt contains measurement-type tokens
+        # (e.g. "temperatures") and multiple numeric entities have incompatible
+        # device_classes, keep only the ones matching the hinted type. This
+        # prevents e.g. a power sensor sharing a location name from being charted
+        # alongside temperature sensors because both score on the location token.
+        numeric_matches = _filter_numerics_by_type_hint(numeric_matches, prompt_token_set)
         if numeric_matches and state_matches:
             selected = (
                 [item["entity_id"] for item in numeric_matches]
@@ -6722,6 +6728,57 @@ def _entity_matches_via_domain_synonym(item: dict[str, Any], prompt_token_set: s
     """True if the entity matched the prompt on at least one domain synonym token."""
     domain = item.get("entity_id", "").split(".")[0]
     return bool(_DOMAIN_SYNONYMS.get(domain, frozenset()) & prompt_token_set)
+
+
+# Measurement-type hint tokens → device_class values they imply.
+# When these tokens appear in the prompt, numeric matches are filtered to
+# entities whose device_class matches, preventing e.g. a power sensor sharing
+# a location label from being charted alongside temperature sensors.
+_NUMERIC_TYPE_HINTS: list[tuple[frozenset[str], frozenset[str]]] = [
+    (
+        frozenset({"temp", "temps", "temperature", "temperatures"}),
+        frozenset({"temperature"}),
+    ),
+    (
+        frozenset({"humidity", "humid"}),
+        frozenset({"humidity"}),
+    ),
+    (
+        frozenset({"power", "watt", "watts"}),
+        frozenset({"power"}),
+    ),
+    (
+        frozenset({"energy", "kwh"}),
+        frozenset({"energy"}),
+    ),
+    (
+        frozenset({"current", "amps", "ampere"}),
+        frozenset({"current"}),
+    ),
+]
+
+
+def _filter_numerics_by_type_hint(
+    numeric_matches: list[dict[str, Any]],
+    prompt_token_set: set[str],
+) -> list[dict[str, Any]]:
+    """Narrow numeric matches to entities whose device_class matches a prompt type hint.
+
+    If the prompt contains measurement-type tokens (e.g. "temperatures") and the
+    numeric matches include entities with incompatible device_classes, keep only
+    those whose device_class matches the hinted type.  When no type hint fires or
+    all numerics already match, the list is returned unchanged.
+    """
+    for hint_tokens, target_classes in _NUMERIC_TYPE_HINTS:
+        if not (hint_tokens & prompt_token_set):
+            continue
+        matching = [
+            item for item in numeric_matches
+            if item.get("device_class") in target_classes
+        ]
+        if matching and len(matching) < len(numeric_matches):
+            return matching
+    return numeric_matches
 
 
 def _catalog_item_match_score(prompt: str, item: dict[str, Any]) -> int:
