@@ -28,6 +28,10 @@ integration boundary.
   planning), the card streams the model's sanitized, length-capped reasoning into
   the chart slot as ephemeral wait feedback, then replaces it with the PNG (or
   failure card) on completion. (ADR-0025)
+- **Card-owned legend and summary** - The renderer emits a color manifest, the
+  card renders an interactive legend from it (swatches, flip-downs, split swatch +
+  per-state children for overlays) in place of the in-PNG legend, the caption shows
+  a model-authored summary, and overlay labels are model-authored. (ADR-0027)
 
 ## Related docs
 
@@ -45,6 +49,7 @@ integration boundary.
 - Paired BDD: [home-assistant-dashboard-card-long-running-smoke-bdd.md](home-assistant-dashboard-card-long-running-smoke-bdd.md)
 - Paired BDD: [integration-api-transport-auth-bdd.md](integration-api-transport-auth-bdd.md)
 - Paired BDD: [live-planner-reasoning-streaming-bdd.md](live-planner-reasoning-streaming-bdd.md)
+- Paired BDD: [card-legend-and-summary-bdd.md](card-legend-and-summary-bdd.md)
 - Evidence: [custom-card-anchor-evidence.md](custom-card-anchor-evidence.md)
 - Evidence: [home-assistant-dashboard-card-long-running-smoke-evidence.md](home-assistant-dashboard-card-long-running-smoke-evidence.md)
 - Evidence: [integration-api-transport-auth-evidence.md](integration-api-transport-auth-evidence.md)

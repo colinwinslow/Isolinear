@@ -1,6 +1,7 @@
 ---
-status: draft
+status: accepted
 date: 2026-06-25
+accepted: 2026-06-25
 depends-on-adrs: [0027, 0023, 0022, 0019, 0009, 0005]
 ---
 
@@ -8,7 +9,7 @@ depends-on-adrs: [0027, 0023, 0022, 0019, 0009, 0005]
 
 ## Status
 
-Draft. Defines the contract surface for ADR-0027. Scope: the `time_series` and
+Accepted. Implemented in 0.1.47. Defines the contract surface for ADR-0027. Scope: the `time_series` and
 `time_series_overlay` render families only (the `timeline`, `histogram`, and
 `aggregate_bar` families keep their in-image legends pending a follow-up packet).
 

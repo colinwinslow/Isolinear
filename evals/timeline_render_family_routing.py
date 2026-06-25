@@ -83,7 +83,7 @@ def main() -> None:
     binary = _resolve_render_family(CATALOG, ["binary_sensor.kitchen_door"])
     categorical = _resolve_render_family(CATALOG, ["sensor.washer_status"])
     overlay = _resolve_render_family(CATALOG, ["sensor.attic_temperature", "binary_sensor.kitchen_door"])
-    mixed = _resolve_render_family(
+    multi_overlay = _resolve_render_family(
         CATALOG, ["sensor.attic_temperature", "sensor.basement_temperature", "binary_sensor.kitchen_door"]
     )
     assert_equal(numeric["family"], "time_series", "Numeric entity routes to time_series.")
@@ -92,7 +92,14 @@ def main() -> None:
     assert_equal(overlay["family"], "time_series_overlay", "One numeric + one binary routes to overlay.")
     assert_equal(overlay["numeric_entity_ids"], ["sensor.attic_temperature"], "Numeric primary recorded.")
     assert_equal(overlay["categorical_entity_ids"], ["binary_sensor.kitchen_door"], "Overlay entity recorded.")
-    assert_equal(mixed["family"], "mixed", "Two numeric + binary stays ambiguous (fail closed).")
+    # Multiple numeric series + a state entity now compose as a multi-numeric
+    # overlay (both lines plot, state shaded behind) rather than failing closed.
+    assert_equal(multi_overlay["family"], "time_series_overlay", "Two numeric + binary composes as a multi-numeric overlay.")
+    assert_equal(
+        multi_overlay["numeric_entity_ids"],
+        ["sensor.attic_temperature", "sensor.basement_temperature"],
+        "Both numeric series recorded as overlay primaries.",
+    )
 
     ts_schema = load_planner_result_schema("time_series")["properties"]["chart_spec"]["properties"]
     tl_schema = load_planner_result_schema("timeline")["properties"]["chart_spec"]["properties"]
@@ -113,7 +120,7 @@ def main() -> None:
             "binary": binary["family"],
             "categorical": categorical["family"],
             "overlay": overlay["family"],
-            "mixed": mixed["family"],
+            "multi_numeric_overlay": multi_overlay["family"],
             "time_series_chart_type": ts_schema["chart_type"]["enum"],
             "timeline_chart_type": tl_schema["chart_type"]["enum"],
             "timeline_render_as": tl_schema["series"]["items"]["properties"]["render_as"]["enum"],
@@ -282,7 +289,7 @@ def main() -> None:
     env_overlay = _resolve_render_envelope(
         CATALOG, ["sensor.attic_temperature", "binary_sensor.kitchen_door"]
     )
-    env_mixed = _resolve_render_envelope(
+    env_multi_overlay = _resolve_render_envelope(
         CATALOG, ["sensor.attic_temperature", "sensor.basement_temperature", "binary_sensor.kitchen_door"]
     )
 
@@ -293,7 +300,7 @@ def main() -> None:
     assert_equal(env_multi_numeric["families"], ["time_series"], "Multi-numeric gets time_series only.")
     assert_equal(env_binary["families"], ["timeline"], "Binary gets timeline only.")
     assert_equal(env_overlay["families"], ["time_series_overlay"], "Overlay gets overlay only.")
-    assert_equal(env_mixed["families"], [], "Mixed gets empty envelope (fail closed).")
+    assert_equal(env_multi_overlay["families"], ["time_series_overlay"], "Two numeric + binary gets a multi-numeric overlay envelope.")
 
     # Schema for single-numeric multi-family envelope has widened chart_type enum.
     multi_schema = load_planner_result_schema(
@@ -325,7 +332,7 @@ def main() -> None:
             "multi_numeric_families": env_multi_numeric["families"],
             "binary_families": env_binary["families"],
             "overlay_families": env_overlay["families"],
-            "mixed_families": env_mixed["families"],
+            "multi_numeric_overlay_families": env_multi_overlay["families"],
             "multi_schema_chart_types": multi_schema["chart_type"]["enum"],
             "gate_accept_histogram": gate_accept["accepted"],
             "gate_reject_scatter": not gate_reject["accepted"],

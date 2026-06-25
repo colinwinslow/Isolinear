@@ -515,6 +515,33 @@ the binary-only tightening), BDD-evidence review `OK`, `git diff --check` clean,
 bump to `0.1.26`. **Caveat:** unit- and artifact-verified; the live HACS `0.1.26`
 retest should confirm a real mixed prompt renders the overlay.
 
+The categorical (climate) overlay path then landed across several `0.1.45`-era
+fixes: state-based overlays now shade by the `hvac_action` attribute (climate
+entity *state* is a constant HVAC mode, so band detection reads the cycling
+attribute, captured as `attrs` on categorical history points), and history points
+are timestamped by `last_updated` rather than `last_changed` — the latter is
+frozen for an entity whose state never changes, which had collapsed every cooling
+snapshot onto one stale block.
+
+ADR-0027 (`0.1.47`) then moved the chart **legend out of the PNG and into the
+card**. The renderer emits a `render_metadata.legend` color manifest
+(`{label, entity_id, color, kind, states?}`, overlays carrying per-state child
+colors) as the single source of truth for colors; the in-PNG legend is removed for
+`time_series` / `time_series_overlay` (the other three families keep theirs,
+deferred). The model now authors `chart_spec.summary` (the card caption, replacing
+the prompt echo) and `planner_result.overlay_labels` (`{entity_id: label}`, applied
+to the integration-composed overlay with a deterministic fallback) — extending the
+ADR-0023 capability/intent split to presentation while overlay composition, colors,
+and routing stay deterministic (invariants #1/#9 intact; the model gains only a
+string and a label map). The card renders an interactive **Legend**: swatch +
+descriptive label per row, a flip-down exposing the entity_id and any matched
+alias, and a split swatch + per-state children for multi-state overlays. Six
+schemas extended (all optional/back-compat). Verified by 565 Python + 21 frontend
+tests and an anchor PNG (clean chart; manifest carries the series + cooling/heating
+colors); BDD-evidence and architecture reviews `OK`. **Caveat:** unit- and
+artifact-verified; the live HACS `0.1.47` retest should confirm the summary
+caption, the AC split-swatch children, and the descriptive legend labels.
+
 Night mode (dark theme) is now a recorded open-queue item ((h) in `STATUS.md`)
 with the design decisions captured: scope is **chart PNG + card UI**, theme
 source is **auto-follow the Home Assistant theme** (no user toggle), and it

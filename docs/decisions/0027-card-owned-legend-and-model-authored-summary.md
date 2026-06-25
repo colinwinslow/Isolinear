@@ -1,7 +1,7 @@
 ---
 id: 0027
 title: Card-owned legend with a renderer color manifest and model-authored summary
-status: draft
+status: accepted
 date: 2026-06-25
 supersedes: []
 superseded-by: null

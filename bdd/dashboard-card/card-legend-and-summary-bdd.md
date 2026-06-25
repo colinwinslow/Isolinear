@@ -5,7 +5,7 @@ colors, the card renders an interactive legend from it (in place of the in-PNG
 legend), and the model authors the chart summary caption and overlay labels.
 Scope: `time_series` and `time_series_overlay` families.
 
-Status: **draft** — implementation in progress 2026-06-25.
+Status: **accepted** — implemented in 0.1.47, 2026-06-25.
 
 Evidence file: `bdd/dashboard-card/card-legend-and-summary-evidence.md`
 
