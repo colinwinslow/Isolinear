@@ -1794,10 +1794,73 @@ def _record_artifact_snapshot_for_source(
 
 # ADR-0024 D2 expansion: deterministic D1 results whose token scoring may be
 # *incomplete* and so warrant a model validation/expansion pass. Explicit
-# entity IDs (already certain), overlay composition (a deliberate multi-entity
-# read), and semantic-alias injection (user-confirmed, deterministic) are left
-# unchanged.
+# entity IDs (already certain) and semantic-alias injection (user-confirmed,
+# deterministic) are left unchanged. Overlay composition is handled by the
+# separate ADR-0028 prune pass (it may *over*-include, not under-include).
 _D2_EXPANSION_SOURCES = frozenset({"catalog_label", "catalog_label_specificity"})
+
+
+def _composition_has_shared_token(prompt: str, items: list[dict[str, Any]]) -> bool:
+    """True if two or more composition candidates match the prompt on a shared token.
+
+    A shared prompt token across candidates (e.g. the location word "kitchen"
+    matching both ``sensor.kitchen_ecobee_temperature`` and
+    ``binary_sensor.kitchen_door``) is the noise-match signal ADR-0028 routes to the
+    model: at least one candidate may rest only on that shared word rather than being
+    the prompt's subject. When every candidate matches on a distinct token there is no
+    noise to prune and the deterministic composition stands.
+    """
+    prompt_token_set = set(_prompt_tokens(prompt))
+    seen: set[str] = set()
+    for item in items:
+        matched = _catalog_item_meaningful_tokens(item) & prompt_token_set
+        if matched & seen:
+            return True
+        seen |= matched
+    return False
+
+
+def _prune_composition_with_model(
+    hass: Any,
+    entry_id: str,
+    prompt: str,
+    catalog_items: list[dict[str, Any]],
+    selection: dict[str, Any],
+    *,
+    store: dict[str, Any] | None = None,
+    job_id: str | None = None,
+) -> dict[str, Any]:
+    """ADR-0028 D6: drop noise matches from an overlay composition via the model.
+
+    The deterministic matcher composes any numeric + state entity sharing a prompt
+    token, so an entity matched only on a shared location word ("kitchen") can enter
+    the set and break planning ("when was the kitchen door open" composed the kitchen
+    *temperature* as the primary). When the composition's candidates share a token,
+    hand the candidate set to the D2 selector and keep the subset the prompt is
+    actually about; the pruned set then re-routes through ``_resolve_render_family``
+    by entity kind (invariant #9 unchanged). On model abstention/failure, or an empty
+    or unchanged result, the deterministic composition stands — never worse than today.
+    """
+    candidate_items = selection.get("candidate_items") or []
+    if len(candidate_items) < 2 or not _composition_has_shared_token(prompt, candidate_items):
+        return selection
+    pruned = _run_model_entity_selection(
+        hass, entry_id, prompt, catalog_items,
+        candidate_items=candidate_items,
+        store=store, job_id=job_id,
+    )
+    if not pruned["accepted"]:
+        return selection
+    pruned_ids = pruned["entity_ids"]
+    if not pruned_ids or set(pruned_ids) == set(selection["entity_ids"]):
+        return selection
+    _LOGGER.debug(
+        "Isolinear entity resolution: composition prune %s -> %s "
+        "(source: model_entity_selection)",
+        selection["entity_ids"],
+        pruned_ids,
+    )
+    return pruned
 
 
 def _resolve_entity_selection_with_model(
@@ -1832,6 +1895,13 @@ def _resolve_entity_selection_with_model(
             store=store, job_id=job_id,
         )
         return d2 if d2["accepted"] else selection
+
+    if selection.get("source") == "numeric_with_overlay":
+        # ADR-0028 D6: prune noise matches from an overlay composition.
+        return _prune_composition_with_model(
+            hass, entry_id, prompt, catalog_items, selection,
+            store=store, job_id=job_id,
+        )
 
     if selection.get("source") not in _D2_EXPANSION_SOURCES:
         return selection
@@ -2144,10 +2214,8 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
         # alongside temperature sensors because both score on the location token.
         numeric_matches = _filter_numerics_by_type_hint(numeric_matches, prompt_token_set)
         if numeric_matches and state_matches:
-            selected = (
-                [item["entity_id"] for item in numeric_matches]
-                + [item["entity_id"] for item in state_matches]
-            )
+            composition_items = numeric_matches + state_matches
+            selected = [item["entity_id"] for item in composition_items]
             _LOGGER.debug(
                 "Isolinear entity resolution: overlay composition "
                 "(%d numeric + %d state) -> %s (source: numeric_with_overlay)",
@@ -2160,6 +2228,10 @@ def select_prompt_entity_ids(prompt: str, catalog_items: list[dict[str, Any]]) -
                 "code": "accepted",
                 "entity_ids": selected,
                 "source": "numeric_with_overlay",
+                # ADR-0028: carry the matched items so the orchestration can route
+                # this composition through the model prune pass (D6) when its
+                # candidates share a non-distinctive token.
+                "candidate_items": composition_items,
             }
         # Specificity tie-break (ADR-0024 D1): when one candidate matches strictly
         # more of its distinctive tokens than every other, the prompt named it

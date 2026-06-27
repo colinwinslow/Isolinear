@@ -542,6 +542,43 @@ colors); BDD-evidence and architecture reviews `OK`. **Caveat:** unit- and
 artifact-verified; the live HACS `0.1.47` retest should confirm the summary
 caption, the AC split-swatch children, and the descriptive legend labels.
 
+The `0.1.47` live HACS retest (2026-06-27) then **passed** for every shipped
+feature — card legend, model summary caption, AC split swatch, histogram,
+aggregate_bar, fuzzy/90-day window resolution, the `no_long_term_statistics`
+gate, and reasoning streaming. Two prompts failed at
+`model_provider_planner_not_chart_spec_ready`: "when was the kitchen door open
+today" and "show kitchen temp and when the AC was running". Diagnosis from the
+live debug log (plus reproduction against the live `gemma4:e4b`) showed this was
+**not** a planner bug but an entity-selection **over-composition** bug:
+`select_prompt_entity_ids` composes any numeric + state match sharing a prompt
+token, and the location word "kitchen" noise-matched
+`sensor.kitchen_ecobee_temperature`. For the door prompt the temperature sensor
+became the chart *primary* and the door was demoted to an overlay (the planner
+clarified, "which entity tracks the door?"); for the temp+AC prompt
+`binary_sensor.kitchen_door` entered as a *spurious second overlay* that tipped
+the planner into clarification. The overlay path short-circuited in
+`select_prompt_entity_ids` before the ADR-0024 D2 validation pass could run.
+
+ADR-0028 (`0.1.48`) fixes this by **routing the multi-match overlay composition
+through the existing D2 `select_entity` selector to prune noise matches** before
+render-family routing. A new `_prune_composition_with_model`, gated on
+`_composition_has_shared_token` (only fires when ≥2 candidates share a prompt
+token), hands the composed candidate set to the model and keeps the subset the
+prompt is actually about; the pruned set re-routes through the deterministic
+`_resolve_render_family` by entity kind (invariant #9 unchanged) and is
+re-validated against the allowlist (invariant #1 unchanged). It fails soft to the
+deterministic composition on model abstention, provider failure, no configured
+planner, or an empty/unchanged result, so the path is never worse than before and
+needs no model in test/scaffold environments. The model prunes both failing cases
+correctly from the entity friendly names alone, so the existing D2 request shape
+is reused unchanged — no schema or `model_provider.py` change. This is the
+composition-path counterpart of ADR-0024 D2 (which already validated/narrowed the
+single-entity path) and keeps render family and overlay pairing deterministic, in
+line with the lean-on-model-where-it's-safe analysis recorded in the ADR's
+rejected alternatives. **Caveat:** unit-, eval-, and live-selector-verified; the
+live HACS `0.1.48` retest should confirm the two prompts complete (door timeline;
+temp + AC overlay) with no spurious clarification.
+
 Night mode (dark theme) is now a recorded open-queue item ((h) in `STATUS.md`)
 with the design decisions captured: scope is **chart PNG + card UI**, theme
 source is **auto-follow the Home Assistant theme** (no user toggle), and it
