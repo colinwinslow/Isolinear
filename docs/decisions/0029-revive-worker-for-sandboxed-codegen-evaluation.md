@@ -92,6 +92,11 @@ whether codegen works.
 - Generated code keeps running only under the existing sandbox guarantees —
   import allowlist, no network, no arbitrary filesystem access, audit hook,
   subprocess timeout (ADR-0008).
+- Entity selection, allowlist enforcement, and history retrieval remain
+  integration-side; only normalized, allowlist-checked render data crosses to
+  the worker, which never queries Home Assistant. The integration's data
+  boundary (what data goes in) and the worker's sandbox (what code can do) are
+  paired defense-in-depth (invariants #1, #4, #5; ADR-0003, ADR-0008).
 - In-process trusted rendering stays the default; codegen is the opt-in path
   (invariant #6, ADR-0004).
 
