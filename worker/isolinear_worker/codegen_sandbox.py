@@ -1,3 +1,20 @@
+"""Sandboxed execution of model-generated matplotlib chart code.
+
+Promoted from the proven anchor (`src/Isolinear/codegen_sandbox_anchor.py`) into
+a self-contained worker module per ADR-0029 and
+`docs/specs/codegen-sandbox-module-promotion.md`. The sandbox security model is
+unchanged and is specified by `docs/specs/worker-sandbox-spec.md` (proven by the
+accepted sandbox-codegen BDD, scenarios A-G): an isolated `-I` subprocess with a
+stripped environment, an import allowlist, an audit hook that fails closed on
+network / subprocess / OS-mutation / out-of-sandbox filesystem events, a
+fixed-output-path-only write rule, a subprocess timeout, `resource` limits where
+available, and a maximum output-size cap.
+
+This module imports nothing from `custom_components/isolinear/` or
+`src/Isolinear/`; it validates against schemas bundled inside the worker package
+(`isolinear_worker/schemas/`) through `._schema_validation`.
+"""
+
 from __future__ import annotations
 
 import ast
@@ -8,18 +25,12 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from .contracts import ContractValidationError, validate_contract
+from ._schema_validation import ContractValidationError, validate_contract
 
 
 SANDBOX_POLICY_VERSION = 1
-PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-SAFE_SAMPLE_PNG_HEX = (
-    "89504e470d0a1a0a0000000d4948445200000001000000010806000000"
-    "1f15c4890000000a49444154789c6360000002000100ffff030000060005"
-    "57bfab0000000049454e44ae426082"
-)
 
 _FORBIDDEN_ATTRIBUTE_NAMES = {
     "chdir",
@@ -318,182 +329,6 @@ def default_codegen_sandbox_policy() -> dict[str, Any]:
     }
 
 
-def safe_generated_python() -> str:
-    return f'''
-def render_chart(data, output_path):
-    png_bytes = bytes.fromhex("{SAFE_SAMPLE_PNG_HEX}")
-    with open(output_path, "wb") as image_file:
-        image_file.write(png_bytes)
-    return {{
-        "title": data["chart_spec"]["title"],
-        "series_plotted": [series["series_id"] for series in data["chart_spec"]["series"]],
-        "overlays_plotted": [overlay["overlay_id"] for overlay in data["chart_spec"].get("overlays", [])],
-        "x_min": data["history_series"][0]["points"][0]["ts"],
-        "x_max": data["history_series"][0]["points"][-1]["ts"],
-        "warnings": [],
-    }}
-'''.strip()
-
-
-def matplotlib_generated_python() -> str:
-    return '''
-import matplotlib
-import matplotlib.pyplot as plt
-
-
-def render_chart(data, output_path):
-    series = data["history_series"][0]
-    points = series["points"]
-    x_values = [point["ts"] for point in points]
-    y_values = [point["value"] for point in points]
-
-    fig, ax = plt.subplots(figsize=(4, 2.4), dpi=120)
-    ax.plot(x_values, y_values, marker="o")
-    ax.set_title(data["chart_spec"]["title"])
-    ax.set_ylabel(series["unit"])
-    fig.tight_layout()
-    fig.savefig(output_path, format="png")
-    plt.close(fig)
-
-    return {
-        "title": data["chart_spec"]["title"],
-        "series_plotted": [series["series_id"]],
-        "overlays_plotted": [],
-        "x_min": points[0]["ts"],
-        "x_max": points[-1]["ts"],
-        "warnings": [f"matplotlib_backend:{matplotlib.get_backend()}"],
-    }
-'''.strip()
-
-
-def matplotlib_arbitrary_read_python(forbidden_path: Path | str) -> str:
-    resolved_path = str(Path(forbidden_path).resolve())
-    return f'''
-import matplotlib.pyplot as plt
-
-
-def render_chart(data, output_path):
-    plt.imread({resolved_path!r})
-    return {{"warnings": []}}
-'''.strip()
-
-
-def unsafe_generated_python_examples() -> dict[str, str]:
-    return {
-        "requests_import": '''
-import requests
-
-def render_chart(data, output_path):
-    return {}
-'''.strip(),
-        "secret_file_read": '''
-def render_chart(data, output_path):
-    with open("secrets.yaml", "r") as secret_file:
-        secret_file.read()
-    return {}
-'''.strip(),
-        "local_network_socket": '''
-import socket
-
-def render_chart(data, output_path):
-    socket.socket().connect(("127.0.0.1", 8123))
-    return {}
-'''.strip(),
-        "environment_read": '''
-import os
-
-def render_chart(data, output_path):
-    token = os.environ.get("SUPERVISOR_TOKEN")
-    return {"warnings": [token]}
-'''.strip(),
-    }
-
-
-def broken_generated_python(message: str = "matplotlib runtime failure") -> str:
-    return f'''
-def render_chart(data, output_path):
-    raise RuntimeError("{message}")
-'''.strip()
-
-
-def oversized_generated_python(extra_bytes: int = 2048) -> str:
-    return f'''
-def render_chart(data, output_path):
-    with open(output_path, "wb") as image_file:
-        image_file.write(b"X" * {extra_bytes})
-    return {{
-        "title": data["chart_spec"]["title"],
-        "series_plotted": [],
-        "overlays_plotted": [],
-        "warnings": ["oversized"],
-    }}
-'''.strip()
-
-
-def sample_codegen_render_request(
-    *,
-    python_code: str | None = None,
-    max_repair_attempts: int = 2,
-) -> dict[str, Any]:
-    return {
-        "request_id": "codegen-sandbox-anchor",
-        "render_mode": "codegen",
-        "chart_spec": {
-            "chart_id": "codegen_sandbox_temperature",
-            "chart_type": "time_series",
-            "title": "Sandboxed Temperature",
-            "time_range": {"type": "relative", "duration": "24h"},
-            "series": [
-                {
-                    "series_id": "upstairs_temperature",
-                    "label": "Upstairs Temperature",
-                    "source": {
-                        "type": "entity",
-                        "entity_id": "sensor.upstairs_temperature",
-                    },
-                    "role": "primary",
-                    "render_as": "line",
-                    "unit": "degF",
-                }
-            ],
-            "overlays": [],
-            "notes": ["Sandbox codegen anchor."],
-        },
-        "history_series": [
-            {
-                "series_id": "upstairs_temperature",
-                "entity_id": "sensor.upstairs_temperature",
-                "label": "Upstairs Temperature",
-                "kind": "numeric",
-                "unit": "degF",
-                "points": [
-                    {
-                        "ts": "2026-06-05T08:00:00Z",
-                        "value": 71.2,
-                        "raw_state": "71.2",
-                        "quality": "ok",
-                    },
-                    {
-                        "ts": "2026-06-05T09:00:00Z",
-                        "value": 71.8,
-                        "raw_state": "71.8",
-                        "quality": "ok",
-                    },
-                ],
-                "source_entity_ids": ["sensor.upstairs_temperature"],
-                "warnings": [],
-            }
-        ],
-        "derived_intervals": [],
-        "output": {"format": "png", "width": 800, "height": 480},
-        "theme": {},
-        "codegen": {
-            "python_code": safe_generated_python() if python_code is None else python_code,
-            "max_repair_attempts": max_repair_attempts,
-        },
-    }
-
-
 def static_safety_check(
     python_code: str,
     *,
@@ -579,22 +414,31 @@ def static_safety_check(
 
 
 def invoke_codegen_sandbox(
-    *,
     render_request: dict[str, Any],
-    output_directory: Path,
+    *,
     policy: dict[str, Any] | None = None,
-    repo_root: Path | None = None,
+    work_root: str | Path | None = None,
     attempt_number: int = 1,
 ) -> dict[str, Any]:
+    """Validate, static-check, and execute generated code in an isolated `-I`
+    subprocess with a stripped env, audit hook, and bounded timeout.
+
+    `work_root` is the directory the rendered PNG is written into (defaults to
+    the current working directory). `attempt_number` is an internal counter used
+    by `invoke_codegen_with_repair`; callers normally leave it at 1. Returns a
+    RenderResult dict.
+    """
+
     policy = default_codegen_sandbox_policy() if policy is None else policy
+    output_directory = Path.cwd() if work_root is None else Path(work_root)
     request_id = str(render_request.get("request_id", "codegen-render"))
 
     try:
-        validate_contract("codegen-sandbox-policy", policy, repo_root=repo_root)
-        validate_contract("render-request", render_request, repo_root=repo_root)
-        validate_contract("chart-spec", render_request["chart_spec"], repo_root=repo_root)
+        validate_contract("codegen-sandbox-policy", policy)
+        validate_contract("render-request", render_request)
+        validate_contract("chart-spec", render_request["chart_spec"])
         for series in render_request["history_series"]:
-            validate_contract("history-series", series, repo_root=repo_root)
+            validate_contract("history-series", series)
     except (ContractValidationError, KeyError) as exc:
         return _new_codegen_failure(
             request_id=request_id,
@@ -728,39 +572,45 @@ def invoke_codegen_sandbox(
         "error": None,
         "render_metadata": metadata,
     }
-    validate_contract("render-result", render_result, repo_root=repo_root)
+    validate_contract("render-result", render_result)
     return render_result
 
 
 def invoke_codegen_with_repair(
-    *,
     render_request: dict[str, Any],
-    output_directory: Path,
-    repaired_python_codes: list[str] | None = None,
+    *,
+    repair: Callable[[str, dict[str, Any]], str],
     policy: dict[str, Any] | None = None,
-    repo_root: Path | None = None,
+    max_attempts: int = 2,
+    work_root: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Capped repair loop around `invoke_codegen_sandbox`.
+
+    `max_attempts` is the number of repair retries allowed after the initial
+    attempt (so at most `1 + max_attempts` executions). The `repair` callable is
+    injected — `repair(previous_code, error) -> next_code` — and is invoked after
+    each retryable failure to produce the next code attempt; wiring it to a real
+    repair *model* is a later packet (ADR-0029 packet 4). Static safety checks
+    re-run for every attempt, including repaired ones. Returns the final
+    RenderResult plus per-attempt diagnostics.
+    """
+
     policy = default_codegen_sandbox_policy() if policy is None else policy
+    max_attempts = max(0, int(max_attempts))
     codegen = render_request.get("codegen") if isinstance(render_request, dict) else None
-    max_repair_attempts = (
-        codegen.get("max_repair_attempts", 0) if isinstance(codegen, dict) else 0
-    )
-    max_repair_attempts = max(0, int(max_repair_attempts))
-    repaired_python_codes = [] if repaired_python_codes is None else list(repaired_python_codes)
     current_code = codegen.get("python_code", "") if isinstance(codegen, dict) else ""
     attempt_results = []
     repair_requests = []
     static_checks_run = 0
 
-    for attempt_number in range(1, max_repair_attempts + 2):
+    for attempt_number in range(1, max_attempts + 2):
         attempt_request = _render_request_with_code(render_request, current_code)
         safety_result = static_safety_check(current_code, policy=policy)
         static_checks_run += 1
         render_result = invoke_codegen_sandbox(
-            render_request=attempt_request,
-            output_directory=output_directory,
+            attempt_request,
             policy=policy,
-            repo_root=repo_root,
+            work_root=work_root,
             attempt_number=attempt_number,
         )
         attempt_results.append(
@@ -774,13 +624,12 @@ def invoke_codegen_with_repair(
         if render_result["status"] == "success" or render_result["error"]["code"] == "unsafe_code":
             break
 
-        repair_attempt_number = attempt_number
-        if repair_attempt_number > max_repair_attempts:
+        if attempt_number > max_attempts:
             break
 
         repair_requests.append(
             {
-                "repair_attempt_number": repair_attempt_number,
+                "repair_attempt_number": attempt_number,
                 "source_error_code": render_result["error"]["code"],
                 "stack_trace_included": bool(
                     render_result["error"]["details"].get("traceback")
@@ -788,169 +637,21 @@ def invoke_codegen_with_repair(
             }
         )
 
-        if repaired_python_codes:
-            current_code = repaired_python_codes.pop(0)
+        current_code = repair(current_code, render_result["error"])
 
     final_result = attempt_results[-1]["render_result"]
     if final_result["status"] == "failed":
         final_result["error"]["details"]["repair_attempts"] = len(repair_requests)
-        final_result["error"]["details"]["max_repair_attempts"] = max_repair_attempts
+        final_result["error"]["details"]["max_attempts"] = max_attempts
         final_result["error"]["details"]["static_safety_checks_run"] = static_checks_run
-        validate_contract("render-result", final_result, repo_root=repo_root)
+        validate_contract("render-result", final_result)
 
     return {
         "render_result": final_result,
         "attempt_results": attempt_results,
         "repair_requests": repair_requests,
-        "max_repair_attempts": max_repair_attempts,
+        "max_attempts": max_attempts,
         "static_safety_checks_run": static_checks_run,
-    }
-
-
-def verify_codegen_sandbox_anchor(root: Path | None = None) -> dict[str, Any]:
-    root = Path(__file__).resolve().parents[2] if root is None else root
-    policy = default_codegen_sandbox_policy()
-    failures = []
-
-    try:
-        validate_contract("codegen-sandbox-policy", policy, repo_root=root)
-    except ContractValidationError as exc:
-        failures.append(f"Sandbox policy failed schema validation: {exc}")
-
-    output_root = root / ".test-output"
-    output_root.mkdir(exist_ok=True)
-
-    with tempfile.TemporaryDirectory(dir=output_root) as run_directory_text:
-        run_directory = Path(run_directory_text)
-        safe_result = invoke_codegen_sandbox(
-            render_request=sample_codegen_render_request(),
-            output_directory=run_directory,
-            policy=policy,
-            repo_root=root,
-        )
-        safe_output_files = sorted(path.name for path in run_directory.iterdir())
-
-    with tempfile.TemporaryDirectory(dir=output_root) as run_directory_text:
-        run_directory = Path(run_directory_text)
-        matplotlib_result = invoke_codegen_sandbox(
-            render_request=sample_codegen_render_request(
-                python_code=matplotlib_generated_python(),
-            ),
-            output_directory=run_directory,
-            policy=policy,
-            repo_root=root,
-        )
-        matplotlib_output_files = sorted(path.name for path in run_directory.iterdir())
-        matplotlib_image_signature = (
-            Path(matplotlib_result["image_path"]).read_bytes()[:8].hex()
-            if matplotlib_result["status"] == "success"
-            else None
-        )
-
-    with tempfile.TemporaryDirectory(dir=output_root) as run_directory_text:
-        run_directory = Path(run_directory_text)
-        matplotlib_read_result = invoke_codegen_sandbox(
-            render_request=sample_codegen_render_request(
-                python_code=matplotlib_arbitrary_read_python(root / "STATUS.md"),
-            ),
-            output_directory=run_directory,
-            policy=policy,
-            repo_root=root,
-        )
-        matplotlib_read_output_files = sorted(path.name for path in run_directory.iterdir())
-
-    unsafe_results = {
-        name: invoke_codegen_sandbox(
-            render_request=sample_codegen_render_request(python_code=python_code),
-            output_directory=output_root,
-            policy=policy,
-            repo_root=root,
-        )
-        for name, python_code in unsafe_generated_python_examples().items()
-    }
-
-    small_output_policy = {**policy, "max_output_bytes": 1024}
-    with tempfile.TemporaryDirectory(dir=output_root) as run_directory_text:
-        oversized_result = invoke_codegen_sandbox(
-            render_request=sample_codegen_render_request(
-                python_code=oversized_generated_python(extra_bytes=2048),
-            ),
-            output_directory=Path(run_directory_text),
-            policy=small_output_policy,
-            repo_root=root,
-        )
-
-    with tempfile.TemporaryDirectory(dir=output_root) as run_directory_text:
-        repair_result = invoke_codegen_with_repair(
-            render_request=sample_codegen_render_request(
-                python_code=broken_generated_python("initial matplotlib failure"),
-                max_repair_attempts=2,
-            ),
-            output_directory=Path(run_directory_text),
-            repaired_python_codes=[
-                broken_generated_python("first repair still fails"),
-                broken_generated_python("second repair still fails"),
-            ],
-            policy=policy,
-            repo_root=root,
-        )
-
-    if safe_result["status"] != "success":
-        failures.append("Safe generated code did not complete successfully.")
-    elif safe_output_files != [safe_result["image_id"]]:
-        failures.append("Safe generated code wrote files outside the fixed output image.")
-
-    if matplotlib_result["status"] != "success":
-        failures.append("Allowlisted matplotlib generated code did not complete successfully.")
-    elif matplotlib_output_files != [matplotlib_result["image_id"]]:
-        failures.append("Matplotlib generated code wrote files outside the fixed output image.")
-    elif matplotlib_image_signature != PNG_SIGNATURE.hex():
-        failures.append("Matplotlib generated code did not create a PNG image.")
-
-    if matplotlib_read_result["status"] != "failed":
-        failures.append("Allowlisted matplotlib file read attempt did not fail closed.")
-    elif matplotlib_read_result["error"]["code"] != "runtime_error":
-        failures.append("Allowlisted matplotlib file read failed with the wrong code.")
-    elif (
-        "sandbox allows reads only from worker runtime roots"
-        not in matplotlib_read_result["error"]["message"]
-    ):
-        failures.append("Allowlisted matplotlib file read did not hit the runtime audit hook.")
-    if matplotlib_read_output_files:
-        failures.append("Allowlisted matplotlib file read wrote an output artifact.")
-
-    if not all(result["status"] == "failed" for result in unsafe_results.values()):
-        failures.append("One or more unsafe code examples were not rejected.")
-    if not all(result["error"]["code"] == "unsafe_code" for result in unsafe_results.values()):
-        failures.append("One or more unsafe code examples failed with the wrong code.")
-    if any(result["render_metadata"]["codegen_attempts"] for result in unsafe_results.values()):
-        failures.append("Unsafe code executed instead of failing before render.")
-
-    if oversized_result["error"]["code"] != "output_too_large":
-        failures.append("Oversized output did not fail with output_too_large.")
-
-    final_repair_result = repair_result["render_result"]
-    if final_repair_result["error"]["code"] != "runtime_error":
-        failures.append("Capped repair loop did not end with a runtime_error.")
-    if len(repair_result["repair_requests"]) != 2:
-        failures.append("Repair loop did not request exactly two repairs.")
-    if repair_result["static_safety_checks_run"] != 3:
-        failures.append("Static safety checks were not rerun for every code attempt.")
-
-    return {
-        "passed": not failures,
-        "failures": failures,
-        "policy": policy,
-        "safe_result": safe_result,
-        "safe_output_files": safe_output_files,
-        "matplotlib_result": matplotlib_result,
-        "matplotlib_output_files": matplotlib_output_files,
-        "matplotlib_image_signature": matplotlib_image_signature,
-        "matplotlib_read_result": matplotlib_read_result,
-        "matplotlib_read_output_files": matplotlib_read_output_files,
-        "unsafe_results": unsafe_results,
-        "oversized_result": oversized_result,
-        "repair_result": repair_result,
     }
 
 

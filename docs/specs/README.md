@@ -62,4 +62,4 @@ implementing slice produces an evidence file proving each scenario was hit.
 - `semantic-memory-spec.md` — Semantic alias storage and recall
 - `validation-spec.md` — Plan validation and chart spec safety
 - `worker-sandbox-spec.md` — Worker sandbox execution model
-- `codegen-sandbox-module-promotion.md` — Promote the codegen sandbox anchor into a self-contained worker module (ADR-0029 packet 1) (draft)
+- `codegen-sandbox-module-promotion.md` — Promote the codegen sandbox anchor into a self-contained worker module (ADR-0029 packet 1) (accepted)

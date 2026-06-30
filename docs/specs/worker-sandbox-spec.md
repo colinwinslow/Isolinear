@@ -102,10 +102,14 @@ The worker should return structured errors:
 
 The worker must avoid assuming GPU availability. It should use standard Python and matplotlib for rendering. Heavy model inference is expected to run elsewhere.
 
-The sandbox anchor is implemented in
-`src/Isolinear/codegen_sandbox_anchor.py` and is validated by:
+The sandbox is implemented as a self-contained worker module at
+`worker/isolinear_worker/codegen_sandbox.py` (promoted from the original anchor
+per ADR-0029 and `docs/specs/codegen-sandbox-module-promotion.md`) and is
+validated by:
 
-- `docs/schemas/codegen-sandbox-policy.schema.json`
-- `tests/test_codegen_sandbox_anchor.py`
+- `docs/schemas/codegen-sandbox-policy.schema.json` (bundled into the worker
+  package at `worker/isolinear_worker/schemas/`)
+- `tests/test_codegen_sandbox.py`
 - `evals/codegen_sandbox.py`
 - `bdd/sandbox-codegen/sandbox-codegen-bdd.md`
+- `bdd/sandbox-codegen/codegen-sandbox-module-promotion-bdd.md`

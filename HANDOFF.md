@@ -2,6 +2,47 @@
 
 ## Current project phase
 
+### 2026-06-30 — ADR-0029 packet 1 landed: codegen sandbox promoted to a self-contained worker module
+
+The proven codegen sandbox is now a real, importable, Home-Assistant-agnostic
+worker package at **`worker/isolinear_worker/`** (promoted from the retired
+`src/Isolinear/codegen_sandbox_anchor.py`). It carries its own minimal schema
+validator (`_schema_validation.py`, a deliberate subset-copy of the integration's
+`contracts.py`) and a bundled copy of the five schemas it validates
+(`worker/isolinear_worker/schemas/`), so it imports nothing from
+`custom_components/isolinear/` or `src/Isolinear/` — the deployment-independence
+boundary ADR-0029/ADR-0012 require. The sandbox **security model is unchanged and
+preserved at parity** (`-I` isolation, import allowlist, audit hook, fixed
+output-path write, timeout, `resource` limits, max output bytes); only the
+anchor/fixture/verifier scaffolding was dropped and two public signatures cleaned
+up (`work_root` replaces `output_directory`; `repo_root` removed; the repair loop
+takes an injected `repair(prev, error)->next` callable instead of a pre-baked
+code list — a real repair model is packet 4). The HACS-shipped integration is
+**untouched** (no new dependency, no version bump).
+
+`tests/test_codegen_sandbox.py` drives the public API for sandbox-codegen
+scenarios A-G plus the promotion scenarios (self-containment via a clean-subprocess
+`sys.modules` import-graph check; a schema byte-parity drift guard; an
+injected-repair loop; a timeout). The matplotlib-rendering scenarios are
+`skipUnless` the `-I` sandbox can import matplotlib: on a dev box matplotlib is
+user-site-only and `-I` excludes it, so they skip there and run on the worker
+container (where matplotlib is in the system site). Suite is green —
+`584 passed, 2 skipped` (the prior "3 pre-existing codegen-sandbox failures" were
+exactly this environment limitation, now honest skips). `evals/codegen_sandbox.py`
+repointed and passing; a real PNG was produced through the promoted public API and
+eyes-on-confirmed. Spec + BDD promoted draft→accepted; ADR-0029 stays draft until
+the experiment's accept/repair-rate kill condition is decided. Architecture review
+OK; its drift-guard recommendation is implemented as a test.
+
+**Remaining ADR-0029 packets:** (2) the worker HTTP server (`POST /v1/render`,
+`GET /v1/health`, bearer auth, versioned headers, 12-factor/HA-agnostic) wrapping
+`isolinear_worker.codegen_sandbox`; (3) standalone amd64 Dockerfile with
+matplotlib; (4) codegen path in the model provider + real repair model; (5)
+end-to-end proof + the codegen accept/repair reliability eval the keep/remove
+decision rests on. Deploy target: CT103/10.0.1.39, standalone amd64 GPU-less
+Docker via the homelab `docker_host` role (homelab half waits on that role
+landing).
+
 ### 2026-06-30 — Direction: revive the worker to evaluate sandboxed codegen (experiment branch)
 
 A rewrite-vs-refactor review concluded the architecture is sound and the worker

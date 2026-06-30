@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft. Paired with
+Accepted (implemented 2026-06-30). Paired with
 [docs/specs/codegen-sandbox-module-promotion.md](../../docs/specs/codegen-sandbox-module-promotion.md).
 
 Evidence file:

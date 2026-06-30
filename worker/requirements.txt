@@ -1,0 +1,6 @@
+# Isolinear worker runtime dependencies (ADR-0029).
+# The standalone worker container (a later packet) installs these; the sandboxed
+# generated code imports matplotlib inside the isolated `-I` subprocess. The
+# repo dev .venv already provides matplotlib so the promotion tests can run.
+matplotlib>=3.7,<4
+jsonschema>=4,<5

@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 date: 2026-06-30
 depends-on-adrs: [0029, 0008, 0012, 0001, 0004]
 ---
@@ -8,7 +8,9 @@ depends-on-adrs: [0029, 0008, 0012, 0001, 0004]
 
 ## Status
 
-Draft. Defines the contract surface for promoting the proven codegen-sandbox
+Accepted (implemented 2026-06-30; evidence:
+[codegen-sandbox-module-promotion-evidence.md](../../bdd/sandbox-codegen/codegen-sandbox-module-promotion-evidence.md)).
+Defines the contract surface for promoting the proven codegen-sandbox
 anchor into a real, importable worker module per ADR-0029 (revive the isolated
 worker to evaluate sandboxed model-generated chart codegen). The sandbox
 *security model and behavior* are already specified in
@@ -71,23 +73,53 @@ def default_codegen_sandbox_policy() -> dict:
     backend, import allowlist, fixed output path, timeout, resource limits where
     available, max output bytes)."""
 
-def static_safety_check(code: str, *, policy: dict) -> dict:
+def static_safety_check(code: str, *, policy: dict | None = None) -> dict:
     """AST safety gate run before any execution. Returns
-    {"safe": bool, "violations": [...], "code": "unsafe_code" | None}."""
+    {"accepted": bool, "code": str, "render_attempted": bool,
+     "violations": [...]}  (code is "accepted", "unsafe_code", or
+    "invalid_code")."""
 
 def invoke_codegen_sandbox(render_request: dict, *, policy: dict | None = None,
-                           work_root: str | Path | None = None) -> dict:
+                           work_root: str | Path | None = None,
+                           attempt_number: int = 1) -> dict:
     """Validate → static-check → execute generated code in an isolated `-I`
-    subprocess with a stripped env, audit hook, and bounded timeout. Returns a
-    RenderResult dict."""
+    subprocess with a stripped env, audit hook, and bounded timeout. `work_root`
+    is the directory the PNG is written into (defaults to the current working
+    directory); `attempt_number` is an internal counter for the repair loop.
+    Returns a RenderResult dict."""
 
-def invoke_codegen_with_repair(render_request: dict, *, policy: dict | None = None,
-                               repair, max_attempts: int = 2,
+def invoke_codegen_with_repair(render_request: dict, *,
+                               repair: Callable[[str, dict], str],
+                               policy: dict | None = None,
+                               max_attempts: int = 2,
                                work_root: str | Path | None = None) -> dict:
-    """Capped repair loop around invoke_codegen_sandbox. The repair callable is
-    injected; wiring it to a real repair *model* is a later packet (ADR-0029
-    packet 4). Re-runs static safety checks for every repaired attempt."""
+    """Capped repair loop around invoke_codegen_sandbox. The injected `repair`
+    callable — `repair(previous_code, error) -> next_code` — produces the next
+    attempt after each retryable failure; wiring it to a real repair *model* is a
+    later packet (ADR-0029 packet 4). `max_attempts` is the number of repair
+    retries after the initial attempt (≤ 1 + max_attempts executions). Re-runs
+    static safety checks for every attempt. Returns
+    {"render_result", "attempt_results", "repair_requests", "max_attempts",
+     "static_safety_checks_run"}."""
 ```
+
+**Deviations from the illustrative signatures above** (resolved during
+implementation; behaviour is preserved at parity with the retired anchor):
+
+- `static_safety_check` returns the proven anchor shape keyed on `accepted`
+  (not `safe`), so the existing `invoke_codegen_sandbox` consumer is unchanged.
+- `invoke_codegen_sandbox` drops the anchor's `repo_root` argument entirely —
+  schemas are now bundled inside the worker package and resolved by
+  `_schema_validation`, so there is no repo to point at. The anchor's
+  `output_directory` becomes `work_root`. An internal `attempt_number` keyword
+  remains for the repair loop.
+- `invoke_codegen_with_repair` replaces the anchor's `repaired_python_codes`
+  list (and request-embedded `max_repair_attempts`) with an injected `repair`
+  callable plus an explicit `max_attempts`. `max_attempts` counts repair
+  retries (matching "retries no more than 2 times" in BDD Scenario E), so
+  `max_attempts = 2` runs at most three executions and three static checks. It
+  returns the same rich diagnostic dict the anchor returned, with the count key
+  renamed `max_repair_attempts` → `max_attempts`.
 
 ### RenderResult and error codes
 
