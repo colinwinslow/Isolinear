@@ -54,3 +54,4 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0026 — `Model entity selection runs in the pollable planning phase, not in blocking job/start`
 - 0027 — `Card-owned legend with a renderer color manifest and model-authored summary`
 - 0028 — `Model-validated composition membership for overlay/timeline selection`
+- 0029 — `Revive isolated worker to evaluate sandboxed model-generated chart codegen` (draft)
