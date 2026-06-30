@@ -2,6 +2,45 @@
 
 ## Current project phase
 
+### 2026-06-30 — Direction: revive the worker to evaluate sandboxed codegen (experiment branch)
+
+A rewrite-vs-refactor review concluded the architecture is sound and the worker
+tree is **not** dead weight — it is load-bearing (`__init__.py` aborts setup
+without `worker_token_lifecycle`; `job_orchestration.py:55` imports
+`worker_renderer`) and ADR-0017 *defers* it on purpose. The new direction
+(ADR-0029, draft) **revives** the deferred worker as a deployment-agnostic HTTP
+service that runs the existing sandbox on model-generated matplotlib code — the
+original product intent, never evaluated because matplotlib won't install on the
+HAOS/aarch64 (Alpine) Pi. The worker dissolves that: matplotlib lives in the
+worker's own amd64 image.
+
+This is an **experiment with a kill condition**: if a 3060-class local model
+can't produce good-enough matplotlib (accept/repair eval), the worker subsystem
+is removed and the architecture refactors to in-process-only (its own
+superseding ADR). In-process trusted rendering stays the default throughout.
+
+**Data boundary (defense-in-depth):** entity selection, allowlist enforcement,
+and history retrieval stay integration-side; only normalized, allowlist-checked
+render data crosses to the worker, which never queries HA. The integration
+controls what data goes in; the sandbox controls what the code can do.
+
+**Build plan:** (1) promote the sandbox anchor → self-contained
+`worker/isolinear_worker/` [spec `codegen-sandbox-module-promotion`, drafted];
+(2) worker HTTP server (`/v1/render`, `/v1/health`, 12-factor, HA-agnostic);
+(3) standalone amd64 Dockerfile with matplotlib; (4) codegen path in the model
+provider + real repair model; (5) end-to-end proof + reliability eval. The hard
+parts already exist (the sandbox and the integration-side worker client);
+the missing piece is the worker server.
+
+**Deployment:** standalone Docker on CT103/10.0.1.39 (the ollama box), amd64,
+GPU-less, deployed via the homelab `docker_host` Ansible role (two-repo split:
+Isolinear publishes the image, homelab deploys it; the HA add-on for other users
+is a later aarch64 packaging wrapper, deferred). All of this lives on branch
+`adr-0029-worker-codegen-eval` (planning committed, not pushed; no integration
+code changed yet).
+
+---
+
 MVP design phase closed. The first production Home Assistant custom integration
 scaffold, config-flow/options surface, dashboard resource registration surface,
 WebSocket command registration surface, job state scaffold, approved entity
