@@ -57,6 +57,7 @@ class IsolinearOptionsShape:
 
     default_render_mode: str
     max_codegen_repair_attempts: int
+    codegen_enabled: bool
     entity_allowlist: tuple[str, ...]
 
 
@@ -77,6 +78,9 @@ def default_options_data() -> dict[str, Any]:
     return {
         "default_render_mode": RENDER_MODE_SAFE,
         "max_codegen_repair_attempts": 1,
+        # ADR-0029 packet 4: codegen is the opt-in advanced render path
+        # (invariant #6). Disabled by default; kept cleanly removable.
+        "codegen_enabled": False,
         "entity_allowlist": [],
     }
 
@@ -118,6 +122,7 @@ def validate_config_and_options(
     normalized_options = IsolinearOptionsShape(
         default_render_mode=options_data["default_render_mode"],
         max_codegen_repair_attempts=options_data["max_codegen_repair_attempts"],
+        codegen_enabled=options_data["codegen_enabled"],
         entity_allowlist=tuple(options_data["entity_allowlist"]),
     )
     return {
@@ -244,6 +249,7 @@ def _validate_options_data(options_data: dict[str, Any]) -> list[dict[str, str]]
     required = {
         "default_render_mode",
         "max_codegen_repair_attempts",
+        "codegen_enabled",
         "entity_allowlist",
     }
     errors: list[dict[str, str]] = []
@@ -264,6 +270,13 @@ def _validate_options_data(options_data: dict[str, Any]) -> list[dict[str, str]]
             {
                 "path": "$.options_data.max_codegen_repair_attempts",
                 "reason": "must_be_non_negative_integer",
+            }
+        )
+    if not isinstance(options_data["codegen_enabled"], bool):
+        errors.append(
+            {
+                "path": "$.options_data.codegen_enabled",
+                "reason": "must_be_boolean",
             }
         )
     allowlist = options_data["entity_allowlist"]

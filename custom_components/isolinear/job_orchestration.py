@@ -38,6 +38,9 @@ from .job_state import (
 )
 from .model_provider import (
     PLANNER_RENDER_FAMILIES,
+    codegen_enabled,
+    configured_codegen_model,
+    get_model_provider_codegen,
     get_model_provider_planner,
     load_entity_selector_schema,
     load_planner_result_schema,
@@ -1659,6 +1662,33 @@ def _record_artifact_snapshot_for_source(
                 job_state_written=True,
                 job_orchestration_written=True,
             )
+        codegen_failure_snapshot = _append_codegen_failure_snapshot_from_planning_result(
+            job,
+            planning_result,
+        )
+        if codegen_failure_snapshot is not None:
+            return _accepted_artifact_snapshot(
+                "job_orchestration_codegen_failure_snapshot_recorded",
+                command,
+                codegen_failure_snapshot,
+                artifact=None,
+                render_plan=None,
+                model_provider_plan=None,
+                worker_dispatch=None,
+                worker_progress_events=None,
+                artifact_metadata_written=False,
+                render_plan_written=False,
+                model_provider_plan_written=False,
+                worker_dispatch_written=False,
+                worker_progress_written=False,
+                worker_progress_streaming_called=False,
+                model_provider_called=planning_result.get("model_provider_called", False),
+                worker_called=planning_result.get("worker_called", False),
+                chart_rendering_called=planning_result.get("chart_rendering_called", False),
+                chart_artifact_written=False,
+                job_state_written=True,
+                job_orchestration_written=True,
+            )
         renderer_failure_snapshot = _append_in_process_renderer_failure_snapshot_from_planning_result(
             job,
             planning_result,
@@ -2644,6 +2674,47 @@ def _append_worker_failure_snapshot_from_planning_result(
     return None
 
 
+def _append_codegen_failure_snapshot_from_planning_result(
+    job: dict[str, Any],
+    planning_result: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Convert a fail-closed codegen result into a card-facing failed snapshot.
+
+    ADR-0029 packet 4: codegen fails closed with a dedicated
+    ``codegen_render_failed`` code (no silent trusted fallback). The failure card
+    carries the final sandbox/model error code as context for the packet-5 eval.
+    """
+    if planning_result.get("code") != CODEGEN_RENDER_FAILED_CODE:
+        return None
+    codegen_failure = planning_result.get("codegen_failure")
+    codegen_failure = codegen_failure if isinstance(codegen_failure, dict) else {}
+    final_error_code = codegen_failure.get("final_error_code")
+    stage = codegen_failure.get("stage")
+    return _append_failed_snapshot(
+        job,
+        code=CODEGEN_RENDER_FAILED_CODE,
+        stage="codegen_render",
+        message=_codegen_failure_message(stage, final_error_code),
+        checks=[
+            {"name": "integration_job_state_scaffold", "status": "pass"},
+            {"name": "approved_entity_catalog", "status": "pass"},
+            {"name": "model_provider", "status": "pass"},
+            {"name": "approved_history_retrieval", "status": "pass"},
+            {"name": "codegen_render", "status": "fail"},
+        ],
+    )
+
+
+def _codegen_failure_message(stage: Any, final_error_code: Any) -> str:
+    if stage == "generate":
+        return "The model could not generate chart code for this request."
+    if stage == "repair":
+        return "The model could not repair the generated chart code after a sandbox error."
+    if final_error_code == "unsafe_code":
+        return "The generated chart code failed the sandbox safety checks and was rejected."
+    return "The generated chart code failed to render after the allowed repair attempts."
+
+
 def _append_history_failure_snapshot_from_planning_result(
     job: dict[str, Any],
     planning_result: dict[str, Any],
@@ -3287,6 +3358,7 @@ def _record_artifact_and_render_plan(
             "worker_transport_failure_classification": worker_dispatch_result.get(
                 "worker_transport_failure_classification"
             ),
+            "codegen_failure": worker_dispatch_result.get("codegen_failure"),
             "orchestration": job_orchestration_side_effects(
                 model_provider_called=model_provider_result.get("model_provider_called", False),
                 worker_called=worker_dispatch_result.get("worker_called", False),
@@ -4168,6 +4240,28 @@ def _record_worker_dispatch(
             "worker": worker_summary,
         }
 
+    # ADR-0029 packet 4: when the opt-in codegen path is enabled (a codegen
+    # client was installed by setup_model_provider_codegen), the render step is
+    # replaced by model-generated matplotlib + an integration-orchestrated repair
+    # loop. Planning, allowlist enforcement, and render-family routing are
+    # upstream and unchanged; only the render step differs.
+    codegen_client = get_model_provider_codegen(hass, entry_id)
+    if codegen_client is not None:
+        return _record_codegen_worker_dispatch(
+            store,
+            hass=hass,
+            entry_id=entry_id,
+            job=job,
+            source_snapshot=source_snapshot,
+            artifact=artifact,
+            render_plan=render_plan,
+            serve_artifact=serve_artifact,
+            worker_client=worker_client,
+            codegen_client=codegen_client,
+            token=token,
+            worker_summary=worker_summary,
+        )
+
     render_request = _build_worker_render_request(
         store,
         hass=hass,
@@ -4333,6 +4427,408 @@ def _record_worker_dispatch(
                 "worker_retry_policy": retry_policy_result.get("worker_retry_policy"),
                 "worker_retry_policy_written": True,
             }
+        artifact = artifact_result["artifact"]
+        render_result = artifact_result["render_result"]
+
+    worker_dispatch = _build_worker_dispatch(
+        store,
+        job=job,
+        source_snapshot=source_snapshot,
+        artifact=artifact,
+        render_plan=render_plan,
+        worker=worker_response.get("worker") or worker_client_metadata(worker_client),
+        transport_request=transport_request,
+        render_result=render_result,
+        chart_artifact_written=artifact_result is not None,
+    )
+    dispatch_validation = validate_worker_dispatch_contract(worker_dispatch)
+    if not dispatch_validation["accepted"]:
+        artifact_rollback = _rollback_worker_rendered_artifact(hass, entry_id, artifact_result)
+        return {
+            "accepted": False,
+            "code": "invalid_integration_worker_dispatch",
+            "validation": dispatch_validation,
+            "worker_called": True,
+            "chart_rendering_called": True,
+            "chart_artifact_written": False,
+            "worker_progress_streaming_called": False,
+            "worker": worker_summary,
+            "artifact_rollback": artifact_rollback,
+        }
+
+    worker_progress_result = _record_worker_progress_events(
+        store,
+        hass=hass,
+        entry_id=entry_id,
+        job=job,
+        worker=worker_response.get("worker") or worker_client_metadata(worker_client),
+        worker_authorization=f"Bearer {token}",
+        request_id=transport_request["body"]["request_id"],
+        progress_payloads=worker_response.get("progress_events"),
+    )
+    if not worker_progress_result["accepted"]:
+        artifact_rollback = _rollback_worker_rendered_artifact(hass, entry_id, artifact_result)
+        return {
+            "accepted": False,
+            "code": worker_progress_result["code"],
+            "validation": worker_progress_result.get("validation"),
+            "worker_called": True,
+            "chart_rendering_called": True,
+            "chart_artifact_written": False,
+            "worker_progress_streaming_called": worker_progress_result.get("worker_progress_streaming_called", False),
+            "worker": worker_summary,
+            "artifact_rollback": artifact_rollback,
+        }
+
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "worker_called": True,
+        "chart_rendering_called": True,
+        "chart_artifact_written": artifact_result is not None,
+        "worker_progress_streaming_called": worker_progress_result.get("worker_progress_streaming_called", False),
+        "artifact": deepcopy(artifact),
+        "artifact_validation": artifact_result.get("artifact_validation") if artifact_result is not None else None,
+        "worker_dispatch": worker_dispatch,
+        "worker_progress_events": worker_progress_result.get("worker_progress_events", []),
+        "validation": dispatch_validation,
+        "worker_progress_validation": worker_progress_result.get("validation"),
+        "worker": worker_summary,
+    }
+
+
+CODEGEN_RENDER_FAILED_CODE = "codegen_render_failed"
+# ADR-0029 packet 4: static safety is a security gate, not a correctness bug —
+# repairing it just re-probes the gate. The sandbox already breaks its loop on
+# unsafe_code; the integration mirrors that and fails closed immediately.
+CODEGEN_TERMINAL_SANDBOX_ERROR_CODES = frozenset({"unsafe_code"})
+
+
+def _configured_max_codegen_repair_attempts(hass: Any, entry_id: str) -> int:
+    entry_data = getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {})
+    entry = entry_data.get("entry") if isinstance(entry_data, dict) else None
+    options = getattr(entry, "options", {}) or {}
+    value = options.get("max_codegen_repair_attempts") if hasattr(options, "get") else None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return 1
+    return value
+
+
+def _build_codegen_render_request(
+    store: dict[str, Any],
+    *,
+    hass: Any,
+    entry_id: str,
+    render_plan: dict[str, Any],
+    python_code: str,
+    max_repair_attempts: int,
+) -> dict[str, Any]:
+    """Build a render_mode='codegen' render request carrying generated code.
+
+    Mirrors ``_build_worker_render_request`` but flips render_mode to codegen and
+    attaches ``codegen.python_code`` + ``codegen.max_repair_attempts``. The
+    worker re-runs static safety on this code on every dispatch (packet 1).
+    """
+    render_request = _build_worker_render_request(
+        store,
+        hass=hass,
+        entry_id=entry_id,
+        render_plan=render_plan,
+    )
+    render_request["render_mode"] = "codegen"
+    render_request["codegen"] = {
+        "python_code": python_code,
+        "max_repair_attempts": max_repair_attempts,
+    }
+    return render_request
+
+
+def _codegen_render_failed(
+    *,
+    worker_summary: dict[str, Any],
+    final_error_code: str,
+    stage: str,
+    worker_called: bool,
+    chart_rendering_called: bool,
+    codegen_attempts: int,
+    repair_attempts: int,
+) -> dict[str, Any]:
+    """Fail-closed codegen result (no silent fallback to the trusted renderer).
+
+    ADR-0029 packet 4: returns a dedicated ``codegen_render_failed`` code that
+    carries the final sandbox/model error code as context. A silent trusted
+    fallback would mask codegen failures and muddy the packet-5 accept/reject/
+    repair eval.
+    """
+    return {
+        "accepted": False,
+        "code": CODEGEN_RENDER_FAILED_CODE,
+        "worker_called": worker_called,
+        "chart_rendering_called": chart_rendering_called,
+        "worker_progress_streaming_called": False,
+        "worker": worker_summary,
+        "codegen_failure": {
+            "stage": stage,
+            "final_error_code": final_error_code,
+            "codegen_attempts": codegen_attempts,
+            "repair_attempts": repair_attempts,
+        },
+    }
+
+
+def _record_codegen_worker_dispatch(
+    store: dict[str, Any],
+    *,
+    hass: Any,
+    entry_id: str,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+    artifact: dict[str, Any],
+    render_plan: dict[str, Any],
+    serve_artifact: bool,
+    worker_client: Any,
+    codegen_client: Any,
+    token: str,
+    worker_summary: dict[str, Any],
+) -> dict[str, Any]:
+    """Integration-orchestrated codegen render + repair loop (ADR-0029 packet 4).
+
+    The data boundary (ADR-0029) forbids the worker from holding a model client,
+    so the repair loop lives here, not in the worker's worker-local
+    ``invoke_codegen_with_repair``. Per attempt the integration dispatches a
+    fresh ``POST /v1/render`` (``render_mode: 'codegen'``); on a *retryable*
+    sandbox failure it asks its own model provider to repair the code and
+    re-dispatches, up to ``max_codegen_repair_attempts``. ``unsafe_code`` is
+    terminal (no repair). On exhaustion / ``unsafe_code`` / generation failure it
+    fails closed with ``codegen_render_failed`` — never a silent trusted
+    fallback.
+    """
+    config_data = getattr(getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {}).get("entry"), "data", {}) or {}
+    codegen_model = configured_codegen_model(config_data)
+    max_repair_attempts = _configured_max_codegen_repair_attempts(hass, entry_id)
+
+    # 1. Generate the initial code from the validated ChartSpec + render data.
+    codegen_request = _build_worker_render_request(
+        store, hass=hass, entry_id=entry_id, render_plan=render_plan
+    )
+    generation = codegen_client.generate_chart_code(codegen_request, model=codegen_model)
+    if not isinstance(generation, dict) or not generation.get("accepted"):
+        return _codegen_render_failed(
+            worker_summary=worker_summary,
+            final_error_code=generation.get("code", "model_provider_codegen_failed")
+            if isinstance(generation, dict)
+            else "model_provider_codegen_failed",
+            stage="generate",
+            worker_called=False,
+            chart_rendering_called=False,
+            codegen_attempts=0,
+            repair_attempts=0,
+        )
+    current_code = generation["python_code"]
+
+    render_method = getattr(worker_client, "render_chart", None)
+    if not callable(render_method):
+        return {
+            "accepted": False,
+            "code": "worker_renderer_unavailable",
+            "worker_called": False,
+            "chart_rendering_called": False,
+            "worker_progress_streaming_called": False,
+            "worker": worker_summary,
+        }
+
+    repair_attempts_made = 0
+    final_error_code = "runtime_error"
+    # Attempts: the initial render + up to max_repair_attempts repaired renders.
+    for attempt_number in range(1, max_repair_attempts + 2):
+        render_request = _build_codegen_render_request(
+            store,
+            hass=hass,
+            entry_id=entry_id,
+            render_plan=render_plan,
+            python_code=current_code,
+            max_repair_attempts=max_repair_attempts,
+        )
+        render_request_validation = validate_render_request_contract(render_request)
+        if not render_request_validation["accepted"]:
+            return {
+                "accepted": False,
+                "code": "invalid_worker_render_request",
+                "validation": render_request_validation,
+                "worker_called": False,
+                "chart_rendering_called": False,
+                "worker_progress_streaming_called": False,
+                "worker": worker_summary,
+            }
+
+        dispatch_number = store["next_worker_dispatch_number"]
+        transport_request = build_worker_transport_request(
+            render_request,
+            request_id=f"{store['entry_id']}-worker-transport-{dispatch_number:03d}-codegen-{attempt_number:02d}",
+            worker_token=token,
+        )
+        transport_validation = validate_worker_transport_request_contract(transport_request)
+        if not transport_validation["accepted"]:
+            return {
+                "accepted": False,
+                "code": "invalid_worker_transport_request",
+                "validation": transport_validation,
+                "worker_called": False,
+                "chart_rendering_called": False,
+                "worker_progress_streaming_called": False,
+                "worker": worker_summary,
+            }
+
+        worker_response = render_method(transport_request)
+        if not isinstance(worker_response, dict) or not worker_response.get("accepted"):
+            # Transport-layer fault (auth/version/connection): not a codegen bug.
+            classification_result = _record_worker_transport_failure_classification(
+                store,
+                job=job,
+                source_snapshot=source_snapshot,
+                worker=worker_client_metadata(worker_client),
+                transport_request=transport_request,
+                worker_response=worker_response,
+            )
+            if not classification_result["accepted"]:
+                return {
+                    "accepted": False,
+                    "code": classification_result["code"],
+                    "validation": classification_result.get("validation"),
+                    "worker_called": True,
+                    "chart_rendering_called": True,
+                    "worker_progress_streaming_called": False,
+                    "worker": worker_summary,
+                }
+            classification = classification_result["worker_transport_failure_classification"]
+            return {
+                "accepted": False,
+                "code": classification["failure"]["code"],
+                "worker_called": True,
+                "chart_rendering_called": True,
+                "worker_progress_streaming_called": False,
+                "worker": worker_summary,
+                "worker_transport_failure_classification": classification,
+                "worker_transport_failure_classification_written": True,
+            }
+
+        render_result = worker_response.get("render_result")
+        render_result_validation = validate_render_result_contract(render_result)
+        if not render_result_validation["accepted"]:
+            return {
+                "accepted": False,
+                "code": "invalid_worker_render_result",
+                "validation": render_result_validation,
+                "worker_called": True,
+                "chart_rendering_called": True,
+                "worker_progress_streaming_called": False,
+                "worker": worker_summary,
+            }
+
+        if isinstance(render_result, dict) and render_result.get("status") == "success":
+            return _finish_codegen_success(
+                store,
+                hass=hass,
+                entry_id=entry_id,
+                job=job,
+                source_snapshot=source_snapshot,
+                artifact=artifact,
+                render_plan=render_plan,
+                serve_artifact=serve_artifact,
+                worker_client=worker_client,
+                worker_response=worker_response,
+                transport_request=transport_request,
+                render_result=render_result,
+                token=token,
+                worker_summary=worker_summary,
+            )
+
+        # Sandbox-level failure.
+        error = render_result.get("error") if isinstance(render_result, dict) else None
+        final_error_code = error.get("code") if isinstance(error, dict) else "runtime_error"
+
+        # unsafe_code is terminal: fail closed immediately, no repair.
+        if final_error_code in CODEGEN_TERMINAL_SANDBOX_ERROR_CODES:
+            return _codegen_render_failed(
+                worker_summary=worker_summary,
+                final_error_code=final_error_code,
+                stage="render",
+                worker_called=True,
+                chart_rendering_called=True,
+                codegen_attempts=attempt_number,
+                repair_attempts=repair_attempts_made,
+            )
+
+        # Retryable failure: repair if budget remains, else fail closed.
+        if attempt_number > max_repair_attempts:
+            break
+
+        repair = codegen_client.repair_chart_code(
+            current_code, error if isinstance(error, dict) else {}, codegen_request, model=codegen_model
+        )
+        repair_attempts_made += 1
+        if not isinstance(repair, dict) or not repair.get("accepted"):
+            return _codegen_render_failed(
+                worker_summary=worker_summary,
+                final_error_code=repair.get("code", "model_provider_codegen_repair_failed")
+                if isinstance(repair, dict)
+                else "model_provider_codegen_repair_failed",
+                stage="repair",
+                worker_called=True,
+                chart_rendering_called=True,
+                codegen_attempts=attempt_number,
+                repair_attempts=repair_attempts_made,
+            )
+        current_code = repair["python_code"]
+
+    # Exhausted: fail closed carrying the final sandbox error code.
+    return _codegen_render_failed(
+        worker_summary=worker_summary,
+        final_error_code=final_error_code,
+        stage="render",
+        worker_called=True,
+        chart_rendering_called=True,
+        codegen_attempts=max_repair_attempts + 1,
+        repair_attempts=repair_attempts_made,
+    )
+
+
+def _finish_codegen_success(
+    store: dict[str, Any],
+    *,
+    hass: Any,
+    entry_id: str,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+    artifact: dict[str, Any],
+    render_plan: dict[str, Any],
+    serve_artifact: bool,
+    worker_client: Any,
+    worker_response: dict[str, Any],
+    transport_request: dict[str, Any],
+    render_result: dict[str, Any],
+    token: str,
+    worker_summary: dict[str, Any],
+) -> dict[str, Any]:
+    """Serve a successful codegen render through the existing worker artifact path."""
+    artifact_result = None
+    if serve_artifact:
+        artifact_result = _record_worker_rendered_artifact(
+            hass,
+            entry_id,
+            artifact=artifact,
+            render_result=render_result,
+        )
+        if not artifact_result["accepted"]:
+            return _codegen_render_failed(
+                worker_summary=worker_summary,
+                final_error_code=artifact_result["code"],
+                stage="serve",
+                worker_called=True,
+                chart_rendering_called=True,
+                codegen_attempts=1,
+                repair_attempts=0,
+            )
         artifact = artifact_result["artifact"]
         render_result = artifact_result["render_result"]
 

@@ -19,6 +19,12 @@ _LOGGER = logging.getLogger(__name__)
 
 DATA_MODEL_PROVIDER_PLANNER = "model_provider_planner"
 DATA_MODEL_PROVIDER_SETUP = "model_provider_setup"
+# ADR-0029 packet 4: a separate, configurable codegen client. It shares the
+# Ollama transport with the planner but may point at a different (code-
+# specialized) model. When `codegen_model` is unset it defaults to the planner
+# model. It is installed only when codegen is opt-in enabled (invariant #6).
+DATA_MODEL_PROVIDER_CODEGEN = "model_provider_codegen"
+DATA_MODEL_PROVIDER_CODEGEN_SETUP = "model_provider_codegen_setup"
 
 PLANNER_RESULT_SCHEMA_PATH = schema_path("planner-result.schema.json")
 # A local gemma planner call observed ~30s for a simple chart; the prior 30s
@@ -85,6 +91,157 @@ def sanitize_reasoning(raw: str) -> str:
     # that itself counts toward the cap.
     tail = text[-(REASONING_CHAR_CAP - 1):]
     return "…" + tail
+
+
+# ADR-0029 packet 4: codegen generation/repair prompts. The model writes a
+# single fixed-entry-point function; the sandbox enforces safety (ADR-0008), so
+# the prompt only needs to communicate the contract, not police it.
+_CODEGEN_SYSTEM_PROMPT = (
+    "You are the Isolinear chart-code generator. Return ONLY Python source code "
+    "for a single function; no prose, no explanation, no markdown outside a code "
+    "fence."
+)
+_CODEGEN_PROMPT_RULES = [
+    "Define exactly one top-level function: def render_chart(data, output_path):",
+    "Implement the supplied chart_spec using matplotlib and the supplied history_series.",
+    "Read the series points from data['history_series']; each point has 'ts' and 'value'.",
+    "Save the figure to output_path as PNG (fig.savefig(output_path, format='png')).",
+    "Do not import anything except matplotlib (and matplotlib.pyplot). No os, sys, "
+    "socket, requests, subprocess, open() on arbitrary paths, or network access.",
+    "Do not read environment variables, secrets, tokens, or files other than writing "
+    "the figure to output_path.",
+    "Return a small metadata dict (title, series_plotted, warnings) from render_chart.",
+    "Return only the code — no commentary, no example invocation.",
+]
+
+
+def _codegen_request_view(request: dict[str, Any]) -> dict[str, Any]:
+    """Project only the model-relevant, non-secret fields into the codegen prompt.
+
+    Data boundary (ADR-0029, invariants #1/#3): only the already-validated
+    ChartSpec and the normalized, allowlist-checked render data are disclosed.
+    No request_id, transport metadata, tokens, endpoints, or secrets cross into
+    the prompt.
+    """
+    if not isinstance(request, Mapping):
+        return {"chart_spec": {}, "history_series": []}
+    return {
+        "chart_spec": deepcopy(request.get("chart_spec") or {}),
+        "history_series": deepcopy(request.get("history_series") or []),
+        "derived_intervals": deepcopy(request.get("derived_intervals") or []),
+        "output": deepcopy(request.get("output") or {}),
+    }
+
+
+def _sandbox_error_view(sandbox_error: Any) -> dict[str, Any]:
+    """Project the sandbox error into a repair-prompt-safe view (code, message, traceback)."""
+    if not isinstance(sandbox_error, Mapping):
+        return {"code": None, "message": str(sandbox_error), "traceback": None}
+    details = sandbox_error.get("details")
+    traceback = details.get("traceback") if isinstance(details, Mapping) else None
+    return {
+        "code": sandbox_error.get("code"),
+        "message": sandbox_error.get("message"),
+        "traceback": traceback,
+    }
+
+
+def setup_model_provider_codegen(hass: Any, entry: Any) -> dict[str, Any]:
+    """Install a codegen client when codegen is opt-in enabled (ADR-0029 packet 4).
+
+    Codegen is disabled by default (invariant #6, opt-in advanced path). The
+    codegen client shares the Ollama transport with the planner but uses the
+    configured ``codegen_model`` when set, defaulting to the planner model when
+    unset. Config-entry data may be a ``mappingproxy`` (the recurring repo
+    gotcha); ``_has_ollama_planner_config`` accepts any ``Mapping`` and options
+    are read the same tolerant way.
+    """
+    entry_id = getattr(entry, "entry_id", "scaffold-entry")
+    entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})
+    config_data = getattr(entry, "data", {}) or {}
+    options_data = getattr(entry, "options", {}) or {}
+    setup = _codegen_setup_disabled(entry_id, "model_provider_codegen_disabled")
+
+    if codegen_enabled(options_data) and _has_ollama_planner_config(config_data):
+        codegen_model = _configured_codegen_model(config_data)
+        client = OllamaCompatiblePlannerClient(
+            endpoint_url=config_data["model_endpoint_url"],
+            planner_model=config_data["planner_model"],
+        )
+        entry_data[DATA_MODEL_PROVIDER_CODEGEN] = client
+        setup = {
+            "accepted": True,
+            "code": "model_provider_codegen_configured",
+            "entry_id": entry_id,
+            "config_entry_scoped": True,
+            "enabled": True,
+            "codegen_model": codegen_model,
+            "codegen_model_defaulted_to_planner": _configured_codegen_model_raw(config_data) is None,
+            "provider": client._codegen_provider_metadata(codegen_model),
+            "orchestration": model_provider_setup_side_effects(),
+        }
+    else:
+        entry_data.pop(DATA_MODEL_PROVIDER_CODEGEN, None)
+
+    entry_data[DATA_MODEL_PROVIDER_CODEGEN_SETUP] = setup
+    return setup
+
+
+def get_model_provider_codegen(hass: Any, entry_id: str) -> Any | None:
+    """Return the configured codegen client for one config entry, if any."""
+    entry_data = getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {})
+    client = entry_data.get(DATA_MODEL_PROVIDER_CODEGEN) if isinstance(entry_data, dict) else None
+    return client if client is not None else None
+
+
+def codegen_enabled(options_data: Any) -> bool:
+    """Return whether the opt-in codegen render path is enabled (default False)."""
+    return isinstance(options_data, Mapping) and options_data.get("codegen_enabled") is True
+
+
+def configured_codegen_model(config_data: Any, *, planner_model: str | None = None) -> str | None:
+    """Return the effective codegen model: ``codegen_model`` or the planner model."""
+    explicit = _configured_codegen_model_raw(config_data)
+    if explicit is not None:
+        return explicit
+    if planner_model is not None:
+        return planner_model
+    return _configured_planner_model(config_data)
+
+
+def _configured_codegen_model(config_data: Any) -> str | None:
+    return configured_codegen_model(config_data)
+
+
+def _configured_codegen_model_raw(config_data: Any) -> str | None:
+    if not isinstance(config_data, Mapping):
+        return None
+    value = config_data.get("codegen_model")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _configured_planner_model(config_data: Any) -> str | None:
+    if not isinstance(config_data, Mapping):
+        return None
+    value = config_data.get("planner_model")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _codegen_setup_disabled(entry_id: str, code: str) -> dict[str, Any]:
+    return {
+        "accepted": True,
+        "code": code,
+        "entry_id": entry_id,
+        "config_entry_scoped": True,
+        "enabled": False,
+        "codegen_model": None,
+        "provider": None,
+        "orchestration": model_provider_setup_side_effects(),
+    }
 
 
 def setup_model_provider_planner(hass: Any, entry: Any) -> dict[str, Any]:
@@ -519,6 +676,178 @@ class OllamaCompatiblePlannerClient:
             "provider": self.provider_metadata(),
             "selection_result": selection_result,
             "provider_response": _provider_response_summary(response_payload),
+        }
+
+    def generate_chart_code(
+        self,
+        request: dict[str, Any],
+        *,
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        """Generate freeform matplotlib chart code for a validated ChartSpec.
+
+        ADR-0029 packet 4. Unlike ``plan_chart``/``select_entity`` (which return
+        constrained JSON), codegen output is *freeform Python* — a single
+        ``render_chart(data, output_path)`` function implementing the already-
+        validated ChartSpec. Ollama's ``format`` is for JSON only, so this call
+        sets no ``format``; the model's fenced code is stripped with the existing
+        ``_strip_markdown_json`` helper. ``model`` overrides the model id (used to
+        point codegen at a code-specialized model while keeping the planner
+        model); it defaults to ``planner_model``.
+        """
+        chat_url = _ollama_chat_url(self.endpoint_url)
+        payload = self._codegen_payload(request, model=model)
+        _LOGGER.debug(
+            "Isolinear -> Ollama generate_chart_code request: model=%s url=%s body=%s",
+            payload["model"],
+            chat_url,
+            json.dumps(payload, separators=(",", ":")),
+        )
+        content, response_payload, failure = self._read_chat(
+            chat_url, payload, label="generate_chart_code", on_reasoning=None
+        )
+        if failure is not None:
+            return failure
+        if not isinstance(content, str) or not content.strip():
+            return _provider_failure(
+                "model_provider_empty_response",
+                "Chart-code generation response content was empty.",
+                retry_safe=True,
+            )
+        python_code = _strip_markdown_json(content)
+        if not python_code.strip():
+            return _provider_failure(
+                "model_provider_empty_response",
+                "Chart-code generation produced no code after fence stripping.",
+                retry_safe=True,
+            )
+        return {
+            "accepted": True,
+            "code": "model_provider_chart_code_received",
+            "provider": self._codegen_provider_metadata(model),
+            "python_code": python_code,
+            "provider_response": _provider_response_summary(response_payload or {}),
+        }
+
+    def repair_chart_code(
+        self,
+        previous_code: str,
+        sandbox_error: dict[str, Any],
+        request: dict[str, Any],
+        *,
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        """Ask the model to repair chart code that failed in the sandbox.
+
+        ADR-0029 packet 4. Feeds the previous code and the sandbox error
+        (``code``, ``message``, and the traceback from ``details`` when present)
+        back to the model and asks for corrected freeform Python. Same
+        markdown-stripped, ``_provider_failure``-on-error contract as
+        ``generate_chart_code``. ``unsafe_code`` is terminal upstream and never
+        reaches this method (the caller fails closed on it).
+        """
+        chat_url = _ollama_chat_url(self.endpoint_url)
+        payload = self._codegen_repair_payload(
+            previous_code, sandbox_error, request, model=model
+        )
+        _LOGGER.debug(
+            "Isolinear -> Ollama repair_chart_code request: model=%s url=%s body=%s",
+            payload["model"],
+            chat_url,
+            json.dumps(payload, separators=(",", ":")),
+        )
+        content, response_payload, failure = self._read_chat(
+            chat_url, payload, label="repair_chart_code", on_reasoning=None
+        )
+        if failure is not None:
+            return failure
+        if not isinstance(content, str) or not content.strip():
+            return _provider_failure(
+                "model_provider_empty_response",
+                "Chart-code repair response content was empty.",
+                retry_safe=True,
+            )
+        python_code = _strip_markdown_json(content)
+        if not python_code.strip():
+            return _provider_failure(
+                "model_provider_empty_response",
+                "Chart-code repair produced no code after fence stripping.",
+                retry_safe=True,
+            )
+        return {
+            "accepted": True,
+            "code": "model_provider_chart_code_repaired",
+            "provider": self._codegen_provider_metadata(model),
+            "python_code": python_code,
+            "provider_response": _provider_response_summary(response_payload or {}),
+        }
+
+    def _codegen_model(self, model: str | None) -> str:
+        return model or self.planner_model
+
+    def _codegen_provider_metadata(self, model: str | None) -> dict[str, str]:
+        return {
+            "type": self.provider_type,
+            "role": "codegen",
+            "endpoint_url": self.endpoint_url,
+            "model": self._codegen_model(model),
+        }
+
+    def _codegen_payload(self, request: dict[str, Any], *, model: str | None) -> dict[str, Any]:
+        prompt_payload = {
+            "task": (
+                "Write Python matplotlib code that renders the supplied, already-validated "
+                "Isolinear ChartSpec using the supplied history_series data."
+            ),
+            "rules": _CODEGEN_PROMPT_RULES,
+            "codegen_request": _codegen_request_view(request),
+        }
+        return {
+            "model": self._codegen_model(model),
+            "messages": [
+                {"role": "system", "content": _CODEGEN_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": json.dumps(prompt_payload, separators=(",", ":")),
+                },
+            ],
+            "stream": False,
+            # Freeform Python, NOT constrained JSON: Ollama `format` is for JSON
+            # only, so no `format` is set. Fenced code is stripped downstream.
+            "options": {"temperature": 0},
+        }
+
+    def _codegen_repair_payload(
+        self,
+        previous_code: str,
+        sandbox_error: dict[str, Any],
+        request: dict[str, Any],
+        *,
+        model: str | None,
+    ) -> dict[str, Any]:
+        error_view = _sandbox_error_view(sandbox_error)
+        prompt_payload = {
+            "task": (
+                "The previous render_chart code failed in the sandbox. Return corrected "
+                "Python matplotlib code that fixes the reported error and still implements "
+                "the ChartSpec."
+            ),
+            "rules": _CODEGEN_PROMPT_RULES,
+            "previous_code": previous_code,
+            "sandbox_error": error_view,
+            "codegen_request": _codegen_request_view(request),
+        }
+        return {
+            "model": self._codegen_model(model),
+            "messages": [
+                {"role": "system", "content": _CODEGEN_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": json.dumps(prompt_payload, separators=(",", ":")),
+                },
+            ],
+            "stream": False,
+            "options": {"temperature": 0},
         }
 
     def _read_chat(

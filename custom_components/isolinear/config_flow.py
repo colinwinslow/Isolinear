@@ -82,6 +82,7 @@ CONFIG_FLOW_FIELDS = (
 OPTIONS_FLOW_FIELDS = (
     "default_render_mode",
     "max_codegen_repair_attempts",
+    "codegen_enabled",
     "entity_allowlist",
 )
 ENTITY_ALLOWLIST_SELECTOR_METADATA = {
@@ -251,6 +252,10 @@ def build_options_flow_schema(current_options: Mapping[str, Any] | None = None):
                 "max_codegen_repair_attempts",
                 default=defaults["max_codegen_repair_attempts"],
             ): int,
+            vol.Required(
+                "codegen_enabled",
+                default=defaults["codegen_enabled"],
+            ): bool,
             vol.Optional(
                 "entity_allowlist",
                 default=defaults["entity_allowlist"],
@@ -356,6 +361,15 @@ def normalize_options_user_input(
     attempts = options_data.get("max_codegen_repair_attempts")
     if isinstance(attempts, str) and attempts.strip().isdigit():
         options_data["max_codegen_repair_attempts"] = int(attempts.strip())
+
+    codegen_enabled_value = options_data.get("codegen_enabled")
+    if isinstance(codegen_enabled_value, str):
+        options_data["codegen_enabled"] = codegen_enabled_value.strip().lower() in {
+            "true",
+            "1",
+            "yes",
+            "on",
+        }
 
     options_data["entity_allowlist"] = _normalize_allowlist_value(
         options_data.get("entity_allowlist")

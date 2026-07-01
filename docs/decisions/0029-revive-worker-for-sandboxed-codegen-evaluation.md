@@ -100,6 +100,19 @@ whether codegen works.
 - In-process trusted rendering stays the default; codegen is the opt-in path
   (invariant #6, ADR-0004).
 
+**Resolved on the build branch:**
+- **Repair-loop location: integration-orchestrated** (packet 4). The data
+  boundary forces it — the worker never holds a model client, so it cannot call
+  the model to repair code. The integration calls `POST /v1/render`
+  (`render_mode: "codegen"`) per attempt and, on a *retryable* sandbox failure,
+  asks its own model provider to repair the code before re-dispatching, up to a
+  capped `max_repair_attempts`. `unsafe_code` is terminal (no repair);
+  exhaustion fails closed with a dedicated `codegen_render_failed` card (no
+  silent trusted fallback, to keep the packet-5 eval honest). The worker-local
+  `invoke_codegen_with_repair` is retained for a future in-worker deployment but
+  is not used over HTTP. See
+  [docs/specs/codegen-generation-path.md](../specs/codegen-generation-path.md).
+
 **Open:**
 - Multi-arch image builds (deferred).
 - Supervisor ingress / add-on discovery for zero-config UX (deferred).
