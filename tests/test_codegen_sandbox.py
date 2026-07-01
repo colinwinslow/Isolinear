@@ -140,21 +140,55 @@ class CodegenSandboxModuleTests(unittest.TestCase):
                 self.assertEqual(result["render_metadata"]["codegen_attempts"], 0)
                 validate_contract("render-result", result)
 
-    def test_missing_entry_point_and_non_allowlisted_submodule_are_unsafe(self):
+    def test_missing_entry_point_and_forbidden_from_import_are_unsafe(self):
         missing_entry = "def draw_chart(data, output_path):\n    return {}"
         result = static_safety_check(missing_entry)
         self.assertFalse(result["accepted"])
         self.assertEqual(result["violations"][0]["code"], "missing_fixed_entry_point")
 
-        submodule = (
-            "from matplotlib import backends\n\n\n"
+        # A from-import whose module is forbidden is still rejected: the module
+        # named after `from` is what actually executes.
+        forbidden = (
+            "from os import getcwd\n\n\n"
             "def render_chart(data, output_path):\n"
-            "    return {\"warnings\": [str(backends)]}"
+            "    return {\"warnings\": [getcwd()]}"
         )
-        result = static_safety_check(submodule)
+        result = static_safety_check(forbidden)
         self.assertFalse(result["accepted"])
         self.assertEqual(result["code"], "unsafe_code")
-        self.assertEqual(result["violations"][0]["module"], "matplotlib.backends")
+        self.assertEqual(result["violations"][0]["module"], "os")
+
+    def test_from_imports_of_allowlisted_modules_are_accepted(self):
+        # A from-import that targets an allowlisted module is accepted, whether
+        # the imported name is a class/attribute (`datetime.datetime`) or a
+        # submodule of a trusted package (`matplotlib.backends`). The check keys
+        # on the module named after `from`, not the constructed qualified name.
+        for snippet in (
+            "from datetime import datetime",
+            "from matplotlib import pyplot, backends",
+            "from json import loads",
+            "from statistics import mean",
+        ):
+            code = (
+                f"{snippet}\n\n\n"
+                "def render_chart(data, output_path):\n"
+                "    return {\"warnings\": []}"
+            )
+            with self.subTest(snippet=snippet):
+                result = static_safety_check(code)
+                self.assertTrue(result["accepted"], result.get("violations"))
+
+        # Still-forbidden forms remain rejected.
+        for snippet in ("import os", "from os import path", "from os.path import join"):
+            code = (
+                f"{snippet}\n\n\n"
+                "def render_chart(data, output_path):\n"
+                "    return {\"warnings\": []}"
+            )
+            with self.subTest(snippet=snippet):
+                result = static_safety_check(code)
+                self.assertFalse(result["accepted"])
+                self.assertEqual(result["code"], "unsafe_code")
 
     # Scenario E (sandbox-codegen) — an arbitrary file read routed through an
     # allowlisted rendering library is denied at runtime by the audit hook.

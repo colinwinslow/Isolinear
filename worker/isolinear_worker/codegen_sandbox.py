@@ -77,6 +77,7 @@ from pathlib import Path
 _PAYLOAD = json.loads(sys.stdin.read())
 _POLICY = _PAYLOAD["policy"]
 _ALLOWED_GENERATED_IMPORTS = set(_POLICY["allowed_imports"])
+_FORBIDDEN_GENERATED_IMPORTS = tuple(_POLICY["forbidden_imports"])
 _OUTPUT_PATH = str(Path(_PAYLOAD["output_path"]).resolve())
 _ALLOWED_READ_ROOTS = tuple(
     str(Path(path).resolve()) for path in _PAYLOAD["allowed_read_roots"]
@@ -97,6 +98,13 @@ def _path_is_under(path: str, root: str) -> bool:
 
 def _generated_module_allowed(module_name: str) -> bool:
     return module_name in _ALLOWED_GENERATED_IMPORTS
+
+
+def _generated_module_forbidden(module_name: str) -> bool:
+    for forbidden_module in _FORBIDDEN_GENERATED_IMPORTS:
+        if module_name == forbidden_module or module_name.startswith(forbidden_module + "."):
+            return True
+    return False
 
 
 def _apply_resource_limits() -> None:
@@ -163,9 +171,15 @@ def _sandbox_import(
         raise ImportError(f"sandbox import not allowlisted: {name}")
     fromlist = () if fromlist is None else fromlist
     for item in fromlist:
-        imported_name = f"{name}.{item}"
-        if not _generated_module_allowed(imported_name):
-            raise ImportError(f"sandbox import not allowlisted: {imported_name}")
+        # The module named after `from` (`name`) is what actually executes and is
+        # already allowlisted above. A name pulled from it is an attribute or a
+        # submodule of an already-trusted package (e.g. `from datetime import
+        # datetime`, `from matplotlib import backends`); allow it. Still reject a
+        # qualified name that resolves into a forbidden module.
+        if item == "*":
+            continue
+        if _generated_module_forbidden(f"{name}.{item}"):
+            raise ImportError(f"sandbox import not allowlisted: {name}.{item}")
     return _builtins.__import__(name, globals, locals, fromlist, level)
 
 
@@ -701,42 +715,71 @@ def _validate_import(
     policy: dict[str, Any],
     violations: list[dict[str, Any]],
 ) -> None:
-    module_names: list[str]
     if isinstance(node, ast.Import):
-        module_names = [alias.name for alias in node.names]
-    else:
-        module_names = _import_from_module_names(node)
+        for alias in node.names:
+            _flag_disallowed_module(alias.name, node, policy=policy, violations=violations)
+        return
 
-    for module_name in module_names:
-        if _module_forbidden(module_name, policy["forbidden_imports"]):
+    # ast.ImportFrom: the module named after `from` is what actually executes,
+    # so it is the thing that must be allowlisted. Relative imports have no
+    # importable module name and are rejected outright.
+    if node.level:
+        violations.append(
+            {
+                "code": "import_not_allowlisted",
+                "message": "Relative imports are not allowed in sandboxed code.",
+                "line": getattr(node, "lineno", 1),
+                "module": ("." * node.level) + (node.module or ""),
+            }
+        )
+        return
+
+    base_module = node.module or ""
+    _flag_disallowed_module(base_module, node, policy=policy, violations=violations)
+    # Names pulled from an already-allowlisted module are attributes or
+    # submodules of a trusted package (e.g. `from datetime import datetime`,
+    # `from matplotlib import backends`) — allowed. Still reject a qualified name
+    # that resolves into a forbidden module.
+    for alias in node.names:
+        if alias.name == "*":
+            continue
+        qualified = f"{base_module}.{alias.name}"
+        if _module_forbidden(qualified, policy["forbidden_imports"]):
             violations.append(
                 {
                     "code": "forbidden_import",
-                    "message": f"Import is forbidden in sandboxed code: {module_name}",
+                    "message": f"Import is forbidden in sandboxed code: {qualified}",
                     "line": getattr(node, "lineno", 1),
-                    "module": module_name,
-                }
-            )
-        elif module_name not in policy["allowed_imports"]:
-            violations.append(
-                {
-                    "code": "import_not_allowlisted",
-                    "message": f"Import is not allowlisted in sandboxed code: {module_name}",
-                    "line": getattr(node, "lineno", 1),
-                    "module": module_name,
+                    "module": qualified,
                 }
             )
 
 
-def _import_from_module_names(node: ast.ImportFrom) -> list[str]:
-    module_name = node.module or ""
-    module_names = []
-    for alias in node.names:
-        if alias.name == "*":
-            module_names.append(f"{module_name}.*")
-        else:
-            module_names.append(f"{module_name}.{alias.name}")
-    return module_names
+def _flag_disallowed_module(
+    module_name: str,
+    node: ast.Import | ast.ImportFrom,
+    *,
+    policy: dict[str, Any],
+    violations: list[dict[str, Any]],
+) -> None:
+    if _module_forbidden(module_name, policy["forbidden_imports"]):
+        violations.append(
+            {
+                "code": "forbidden_import",
+                "message": f"Import is forbidden in sandboxed code: {module_name}",
+                "line": getattr(node, "lineno", 1),
+                "module": module_name,
+            }
+        )
+    elif module_name not in policy["allowed_imports"]:
+        violations.append(
+            {
+                "code": "import_not_allowlisted",
+                "message": f"Import is not allowlisted in sandboxed code: {module_name}",
+                "line": getattr(node, "lineno", 1),
+                "module": module_name,
+            }
+        )
 
 
 def _validate_call(node: ast.Call, *, violations: list[dict[str, Any]]) -> None:
