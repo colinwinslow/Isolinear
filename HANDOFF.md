@@ -2,6 +2,63 @@
 
 ## Current project phase
 
+### 2026-07-01 — ADR-0029 packet 3 landed: the standalone amd64 worker Dockerfile
+
+The packet-2 HTTP server now has a container to run in. A single-stage
+**`worker/Dockerfile`** (`python:3.12-slim`) plus **`worker/.dockerignore`**
+packages the self-contained `isolinear_worker` package into a linux/amd64 image.
+The load-bearing choice: **matplotlib is installed into the interpreter's
+*system* site-packages** — no venv, no `--user`, a plain
+`pip install -r requirements.txt` as root — because the sandbox runs generated
+code under `python -I` (isolated mode excludes user site-packages). Only a
+system-site install lets the packet-2 readiness probe's `python -I -c "import
+matplotlib"` subprocess succeed, so **`GET /v1/health` flips from `not_ready` to
+`ready`** and the worker can actually render. That flip is the whole purpose of
+this packet — it dissolves the ADR-0017 matplotlib-on-HAOS/aarch64 blocker by
+moving matplotlib into the worker's own amd64 image.
+
+The image runs unprivileged as a non-root **`worker` user (uid/gid 10001)**; the
+`work_root` where PNGs are written is created, chowned to that user, and declared
+a `VOLUME` so a host/orchestrator can mount durable or tmpfs artifact storage.
+Config is 12-factor and matches packet-2's `load_config_from_env` exactly
+(`ISOLINEAR_WORKER_BIND_HOST`/`_PORT`/`_WORK_ROOT` as `ENV`); crucially
+**`ISOLINEAR_WORKER_TOKEN` is never an `ENV`/layer** — it is a secret supplied at
+`docker run` time, and with no valid token the entry point fails closed (non-zero
+exit, no socket bound). The **`HEALTHCHECK` is stdlib-only** (no curl/wget added):
+it reads the token + port from the container's own runtime env, makes an
+authenticated `/v1/health` request, and exits 0 only when the transport returns
+200 **and** `health.status == "ready"`. The entry point is
+`ENTRYPOINT ["python","-m","isolinear_worker.http_server"]`, mapping directly to
+the packet-2 `__main__` guard. The image is **HA-agnostic by construction**: the
+build context is `worker/`, so nothing from `custom_components/`, `src/`, or
+`frontend/` is even reachable (the `.dockerignore` trims the rest).
+
+Docker is **not installed in this authoring environment**, so the **image build +
+container run proofs are DEFERRED to a linux/amd64 Docker host** (deploy target
+CT103/10.0.1.39). **6 of the 9 BDD scenarios (A–F: image build, fail-closed
+startup on a missing/short token, `/v1/health` → `ready`, `/v1/render` returning a
+PNG, the 3 matplotlib-gated tests un-skipping in-container, and no HA code in the
+image) are honestly marked `DEFERRED (needs Docker host)` with exact reproduction
+commands recorded in the evidence file** — no build log is fabricated, matching
+the repo's established live-retest deferral pattern. The 3 STATIC scenarios (G
+entry-point, H config-contract, I suite-green) carry real raw outputs. Because
+the core proof is that deferred live build, the **spec is intentionally left
+`draft`** (not promoted to accepted) until it passes on a Docker host. The
+integration is **untouched and NOT version-bumped** (worker-only, matching
+packets 1–2). Full suite unchanged: **`595 passed, 3 skipped`** (the 3 matplotlib
+skips only flip inside the container). BDD-evidence review OK; architecture review
+OK (no invariant violations — the sandbox security model at invariant #3 is
+untouched: matplotlib in system-site only makes an already-allowlisted import
+present, and the allowlist still governs generated code; base image / non-root
+user / healthcheck / VOLUME are all within ADR-0029's decided
+"standalone amd64 Docker first" scope, so no new ADR). One optional note carried
+forward: digest-pin `python:3.12-slim` when the image is first built.
+
+**Remaining ADR-0029 packets:** (4) codegen path in the model provider + real
+repair model; (5) end-to-end proof + the codegen accept/repair reliability eval
+the keep/remove decision rests on. Deploy target: CT103/10.0.1.39, standalone
+amd64 GPU-less Docker via the homelab `docker_host` role.
+
 ### 2026-07-01 — ADR-0029 packet 2 landed: the standalone worker HTTP server
 
 The packet-1 worker module now has an HTTP front door. A new standalone server
