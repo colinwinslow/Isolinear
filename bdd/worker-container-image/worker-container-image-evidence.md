@@ -1,26 +1,30 @@
 # Worker container image — evidence
 
-**Status:** filled by the packet-3 implementing slice. STATIC scenarios carry
-**raw** outputs; DEFERRED scenarios are marked `DEFERRED (needs Docker host)`
-with the exact command to complete them. Paired with
+**Status:** filled by the packet-3 implementing slice, then **completed live on
+CT103**. STATIC scenarios (G/H/I) carry **raw** outputs from the authoring box;
+scenarios A–F carry **raw live outputs from the CT103 Docker host** and are
+marked verified/PASS. Paired with
 [worker-container-image-bdd.md](worker-container-image-bdd.md) and
 [docs/specs/worker-container-image.md](../../docs/specs/worker-container-image.md).
 
-**Run date:** 2026-07-01 · branch `adr-0029-worker-codegen-eval` · Python 3.12.3.
+**Static run date:** 2026-07-01 · branch `adr-0029-worker-codegen-eval` · Python 3.12.3.
+**Live run date:** 2026-07-01 · CT103 · commit tested `2bb2747` (fresh clone + rebuild).
 
-> **Environment note:** Docker is **not installed** in this authoring
-> environment (`which docker` → not found; no daemon). The image therefore
-> cannot be built or run here. This is expected for packet 3: the static
-> contract (Dockerfile / `.dockerignore` / requirements well-formedness,
-> entry-point mapping, config-var contract, unbroken suite) is verified below;
-> the live build/run proofs are **deferred to a `linux/amd64` Docker host** (the
-> deploy target CT103 `10.0.1.39`, or any Docker host), following the repo's
-> "live HACS retest" deferral pattern. No build log is fabricated.
-
-```
-$ which docker hadolint
-# (neither present)
-```
+> **Environment note (updated 2026-07-01):** The Docker build/run proof is **no
+> longer deferred** — it ran live on **CT103** (the deploy target). Scenarios
+> A–F below carry the raw observed outputs from that host and are marked PASS.
+> The authoring environment still has no Docker (`which docker` → not found),
+> so the STATIC scenarios (G/H/I) below were verified there; the live scenarios
+> were run on CT103.
+>
+> **CT103 live environment:** host `docker-host` (CT103) · `10.0.1.39` ·
+> Debian 13 (trixie) · x86_64 · Docker 29.5.2 · 6 cores · container base
+> `python:3.12-slim` · run date 2026-07-01 · commit tested `2bb2747`
+> (fresh clone + rebuild).
+>
+> **The live build surfaced a real bug** (OpenBLAS × `RLIMIT_AS`), fixed in
+> `2bb2747`. See the dedicated finding subsection below — it is the most
+> important thing this live proof produced.
 
 ---
 
@@ -195,69 +199,136 @@ lint.
 
 ---
 
-## DEFERRED — needs Docker host
+## VERIFIED LIVE on CT103 (2026-07-01, commit `2bb2747`)
 
-Run on the deploy target CT103 (`10.0.1.39`, amd64, GPU-less Docker) or any
-`linux/amd64` Docker host. Record raw outputs here and promote the spec
-`draft → accepted` once Scenarios A–F pass.
+Scenarios A–F ran on the deploy target **CT103** (`docker-host`, `10.0.1.39`,
+Debian 13 trixie, x86_64, Docker 29.5.2, 6 cores) from a fresh clone at commit
+`2bb2747` with a rebuilt image. The bearer token used was an ephemeral
+`secrets.token_urlsafe(24)` generated on CT103 (never printed); the temp clone
+was removed after; the proven `isolinear-worker:dev` image (418MB) is retained
+on CT103. Each scenario carries its raw observed output and is marked **PASS**.
 
-### Scenario A — image builds on amd64 — `DEFERRED (needs Docker host)`
+> **⚠ FINDING — read first.** The very first live matplotlib render through the
+> sandbox **FAILED** before the `2bb2747` fix, with an OpenBLAS/`RLIMIT_AS`
+> error. See **"OpenBLAS × RLIMIT_AS finding and the `2bb2747` fix"** below.
+> The results here are the post-fix (`2bb2747`) re-proof, which all pass.
 
-```
-docker build --platform linux/amd64 -t isolinear-worker:dev worker/
-```
-Expect: build succeeds; matplotlib installs from a prebuilt wheel (no compiler /
-source build in the layers).
-
-### Scenario B — fails closed without a token — `DEFERRED (needs Docker host)`
-
-```
-docker run --rm isolinear-worker:dev; echo "exit=$?"
-```
-Expect: stderr `isolinear worker startup failed: ISOLINEAR_WORKER_TOKEN is
-required; refusing to start without a bearer token.` and `exit=1`.
-
-### Scenario C — `/v1/health` → `ready` from a running container — `DEFERRED (needs Docker host)`
+### Scenario A — image builds on amd64 — **PASS (CT103)**
 
 ```
-TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
-docker run -d --name iw -e ISOLINEAR_WORKER_TOKEN="$TOKEN" -p 8080:8080 isolinear-worker:dev
-curl -s -H "Authorization: Bearer $TOKEN" -H "X-Isolinear-Worker-API-Version: 1" \
-     http://127.0.0.1:8080/v1/health
-docker inspect --format '{{.State.Health.Status}}' iw
+$ docker build --platform linux/amd64 -t isolinear-worker:dev worker/
+# ... build succeeded.
 ```
-Expect: HTTP 200, `health.status == "ready"`, `capabilities.rendering == true`,
-`matplotlib_import` check `ok`; `docker inspect` → `healthy`.
+matplotlib-3.11.0 installed from **prebuilt wheels** (no source build) alongside
+numpy-2.5.0, pillow-12.3.0, contourpy, fonttools, kiwisolver, jsonschema-4.26.0,
+etc. Final image **418MB**. One benign warning:
+`useradd warning: worker's uid 10001 is greater than SYS_UID_MAX 999` (harmless;
+`--system` user with a high uid). No compiler / source build in the layers.
 
-### Scenario D — authenticated `/v1/render` produces a real PNG — `DEFERRED (needs Docker host)`
-
-POST a valid transport envelope (`{version:1, operation:"render_chart",
-request_id, render_request}`) whose `render_request` is `render_mode:"codegen"`
-with matplotlib code, e.g.:
-```
-curl -s -X POST -H "Authorization: Bearer $TOKEN" \
-     -H "X-Isolinear-Worker-API-Version: 1" -H "Content-Type: application/json" \
-     --data @envelope.json http://127.0.0.1:8080/v1/render
-```
-Expect: HTTP 200, `render_result.status == "success"`, a valid PNG (first 8
-bytes `89504e470d0a1a0a`) at the returned `image_path` in the container work_root.
-
-### Scenario E — the 3 matplotlib-gated tests pass inside the container — `DEFERRED (needs Docker host)`
+### Scenario B — fails closed without a token — **PASS (CT103)**
 
 ```
-docker run --rm -v "$PWD:/src" -w /src isolinear-worker:dev \
-  python -m pytest tests/test_codegen_sandbox.py tests/test_worker_http_server.py -q
+$ docker run --rm isolinear-worker:dev
+isolinear worker startup failed: ISOLINEAR_WORKER_TOKEN is required; refusing to start without a bearer token.
+exit=1
+
+$ docker run --rm -e ISOLINEAR_WORKER_TOKEN=short isolinear-worker:dev
+isolinear worker startup failed: ISOLINEAR_WORKER_TOKEN must be at least 24 characters; refusing to start with a weak token.
+exit=1
 ```
-Expect: `test_matplotlib_pyplot_renders_png_with_agg_backend`,
+Both the missing-token and weak-token paths fail closed with `exit=1` and bind
+no socket.
+
+### Scenario C — `/v1/health` → `ready` from a running container — **PASS (CT103)**
+
+Authenticated `GET /v1/health` → HTTP 200, body:
+```
+{"health": {"accepted": true, "status": "ready", "code": "worker_ready", "message": "Worker is ready to render.", "checks": [{"name": "sandbox_policy", "status": "ok"}, {"name": "matplotlib_import", "status": "ok"}], "capabilities": {"rendering": true}}}
+```
+`status == "ready"`, `capabilities.rendering == true`, and the
+`matplotlib_import` check is `ok` (matplotlib importable under `python -I` from
+system site-packages). Unauthenticated `GET /v1/health` → `http_status=401`.
+
+### Scenario D — authenticated `/v1/render` produces a real PNG — **PASS (CT103)**
+
+Authenticated `POST /v1/render` with a `render_mode: codegen` envelope carrying
+real matplotlib code →
+```
+status=      success
+image_path=  /var/lib/isolinear-worker/work/codegen-sandbox-anchor.png
+warnings=    ['matplotlib_backend:Agg']
+```
+PNG verified on disk inside the container:
+`bytes= 16557  sig= 89504e470d0a1a0a  valid_png= True`.
+
+### Scenario E — the 3 matplotlib-gated tests un-skip and pass, in-container — **PASS (CT103)**
+
+Running inside the container (repo mounted, pytest installed ad-hoc):
+```
+$ python -m pytest tests/test_codegen_sandbox.py tests/test_worker_http_server.py
+24 passed in 6.49s
+```
+**ZERO skips.** The three formerly-skipped tests —
+`test_matplotlib_pyplot_renders_png_with_agg_backend`,
 `test_matplotlib_arbitrary_read_is_denied_by_audit_hook`, and
-`test_authenticated_render_matplotlib_reports_agg_backend` **run and pass** (no
-longer skipped) because the container's `python -I` imports matplotlib from
-system site-packages.
+`test_authenticated_render_matplotlib_reports_agg_backend` — now **PASS**
+(in-container `python -I` imports matplotlib 3.11.0 from system site-packages).
 
-### Scenario F — image contains nothing from `custom_components`/`src` — `DEFERRED (needs Docker host)`
+> **Before the `2bb2747` fix these 3 un-skipped but FAILED** with the OpenBLAS
+> error recorded below — that is the finding this live build surfaced.
+
+### Scenario F — image contains nothing from `custom_components`/`src` — **PASS (CT103)**
 
 ```
-docker run --rm --entrypoint sh isolinear-worker:dev -c \
-  'find / -path /proc -prune -o \( -name custom_components -o -path "*/src/Isolinear*" \) -print'
+$ find / -path /proc -prune -o \( -name custom_components -o -path "*/src/Isolinear*" \) -print
+# (empty output)
 ```
-Expect: empty output.
+No integration code in the image — HA-agnostic by construction (build context
+`worker/`).
+
+### Container HEALTHCHECK — **PASS (CT103)**
+
+After the healthcheck interval:
+```
+$ docker inspect --format '{{.State.Health.Status}}' iw
+healthy
+```
+
+---
+
+## OpenBLAS × RLIMIT_AS finding and the `2bb2747` fix
+
+This is the most important thing the live build surfaced — a real bug that only
+became observable once matplotlib actually **rendered** inside the container.
+
+**Initial failure.** The packet-3 image built and `/v1/health` reported
+`ready` (matplotlib *imports* fine under `-I`), but the FIRST live matplotlib
+render through the sandbox **FAILED** with:
+
+```
+OpenBLAS error: Memory allocation still failed after 10 retries, giving up.
+```
+
+**Root cause.** numpy's BLAS backend (OpenBLAS) reserves **per-core address
+space** for its thread pool **at import time**, scaled to the host CPU count.
+CT103 has **6 cores**, so that reservation exceeded the sandbox's **256 MB
+`RLIMIT_AS`** cap and aborted **before any chart was drawn**. The safe
+(non-numpy) render path was unaffected — which is exactly why this only surfaced
+once matplotlib ran in-container (the matplotlib tests skip on the dev box,
+where `python -I` cannot import matplotlib at all).
+
+**Fix (`2bb2747`).** Pin the numeric threading libraries to a single thread in
+the sandbox's stripped subprocess environment
+(`worker/isolinear_worker/codegen_sandbox.py`, `_sandbox_environment`) and add
+them to the policy's `explicit_environment_keys`:
+`OPENBLAS_NUM_THREADS`, `OMP_NUM_THREADS`, `MKL_NUM_THREADS`,
+`NUMEXPR_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS` = `1`. Pinning the thread count
+keeps the OpenBLAS address-space reservation within the `RLIMIT_AS` cap.
+
+**Safety.** These variables only ever **reduce** resource use, so the sandbox is
+**not weakened** — the `-I` isolation, import allowlist, audit hook, fixed
+output path, timeout, and `resource` limits are all unchanged (invariant #3
+intact).
+
+**Re-proof.** After rebuilding the image at `2bb2747`, all of Scenarios A–F pass
+(above), including the 3 matplotlib-gated tests un-skipping to `24 passed`.

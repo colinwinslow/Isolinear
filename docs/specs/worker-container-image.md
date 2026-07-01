@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 date: 2026-07-01
 depends-on-adrs: [0029, 0012, 0014, 0008, 0001]
 ---
@@ -8,22 +8,37 @@ depends-on-adrs: [0029, 0012, 0014, 0008, 0001]
 
 ## Status
 
-Draft. Defines the contract surface for the standalone worker **container image**
-per ADR-0029 (revive the isolated worker for codegen evaluation). This is
+Accepted. Defines the contract surface for the standalone worker **container
+image** per ADR-0029 (revive the isolated worker for codegen evaluation). This is
 ADR-0029 **packet 3**. It packages the packet-2 HTTP server
 (`worker/isolinear_worker/http_server.py`) and the packet-1 codegen sandbox
 (`worker/isolinear_worker/codegen_sandbox.py`) into a single-arch (`linux/amd64`)
 Docker image whose **system** site-packages carry matplotlib, so the sandbox's
 isolated `-I` subprocess can import it and `/v1/health` reports `ready`.
 
-Left `draft` (not `accepted`) because the core proof — a real image build, a
-running container answering `/v1/health` with `ready`, and the three
-matplotlib-gated tests passing *inside* the container — is a **deferred
-live-verification requirement** that this authoring environment cannot execute
-(Docker is not installed here). The static contract below is complete and
-verified; acceptance waits on the first live build on a Docker host, matching
-how the repo defers "live HACS retest" and how packet 2's dev-box matplotlib
-limitation is handled. See **Proof requirements** for the exact split.
+Promoted `draft → accepted` on **2026-07-01**: the deferred live-verification
+requirement was met — the image was built and run on the deploy target **CT103**
+(`docker-host`, `10.0.1.39`, amd64, Docker 29.5.2, 6 cores) from a fresh clone at
+commit `2bb2747`, and all of Scenarios A–F pass with raw outputs recorded in the
+evidence file (`/v1/health` → `ready`, a real matplotlib PNG rendered over
+`POST /v1/render`, the three matplotlib-gated tests un-skip to `24 passed`, the
+image is HA-agnostic, and the container reports `healthy`).
+
+**The live build surfaced a real bug**, which is a large part of the value of
+running it: matplotlib *imported* fine under `-I` (health was `ready`), but the
+first actual render **failed** with
+`OpenBLAS error: Memory allocation still failed after 10 retries, giving up.`
+numpy's OpenBLAS backend reserves per-core address space at import (scaled to the
+host CPU count — CT103 has 6 cores), exceeding the sandbox's 256 MB `RLIMIT_AS`
+cap and aborting before any chart is drawn. This was fixed in **`2bb2747`** by
+pinning the BLAS/OpenMP thread-count env vars
+(`OPENBLAS_NUM_THREADS`/`OMP_NUM_THREADS`/`MKL_NUM_THREADS`/
+`NUMEXPR_NUM_THREADS`/`VECLIB_MAXIMUM_THREADS` = `1`) in the sandbox's stripped
+subprocess environment (`_sandbox_environment` in `codegen_sandbox.py`) and
+adding them to the policy `explicit_environment_keys`. These vars only *reduce*
+resource use, so the sandbox is not weakened (invariant #3 intact). After
+rebuilding at `2bb2747`, all scenarios pass. See **Proof requirements** for the
+split.
 
 ## Related docs
 
@@ -215,11 +230,12 @@ image with a valid `ISOLINEAR_WORKER_TOKEN` starts the server; an authenticated
 container). That single "`ready` from a running container" is the artifact packet
 3 exists to produce — it is the first time the worker can actually render.
 
-Because Docker is not available in the authoring environment, this anchor is a
-**deferred live-verification artifact** (see Proof requirements). What *is*
-built and verified here without Docker: the Dockerfile, `.dockerignore`, and
-requirements are on disk, well-formed, and statically consistent with the packet-2
-entry point and config contract.
+This anchor has been **produced live on CT103** (2026-07-01, commit `2bb2747`):
+`GET /v1/health` returned `ready` from the running container and a real
+matplotlib PNG rendered over `POST /v1/render` (see the evidence file). It was
+authored without Docker (the Dockerfile, `.dockerignore`, and requirements are
+on disk, well-formed, and statically consistent with the packet-2 entry point
+and config contract) and then confirmed live on the Docker host.
 
 ## Implementation order
 
@@ -243,11 +259,13 @@ Concrete-first, with the live proof deferred to a Docker host:
    maps to the `__main__` guard; env var names match `load_config_from_env`;
    requirements pins; `.dockerignore` correctness; full suite still
    `595 passed, 3 skipped`.
-6. **Deferred live verification** on a Docker host: build the image, run it,
-   confirm `/v1/health` → `ready`, run the 3 matplotlib-gated tests *inside* the
-   container and confirm they pass, and confirm the image filesystem contains no
-   `custom_components`/`src`. Record raw outputs into the evidence file and promote
-   this spec to `accepted`.
+6. **Live verification** on a Docker host — **DONE on CT103 (2026-07-01, commit
+   `2bb2747`):** built the image, ran it, confirmed `/v1/health` → `ready`,
+   rendered a real PNG over `POST /v1/render`, ran the 3 matplotlib-gated tests
+   *inside* the container and confirmed they pass (`24 passed`, zero skips), and
+   confirmed the image filesystem contains no `custom_components`/`src`. Raw
+   outputs recorded in the evidence file; spec promoted to `accepted`. The live
+   render also surfaced the OpenBLAS/`RLIMIT_AS` bug, fixed in `2bb2747`.
 
 ## Proof requirements
 
@@ -270,11 +288,14 @@ Concrete-first, with the live proof deferred to a Docker host:
 6. **Lint deferred:** `hadolint`/`docker build` are unavailable here; Dockerfile
    lint/parse is a deferred check listed with its command.
 
-### Deferred to a Docker host — `DEFERRED (needs Docker host)`
+### Live-verified on a Docker host — SATISFIED (CT103, 2026-07-01, commit `2bb2747`)
 
-The following require Docker and are the live-verification proof this packet's
-acceptance rests on. Run on the deploy target CT103 (`10.0.1.39`, amd64,
-GPU-less Docker) or any `linux/amd64` Docker host:
+The following required Docker and were the live-verification proof this packet's
+acceptance rested on. **All of 7–12 are now SATISFIED** — run on the deploy
+target CT103 (`10.0.1.39`, amd64, Docker 29.5.2, 6 cores) from a fresh clone at
+commit `2bb2747`, with raw outputs recorded in the evidence file. (The live
+build additionally surfaced and fixed the OpenBLAS/`RLIMIT_AS` bug — see
+**Status**.)
 
 7. **Image builds on amd64:**
    `docker build --platform linux/amd64 -t isolinear-worker:dev worker/`
@@ -320,7 +341,8 @@ GPU-less Docker) or any `linux/amd64` Docker host:
 13. **Lint (optional):** `hadolint worker/Dockerfile` reports no errors.
 
 Completing 7–12 with raw outputs recorded in the evidence file is the trigger to
-promote this spec `draft → accepted`.
+promote this spec `draft → accepted`. **This trigger was met on 2026-07-01**
+(CT103, commit `2bb2747`) and the spec is now `accepted`.
 
 ## Non-goals
 

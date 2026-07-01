@@ -2,6 +2,63 @@
 
 ## Current project phase
 
+### 2026-07-01 — ADR-0029 packet 3 PROVEN LIVE on CT103 (+ OpenBLAS sandbox fix `2bb2747`)
+
+The packet-3 worker container image is no longer a deferred artifact — it was
+**built and run live on the deploy target CT103** (`docker-host`, `10.0.1.39`,
+Debian 13 trixie, x86_64, Docker 29.5.2, 6 cores) from a fresh clone at commit
+`2bb2747`, and **all six previously-deferred BDD scenarios (A–F) now pass** with
+raw outputs recorded in the evidence file. The image **builds on amd64 with
+matplotlib-3.11.0 installed from prebuilt wheels** (no source build; final image
+418MB); `GET /v1/health` reports **`ready`** (matplotlib importable under
+`python -I` from the system site-packages — the packet's whole purpose); a
+**real matplotlib chart rendered end-to-end over `POST /v1/render`** (a valid
+16557-byte PNG, signature `89504e470d0a1a0a`, written to the container work
+root); the **three matplotlib-gated tests un-skip and pass in-container**
+(`24 passed`, zero skips); the image is **HA-agnostic** (an in-image `find`
+returns nothing from `custom_components`/`src`); the container **`HEALTHCHECK`
+reports `healthy`**; and startup still **fails closed** on a missing or short
+token. This validates the core ADR-0029 premise for real: **the sandbox can
+actually render matplotlib in the target deployment** — a key de-risking of the
+codegen experiment before packet 4 (the codegen model) and packet 5 (the
+accept/repair reliability eval).
+
+**The live build surfaced a real bug — the most important thing it produced.**
+matplotlib *imported* fine under `-I` (so health was `ready`), but the **first
+actual render failed** with
+`OpenBLAS error: Memory allocation still failed after 10 retries, giving up.`
+Root cause: numpy's OpenBLAS backend reserves **per-core address space** for its
+thread pool **at import time**, scaled to the host CPU count — CT103 has **6
+cores**, so that reservation exceeded the sandbox's **256 MB `RLIMIT_AS`** cap
+and aborted before any chart was drawn. It only surfaced here because the safe
+(non-numpy) render path is unaffected and the matplotlib tests skip on the dev
+box (where `-I` cannot import matplotlib at all). **Fixed in `2bb2747`:** pin
+`OPENBLAS_NUM_THREADS` / `OMP_NUM_THREADS` / `MKL_NUM_THREADS` /
+`NUMEXPR_NUM_THREADS` / `VECLIB_MAXIMUM_THREADS` to `1` in the sandbox's stripped
+subprocess environment (`_sandbox_environment` in
+`worker/isolinear_worker/codegen_sandbox.py`) and add them to the policy's
+`explicit_environment_keys`. These variables only ever **reduce** resource use,
+so the **sandbox is not weakened** — the `-I` isolation, import allowlist, audit
+hook, fixed output path, timeout, and `resource` limits are all unchanged
+(invariant #3 intact). After rebuilding the image at `2bb2747`, all scenarios
+pass.
+
+The **`worker-container-image` spec is now `accepted`** (the documented
+acceptance trigger — Scenarios A–F passing with raw outputs recorded — is met);
+the BDD scenarios A–F are retagged verified-on-Docker-host, and the evidence
+file carries the raw CT103 outputs plus a dedicated OpenBLAS finding/fix
+subsection. The integration is **untouched and NOT version-bumped** (worker-only,
+matching packets 1–3). The dev-box suite is unchanged (`595 passed, 3 skipped` —
+the 3 matplotlib skips only flip inside the container). The bearer token used on
+CT103 was an ephemeral `secrets.token_urlsafe(24)` (never printed) and the temp
+clone was removed; the **proven `isolinear-worker:dev` image (418MB) is retained
+on CT103**.
+
+**Remaining ADR-0029 packets:** (4) codegen path in the model provider + real
+repair model; (5) end-to-end proof + the codegen accept/repair reliability eval
+the keep/remove decision rests on. Deploy target: CT103/10.0.1.39, standalone
+amd64 GPU-less Docker via the homelab `docker_host` role.
+
 ### 2026-07-01 — ADR-0029 packet 3 landed: the standalone amd64 worker Dockerfile
 
 The packet-2 HTTP server now has a container to run in. A single-stage

@@ -21,20 +21,21 @@ to passing, and contains nothing from the Home Assistant integration.
 
 ## Verification split
 
-Docker is **not** installed in the authoring environment, so the image cannot be
-built or run here. Each scenario below is tagged:
+Each scenario below is tagged:
 
 - **[STATIC — verifiable now]** — provable from the files on disk plus the
   packet-1/2 code, without Docker. Filled with real outputs in the evidence file.
-- **[DEFERRED — needs Docker host]** — requires a real `docker build` / `docker
-  run` on a `linux/amd64` Docker host (the deploy target CT103 `10.0.1.39`, or
-  any Docker host). Marked `DEFERRED (needs Docker host)` in the evidence file
-  with the exact command to run, following the repo's "live HACS retest"
-  deferral pattern. Do **not** fabricate build logs.
+- **[VERIFIED ON DOCKER HOST]** — required a real `docker build` / `docker run`
+  on a `linux/amd64` Docker host. **Now done live on the deploy target CT103**
+  (`docker-host`, `10.0.1.39`, Debian 13 trixie, x86_64, Docker 29.5.2, 6 cores)
+  from a fresh clone at commit `2bb2747`; raw outputs recorded in the evidence
+  file. (These were formerly `DEFERRED (needs Docker host)`; the live run
+  promoted them. The live build also surfaced the OpenBLAS/`RLIMIT_AS` bug fixed
+  in `2bb2747` — see the evidence file's finding subsection.)
 
 ## Scenarios
 
-### Scenario A — [DEFERRED] image builds on amd64
+### Scenario A — [VERIFIED ON DOCKER HOST] image builds on amd64
 
 **Given** `worker/Dockerfile` and `worker/.dockerignore` on disk and a
 `linux/amd64` Docker host
@@ -43,11 +44,12 @@ runs
 **Then** the build succeeds
 **And** matplotlib installs from a prebuilt wheel into the interpreter's system
 site-packages (no compiler / source build in the image)
-*(DEFERRED — needs Docker host. Statically here: the Dockerfile is well-formed,
-uses `python:3.12-slim`, and `pip install`s `worker/requirements.txt` as root
-before `USER worker`.)*
+*(VERIFIED ON CT103, commit `2bb2747`: build succeeded, matplotlib-3.11.0 from
+prebuilt wheels, final image 418MB, no source build. Statically here: the
+Dockerfile is well-formed, uses `python:3.12-slim`, and `pip install`s
+`worker/requirements.txt` as root before `USER worker`.)*
 
-### Scenario B — [DEFERRED] container starts and fails closed without a token
+### Scenario B — [VERIFIED ON DOCKER HOST] container starts and fails closed without a token
 
 **Given** the built image
 **When** `docker run --rm isolinear-worker:dev` runs with **no**
@@ -55,12 +57,13 @@ before `USER worker`.)*
 **Then** the container exits non-zero with the packet-2 message
 `ISOLINEAR_WORKER_TOKEN is required; refusing to start without a bearer token.`
 **And** no socket is bound and no request is served
-*(DEFERRED — needs Docker host. Statically here: packet 2's
-`test_entry_point_exits_nonzero_without_token` already proves fail-closed
-startup; the image sets no `ISOLINEAR_WORKER_TOKEN`, so this behavior is
-inherited unchanged.)*
+*(VERIFIED ON CT103, commit `2bb2747`: `docker run` with no token → the exact
+message and `exit=1`; a short token → the ≥24-char refusal and `exit=1`.
+Statically here: packet 2's `test_entry_point_exits_nonzero_without_token`
+already proves fail-closed startup; the image sets no `ISOLINEAR_WORKER_TOKEN`,
+so this behavior is inherited unchanged.)*
 
-### Scenario C — [DEFERRED] `/v1/health` returns `ready` (matplotlib importable in `-I`)
+### Scenario C — [VERIFIED ON DOCKER HOST] `/v1/health` returns `ready` (matplotlib importable in `-I`)
 
 **Given** the built image run with a valid 24+char `ISOLINEAR_WORKER_TOKEN` and
 port `8080` published
@@ -71,13 +74,15 @@ port `8080` published
 `capabilities.rendering == true`, and the `matplotlib_import` check `ok`
 **And** `docker inspect` reports the container `healthy` (the `HEALTHCHECK` gates
 on `health.status == "ready"`)
-*(DEFERRED — needs Docker host. This is the anchor artifact: the first time the
-worker can actually render, because the image installs matplotlib into the
+*(VERIFIED ON CT103, commit `2bb2747`: HTTP 200 with `status == "ready"`,
+`capabilities.rendering == true`, `matplotlib_import` `ok`; `docker inspect` →
+`healthy`; unauthenticated → 401. This is the anchor artifact: the first time
+the worker can actually render, because the image installs matplotlib into the
 **system** site-packages the `-I` subprocess reads. Statically here: the
 readiness probe `_sandbox_can_import_matplotlib()` runs `python -I -c "import
 matplotlib"` — so system-site install is exactly what flips it to `ok`/`ready`.)*
 
-### Scenario D — [DEFERRED] authenticated `/v1/render` produces a real PNG through the running container
+### Scenario D — [VERIFIED ON DOCKER HOST] authenticated `/v1/render` produces a real PNG through the running container
 
 **Given** the running container with a valid token
 **And** a valid transport envelope `{version: 1, operation: "render_chart",
@@ -88,11 +93,15 @@ headers
 **Then** the response is HTTP `200` with `render_result.status == "success"`
 **And** a valid PNG (signature `89504e470d0a1a0a`) exists at the returned
 `image_path` inside the container's `work_root`
-*(DEFERRED — needs Docker host. Statically here: packet 2 proves this exact path
+*(VERIFIED ON CT103, commit `2bb2747`: `render_result.status == "success"`, a
+16557-byte PNG with signature `89504e470d0a1a0a` at
+`/var/lib/isolinear-worker/work/codegen-sandbox-anchor.png`. **This is the
+scenario that first failed** with the OpenBLAS/`RLIMIT_AS` error before the
+`2bb2747` thread-pinning fix. Statically here: packet 2 proves this exact path
 end-to-end through the HTTP layer into the sandbox; only the matplotlib-render
 assertion is gated, and it un-gates inside the container.)*
 
-### Scenario E — [DEFERRED] the 3 previously-skipped matplotlib tests pass inside the container
+### Scenario E — [VERIFIED ON DOCKER HOST] the 3 previously-skipped matplotlib tests pass inside the container
 
 **Given** the built image with the repo mounted
 **When** `pytest tests/test_codegen_sandbox.py tests/test_worker_http_server.py`
@@ -103,23 +112,25 @@ runs **inside** the container
 `test_authenticated_render_matplotlib_reports_agg_backend` — **run and pass**
 instead of skipping
 **And** the rest of the suite stays green
-*(DEFERRED — needs Docker host. Statically here: on the authoring dev box these 3
-skip because `python -I` cannot import matplotlib; the whole point of the system-
-site install is that inside the container `_SANDBOX_HAS_MATPLOTLIB` is `True`.)*
+*(VERIFIED ON CT103, commit `2bb2747`: `24 passed in 6.49s` with ZERO skips —
+the 3 tests un-skip and pass. Before `2bb2747` they un-skipped but FAILED with
+the OpenBLAS error. Statically here: on the authoring dev box these 3 skip
+because `python -I` cannot import matplotlib; the whole point of the system-site
+install is that inside the container `_SANDBOX_HAS_MATPLOTLIB` is `True`.)*
 
-### Scenario F — [DEFERRED] the image contains nothing from `custom_components`/`src`
+### Scenario F — [VERIFIED ON DOCKER HOST] the image contains nothing from `custom_components`/`src`
 
 **Given** the built image
 **When** the image filesystem is searched for `custom_components` or a
 `src/Isolinear` path
 **Then** none is found (the image carries only the `isolinear_worker/` package,
 its bundled schemas, and its pip-installed dependencies)
-*(DEFERRED — needs Docker host for the in-image `find`. Statically here: the
-build context is `worker/` (so `custom_components/`, `src/`, `frontend/` are
-outside it and cannot be copied), the `.dockerignore` excludes cruft, and the
-packet-1/2 import-graph checks already prove
-`isolinear_worker.http_server`/`codegen_sandbox` import nothing from those
-trees.)*
+*(VERIFIED ON CT103, commit `2bb2747`: the in-image `find` returned empty
+output — no integration code ships. Statically here: the build context is
+`worker/` (so `custom_components/`, `src/`, `frontend/` are outside it and
+cannot be copied), the `.dockerignore` excludes cruft, and the packet-1/2
+import-graph checks already prove `isolinear_worker.http_server`/`codegen_sandbox`
+import nothing from those trees.)*
 
 ### Scenario G — [STATIC] entry point maps to the packet-2 module `__main__`
 
