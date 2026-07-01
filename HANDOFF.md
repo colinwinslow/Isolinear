@@ -2,6 +2,63 @@
 
 ## Current project phase
 
+### 2026-07-01 — ADR-0029 packet 2 landed: the standalone worker HTTP server
+
+The packet-1 worker module now has an HTTP front door. A new standalone server
+at **`worker/isolinear_worker/http_server.py`** wraps the self-contained
+`isolinear_worker.codegen_sandbox` public API in a long-running process built on
+the Python stdlib `http.server`/`ThreadingHTTPServer` — **no new runtime
+dependency** (invariant #8), which also keeps the packet-3 image minimal. It
+serves the ADR-0012 worker transport: **`POST /v1/render`** (run the sandbox on a
+model-generated matplotlib render request) and **`GET /v1/health`** (ADR-0014
+readiness probe).
+
+Request handling is **strictly fail-closed and ordered on every request**: auth →
+API-version → envelope-schema → sandbox. Bearer auth uses a constant-time
+`hmac.compare_digest` compare, and **no sandbox subprocess is ever spawned for an
+unauthenticated request**. The transport/sandbox failure split is deliberate:
+**sandbox-level failures ride inside an HTTP 200** as `{"render_result": {...}}`
+(an `unsafe_code`/`runtime_error`/`timeout` outcome is a valid *render* result,
+not a transport fault), while **transport faults are non-200** — 401
+`unauthorized`, 400 `unsupported_api_version` / `invalid_request`. Token material
+never reaches responses or logs (redacted to `Bearer <redacted>`).
+
+Config is 12-factor and HA-agnostic: `ISOLINEAR_WORKER_TOKEN` (**≥24 chars,
+fail-closed at startup** — a missing/short token exits 1 with no socket bound),
+plus bind host/port and `work_root`. `create_worker_app(config)` is socket-free
+and unit-testable; `serve(config)` / `python -m isolinear_worker.http_server` bind
+and serve. The server **imports nothing from `custom_components/isolinear/` or
+`src/Isolinear/`** — verified by an import-graph test — so it stays deployment-
+independent per the ADR-0029/ADR-0012 boundary; the only cross-boundary import
+lives correctly in the wire-interop *eval*, not the server.
+
+`GET /v1/health` returns the `integration-worker-health` `response` sub-schema
+under `{"health": ...}` (HTTP 200 in both ready and not_ready). On the dev box it
+reports `not_ready` with matplotlib `unavailable`: the `-I` sandbox can't import
+user-site matplotlib, so this is the **expected dev-box behavior** and flips to
+`ready` in the packet-3 container (matplotlib in the system site). The
+`evals/worker_http_server.py` wire-interop eval drives the **real
+`HttpJsonWorkerRenderClient`** (the integration-side ADR-0012 client) against a
+live loopback instance of the server, proving the two halves speak the same
+transport. Single `invoke_codegen_sandbox` call — no repair loop (packet 4) — and
+the `image_path` is returned as-is (no base64 yet — packet 5).
+
+The HACS-shipped integration is **untouched and NOT version-bumped** (worker-only
+change, matching packet 1). One deferrable future refinement noted by review:
+`_read_body` returns `b""` on an oversized/invalid `Content-Length`, which
+surfaces as a generic `invalid_request` 400 — acceptable fail-closed behavior, not
+changed now. Spec + BDD promoted draft→accepted. Verify: full suite
+`595 passed, 3 skipped` (the 3rd skip is the new matplotlib-render scenario, same
+`-I`/user-site limitation as packet 1's 2 skips); `evals/worker_http_server.py`
+PASS; `evals/codegen_sandbox.py` PASS; BDD-evidence review OK; architecture review
+OK (no invariant violations).
+
+**Remaining ADR-0029 packets:** (3) standalone amd64 Dockerfile with matplotlib
+(where health flips to `ready`); (4) codegen path in the model provider + real
+repair model; (5) end-to-end proof + the codegen accept/repair reliability eval
+the keep/remove decision rests on. Deploy target: CT103/10.0.1.39, standalone
+amd64 GPU-less Docker via the homelab `docker_host` role.
+
 ### 2026-06-30 — ADR-0029 packet 1 landed: codegen sandbox promoted to a self-contained worker module
 
 The proven codegen sandbox is now a real, importable, Home-Assistant-agnostic
