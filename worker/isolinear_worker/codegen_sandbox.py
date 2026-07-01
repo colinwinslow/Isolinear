@@ -48,7 +48,12 @@ _FORBIDDEN_ATTRIBUTE_NAMES = {
     "read_text",
     "remove",
     "rename",
-    "replace",
+    # NOTE: `replace` is intentionally NOT blocked. `str.replace` /
+    # `datetime.replace` are ubiquitous and safe in chart code; the only
+    # dangerous `replace` is `os.replace` (file rename), which is already
+    # unreachable (os is import-forbidden and there is no getattr) and denied at
+    # runtime by the audit hook's `os.rename` event. Blocking the attribute name
+    # only produced false positives on legitimate string/date code.
     "request",
     "rmdir",
     "rmtree",
@@ -307,12 +312,16 @@ def default_codegen_sandbox_policy() -> dict[str, Any]:
         "allowed_imports": [
             "_strptime",
             "base64",
+            "collections",
             "datetime",
+            "functools",
+            "itertools",
             "json",
             "math",
             "matplotlib",
             "matplotlib.dates",
             "matplotlib.pyplot",
+            "numpy",
             "statistics",
             "struct",
             "zlib",
