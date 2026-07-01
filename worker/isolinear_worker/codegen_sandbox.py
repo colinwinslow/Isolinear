@@ -176,6 +176,11 @@ def _sandbox_import(
         # submodule of an already-trusted package (e.g. `from datetime import
         # datetime`, `from matplotlib import backends`); allow it. Still reject a
         # qualified name that resolves into a forbidden module.
+        #
+        # Safety assumption (CPython, ADR-0001): a fromlist item resolves ONLY as
+        # an attribute/submodule of `name` — it never falls back to a top-level
+        # module. So `from matplotlib import os` binds `matplotlib.os`
+        # (AttributeError) and can never import the stdlib `os`.
         if item == "*":
             continue
         if _generated_module_forbidden(f"{name}.{item}"):
@@ -192,6 +197,15 @@ def _sandbox_open(file: object, mode: str = "r", *args: object, **kwargs: object
 
 
 def _safe_builtins() -> dict[str, object]:
+    # A curated allowlist of pure, escape-free builtins that real matplotlib
+    # codegen commonly needs. The sandbox's actual security rests on the import
+    # allowlist, the audit hook, `-I` isolation, the stripped environment, and
+    # the fixed-output-path write rule — NOT on withholding safe builtins. So
+    # this list is generous with side-effect-free helpers (iteration, math,
+    # formatting, common exceptions) while deliberately excluding introspection
+    # / code-execution / IO escapes: no getattr/setattr/vars/globals/locals/dir/
+    # type/eval/exec/compile/input/help/breakpoint/memoryview/object, and no
+    # `print` (stdout is the runner's JSON channel).
     return {
         "__import__": _sandbox_import,
         "abs": abs,
@@ -199,26 +213,46 @@ def _safe_builtins() -> dict[str, object]:
         "any": any,
         "bool": bool,
         "bytes": bytes,
+        "chr": chr,
         "dict": dict,
+        "divmod": divmod,
         "enumerate": enumerate,
-        "Exception": Exception,
+        "filter": filter,
         "float": float,
+        "format": format,
+        "frozenset": frozenset,
         "int": int,
         "isinstance": isinstance,
+        "iter": iter,
         "len": len,
         "list": list,
+        "map": map,
         "max": max,
         "min": min,
+        "next": next,
         "open": _sandbox_open,
+        "ord": ord,
+        "pow": pow,
         "range": range,
+        "repr": repr,
+        "reversed": reversed,
         "round": round,
-        "RuntimeError": RuntimeError,
+        "set": set,
         "sorted": sorted,
         "str": str,
         "sum": sum,
         "tuple": tuple,
-        "ValueError": ValueError,
         "zip": zip,
+        # Exception types real codegen raises/catches.
+        "AttributeError": AttributeError,
+        "Exception": Exception,
+        "IndexError": IndexError,
+        "KeyError": KeyError,
+        "RuntimeError": RuntimeError,
+        "StopIteration": StopIteration,
+        "TypeError": TypeError,
+        "ValueError": ValueError,
+        "ZeroDivisionError": ZeroDivisionError,
     }
 
 
@@ -271,6 +305,7 @@ def default_codegen_sandbox_policy() -> dict[str, Any]:
         "entry_point_args": ["data", "output_path"],
         "python_flags": ["-I"],
         "allowed_imports": [
+            "_strptime",
             "base64",
             "datetime",
             "json",

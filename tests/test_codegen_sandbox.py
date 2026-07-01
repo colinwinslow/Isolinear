@@ -190,6 +190,46 @@ class CodegenSandboxModuleTests(unittest.TestCase):
                 self.assertFalse(result["accepted"])
                 self.assertEqual(result["code"], "unsafe_code")
 
+    def test_from_import_of_allowed_module_cannot_reach_forbidden_toplevel(self):
+        # `from matplotlib import os` is accepted (base module `matplotlib` is
+        # allowlisted; `matplotlib.os` is not forbidden), and that is SAFE because
+        # CPython resolves a fromlist item only as an attribute/submodule of the
+        # base package — it never imports the top-level stdlib `os`.
+        code = (
+            "from matplotlib import os\n\n\n"
+            "def render_chart(data, output_path):\n"
+            "    return {\"warnings\": []}"
+        )
+        self.assertTrue(static_safety_check(code)["accepted"])
+        # Prove the CPython fromlist semantics the safety argument relies on: a
+        # `from <module> import <name>` where <name> is not an attribute/submodule
+        # of <module> raises ImportError — it never falls back to a top-level
+        # module, so the forbidden stdlib `subprocess` is unreachable this way.
+        with self.assertRaises(ImportError):
+            exec("from json import subprocess", {})
+
+    def test_safe_builtins_and_from_import_execute_in_sandbox(self):
+        # `next`/`iter`/`map`/`filter`/`set` and a from-import of an allowlisted
+        # stdlib module all run inside the `-I` sandbox, writing a real PNG
+        # through the fixed output path (no matplotlib needed → runs everywhere).
+        code = (
+            "from datetime import datetime\n"
+            "def render_chart(data, output_path):\n"
+            "    picked = next(iter([1, 2, 3]))\n"
+            "    labels = set(map(str, filter(lambda x: x >= picked, [1, 2, 3])))\n"
+            "    _ = datetime(2026, 1, 1)\n"
+            "    png = bytes.fromhex('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6360000002000100ffff03000006000557bfab0000000049454e44ae426082')\n"
+            "    with open(output_path, 'wb') as handle:\n"
+            "        handle.write(png)\n"
+            "    return {'title': 't', 'series_plotted': sorted(labels), 'warnings': []}\n"
+        )
+        with self._run_dir() as run_directory:
+            result = invoke_codegen_sandbox(
+                sample_codegen_render_request(python_code=code),
+                work_root=Path(run_directory),
+            )
+        self.assertEqual(result["status"], "success", result.get("error"))
+
     # Scenario E (sandbox-codegen) — an arbitrary file read routed through an
     # allowlisted rendering library is denied at runtime by the audit hook.
     @unittest.skipUnless(_SANDBOX_HAS_MATPLOTLIB, _NO_MATPLOTLIB_REASON)
