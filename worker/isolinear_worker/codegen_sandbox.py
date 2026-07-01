@@ -310,14 +310,19 @@ def default_codegen_sandbox_policy() -> dict[str, Any]:
             "inherit_parent_environment": False,
             "explicit_environment_keys": [
                 "HOME",
+                "MKL_NUM_THREADS",
                 "MPLBACKEND",
                 "MPLCONFIGDIR",
+                "NUMEXPR_NUM_THREADS",
+                "OMP_NUM_THREADS",
+                "OPENBLAS_NUM_THREADS",
                 "PYTHONIOENCODING",
                 "PYTHONUTF8",
                 "SYSTEMROOT",
                 "TMP",
                 "TEMP",
                 "TMPDIR",
+                "VECLIB_MAXIMUM_THREADS",
                 "WINDIR",
             ],
         },
@@ -824,6 +829,19 @@ def _sandbox_environment(work_directory: Path) -> dict[str, str]:
         "TEMP": str(work_directory),
         "TMP": str(work_directory),
         "TMPDIR": str(work_directory),
+        # Cap numeric threading libraries to a single thread. numpy's BLAS
+        # backend (OpenBLAS) reserves per-core address space for its thread
+        # pool at import time, scaled to the host CPU count; on a multi-core
+        # host that reservation exceeds the sandbox RLIMIT_AS memory cap and
+        # aborts with "OpenBLAS error: Memory allocation still failed" before
+        # any chart is drawn. Pinning the thread count keeps matplotlib
+        # rendering within the address-space limit. These variables only
+        # *reduce* resource use, so they do not weaken the sandbox.
+        "OPENBLAS_NUM_THREADS": "1",
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
     }
     for key in ("SYSTEMROOT", "WINDIR"):
         if key in os.environ:
