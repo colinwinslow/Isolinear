@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 date: 2026-07-01
 depends-on-adrs: [0029, 0004, 0008, 0012, 0022, 0023]
 ---
@@ -8,7 +8,9 @@ depends-on-adrs: [0029, 0004, 0008, 0012, 0022, 0023]
 
 ## Status
 
-Draft. Defines the contract surface for the **model codegen generation path**
+Accepted. Implemented, tested, and reviewed OK (architecture review: no
+invariant violations; BDD-evidence review: OK). Defines the contract surface for
+the **model codegen generation path**
 and the **integration-orchestrated repair loop** per ADR-0029 (revive the worker
 for codegen evaluation). This is ADR-0029 **packet 4**. Packets 1–3 built the
 worker sandbox package, the HTTP server, and the amd64 container image; they

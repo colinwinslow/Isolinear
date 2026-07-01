@@ -2,6 +2,70 @@
 
 ## Current project phase
 
+### 2026-07-01 — ADR-0029 packet 4 landed: the model codegen path + integration-orchestrated repair (0.1.49, `b22992b`)
+
+The worker can render matplotlib (packet 3); packet 4 is the *integration side*
+that makes codegen a real product path — the model that **generates** the
+matplotlib code and the loop that **repairs** it on a retryable sandbox error.
+It is an **opt-in** render path behind a new options toggle **`codegen_enabled`
+(default `False`)**: when off, the trusted in-process ChartSpec renderer is the
+default and untouched (invariant #6, chart-spec-first). Codegen uses a
+**separately configurable model** — **`codegen_model`** (config field, already
+present) that **defaults to the planner model when unset** (`codegen_model or
+planner_model`), so codegen can point at a code-specialized model without
+touching the planner. Both knobs are cleanly removable (packet 5 may revisit).
+
+**Model-provider generation** (`custom_components/isolinear/model_provider.py`):
+two new methods on the Ollama-compatible client emit **freeform Python** via one
+`/api/chat` call each — **`generate_chart_code`** (system prompt asks for a
+single `render_chart(data, output_path)` matplotlib function implementing the
+already-validated ChartSpec) and **`repair_chart_code`** (feeds the previous
+code plus the sandbox error — `error.code`, `error.message`, and the traceback
+from `error.details` — back and asks for corrected code). Output is
+markdown-stripped with the existing `_strip_markdown_json` helper; **no
+constrained-decoding `format`** is set (Ollama's `format` is for JSON, not
+Python). Only the validated ChartSpec + normalized, allowlist-checked render
+data cross into the prompt — the **data-boundary projection
+`_codegen_request_view`** strips `request_id`/tokens/secrets, so no HA token,
+worker token, model token, or secret is ever placed in a generation/repair
+prompt (data boundary; invariants #1/#3).
+
+**The repair loop is integration-orchestrated**, in
+`job_orchestration.py`. When `codegen_enabled` is true and a worker client is
+configured, only the render step is replaced (planning, entity selection,
+allowlist enforcement, and deterministic render-family routing stay upstream and
+unchanged): **generate** the code, dispatch a `render_mode: "codegen"` request
+carrying `codegen.python_code` over the existing `HttpJsonWorkerRenderClient`,
+and on a **retryable** sandbox error (`runtime_error`/`timeout`/`output_missing`/
+`output_too_large`) ask the model to repair given the previous code + error/
+traceback and **re-dispatch**, up to `max_codegen_repair_attempts` (each
+re-dispatch is a fresh `POST /v1/render`; the worker re-runs static safety every
+attempt). **`unsafe_code` is terminal** — never repaired (it's a security gate,
+not a correctness bug). The worker-local `invoke_codegen_with_repair` convenience
+is **NOT** used over HTTP: the data boundary forbids the worker from holding a
+model client, so the integration drives the loop with its own model provider.
+
+**Fail-closed, no silent fallback.** On generation failure, `unsafe_code`, or
+exhausted repair, the codegen path returns a dedicated card-facing
+**`codegen_render_failed`** failed snapshot carrying the final sandbox/provider
+error code — it does **not** silently fall back to the trusted renderer.
+Rationale: a silent trusted fallback would mask codegen failures and muddy the
+packet-5 accept/reject/repair eval — the very data the ADR-0029 keep/remove
+decision rests on.
+
+**Proven LOCALLY only.** The full orchestration (generate → dispatch → repair →
+serve / fail-closed) is exercised against an **in-process sandbox worker**, and
+the wire end-to-end is proven by booting the **real packet-2
+`isolinear_worker.http_server` on an ephemeral port** and driving the loop over
+the actual HTTP boundary into a real PNG (`evals/codegen_generation_path.py`). No
+CT103 / remote host is touched. The **live CT103 end-to-end + the codegen
+accept/reject/repair reliability eval are packet 5** — the data the keep/remove
+decision rests on. Suite `620 passed, 4 skipped`; both evals PASS
+(`codegen_generation_path.py`, `worker_http_server.py` — no regression). Version
+bumped **0.1.48 → 0.1.49**. `codegen-generation-path` spec + BDD promoted
+draft→ACCEPTED (both reviews OK — architecture review: no invariant violations;
+BDD-evidence review: OK).
+
 ### 2026-07-01 — ADR-0029 packet 3 PROVEN LIVE on CT103 (+ OpenBLAS sandbox fix `2bb2747`)
 
 The packet-3 worker container image is no longer a deferred artifact — it was

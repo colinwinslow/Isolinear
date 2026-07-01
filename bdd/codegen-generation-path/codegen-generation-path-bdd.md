@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft. Paired with [docs/specs/codegen-generation-path.md](../../docs/specs/codegen-generation-path.md).
+Accepted. Paired with [docs/specs/codegen-generation-path.md](../../docs/specs/codegen-generation-path.md).
 ADR-0029 packet 4.
 
 ## Why this BDD exists

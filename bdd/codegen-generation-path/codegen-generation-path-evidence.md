@@ -16,33 +16,41 @@ real-PNG proof everywhere.
 
 ```
 $ python3 -m pytest tests/test_codegen_generation_path.py -v
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_enabled_defaults_false PASSED
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_enabled_is_an_options_field PASSED
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_helper_reads_toggle PASSED
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_model_defaults_to_planner_when_unset PASSED
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_model_honored_when_set PASSED
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_non_boolean_codegen_enabled_rejected PASSED
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_options_form_normalizes_string_boolean PASSED
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_valid_options_accept_codegen_enabled_true PASSED
-tests/test_codegen_generation_path.py::CodegenSetupTests::test_disabled_installs_no_codegen_client PASSED
-tests/test_codegen_generation_path.py::CodegenSetupTests::test_enabled_honors_separate_codegen_model PASSED
-tests/test_codegen_generation_path.py::CodegenSetupTests::test_enabled_installs_codegen_client_defaulting_to_planner PASSED
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_data_boundary_no_secret_in_codegen_prompt PASSED
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_chart_code_returns_stripped_freeform_code PASSED
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_chart_code_uses_model_override PASSED
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_empty_response_is_retry_safe_failure PASSED
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_transport_error_is_provider_failure PASSED
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_repair_chart_code_feeds_previous_code_and_error PASSED
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_codegen_model_default_and_override_are_threaded_to_client PASSED
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_disabled_leaves_trusted_path_untouched PASSED
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_enabled_happy_path_generates_renders_and_serves_png PASSED
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_generation_failure_fails_closed_without_dispatch PASSED
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_repair_exhausted_fails_closed PASSED
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_retryable_failure_repairs_to_success PASSED
-tests/test_codegen_generation_path.py::CodegenLocalWorkerWireTests::test_generated_matplotlib_renders_over_local_worker SKIPPED
-tests/test_codegen_generation_path.py::CodegenLocalWorkerWireTests::test_safe_generated_body_renders_over_local_worker PASSED
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/claude/repos/isolinear
+plugins: anyio-4.14.1
+collecting ... collected 26 items
 
-======================== 25 passed, 1 skipped in 1.21s =========================
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_enabled_defaults_false PASSED [  3%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_enabled_is_an_options_field PASSED [  7%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_helper_reads_toggle PASSED [ 11%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_model_defaults_to_planner_when_unset PASSED [ 15%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_model_honored_when_set PASSED [ 19%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_non_boolean_codegen_enabled_rejected PASSED [ 23%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_options_form_normalizes_string_boolean PASSED [ 26%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_valid_options_accept_codegen_enabled_true PASSED [ 30%]
+tests/test_codegen_generation_path.py::CodegenSetupTests::test_disabled_installs_no_codegen_client PASSED [ 34%]
+tests/test_codegen_generation_path.py::CodegenSetupTests::test_enabled_honors_separate_codegen_model PASSED [ 38%]
+tests/test_codegen_generation_path.py::CodegenSetupTests::test_enabled_installs_codegen_client_defaulting_to_planner PASSED [ 42%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_data_boundary_no_secret_in_codegen_prompt PASSED [ 46%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_chart_code_returns_stripped_freeform_code PASSED [ 50%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_chart_code_uses_model_override PASSED [ 53%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_empty_response_is_retry_safe_failure PASSED [ 57%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_transport_error_is_provider_failure PASSED [ 61%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_repair_chart_code_feeds_previous_code_and_error PASSED [ 65%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_codegen_model_default_and_override_are_threaded_to_client PASSED [ 69%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_disabled_leaves_trusted_path_untouched PASSED [ 73%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_enabled_happy_path_generates_renders_and_serves_png PASSED [ 76%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_generation_failure_fails_closed_without_dispatch PASSED [ 80%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_repair_exhausted_fails_closed PASSED [ 84%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_retryable_failure_repairs_to_success PASSED [ 88%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_unsafe_code_fails_closed_immediately_without_repair PASSED [ 92%]
+tests/test_codegen_generation_path.py::CodegenLocalWorkerWireTests::test_generated_matplotlib_renders_over_local_worker SKIPPED [ 96%]
+tests/test_codegen_generation_path.py::CodegenLocalWorkerWireTests::test_safe_generated_body_renders_over_local_worker PASSED [100%]
+
+======================== 25 passed, 1 skipped in 1.19s =========================
 ```
 
 The skip is the matplotlib-over-`-I`-sandbox dev-box limitation (runs on the
