@@ -897,11 +897,30 @@ def _sandbox_data(render_request: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _persistent_mpl_cache_dir() -> str | None:
+    """A container-provided, pre-warmed matplotlib cache directory, if configured.
+
+    When `ISOLINEAR_WORKER_MPL_CACHE` names an existing directory (the worker
+    image bakes one with the font cache already built), the sandbox points
+    MPLCONFIGDIR at it and grants READ access to it. matplotlib then loads the
+    pre-built font cache instead of scanning fonts and trying to write the cache
+    to a per-invocation temp dir — faster renders, no "Could not save
+    font_manager cache" warning, and NO write-policy relaxation (the directory is
+    read-only to generated code; the fixed-output-path write rule is unchanged).
+    Absent/invalid → fall back to the per-invocation temp dir (dev/test).
+    """
+    path = os.environ.get("ISOLINEAR_WORKER_MPL_CACHE", "").strip()
+    if not path:
+        return None
+    resolved = Path(path)
+    return str(resolved.resolve()) if resolved.is_dir() else None
+
+
 def _sandbox_environment(work_directory: Path) -> dict[str, str]:
     env = {
         "HOME": str(work_directory),
         "MPLBACKEND": "Agg",
-        "MPLCONFIGDIR": str(work_directory / "matplotlib"),
+        "MPLCONFIGDIR": _persistent_mpl_cache_dir() or str(work_directory / "matplotlib"),
         "PYTHONIOENCODING": "utf-8",
         "PYTHONUTF8": "1",
         "TEMP": str(work_directory),
@@ -934,6 +953,11 @@ def _allowed_read_roots(work_directory: Path) -> list[str]:
         Path(sys.prefix).resolve(),
         Path(sys.base_prefix).resolve(),
     }
+    mpl_cache = _persistent_mpl_cache_dir()
+    if mpl_cache:
+        # Read-only: the sandbox reads the pre-built font cache; it never writes
+        # here (matplotlib finds a valid cache and skips the write).
+        roots.add(Path(mpl_cache).resolve())
     return [str(root) for root in sorted(roots)]
 
 

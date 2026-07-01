@@ -28,6 +28,7 @@ FROM python:3.12-slim
 ENV ISOLINEAR_WORKER_BIND_HOST=0.0.0.0 \
     ISOLINEAR_WORKER_BIND_PORT=8080 \
     ISOLINEAR_WORKER_WORK_ROOT=/var/lib/isolinear-worker/work \
+    ISOLINEAR_WORKER_MPL_CACHE=/opt/isolinear-worker/mplcache \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
@@ -48,6 +49,18 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Only the self-contained worker package (proven to import nothing from
 # custom_components/ or src/ by the packet-1/2 import-graph checks).
 COPY isolinear_worker ./isolinear_worker
+
+# --- Pre-warm the matplotlib font cache -------------------------------------
+# Build matplotlib's font list cache once, at image-build time, into a fixed
+# read-only directory. The sandbox points MPLCONFIGDIR here (ISOLINEAR_WORKER_
+# MPL_CACHE), so generated code's `python -I` subprocess LOADS the cache instead
+# of scanning system fonts and trying (and failing) to persist the cache to its
+# per-invocation temp dir. This removes the "Could not save font_manager cache"
+# warning and the per-render font scan without relaxing the fixed-output-path
+# write rule — the directory is read-only to generated code.
+RUN mkdir -p "${ISOLINEAR_WORKER_MPL_CACHE}" \
+    && MPLCONFIGDIR="${ISOLINEAR_WORKER_MPL_CACHE}" MPLBACKEND=Agg python -c "import matplotlib.pyplot as plt; fig, ax = plt.subplots(); ax.plot([0, 1], [0, 1]); fig.savefig('/tmp/_warm.png'); print('font cache warmed')" \
+    && rm -f /tmp/_warm.png
 
 # --- Non-root runtime user + writable work_root -----------------------------
 # Defense-in-depth: run the server unprivileged. The work_root (where rendered
