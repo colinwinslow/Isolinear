@@ -1,7 +1,8 @@
 ---
 status: accepted
 date: 2026-07-01
-depends-on-adrs: [0029, 0004, 0008, 0012, 0022, 0023]
+revised: 2026-07-02 (ADR-0030 repair policy)
+depends-on-adrs: [0029, 0030, 0008, 0012, 0022, 0023]
 ---
 
 # Codegen generation path: model-generated matplotlib + integration-orchestrated repair
@@ -129,24 +130,24 @@ unchanged). The loop:
 3. **Success** → serve the PNG through the existing worker-rendered-artifact
    path (`_record_worker_rendered_artifact`), exactly like the trusted worker
    path does today.
-4. **Retryable sandbox failure** (`render_result.status == "failed"` and
-   `error.code != "unsafe_code"`; e.g. `runtime_error`, `timeout`,
-   `output_missing`, `output_too_large`) → if repair budget remains, call
+4. **Sandbox failure — every failure class is repairable (ADR-0030 revision).**
+   On `render_result.status == "failed"` with any `error.code` — `runtime_error`,
+   `timeout`, `output_missing`, `output_too_large`, **and `unsafe_code`** — if
+   repair budget remains, call
    `repair_chart_code(previous_code, render_result.error, request)`, replace the
    code, and go to step 2. Each re-dispatch is a fresh `POST /v1/render`; the
-   sandbox re-runs static safety on every attempt (already implemented, packet
-   1).
-5. **`unsafe_code` is terminal** — do **not** repair it. The sandbox already
-   breaks its own loop on `unsafe_code` (packet 1); mirror that here: fail closed
-   immediately with `codegen_render_failed` carrying `unsafe_code`. (Static
-   safety is a security gate, not a correctness bug; repairing it would just
-   burn attempts re-probing the gate.)
-6. **Exhausted** — after `max_codegen_repair_attempts` repairs still failing →
-   fail closed `codegen_render_failed`.
+   worker re-runs the **full static safety check plus the sandbox on every
+   attempt**, so the security boundary still enforces — repair just gets another
+   try at the gate. (This supersedes the packet-4 `unsafe_code`-is-terminal rule;
+   ADR-0030 decided all failure classes are repairable, bounded. The worker-local
+   `invoke_codegen_with_repair` — unused over HTTP — keeps its own policy.)
+5. **Exhausted** — after `max_codegen_repair_attempts` repairs still failing →
+   fail closed `codegen_render_failed` carrying the final sandbox error code
+   (which may be `unsafe_code`).
 
 ### Fail-closed policy (no silent fallback)
 
-On generation failure, `unsafe_code`, or exhausted repair, the codegen path
+On generation failure or exhausted repair, the codegen path
 returns a **dedicated card-facing failure** `codegen_render_failed`, carrying the
 final sandbox error code (or the model-provider failure code) as context. It
 does **not** silently fall back to the trusted in-process renderer. Rationale
@@ -192,8 +193,8 @@ Concrete-first:
    the codegen setup.
 3. **`repair_chart_code`** + the integration repair loop in `job_orchestration.py`
    (generate → dispatch → retryable repair → serve / fail-closed).
-4. **Fail-closed** `codegen_render_failed` snapshot on exhaustion / `unsafe_code`
-   / generation failure.
+4. **Fail-closed** `codegen_render_failed` snapshot on exhaustion / generation
+   failure.
 5. **Tests + eval:** fake Ollama for generation/repair + a locally-booted worker
    (or direct sandbox) for rendering.
 
@@ -202,7 +203,8 @@ Concrete-first:
 1. Unit tests in `tests/test_codegen_generation_path.py` green, covering:
    disabled→trusted path unchanged; enabled happy path (generate→render→PNG);
    retryable error→repair→success; repair exhausted→`codegen_render_failed`;
-   `unsafe_code`→immediate fail-closed (no repair call); `codegen_model` defaults
+   `unsafe_code`→repaired→success (ADR-0030) and
+   `unsafe_code`-through-exhaustion→fail-closed; `codegen_model` defaults
    to the planner model; a separate `codegen_model` is honored; data boundary (no
    token/secret crosses into the generation/repair prompt).
 2. BDD scenarios in

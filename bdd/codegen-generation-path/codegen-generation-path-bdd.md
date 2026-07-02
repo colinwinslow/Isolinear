@@ -3,7 +3,8 @@
 ## Status
 
 Accepted. Paired with [docs/specs/codegen-generation-path.md](../../docs/specs/codegen-generation-path.md).
-ADR-0029 packet 4.
+ADR-0029 packet 4. Scenario D revised 2026-07-02 per ADR-0030 (all sandbox
+failure classes repairable, including `unsafe_code`).
 
 ## Why this BDD exists
 
@@ -11,8 +12,8 @@ Pins the user-visible behavior of the opt-in codegen render path: when enabled,
 the model generates matplotlib code that a locally-booted worker renders to a
 real PNG; on a retryable sandbox error the integration asks the model to repair
 the code and re-renders; and the path fails closed (never silently falls back to
-the trusted renderer) on `unsafe_code` or exhausted repair. When disabled, the
-trusted render path is untouched.
+the trusted renderer) on exhausted repair. When disabled, the trusted render
+path is untouched.
 
 ## Scenarios
 
@@ -48,14 +49,23 @@ code + the sandbox error/traceback), re-dispatches a second `render_mode:
 `codegen_render_failed` result carrying the final sandbox error code — the
 trusted renderer is **not** silently used as a fallback.
 
-### Scenario D — `unsafe_code` fails closed immediately, no repair
+### Scenario D — `unsafe_code` is repairable, bounded (ADR-0030 revision)
 
 **Given** codegen is enabled and the generated code fails static safety in the
 sandbox (`error.code == "unsafe_code"`)
-**When** the render job runs
-**Then** the job fails immediately with `codegen_render_failed` carrying
-`unsafe_code`, and **no** `repair_chart_code` call is made (repairing a security
-gate is terminal, mirroring the sandbox's own break-on-`unsafe_code`).
+**When** the render job runs with repair budget remaining
+**Then** `repair_chart_code` is called with the sandbox violation, the repaired
+code is re-dispatched (the worker re-runs the full static check + sandbox on the
+fresh attempt), and a safe repair completes the job with a served PNG.
+
+### Scenario D2 — `unsafe_code` through exhaustion fails closed
+
+**Given** codegen is enabled and the code still fails static safety after every
+repair attempt
+**When** the repair budget (`max_codegen_repair_attempts`) is exhausted
+**Then** the job fails closed with `codegen_render_failed` carrying
+`unsafe_code` as the final error code — the security gate enforced on every
+attempt; repair only ever got another try at it, never around it.
 
 ### Scenario E — disabled leaves the trusted path unchanged
 

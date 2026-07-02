@@ -11,8 +11,9 @@ CT103 / remote host):
     (freeform Python, markdown-stripped, no constrained `format`) against a
     fake Ollama;
   * the integration-orchestrated repair loop in job_orchestration (generate ->
-    worker /v1/render render_mode=codegen -> retryable-repair -> serve PNG, or
-    fail-closed codegen_render_failed on unsafe_code / exhaustion);
+    worker /v1/render render_mode=codegen -> repair on ANY sandbox failure
+    class incl. unsafe_code (ADR-0030) -> serve PNG, or fail-closed
+    codegen_render_failed on exhaustion);
   * the data boundary (no token/secret crosses into the codegen prompt).
 
 Rendering is exercised two ways:
@@ -574,12 +575,42 @@ class CodegenOrchestrationTests(unittest.TestCase):
         # No silent fallback: the trusted renderer never produced this card.
         self.assertNotIn("in_process", str(snapshot["snapshot"].get("failure", {})))
 
-    def test_unsafe_code_fails_closed_immediately_without_repair(self):
+    def test_unsafe_code_is_repaired_to_success(self):
+        # Scenario D (ADR-0030): a static-safety rejection is repairable like any
+        # other sandbox failure; the worker re-runs the static check on the fresh
+        # dispatch and the safe repair completes with a served PNG.
         worker = SandboxWorkerRenderer()
         unsafe_code = unsafe_generated_python_examples()["requests_import"]
         codegen = FakeCodegenClient(
             generate_code=unsafe_code,
-            repair_codes=[safe_generated_python()],  # available but must NOT be used
+            repair_codes=[safe_generated_python()],
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            hass, entry = _configured_codegen_hass(
+                codegen_client=codegen,
+                worker=worker,
+                artifact_dir=Path(temp_dir),
+                max_repair_attempts=2,
+            )
+            start = _start_job(hass, entry)
+            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+        self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot)
+        # Initial unsafe dispatch + one repaired dispatch; one repair call fed
+        # the unsafe_code violation back to the model.
+        self.assertEqual(len(worker.calls), 2)
+        self.assertEqual(len(codegen.repair_calls), 1)
+        self.assertEqual(codegen.repair_calls[0]["sandbox_error"].get("code"), "unsafe_code")
+
+    def test_unsafe_code_through_exhaustion_fails_closed(self):
+        # Scenario D2 (ADR-0030): repair gets another try at the gate, never
+        # around it — persistently unsafe code exhausts the budget and fails
+        # closed carrying unsafe_code.
+        worker = SandboxWorkerRenderer()
+        unsafe_code = unsafe_generated_python_examples()["requests_import"]
+        codegen = FakeCodegenClient(
+            generate_code=unsafe_code,
+            repair_codes=[unsafe_code, unsafe_code],
         )
         with tempfile.TemporaryDirectory() as temp_dir:
             hass, entry = _configured_codegen_hass(
@@ -593,9 +624,9 @@ class CodegenOrchestrationTests(unittest.TestCase):
 
         self.assertEqual(snapshot["snapshot"]["status"], "failed", snapshot)
         self.assertEqual(snapshot["snapshot"]["failure"]["code"], "codegen_render_failed")
-        # unsafe_code is terminal: exactly one dispatch, zero repair calls.
-        self.assertEqual(len(worker.calls), 1)
-        self.assertEqual(codegen.repair_calls, [])
+        # initial + 2 repaired dispatches, each re-running the static check.
+        self.assertEqual(len(worker.calls), 3)
+        self.assertEqual(len(codegen.repair_calls), 2)
 
     def test_generation_failure_fails_closed_without_dispatch(self):
         worker = SandboxWorkerRenderer()

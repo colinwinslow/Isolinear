@@ -1,4 +1,4 @@
-# Codegen generation path — BDD evidence (ADR-0029 packet 4)
+# Codegen generation path — BDD evidence (ADR-0029 packet 4; Scenario D revised per ADR-0030, 2026-07-02)
 
 Raw outputs for the scenarios in
 [codegen-generation-path-bdd.md](codegen-generation-path-bdd.md). Proven
@@ -21,41 +21,42 @@ platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0 -- /usr/bin/python3
 cachedir: .pytest_cache
 rootdir: /home/claude/repos/isolinear
 plugins: anyio-4.14.1
-collecting ... collected 26 items
+collecting ... collected 27 items
 
 tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_enabled_defaults_false PASSED [  3%]
 tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_enabled_is_an_options_field PASSED [  7%]
 tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_helper_reads_toggle PASSED [ 11%]
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_model_defaults_to_planner_when_unset PASSED [ 15%]
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_model_honored_when_set PASSED [ 19%]
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_non_boolean_codegen_enabled_rejected PASSED [ 23%]
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_options_form_normalizes_string_boolean PASSED [ 26%]
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_valid_options_accept_codegen_enabled_true PASSED [ 30%]
-tests/test_codegen_generation_path.py::CodegenSetupTests::test_disabled_installs_no_codegen_client PASSED [ 34%]
-tests/test_codegen_generation_path.py::CodegenSetupTests::test_enabled_honors_separate_codegen_model PASSED [ 38%]
-tests/test_codegen_generation_path.py::CodegenSetupTests::test_enabled_installs_codegen_client_defaulting_to_planner PASSED [ 42%]
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_data_boundary_no_secret_in_codegen_prompt PASSED [ 46%]
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_chart_code_returns_stripped_freeform_code PASSED [ 50%]
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_chart_code_uses_model_override PASSED [ 53%]
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_empty_response_is_retry_safe_failure PASSED [ 57%]
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_transport_error_is_provider_failure PASSED [ 61%]
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_repair_chart_code_feeds_previous_code_and_error PASSED [ 65%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_codegen_model_default_and_override_are_threaded_to_client PASSED [ 69%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_disabled_leaves_trusted_path_untouched PASSED [ 73%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_enabled_happy_path_generates_renders_and_serves_png PASSED [ 76%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_generation_failure_fails_closed_without_dispatch PASSED [ 80%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_repair_exhausted_fails_closed PASSED [ 84%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_retryable_failure_repairs_to_success PASSED [ 88%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_unsafe_code_fails_closed_immediately_without_repair PASSED [ 92%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_model_defaults_to_planner_when_unset PASSED [ 14%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_model_honored_when_set PASSED [ 18%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_non_boolean_codegen_enabled_rejected PASSED [ 22%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_options_form_normalizes_string_boolean PASSED [ 25%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_valid_options_accept_codegen_enabled_true PASSED [ 29%]
+tests/test_codegen_generation_path.py::CodegenSetupTests::test_disabled_installs_no_codegen_client PASSED [ 33%]
+tests/test_codegen_generation_path.py::CodegenSetupTests::test_enabled_honors_separate_codegen_model PASSED [ 37%]
+tests/test_codegen_generation_path.py::CodegenSetupTests::test_enabled_installs_codegen_client_defaulting_to_planner PASSED [ 40%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_data_boundary_no_secret_in_codegen_prompt PASSED [ 44%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_chart_code_returns_stripped_freeform_code PASSED [ 48%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_chart_code_uses_model_override PASSED [ 51%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_empty_response_is_retry_safe_failure PASSED [ 55%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_transport_error_is_provider_failure PASSED [ 59%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_repair_chart_code_feeds_previous_code_and_error PASSED [ 62%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_codegen_model_default_and_override_are_threaded_to_client PASSED [ 66%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_disabled_leaves_trusted_path_untouched PASSED [ 70%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_enabled_happy_path_generates_renders_and_serves_png PASSED [ 74%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_generation_failure_fails_closed_without_dispatch PASSED [ 77%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_repair_exhausted_fails_closed PASSED [ 81%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_retryable_failure_repairs_to_success PASSED [ 85%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_unsafe_code_is_repaired_to_success PASSED [ 88%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_unsafe_code_through_exhaustion_fails_closed PASSED [ 92%]
 tests/test_codegen_generation_path.py::CodegenLocalWorkerWireTests::test_generated_matplotlib_renders_over_local_worker SKIPPED [ 96%]
 tests/test_codegen_generation_path.py::CodegenLocalWorkerWireTests::test_safe_generated_body_renders_over_local_worker PASSED [100%]
 
-======================== 25 passed, 1 skipped in 1.19s =========================
+======================== 26 passed, 1 skipped in 1.28s =========================
 ```
 
 The skip is the matplotlib-over-`-I`-sandbox dev-box limitation (runs on the
-worker container). Full suite: `620 passed, 4 skipped` (595 prior + 25 new; 3
-prior skips + 1 new matplotlib skip).
+worker container). Full suite: `310 passed, 4 skipped` (post-purge baseline 309
++ 1: the ADR-0030 revision split Scenario D into repairable/exhaustion tests).
 
 ## Scenario A — enabled codegen generates code, worker renders a PNG over HTTP
 
@@ -143,30 +144,71 @@ and every attempt failing at runtime, the job snapshot is `failed` with
 repairs) and 2 repair calls; the trusted renderer never produced this card (no
 `in_process` in the failure payload). Full suite green.
 
-## Scenario D — `unsafe_code` fails closed immediately, no repair
+## Scenario D — `unsafe_code` is repairable, bounded (ADR-0030 revision)
 
-Raw eval case:
+Raw eval case (real packet-2 worker over HTTP; the fresh dispatch re-runs the
+full static check before the sandbox):
 
 ```
-CASE unsafe_code_is_terminal_no_repair
+CASE unsafe_code_repaired_to_success
 {
-  "case_id": "unsafe_code_is_terminal_no_repair",
-  "given": { "generated_code": "import requests (forbidden import)" },
-  "then": {
-    "final_render_status": "failed",
-    "final_error_code": "unsafe_code",
-    "dispatch_count": 1,
-    "repair_calls": []
+  "case_id": "unsafe_code_repaired_to_success",
+  "given": {
+    "generated_code": "import requests (forbidden import)",
+    "max_repair_attempts": 2
   },
-  "when": { "operation": "generate -> render(unsafe_code)" }
+  "then": {
+    "dispatch_count": 2,
+    "final_render_status": "success",
+    "image_signature_hex": "89504e470d0a1a0a",
+    "repair_error_codes_fed": [
+      "unsafe_code"
+    ]
+  },
+  "when": {
+    "operation": "generate -> render(unsafe_code) -> repair -> render(success)"
+  }
 }
-PASS unsafe_code_is_terminal_no_repair
+PASS unsafe_code_repaired_to_success
 ```
 
-Exactly one dispatch, zero repair calls: `unsafe_code` is terminal. Unit
-`test_unsafe_code_fails_closed_immediately_without_repair` proves the same
-through the full orchestration (snapshot `failed`, `codegen_render_failed`, no
-`repair_chart_code` call despite repair budget available).
+The `unsafe_code` violation was fed to `repair_chart_code`; the repaired code
+passed the re-run static check and rendered a real PNG. Unit
+`test_unsafe_code_is_repaired_to_success` proves the same through the full
+orchestration (snapshot `complete`, 2 dispatches, 1 repair call carrying
+`unsafe_code`).
+
+## Scenario D2 — `unsafe_code` through exhaustion fails closed
+
+```
+CASE unsafe_code_through_exhaustion_fails_closed
+{
+  "case_id": "unsafe_code_through_exhaustion_fails_closed",
+  "given": {
+    "generated_code": "import requests (forbidden import, unrepaired)",
+    "max_repair_attempts": 2
+  },
+  "then": {
+    "dispatch_count": 3,
+    "final_error_code": "unsafe_code",
+    "final_render_status": "failed",
+    "repair_error_codes_fed": [
+      "unsafe_code",
+      "unsafe_code"
+    ]
+  },
+  "when": {
+    "operation": "generate -> render(unsafe_code) x3, static check re-run each attempt"
+  }
+}
+PASS unsafe_code_through_exhaustion_fails_closed
+```
+
+Three dispatches, each rejected by the static gate — the boundary enforced on
+every attempt; repair only got another try at it. Unit
+`test_unsafe_code_through_exhaustion_fails_closed` proves the same through the
+full orchestration (snapshot `failed`, `codegen_render_failed`, 3 dispatches,
+2 repair calls).
 
 ## Scenario E — disabled leaves the trusted path unchanged
 

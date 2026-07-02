@@ -2711,7 +2711,10 @@ def _codegen_failure_message(stage: Any, final_error_code: Any) -> str:
     if stage == "repair":
         return "The model could not repair the generated chart code after a sandbox error."
     if final_error_code == "unsafe_code":
-        return "The generated chart code failed the sandbox safety checks and was rejected."
+        return (
+            "The generated chart code still failed the sandbox safety checks "
+            "after the allowed repair attempts and was rejected."
+        )
     return "The generated chart code failed to render after the allowed repair attempts."
 
 
@@ -4498,10 +4501,6 @@ def _record_worker_dispatch(
 
 
 CODEGEN_RENDER_FAILED_CODE = "codegen_render_failed"
-# ADR-0029 packet 4: static safety is a security gate, not a correctness bug —
-# repairing it just re-probes the gate. The sandbox already breaks its loop on
-# unsafe_code; the integration mirrors that and fails closed immediately.
-CODEGEN_TERMINAL_SANDBOX_ERROR_CODES = frozenset({"unsafe_code"})
 
 
 def _configured_max_codegen_repair_attempts(hass: Any, entry_id: str) -> int:
@@ -4596,12 +4595,12 @@ def _record_codegen_worker_dispatch(
     The data boundary (ADR-0029) forbids the worker from holding a model client,
     so the repair loop lives here, not in the worker's worker-local
     ``invoke_codegen_with_repair``. Per attempt the integration dispatches a
-    fresh ``POST /v1/render`` (``render_mode: 'codegen'``); on a *retryable*
-    sandbox failure it asks its own model provider to repair the code and
-    re-dispatches, up to ``max_codegen_repair_attempts``. ``unsafe_code`` is
-    terminal (no repair). On exhaustion / ``unsafe_code`` / generation failure it
-    fails closed with ``codegen_render_failed`` — never a silent trusted
-    fallback.
+    fresh ``POST /v1/render`` (``render_mode: 'codegen'``); on any sandbox
+    failure — including ``unsafe_code`` (ADR-0030) — it asks its own model
+    provider to repair the code and re-dispatches, up to
+    ``max_codegen_repair_attempts``; the worker re-runs static safety on every
+    attempt. On exhaustion / generation failure it fails closed with
+    ``codegen_render_failed`` — never a silent trusted fallback.
     """
     config_data = getattr(getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {}).get("entry"), "data", {}) or {}
     codegen_model = configured_codegen_model(config_data)
@@ -4743,23 +4742,13 @@ def _record_codegen_worker_dispatch(
                 worker_summary=worker_summary,
             )
 
-        # Sandbox-level failure.
+        # Sandbox-level failure. Every failure class is repairable, including
+        # unsafe_code (ADR-0030): the worker re-runs the full static check +
+        # sandbox on each fresh dispatch, so the boundary still enforces —
+        # repair gets another try at the gate, never around it.
         error = render_result.get("error") if isinstance(render_result, dict) else None
         final_error_code = error.get("code") if isinstance(error, dict) else "runtime_error"
 
-        # unsafe_code is terminal: fail closed immediately, no repair.
-        if final_error_code in CODEGEN_TERMINAL_SANDBOX_ERROR_CODES:
-            return _codegen_render_failed(
-                worker_summary=worker_summary,
-                final_error_code=final_error_code,
-                stage="render",
-                worker_called=True,
-                chart_rendering_called=True,
-                codegen_attempts=attempt_number,
-                repair_attempts=repair_attempts_made,
-            )
-
-        # Retryable failure: repair if budget remains, else fail closed.
         if attempt_number > max_repair_attempts:
             break
 

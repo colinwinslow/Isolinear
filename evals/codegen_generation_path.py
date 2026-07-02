@@ -15,7 +15,9 @@ Scenarios:
   A. Generation happy path: fake model emits code -> worker renders a real PNG.
   B. Retryable repair: first code fails at runtime -> integration repairs ->
      the second dispatch renders a real PNG.
-  C. unsafe_code is terminal: the sandbox rejects it and no repair is issued.
+  C. unsafe_code is repairable (ADR-0030): the sandbox rejects it, the model
+     repairs, and the fresh dispatch (static check re-run) renders a PNG.
+  D. unsafe_code through exhaustion fails closed carrying unsafe_code.
 
 The safe (non-matplotlib) generated body carries the real-PNG proof in every
 environment; the `-I` sandbox cannot import matplotlib on the dev box.
@@ -52,9 +54,6 @@ from codegen_sandbox_fixtures import (  # noqa: E402
 
 
 KNOWN_TOKEN = "isolinear-codegen-eval-token-0123456789"  # >= 24 chars
-CODEGEN_TERMINAL_CODES = {"unsafe_code"}
-
-
 def assert_true(condition, message):
     if not condition:
         raise AssertionError(message)
@@ -98,9 +97,8 @@ def _run_loop(worker_client, model, *, max_repair_attempts):
         dispatches.append((transport, render_result))
         if render_result["status"] == "success":
             return {"status": "success", "dispatches": dispatches, "repairs": model.repair_calls}
+        # ADR-0030: every sandbox failure class is repairable, incl. unsafe_code.
         final_error = render_result["error"]["code"]
-        if final_error in CODEGEN_TERMINAL_CODES:
-            return {"status": "failed", "final_error": final_error, "dispatches": dispatches, "repairs": model.repair_calls}
         if attempt > max_repair_attempts:
             break
         code = model.repair_chart_code(code, render_result["error"], {}, model=None)["python_code"]
@@ -177,25 +175,52 @@ def main():
                 },
             )
 
-            # --- C. unsafe_code is terminal (no repair) ---------------------
+            # --- C. unsafe_code is repairable, bounded (ADR-0030) -----------
             model_c = FakeModel(
                 generate_code=unsafe_generated_python_examples()["requests_import"],
-                repair_codes=[safe_generated_python()],  # available but must NOT be used
+                repair_codes=[safe_generated_python()],
             )
             outcome_c = _run_loop(client, model_c, max_repair_attempts=2)
-            assert_true(outcome_c["status"] == "failed", f"C should fail: {outcome_c!r}")
-            assert_true(outcome_c["final_error"] == "unsafe_code", f"C error: {outcome_c!r}")
-            assert_true(model_c.repair_calls == [], f"C must not repair: {model_c.repair_calls!r}")
-            assert_true(len(outcome_c["dispatches"]) == 1, "C: exactly one dispatch")
+            assert_true(outcome_c["status"] == "success", f"C should repair to success: {outcome_c!r}")
+            assert_true(model_c.repair_calls == ["unsafe_code"], f"C repairs: {model_c.repair_calls!r}")
+            assert_true(len(outcome_c["dispatches"]) == 2, "C: expected 2 dispatches")
+            signature_c = Path(outcome_c["dispatches"][-1][1]["image_path"]).read_bytes()[:8].hex()
+            assert_true(signature_c == PNG_SIGNATURE.hex(), "C: not a PNG")
             print_case(
-                "unsafe_code_is_terminal_no_repair",
-                given={"generated_code": "import requests (forbidden import)"},
-                when={"operation": "generate -> render(unsafe_code)"},
+                "unsafe_code_repaired_to_success",
+                given={
+                    "generated_code": "import requests (forbidden import)",
+                    "max_repair_attempts": 2,
+                },
+                when={"operation": "generate -> render(unsafe_code) -> repair -> render(success)"},
+                then={
+                    "final_render_status": "success",
+                    "repair_error_codes_fed": outcome_c["repairs"],
+                    "dispatch_count": len(outcome_c["dispatches"]),
+                    "image_signature_hex": signature_c,
+                },
+            )
+
+            # --- D. unsafe_code through exhaustion fails closed -------------
+            unsafe = unsafe_generated_python_examples()["requests_import"]
+            model_d = FakeModel(generate_code=unsafe, repair_codes=[unsafe, unsafe])
+            outcome_d = _run_loop(client, model_d, max_repair_attempts=2)
+            assert_true(outcome_d["status"] == "failed", f"D should exhaust: {outcome_d!r}")
+            assert_true(outcome_d["final_error"] == "unsafe_code", f"D error: {outcome_d!r}")
+            assert_true(len(outcome_d["dispatches"]) == 3, "D: expected 3 dispatches")
+            assert_true(model_d.repair_calls == ["unsafe_code", "unsafe_code"], f"D repairs: {model_d.repair_calls!r}")
+            print_case(
+                "unsafe_code_through_exhaustion_fails_closed",
+                given={
+                    "generated_code": "import requests (forbidden import, unrepaired)",
+                    "max_repair_attempts": 2,
+                },
+                when={"operation": "generate -> render(unsafe_code) x3, static check re-run each attempt"},
                 then={
                     "final_render_status": "failed",
-                    "final_error_code": outcome_c["final_error"],
-                    "dispatch_count": len(outcome_c["dispatches"]),
-                    "repair_calls": outcome_c["repairs"],
+                    "final_error_code": outcome_d["final_error"],
+                    "dispatch_count": len(outcome_d["dispatches"]),
+                    "repair_error_codes_fed": outcome_d["repairs"],
                 },
             )
         finally:
