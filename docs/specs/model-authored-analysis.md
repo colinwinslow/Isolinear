@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 date: 2026-07-02
 depends-on-adrs: [0031, 0030, 0029, 0027, 0022, 0012, 0008, 0006, 0005]
 ---
@@ -8,7 +8,7 @@ depends-on-adrs: [0031, 0030, 0029, 0027, 0022, 0012, 0008, 0006, 0005]
 
 ## Status
 
-Draft. Defines the contract surface for **ADR-0031 tranche 1** — Isolinear
+Accepted. Defines the contract surface for **ADR-0031 tranche 1** — Isolinear
 answers a natural-language question about approved sensor data with a **grounded
 natural-language answer plus a supporting chart**, both computed by the worker.
 The answer channel is purely additive on top of the accepted codegen render path

@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft. Paired with [docs/specs/model-authored-analysis.md](../../docs/specs/model-authored-analysis.md).
+Accepted. Paired with [docs/specs/model-authored-analysis.md](../../docs/specs/model-authored-analysis.md).
 ADR-0031 tranche 1. Pins the user-visible behavior of the answer channel, the
 grounding guarantee, the data-boundary timestamp normalization, the two-part
 quality validation with progressive-verification UX, and the scipy/seaborn +
