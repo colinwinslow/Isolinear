@@ -127,6 +127,22 @@ describe("Isolinear card legend (ADR-0027)", () => {
     expect(card.shadowRoot!.querySelector(".result-meta h3")).not.toBeNull();
   });
 
+  it("surfaces the Pillow fallback notice when a fallback reason is present (ADR-0030)", async () => {
+    const card = await mount(
+      completeSnapshotWithLegend({ render_path: "pillow", render_fallback_reason: "unsafe_code" }),
+    );
+    const notice = card.shadowRoot!.querySelector('[data-testid="render-fallback-notice"]')!;
+    expect(notice.textContent).toContain("unsafe_code");
+  });
+
+  it("shows no fallback notice for a codegen render or an explicit pillow choice", async () => {
+    const codegenCard = await mount(completeSnapshotWithLegend({ render_path: "codegen" }));
+    expect(codegenCard.shadowRoot!.querySelector('[data-testid="render-fallback-notice"]')).toBeNull();
+    document.body.innerHTML = "";
+    const pillowCard = await mount(completeSnapshotWithLegend({ render_path: "pillow" }));
+    expect(pillowCard.shadowRoot!.querySelector('[data-testid="render-fallback-notice"]')).toBeNull();
+  });
+
   it("never shows a raw entity-id as the primary label", async () => {
     const card = await mount(
       completeSnapshotWithLegend({

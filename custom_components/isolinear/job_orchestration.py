@@ -14,7 +14,12 @@ from typing import Any
 
 from ._paths import load_schema_document, schema_path
 from .artifact_serving import prepare_png_artifact, remove_png_artifact, write_png_artifact
-from .const import DOMAIN, INTEGRATION_COMMAND_TYPES
+from .const import (
+    DOMAIN,
+    INTEGRATION_COMMAND_TYPES,
+    RENDER_MODE_CODEGEN,
+    RENDER_PATH_PILLOW,
+)
 from .entity_catalog import DATA_ENTITY_CATALOG, DATA_ENTITY_CATALOG_SETUP
 from .history_retrieval import (
     DATA_HISTORY_RETRIEVAL,
@@ -38,8 +43,8 @@ from .job_state import (
 )
 from .model_provider import (
     PLANNER_RENDER_FAMILIES,
-    codegen_enabled,
     configured_codegen_model,
+    configured_render_path,
     get_model_provider_codegen,
     get_model_provider_planner,
     load_entity_selector_schema,
@@ -3310,32 +3315,13 @@ def _record_artifact_and_render_plan(
                 ),
             }
 
-        model_provider_plan = model_provider_result.get("model_provider_plan")
-        artifact = in_process_render_result["artifact"]
-        if model_provider_plan is not None:
-            _store_validated_model_provider_plan(store, model_provider_plan)
-        _store_validated_artifact_metadata(store, artifact)
-        _store_validated_render_plan(store, render_plan)
-        return {
-            "accepted": True,
-            "code": "accepted",
-            "artifact": deepcopy(artifact),
-            "render_plan": deepcopy(render_plan),
-            "model_provider_plan": deepcopy(model_provider_plan) if model_provider_plan is not None else None,
-            "worker_dispatch": None,
-            "worker_progress_events": [],
-            "in_process_render": deepcopy(in_process_render_result["in_process_render"]),
-            "model_provider_called": model_provider_result.get("model_provider_called", False),
-            "worker_called": False,
-            "chart_rendering_called": True,
-            "chart_artifact_written": in_process_render_result.get("chart_artifact_written", False),
-            "worker_progress_streaming_called": False,
-            "artifact_validation": in_process_render_result.get("artifact_validation"),
-            "model_provider_validation": model_provider_result.get("validation"),
-            "render_plan_validation": render_plan_validation,
-            "worker_dispatch_validation": None,
-            "worker_progress_validation": None,
-        }
+        return _accept_in_process_render_result(
+            store,
+            in_process_render_result=in_process_render_result,
+            model_provider_result=model_provider_result,
+            render_plan=render_plan,
+            render_plan_validation=render_plan_validation,
+        )
 
     worker_dispatch_result = _record_worker_dispatch(
         store,
@@ -3348,6 +3334,28 @@ def _record_artifact_and_render_plan(
         serve_artifact=model_provider_result.get("model_provider_plan") is not None,
     )
     if not worker_dispatch_result["accepted"]:
+        # ADR-0030: codegen failures (generation, repair exhaustion, transport)
+        # fall back to the trusted Pillow renderer, surfaced via render_path +
+        # render_fallback_reason on the artifact/chart — never silent.
+        fallback_reason = _codegen_fallback_reason(hass, entry_id, worker_dispatch_result)
+        if fallback_reason is not None:
+            fallback_render_result = _record_in_process_render(
+                store,
+                hass=hass,
+                entry_id=entry_id,
+                artifact=artifact,
+                render_plan=render_plan,
+                model_provider_result=model_provider_result,
+                fallback_reason=fallback_reason,
+            )
+            if fallback_render_result.get("enabled") and fallback_render_result.get("accepted"):
+                return _accept_in_process_render_result(
+                    store,
+                    in_process_render_result=fallback_render_result,
+                    model_provider_result=model_provider_result,
+                    render_plan=render_plan,
+                    render_plan_validation=render_plan_validation,
+                )
         return {
             "accepted": False,
             "code": worker_dispatch_result["code"],
@@ -3646,6 +3654,71 @@ def _record_model_provider_plan(
     }
 
 
+def _accept_in_process_render_result(
+    store: dict[str, Any],
+    *,
+    in_process_render_result: dict[str, Any],
+    model_provider_result: dict[str, Any],
+    render_plan: dict[str, Any],
+    render_plan_validation: dict[str, Any],
+) -> dict[str, Any]:
+    """Store + return the accepted in-process render (direct or codegen fallback)."""
+    model_provider_plan = model_provider_result.get("model_provider_plan")
+    artifact = in_process_render_result["artifact"]
+    if model_provider_plan is not None:
+        _store_validated_model_provider_plan(store, model_provider_plan)
+    _store_validated_artifact_metadata(store, artifact)
+    _store_validated_render_plan(store, render_plan)
+    return {
+        "accepted": True,
+        "code": "accepted",
+        "artifact": deepcopy(artifact),
+        "render_plan": deepcopy(render_plan),
+        "model_provider_plan": deepcopy(model_provider_plan) if model_provider_plan is not None else None,
+        "worker_dispatch": None,
+        "worker_progress_events": [],
+        "in_process_render": deepcopy(in_process_render_result["in_process_render"]),
+        "model_provider_called": model_provider_result.get("model_provider_called", False),
+        "worker_called": False,
+        "chart_rendering_called": True,
+        "chart_artifact_written": in_process_render_result.get("chart_artifact_written", False),
+        "worker_progress_streaming_called": False,
+        "artifact_validation": in_process_render_result.get("artifact_validation"),
+        "model_provider_validation": model_provider_result.get("validation"),
+        "render_plan_validation": render_plan_validation,
+        "worker_dispatch_validation": None,
+        "worker_progress_validation": None,
+    }
+
+
+def _codegen_fallback_reason(
+    hass: Any,
+    entry_id: str,
+    worker_dispatch_result: dict[str, Any],
+) -> str | None:
+    """Reason string when a failed worker dispatch should fall back to Pillow.
+
+    ADR-0030 fallback triggers: a codegen failure (generation failure / repair
+    exhaustion, surfaced as ``codegen_render_failed``) or a worker transport
+    fault while the codegen path is active. Returns ``None`` when the failure
+    is not a codegen-path failure (e.g. the legacy safe worker path, or
+    integration-side validation bugs, which should still fail loudly).
+    """
+    if get_model_provider_codegen(hass, entry_id) is None:
+        return None
+    if worker_dispatch_result.get("code") == CODEGEN_RENDER_FAILED_CODE:
+        codegen_failure = worker_dispatch_result.get("codegen_failure")
+        if isinstance(codegen_failure, dict):
+            final_error_code = codegen_failure.get("final_error_code")
+            if isinstance(final_error_code, str) and final_error_code:
+                return final_error_code
+        return CODEGEN_RENDER_FAILED_CODE
+    if worker_dispatch_result.get("worker_transport_failure_classification") is not None:
+        code = worker_dispatch_result.get("code")
+        return code if isinstance(code, str) and code else "worker_transport_failure"
+    return None
+
+
 def _record_in_process_render(
     store: dict[str, Any],
     *,
@@ -3654,10 +3727,21 @@ def _record_in_process_render(
     artifact: dict[str, Any],
     render_plan: dict[str, Any],
     model_provider_result: dict[str, Any],
+    fallback_reason: str | None = None,
 ) -> dict[str, Any]:
+    """Render through the trusted in-process Pillow renderer.
+
+    Runs when no worker is configured, when ``render_path: "pillow"`` is the
+    explicit choice, or as the surfaced codegen fallback (``fallback_reason``
+    set — ADR-0030: no silent fallback, the reason rides the artifact/chart).
+    """
     if not first_real_vertical_slice_enabled(hass, entry_id):
         return {"enabled": False}
-    if get_worker_render_client(hass, entry_id) is not None:
+    if (
+        fallback_reason is None
+        and get_worker_render_client(hass, entry_id) is not None
+        and _configured_render_path(hass, entry_id) != RENDER_PATH_PILLOW
+    ):
         return {"enabled": False}
     if model_provider_result.get("model_provider_plan") is None:
         return {"enabled": False}
@@ -3745,6 +3829,7 @@ def _record_in_process_render(
         artifact,
         render_result=render_result,
         image_url=prepared_artifact["image_url"],
+        fallback_reason=fallback_reason,
     )
     artifact_validation = validate_artifact_metadata_contract(rendered_artifact)
     if not artifact_validation["accepted"]:
@@ -3804,6 +3889,7 @@ def _record_worker_rendered_artifact(
     *,
     artifact: dict[str, Any],
     render_result: dict[str, Any],
+    render_path: str | None = None,
 ) -> dict[str, Any]:
     png_result = _worker_png_bytes_from_render_result(render_result)
     if not png_result["accepted"]:
@@ -3837,6 +3923,7 @@ def _record_worker_rendered_artifact(
         artifact,
         render_result=sanitized_render_result,
         image_url=prepared_artifact["image_url"],
+        render_path=render_path,
     )
     artifact_validation = validate_artifact_metadata_contract(rendered_artifact)
     if not artifact_validation["accepted"]:
@@ -4503,6 +4590,12 @@ def _record_worker_dispatch(
 CODEGEN_RENDER_FAILED_CODE = "codegen_render_failed"
 
 
+def _configured_render_path(hass: Any, entry_id: str) -> str:
+    entry_data = getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {})
+    entry = entry_data.get("entry") if isinstance(entry_data, dict) else None
+    return configured_render_path(getattr(entry, "options", {}) or {})
+
+
 def _configured_max_codegen_repair_attempts(hass: Any, entry_id: str) -> int:
     entry_data = getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {})
     entry = entry_data.get("entry") if isinstance(entry_data, dict) else None
@@ -4807,6 +4900,7 @@ def _finish_codegen_success(
             entry_id,
             artifact=artifact,
             render_result=render_result,
+            render_path=RENDER_MODE_CODEGEN,
         )
         if not artifact_result["accepted"]:
             return _codegen_render_failed(
@@ -4939,6 +5033,7 @@ def _build_in_process_artifact_metadata(
     *,
     render_result: dict[str, Any],
     image_url: str,
+    fallback_reason: str | None = None,
 ) -> dict[str, Any]:
     rendered = deepcopy(artifact)
     render_metadata = render_result.get("render_metadata") if isinstance(render_result, dict) else {}
@@ -4946,6 +5041,11 @@ def _build_in_process_artifact_metadata(
         render_metadata = {}
     rendered["status"] = "rendered"
     rendered["image_url"] = image_url
+    # ADR-0030: every served chart records how it was rendered; a Pillow render
+    # that happened because codegen could not complete carries the reason.
+    rendered["render_path"] = RENDER_PATH_PILLOW
+    if fallback_reason is not None:
+        rendered["render_fallback_reason"] = fallback_reason
     # Carry the model summary and renderer color manifest onto the artifact so the
     # complete snapshot can surface them as the caption and card legend (ADR-0027).
     summary = render_metadata.get("summary")
@@ -4986,10 +5086,13 @@ def _build_worker_artifact_metadata(
     *,
     render_result: dict[str, Any],
     image_url: str,
+    render_path: str | None = None,
 ) -> dict[str, Any]:
     rendered = deepcopy(artifact)
     render_metadata = render_result.get("render_metadata") if isinstance(render_result, dict) else {}
     rendered["status"] = "rendered"
+    if render_path is not None:
+        rendered["render_path"] = render_path
     rendered["image_url"] = image_url
     rendered["render_metadata"] = {
         "renderer": WORKER_RENDERER_NAME,
@@ -7092,6 +7195,11 @@ def _append_artifact_complete_snapshot(
         chart["summary"] = artifact["summary"].strip()
     if isinstance(artifact.get("legend"), list) and artifact["legend"]:
         chart["legend"] = deepcopy(artifact["legend"])
+    # Optional ADR-0030 fields: how the chart was rendered + surfaced fallback.
+    if isinstance(artifact.get("render_path"), str):
+        chart["render_path"] = artifact["render_path"]
+    if isinstance(artifact.get("render_fallback_reason"), str):
+        chart["render_fallback_reason"] = artifact["render_fallback_reason"]
     worker_rendered = worker_dispatch is not None
     worker_artifact_rendered = artifact.get("render_metadata", {}).get("renderer") == WORKER_RENDERER_NAME
     in_process_rendered = artifact.get("render_metadata", {}).get("renderer") == IN_PROCESS_RENDERER_NAME

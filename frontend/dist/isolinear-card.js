@@ -783,6 +783,7 @@ var Q = class extends U {
           <img data-testid="chart-image" src=${e.chart?.image_url ?? ""} alt=${e.chart?.title ?? "Generated chart"}>
           <div class="result-meta">
             <h3>${e.chart?.summary ?? e.chart?.title}</h3>
+            ${this.renderRenderPathNotice(e)}
             ${this.renderLegend(e)}
           </div>
         </section>
@@ -823,6 +824,14 @@ var Q = class extends U {
         </div>
       </div>
     `;
+	}
+	renderRenderPathNotice(e) {
+		let t = e.chart?.render_fallback_reason;
+		return t ? M`
+      <p class="render-fallback" data-testid="render-fallback-notice" title=${`Reason: ${t}`}>
+        Rendered by the built-in chart renderer (advanced renderer unavailable: ${t})
+      </p>
+    ` : P;
 	}
 	renderLegend(e) {
 		let t = e.chart?.legend;
@@ -1058,6 +1067,13 @@ var Q = class extends U {
     .clarification {
       display: grid;
       gap: 10px;
+    }
+
+    /* ADR-0030: surfaced Pillow-fallback notice under the caption. */
+    .render-fallback {
+      color: var(--warning-color, #b26b00);
+      font-size: 12px;
+      margin: 0;
     }
 
     /* ADR-0025 R5: live model reasoning in the chart slot during the wait —

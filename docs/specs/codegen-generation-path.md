@@ -69,13 +69,25 @@ such.
 
 ### Configuration surface
 
-Two config knobs, both cleanly removable (packet 5 may revisit quickly):
+**ADR-0030 revision (2026-07-02): codegen is the PRIMARY render path.** The
+packet-4 `codegen_enabled` opt-in boolean (default `false`) is replaced by a
+`render_path` select — invariant #6 is now codegen-primary, fallback-safe:
 
 | Field | Location | Type | Default | Meaning |
 |---|---|---|---|---|
-| `codegen_enabled` | options | bool | `false` | Opt-in toggle. When false the trusted render path is untouched (invariant #6: chart-spec-first; codegen is the advanced opt-in). |
+| `render_path` | options | `"auto"` \| `"pillow"` | `"auto"` | `auto`: codegen renders when a worker + planner are configured; the trusted Pillow renderer is the fallback (no worker / worker unhealthy / generation failure / repair exhaustion), **surfaced, never silent**. `pillow`: explicitly stay on the trusted in-process renderer even when a worker is configured. Legacy stored `codegen_enabled` values are dropped on options normalization (both values map to the new default `auto`). |
 | `codegen_model` | config | optional str | `null` | Model id for codegen generation + repair. **When unset it defaults to the planner model** so codegen can point at a code-specialized model without changing the planner. (Field already present in `config_schema.py`.) |
 | `max_codegen_repair_attempts` | options | int ≥ 0 | `1` | Repair retries after the initial attempt (already present). At most `1 + max_codegen_repair_attempts` worker renders. |
+
+**Fallback surfacing:** every served chart records how it was rendered. The
+artifact metadata (and the complete snapshot's `chart`) carry optional
+`render_path` (`"codegen"` | `"pillow"`) and, when the Pillow render happened
+because codegen could not complete, `render_fallback_reason` (the final codegen
+failure code, e.g. `codegen_render_failed`, `unsafe_code`, or the transport
+failure code). The card shows a fallback indicator when
+`render_fallback_reason` is present. An explicit `render_path: "pillow"` config
+choice stamps `"pillow"` with **no** fallback reason — choosing the trusted
+renderer is not a fallback.
 
 `codegen_model` defaulting: the codegen client is constructed with
 `model = codegen_model or planner_model`. Config-entry data may arrive as a
@@ -114,8 +126,9 @@ is ever placed in the generation or repair prompt (data boundary; invariants
 
 ### Integration-orchestrated repair loop (the render step)
 
-When `codegen_enabled` is true and a worker client is configured, the render
-step is replaced (only the render step — planning, entity selection, allowlist
+When a codegen client is installed (`render_path: "auto"` with a planner
+configured — ADR-0030) and a worker client is configured, the render step is
+replaced (only the render step — planning, entity selection, allowlist
 enforcement, and deterministic render-family routing are upstream and
 unchanged). The loop:
 
@@ -145,26 +158,32 @@ unchanged). The loop:
    fail closed `codegen_render_failed` carrying the final sandbox error code
    (which may be `unsafe_code`).
 
-### Fail-closed policy (no silent fallback)
+### Fallback policy (surfaced, never silent — ADR-0030 revision)
 
-On generation failure or exhausted repair, the codegen path
-returns a **dedicated card-facing failure** `codegen_render_failed`, carrying the
-final sandbox error code (or the model-provider failure code) as context. It
-does **not** silently fall back to the trusted in-process renderer. Rationale
-(recorded here per the brief): a silent trusted fallback would mask codegen
-failures and muddy the packet-5 accept/reject/repair eval — the very data the
-ADR-0029 keep/remove decision rests on. The failure is surfaced as a
-`codegen_render_failed` failed-snapshot the same way other terminal render
-failures already produce card-facing failed snapshots.
+On generation failure, exhausted repair, or a worker transport fault during
+codegen, the integration **falls back to the trusted Pillow renderer** and
+completes the job — with the fallback **surfaced**: the artifact/chart carry
+`render_path: "pillow"` + `render_fallback_reason: <final codegen or transport
+failure code>`, and the card shows the indicator. If the Pillow fallback itself
+fails, the job fails through the existing `in_process_renderer_failed` path.
+
+This supersedes the packet-4 fail-closed `codegen_render_failed` posture, whose
+rationale was keeping the packet-5 accept/reject/repair eval unpolluted; the
+eval has run and the ADR-0029 KEEP decision is made, so masking is no longer a
+concern — but *silent* masking still is, hence the mandatory surfacing.
+`codegen_render_failed` remains the internal result code that triggers the
+fallback (and the `render_fallback_reason` context on the served chart).
 
 ### What does NOT change
 
 - The planner still produces the validated ChartSpec; entity selection,
   allowlist enforcement (#1), schema validation (#4), deterministic plan
   validation (#5), and render-family routing (#9) are upstream and untouched.
-- When `codegen_enabled` is false, `_record_worker_dispatch` /
-  `_record_in_process_render` behave exactly as today (`render_mode: "safe"`,
-  trusted renderer). No behavior change on the default path.
+- When `render_path` is `"pillow"` (explicit), `_record_in_process_render`
+  renders through the trusted Pillow renderer exactly as the no-worker install
+  does today; the worker is not dispatched.
+- A configured worker with **no** planner (so no codegen client) keeps today's
+  `render_mode: "safe"` worker dispatch unchanged.
 - The worker transport, auth, and health contracts (packet 2) are unchanged; the
   only new thing on the wire is `render_mode: "codegen"` + `codegen.python_code`,
   which the worker already accepts.
@@ -188,9 +207,9 @@ Concrete-first:
 
 1. **Anchor:** `generate_chart_code` on the client + the enabled happy-path
    render through a locally-booted worker to an on-disk PNG.
-2. **Config:** `codegen_enabled` option (default false) wired through
-   `config_schema.py` / `config_flow.py`; `codegen_model` default-to-planner in
-   the codegen setup.
+2. **Config:** `render_path` option (default `auto`; historically the packet-4
+   `codegen_enabled` boolean) wired through `config_schema.py` /
+   `config_flow.py`; `codegen_model` default-to-planner in the codegen setup.
 3. **`repair_chart_code`** + the integration repair loop in `job_orchestration.py`
    (generate → dispatch → retryable repair → serve / fail-closed).
 4. **Fail-closed** `codegen_render_failed` snapshot on exhaustion / generation
@@ -201,12 +220,15 @@ Concrete-first:
 ## Proof requirements
 
 1. Unit tests in `tests/test_codegen_generation_path.py` green, covering:
-   disabled→trusted path unchanged; enabled happy path (generate→render→PNG);
-   retryable error→repair→success; repair exhausted→`codegen_render_failed`;
-   `unsafe_code`→repaired→success (ADR-0030) and
-   `unsafe_code`-through-exhaustion→fail-closed; `codegen_model` defaults
-   to the planner model; a separate `codegen_model` is honored; data boundary (no
-   token/secret crosses into the generation/repair prompt).
+   `render_path` defaults to `auto` and legacy `codegen_enabled` is dropped;
+   explicit `pillow`→trusted renderer, no dispatch, no fallback reason; happy
+   path (generate→render→PNG, `render_path: "codegen"` on the chart);
+   retryable error→repair→success; `unsafe_code`→repaired→success (ADR-0030);
+   repair exhaustion / `unsafe_code` exhaustion / generation failure / worker
+   transport fault→Pillow fallback with `render_fallback_reason` surfaced;
+   `codegen_model` defaults to the planner model; a separate `codegen_model` is
+   honored; data boundary (no token/secret crosses into the generation/repair
+   prompt).
 2. BDD scenarios in
    [bdd/codegen-generation-path/codegen-generation-path-bdd.md](../../bdd/codegen-generation-path/codegen-generation-path-bdd.md)
    pass; an evidence file with **raw** outputs is written at

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "isolinear"
 NAME = "Isolinear"
-INTEGRATION_VERSION = "0.2.0"
+INTEGRATION_VERSION = "0.2.1"
 CONFIG_ENTRY_AUTO = "auto"
 
 INTEGRATION_WS_VERSION = 1
@@ -34,6 +34,16 @@ SUPPORTED_RENDER_MODES = (
     RENDER_MODE_SAFE,
     RENDER_MODE_CODEGEN,
     RENDER_MODE_AUTO,
+)
+
+# ADR-0030 render-path option: "auto" = codegen primary when a worker + planner
+# are configured (Pillow the surfaced fallback); "pillow" = explicit trusted
+# in-process renderer.
+RENDER_PATH_AUTO = "auto"
+RENDER_PATH_PILLOW = "pillow"
+SUPPORTED_RENDER_PATHS = (
+    RENDER_PATH_AUTO,
+    RENDER_PATH_PILLOW,
 )
 
 DATA_CONFIG_ENTRIES = "config_entries"

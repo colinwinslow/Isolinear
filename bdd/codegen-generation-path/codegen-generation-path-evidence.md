@@ -1,4 +1,4 @@
-# Codegen generation path — BDD evidence (ADR-0029 packet 4; Scenario D revised per ADR-0030, 2026-07-02)
+# Codegen generation path — BDD evidence (ADR-0029 packet 4; revised per ADR-0030, 2026-07-02)
 
 Raw outputs for the scenarios in
 [codegen-generation-path-bdd.md](codegen-generation-path-bdd.md). Proven
@@ -6,6 +6,11 @@ Raw outputs for the scenarios in
 orchestration against an in-process sandbox worker; the eval boots the real
 packet-2 `isolinear_worker.http_server` on an ephemeral port and drives the
 generate → dispatch → repair loop over the actual HTTP boundary.
+
+ADR-0030 revision (2026-07-02): all sandbox failure classes are repairable
+(including `unsafe_code`); codegen is the PRIMARY render path via
+`render_path: auto`, with the trusted Pillow renderer as the **surfaced**
+fallback and `render_path: pillow` the explicit trusted option.
 
 Environment note: the `-I` sandbox cannot import matplotlib on the dev box
 (documented packet-1 limitation), so the matplotlib-over-wire variant is
@@ -21,44 +26,47 @@ platform linux -- Python 3.12.3, pytest-8.4.2, pluggy-1.6.0 -- /usr/bin/python3
 cachedir: .pytest_cache
 rootdir: /home/claude/repos/isolinear
 plugins: anyio-4.14.1
-collecting ... collected 27 items
+collecting ... collected 29 items
 
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_enabled_defaults_false PASSED [  3%]
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_enabled_is_an_options_field PASSED [  7%]
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_helper_reads_toggle PASSED [ 11%]
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_model_defaults_to_planner_when_unset PASSED [ 14%]
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_model_honored_when_set PASSED [ 18%]
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_non_boolean_codegen_enabled_rejected PASSED [ 22%]
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_options_form_normalizes_string_boolean PASSED [ 25%]
-tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_valid_options_accept_codegen_enabled_true PASSED [ 29%]
-tests/test_codegen_generation_path.py::CodegenSetupTests::test_disabled_installs_no_codegen_client PASSED [ 33%]
-tests/test_codegen_generation_path.py::CodegenSetupTests::test_enabled_honors_separate_codegen_model PASSED [ 37%]
-tests/test_codegen_generation_path.py::CodegenSetupTests::test_enabled_installs_codegen_client_defaulting_to_planner PASSED [ 40%]
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_data_boundary_no_secret_in_codegen_prompt PASSED [ 44%]
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_chart_code_returns_stripped_freeform_code PASSED [ 48%]
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_chart_code_uses_model_override PASSED [ 51%]
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_empty_response_is_retry_safe_failure PASSED [ 55%]
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_transport_error_is_provider_failure PASSED [ 59%]
-tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_repair_chart_code_feeds_previous_code_and_error PASSED [ 62%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_codegen_model_default_and_override_are_threaded_to_client PASSED [ 66%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_disabled_leaves_trusted_path_untouched PASSED [ 70%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_enabled_happy_path_generates_renders_and_serves_png PASSED [ 74%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_generation_failure_fails_closed_without_dispatch PASSED [ 77%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_repair_exhausted_fails_closed PASSED [ 81%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_retryable_failure_repairs_to_success PASSED [ 85%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_unsafe_code_is_repaired_to_success PASSED [ 88%]
-tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_unsafe_code_through_exhaustion_fails_closed PASSED [ 92%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_model_defaults_to_planner_when_unset PASSED [  3%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_codegen_model_honored_when_set PASSED [  6%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_options_form_drops_legacy_codegen_enabled PASSED [ 10%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_render_path_defaults_to_auto PASSED [ 13%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_render_path_helper_reads_option PASSED [ 17%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_render_path_is_an_options_field PASSED [ 20%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_unsupported_render_path_rejected PASSED [ 24%]
+tests/test_codegen_generation_path.py::CodegenConfigSurfaceTests::test_valid_options_accept_explicit_pillow PASSED [ 27%]
+tests/test_codegen_generation_path.py::CodegenSetupTests::test_auto_honors_separate_codegen_model PASSED [ 31%]
+tests/test_codegen_generation_path.py::CodegenSetupTests::test_auto_installs_codegen_client_defaulting_to_planner PASSED [ 34%]
+tests/test_codegen_generation_path.py::CodegenSetupTests::test_explicit_pillow_installs_no_codegen_client PASSED [ 37%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_data_boundary_no_secret_in_codegen_prompt PASSED [ 41%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_chart_code_returns_stripped_freeform_code PASSED [ 44%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_chart_code_uses_model_override PASSED [ 48%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_empty_response_is_retry_safe_failure PASSED [ 51%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_generate_transport_error_is_provider_failure PASSED [ 55%]
+tests/test_codegen_generation_path.py::CodegenModelProviderTests::test_repair_chart_code_feeds_previous_code_and_error PASSED [ 58%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_codegen_model_default_and_override_are_threaded_to_client PASSED [ 62%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_enabled_happy_path_generates_renders_and_serves_png PASSED [ 65%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_explicit_pillow_renders_in_process_despite_worker PASSED [ 68%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_generation_failure_falls_back_without_dispatch PASSED [ 72%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_no_codegen_client_leaves_safe_worker_path_untouched PASSED [ 75%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_repair_exhausted_falls_back_to_pillow_surfaced PASSED [ 79%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_retryable_failure_repairs_to_success PASSED [ 82%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_unsafe_code_is_repaired_to_success PASSED [ 86%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_unsafe_code_through_exhaustion_falls_back_surfaced PASSED [ 89%]
+tests/test_codegen_generation_path.py::CodegenOrchestrationTests::test_worker_transport_fault_falls_back_surfaced PASSED [ 93%]
 tests/test_codegen_generation_path.py::CodegenLocalWorkerWireTests::test_generated_matplotlib_renders_over_local_worker SKIPPED [ 96%]
 tests/test_codegen_generation_path.py::CodegenLocalWorkerWireTests::test_safe_generated_body_renders_over_local_worker PASSED [100%]
 
-======================== 26 passed, 1 skipped in 1.28s =========================
+======================== 28 passed, 1 skipped in 1.58s =========================
 ```
 
 The skip is the matplotlib-over-`-I`-sandbox dev-box limitation (runs on the
-worker container). Full suite: `310 passed, 4 skipped` (post-purge baseline 309
-+ 1: the ADR-0030 revision split Scenario D into repairable/exhaustion tests).
+worker container). Full suite: `312 passed, 4 skipped` at version `0.2.1`.
+Frontend: `23 passed` (2 new fallback-notice tests in
+`frontend/src/isolinear-card-legend.test.ts`).
 
-## Scenario A — enabled codegen generates code, worker renders a PNG over HTTP
+## Scenario A — codegen generates code, worker renders a PNG over HTTP
 
 Raw eval case (fake model emits code → real packet-2 worker on an ephemeral
 port renders `render_mode: "codegen"` to a real PNG; authorization redacted):
@@ -111,7 +119,8 @@ PASS generation_happy_path_renders_png_over_http
 was written to disk by the worker sandbox. Unit
 `test_enabled_happy_path_generates_renders_and_serves_png` additionally proves
 the integration serves that PNG through the existing artifact path (snapshot
-status `complete`, `image_url` ending `.png`, PNG on disk in the artifact dir).
+status `complete`, `image_url` ending `.png`, PNG on disk in the artifact dir)
+and that the chart carries `render_path: "codegen"` with no fallback reason.
 
 ## Scenario B — retryable failure repairs to success
 
@@ -136,15 +145,16 @@ Two dispatches (initial + repaired); the integration fed the retryable
 Unit `test_retryable_failure_repairs_to_success` proves the same through the full
 orchestration with the served artifact.
 
-## Scenario C — exhausted repair fails closed (no silent fallback)
+## Scenario C — exhausted repair falls back to Pillow, surfaced (ADR-0030)
 
-Unit `test_repair_exhausted_fails_closed`: with `max_codegen_repair_attempts=2`
-and every attempt failing at runtime, the job snapshot is `failed` with
-`failure.code == "codegen_render_failed"`; exactly 3 dispatches (initial + 2
-repairs) and 2 repair calls; the trusted renderer never produced this card (no
-`in_process` in the failure payload). Full suite green.
+Unit `test_repair_exhausted_falls_back_to_pillow_surfaced`: with
+`max_codegen_repair_attempts=2` and every attempt failing at runtime, the job
+snapshot is `complete` — 3 codegen dispatches + 2 repair calls, then the
+trusted Pillow renderer completes the job with
+`chart.render_path == "pillow"` and
+`chart.render_fallback_reason == "runtime_error"` surfaced.
 
-## Scenario D — `unsafe_code` is repairable, bounded (ADR-0030 revision)
+## Scenario D — `unsafe_code` is repairable, bounded (ADR-0030)
 
 Raw eval case (real packet-2 worker over HTTP; the fresh dispatch re-runs the
 full static check before the sandbox):
@@ -178,7 +188,10 @@ passed the re-run static check and rendered a real PNG. Unit
 orchestration (snapshot `complete`, 2 dispatches, 1 repair call carrying
 `unsafe_code`).
 
-## Scenario D2 — `unsafe_code` through exhaustion fails closed
+## Scenario D2 — `unsafe_code` through exhaustion falls back, surfaced
+
+Raw eval case (loop level — the distilled loop reports the exhaustion the
+integration then converts into the surfaced Pillow fallback):
 
 ```
 CASE unsafe_code_through_exhaustion_fails_closed
@@ -206,16 +219,21 @@ PASS unsafe_code_through_exhaustion_fails_closed
 
 Three dispatches, each rejected by the static gate — the boundary enforced on
 every attempt; repair only got another try at it. Unit
-`test_unsafe_code_through_exhaustion_fails_closed` proves the same through the
-full orchestration (snapshot `failed`, `codegen_render_failed`, 3 dispatches,
-2 repair calls).
+`test_unsafe_code_through_exhaustion_falls_back_surfaced` proves the
+integration-level outcome: snapshot `complete` through the Pillow fallback with
+`chart.render_fallback_reason == "unsafe_code"` (3 dispatches, 2 repair calls).
 
-## Scenario E — disabled leaves the trusted path unchanged
+## Scenario E — `render_path: pillow` explicitly keeps the trusted renderer
 
-Unit `test_disabled_leaves_trusted_path_untouched`: with `codegen_enabled:
-false` (no codegen client installed) the worker receives `render_mode: "safe"`,
-no `generate_chart_code` call is made, and the job completes through the trusted
-path.
+Unit `test_explicit_pillow_renders_in_process_despite_worker`: with
+`render_path: "pillow"` and a worker + codegen client configured, the trusted
+in-process renderer completes the job (`chart.render_path == "pillow"`), no
+worker dispatch occurs, no codegen call is made, and there is **no**
+`render_fallback_reason` (an explicit choice is not a fallback). Unit
+`test_explicit_pillow_installs_no_codegen_client` proves setup skips the
+codegen client entirely. `test_no_codegen_client_leaves_safe_worker_path_untouched`
+proves a worker with no codegen client keeps today's `render_mode: "safe"`
+dispatch.
 
 ## Scenario F — codegen model selection
 
@@ -234,3 +252,20 @@ Unit `test_data_boundary_no_secret_in_codegen_prompt`: a request carrying a
 a generation prompt whose raw body contains none of that material — only the
 validated `chart_spec` + normalized render data are projected in
 (`_codegen_request_view`).
+
+## Scenario H — auto is the default: codegen primary with no toggle
+
+Unit `test_render_path_defaults_to_auto` (default options carry
+`render_path: "auto"`), `test_options_form_drops_legacy_codegen_enabled`
+(legacy stored `codegen_enabled` values are dropped and map to `auto`), and
+`test_auto_installs_codegen_client_defaulting_to_planner` (auto + planner →
+codegen client installed). The happy path (Scenario A unit) renders through
+codegen with no toggle set.
+
+## Scenario I — worker transport fault falls back to Pillow, surfaced
+
+Unit `test_worker_transport_fault_falls_back_surfaced`: a worker whose
+transport rejects (connection-refused-class fault, not a sandbox result)
+produces a `complete` snapshot through the Pillow fallback with
+`chart.render_path == "pillow"` and a truthy `chart.render_fallback_reason`
+carrying the transport failure classification code.

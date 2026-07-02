@@ -81,6 +81,14 @@
         "$ref": "#/$defs/legendItem"
       }
     },
+    "render_path": {
+      "enum": ["codegen", "pillow"],
+      "description": "How the chart was rendered (ADR-0030). Optional; threaded into the complete snapshot's chart.render_path."
+    },
+    "render_fallback_reason": {
+      "type": "string",
+      "description": "Present when the Pillow render happened because codegen could not complete (ADR-0030: fallback surfaced, never silent). Carries the final codegen or transport failure code."
+    },
     "render_metadata": {
       "type": "object",
       "required": [

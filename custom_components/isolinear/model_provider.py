@@ -12,7 +12,7 @@ from copy import deepcopy
 from typing import Any
 
 from ._paths import load_schema_document, schema_path
-from .const import DOMAIN, MODEL_PROVIDER_OLLAMA_COMPATIBLE
+from .const import DOMAIN, MODEL_PROVIDER_OLLAMA_COMPATIBLE, RENDER_PATH_AUTO, RENDER_PATH_PILLOW
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -147,9 +147,11 @@ def _sandbox_error_view(sandbox_error: Any) -> dict[str, Any]:
 
 
 def setup_model_provider_codegen(hass: Any, entry: Any) -> dict[str, Any]:
-    """Install a codegen client when codegen is opt-in enabled (ADR-0029 packet 4).
+    """Install a codegen client unless render_path is explicitly "pillow".
 
-    Codegen is disabled by default (invariant #6, opt-in advanced path). The
+    ADR-0030: codegen is the PRIMARY render path (invariant #6) — with the
+    default ``render_path: "auto"`` the client is installed whenever a planner
+    is configured; ``"pillow"`` explicitly keeps the trusted renderer. The
     codegen client shares the Ollama transport with the planner but uses the
     configured ``codegen_model`` when set, defaulting to the planner model when
     unset. Config-entry data may be a ``mappingproxy`` (the recurring repo
@@ -162,7 +164,7 @@ def setup_model_provider_codegen(hass: Any, entry: Any) -> dict[str, Any]:
     options_data = getattr(entry, "options", {}) or {}
     setup = _codegen_setup_disabled(entry_id, "model_provider_codegen_disabled")
 
-    if codegen_enabled(options_data) and _has_ollama_planner_config(config_data):
+    if configured_render_path(options_data) != RENDER_PATH_PILLOW and _has_ollama_planner_config(config_data):
         codegen_model = _configured_codegen_model(config_data)
         client = OllamaCompatiblePlannerClient(
             endpoint_url=config_data["model_endpoint_url"],
@@ -194,9 +196,11 @@ def get_model_provider_codegen(hass: Any, entry_id: str) -> Any | None:
     return client if client is not None else None
 
 
-def codegen_enabled(options_data: Any) -> bool:
-    """Return whether the opt-in codegen render path is enabled (default False)."""
-    return isinstance(options_data, Mapping) and options_data.get("codegen_enabled") is True
+def configured_render_path(options_data: Any) -> str:
+    """Return the configured render path: "auto" (default) or "pillow" (ADR-0030)."""
+    if isinstance(options_data, Mapping) and options_data.get("render_path") == RENDER_PATH_PILLOW:
+        return RENDER_PATH_PILLOW
+    return RENDER_PATH_AUTO
 
 
 def configured_codegen_model(config_data: Any, *, planner_model: str | None = None) -> str | None:

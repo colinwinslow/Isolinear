@@ -6,7 +6,7 @@ BDD:  bdd/codegen-generation-path/codegen-generation-path-bdd.md
 Covers the integration side of the codegen render path, proven LOCALLY (no
 CT103 / remote host):
 
-  * config surface (codegen_enabled toggle, codegen_model default-to-planner);
+  * config surface (render_path select, ADR-0030; codegen_model default-to-planner);
   * the model-provider generate_chart_code / repair_chart_code contract
     (freeform Python, markdown-stripped, no constrained `format`) against a
     fake Ollama;
@@ -54,8 +54,8 @@ sys.path.insert(0, str(REPO_ROOT / "tests"))
 from custom_components.isolinear import model_provider  # noqa: E402
 from custom_components.isolinear.model_provider import (  # noqa: E402
     OllamaCompatiblePlannerClient,
-    codegen_enabled,
     configured_codegen_model,
+    configured_render_path,
     get_model_provider_codegen,
     setup_model_provider_codegen,
     DATA_MODEL_PROVIDER_CODEGEN,
@@ -121,45 +121,49 @@ class _FakeUrlopenCtx:
 
 
 # ---------------------------------------------------------------------------
-# 1. Config surface: codegen_enabled toggle + codegen_model default-to-planner.
+# 1. Config surface: render_path select (ADR-0030) + codegen_model default.
 # ---------------------------------------------------------------------------
 class CodegenConfigSurfaceTests(unittest.TestCase):
-    def test_codegen_enabled_defaults_false(self):
-        self.assertFalse(default_options_data()["codegen_enabled"])
+    def test_render_path_defaults_to_auto(self):
+        self.assertEqual(default_options_data()["render_path"], "auto")
 
-    def test_codegen_enabled_is_an_options_field(self):
-        self.assertIn("codegen_enabled", OPTIONS_FLOW_FIELDS)
+    def test_render_path_is_an_options_field(self):
+        self.assertIn("render_path", OPTIONS_FLOW_FIELDS)
+        self.assertNotIn("codegen_enabled", OPTIONS_FLOW_FIELDS)
 
-    def test_valid_options_accept_codegen_enabled_true(self):
-        options = {**default_options_data(), "codegen_enabled": True}
+    def test_valid_options_accept_explicit_pillow(self):
+        options = {**default_options_data(), "render_path": "pillow"}
         result = validate_config_and_options(default_config_data(), options)
         self.assertTrue(result["accepted"], result)
-        self.assertTrue(result["options"].codegen_enabled)
+        self.assertEqual(result["options"].render_path, "pillow")
 
-    def test_non_boolean_codegen_enabled_rejected(self):
-        options = {**default_options_data(), "codegen_enabled": "yes-please"}
+    def test_unsupported_render_path_rejected(self):
+        options = {**default_options_data(), "render_path": "crayon"}
         result = validate_config_and_options(default_config_data(), options)
         self.assertFalse(result["accepted"], result)
         self.assertTrue(
-            any(e["path"] == "$.options_data.codegen_enabled" for e in result["errors"]),
+            any(e["path"] == "$.options_data.render_path" for e in result["errors"]),
             result,
         )
 
-    def test_options_form_normalizes_string_boolean(self):
-        options = normalize_options_user_input(
-            {
-                "default_render_mode": "safe",
-                "max_codegen_repair_attempts": 1,
-                "codegen_enabled": "true",
-                "entity_allowlist": [],
-            }
-        )
-        self.assertIs(options["codegen_enabled"], True)
+    def test_options_form_drops_legacy_codegen_enabled(self):
+        # Legacy stored codegen_enabled values map to the new default "auto".
+        for legacy_value in (True, False, "true"):
+            options = normalize_options_user_input(
+                {
+                    "default_render_mode": "safe",
+                    "max_codegen_repair_attempts": 1,
+                    "codegen_enabled": legacy_value,
+                    "entity_allowlist": [],
+                }
+            )
+            self.assertNotIn("codegen_enabled", options)
+            self.assertEqual(options["render_path"], "auto")
 
-    def test_codegen_helper_reads_toggle(self):
-        self.assertTrue(codegen_enabled({"codegen_enabled": True}))
-        self.assertFalse(codegen_enabled({"codegen_enabled": False}))
-        self.assertFalse(codegen_enabled({}))
+    def test_render_path_helper_reads_option(self):
+        self.assertEqual(configured_render_path({"render_path": "pillow"}), "pillow")
+        self.assertEqual(configured_render_path({"render_path": "auto"}), "auto")
+        self.assertEqual(configured_render_path({}), "auto")
 
     def test_codegen_model_defaults_to_planner_when_unset(self):
         config = {**default_config_data(), "planner_model": "llama3.1", "codegen_model": None}
@@ -175,30 +179,30 @@ class CodegenConfigSurfaceTests(unittest.TestCase):
 
 
 class CodegenSetupTests(unittest.TestCase):
-    def _entry(self, *, codegen_enabled_value: bool, codegen_model: Any) -> tuple[FakeHass, FakeEntry]:
+    def _entry(self, *, render_path_value: str, codegen_model: Any) -> tuple[FakeHass, FakeEntry]:
         hass = FakeHass()
         entry = FakeEntry("codegen-setup-entry")
         entry.data["codegen_model"] = codegen_model
-        entry.options["codegen_enabled"] = codegen_enabled_value
+        entry.options["render_path"] = render_path_value
         hass.data[DOMAIN].setdefault(entry.entry_id, {})["entry"] = entry
         return hass, entry
 
-    def test_disabled_installs_no_codegen_client(self):
-        hass, entry = self._entry(codegen_enabled_value=False, codegen_model=None)
+    def test_explicit_pillow_installs_no_codegen_client(self):
+        hass, entry = self._entry(render_path_value="pillow", codegen_model=None)
         setup = setup_model_provider_codegen(hass, entry)
         self.assertFalse(setup["enabled"])
         self.assertIsNone(get_model_provider_codegen(hass, entry.entry_id))
 
-    def test_enabled_installs_codegen_client_defaulting_to_planner(self):
-        hass, entry = self._entry(codegen_enabled_value=True, codegen_model=None)
+    def test_auto_installs_codegen_client_defaulting_to_planner(self):
+        hass, entry = self._entry(render_path_value="auto", codegen_model=None)
         setup = setup_model_provider_codegen(hass, entry)
         self.assertTrue(setup["enabled"], setup)
         self.assertEqual(setup["codegen_model"], entry.data["planner_model"])
         self.assertTrue(setup["codegen_model_defaulted_to_planner"])
         self.assertIsNotNone(get_model_provider_codegen(hass, entry.entry_id))
 
-    def test_enabled_honors_separate_codegen_model(self):
-        hass, entry = self._entry(codegen_enabled_value=True, codegen_model="qwen2.5-coder")
+    def test_auto_honors_separate_codegen_model(self):
+        hass, entry = self._entry(render_path_value="auto", codegen_model="qwen2.5-coder")
         setup = setup_model_provider_codegen(hass, entry)
         self.assertTrue(setup["enabled"], setup)
         self.assertEqual(setup["codegen_model"], "qwen2.5-coder")
@@ -458,7 +462,7 @@ def _configured_codegen_hass(
 ) -> tuple[FakeHass, FakeEntry]:
     hass, entry = configured_real_slice_hass(planner=FakePlanner(), artifact_dir=artifact_dir)
     entry.data["codegen_model"] = codegen_model
-    entry.options["codegen_enabled"] = True
+    entry.options["render_path"] = "auto"
     entry.options["max_codegen_repair_attempts"] = max_repair_attempts
     entry_data = hass.data[DOMAIN][entry.entry_id]
     entry_data[DATA_WORKER_RENDER_CLIENT] = worker
@@ -470,24 +474,43 @@ def _configured_codegen_hass(
 # 3. Integration-orchestrated codegen render + repair loop.
 # ---------------------------------------------------------------------------
 class CodegenOrchestrationTests(unittest.TestCase):
-    def test_disabled_leaves_trusted_path_untouched(self):
-        """codegen disabled: no codegen client, render_mode stays safe (worker path)."""
+    def test_no_codegen_client_leaves_safe_worker_path_untouched(self):
+        """No codegen client installed (e.g. no planner): render_mode stays safe."""
         worker = SandboxWorkerRenderer()
         codegen = FakeCodegenClient(generate_code=safe_generated_python())
         with tempfile.TemporaryDirectory() as temp_dir:
             hass, entry = configured_real_slice_hass(
                 planner=FakePlanner(), artifact_dir=Path(temp_dir)
             )
-            entry.options["codegen_enabled"] = False
             entry_data = hass.data[DOMAIN][entry.entry_id]
             entry_data[DATA_WORKER_RENDER_CLIENT] = worker
-            # No codegen client installed (disabled) -> safe path.
+            # No codegen client installed -> legacy safe worker path.
             start = _start_job(hass, entry)
             snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
 
         self.assertEqual(snapshot["snapshot"]["status"], "complete")
         # Trusted safe path: render_mode was "safe", codegen never invoked.
         self.assertEqual(worker.calls[0]["render_mode"], "safe")
+        self.assertEqual(codegen.generate_calls, [])
+
+    def test_explicit_pillow_renders_in_process_despite_worker(self):
+        """Scenario E (ADR-0030): render_path pillow -> trusted renderer, no dispatch."""
+        worker = SandboxWorkerRenderer()
+        codegen = FakeCodegenClient(generate_code=safe_generated_python())
+        with tempfile.TemporaryDirectory() as temp_dir:
+            hass, entry = _configured_codegen_hass(
+                codegen_client=codegen, worker=worker, artifact_dir=Path(temp_dir)
+            )
+            entry.options["render_path"] = "pillow"
+            start = _start_job(hass, entry)
+            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+        self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot)
+        chart = snapshot["snapshot"]["chart"]
+        self.assertEqual(chart.get("render_path"), "pillow")
+        # An explicit choice is not a fallback.
+        self.assertNotIn("render_fallback_reason", chart)
+        self.assertEqual(worker.calls, [])
         self.assertEqual(codegen.generate_calls, [])
 
     def test_enabled_happy_path_generates_renders_and_serves_png(self):
@@ -516,6 +539,9 @@ class CodegenOrchestrationTests(unittest.TestCase):
             self.assertEqual(artifact_path.read_bytes()[:8], PNG_SIGNATURE)
             image_url = snapshot["snapshot"]["chart"]["image_url"]
             self.assertTrue(image_url.endswith(".png"), image_url)
+            # ADR-0030: the served chart records the codegen render path.
+            self.assertEqual(snapshot["snapshot"]["chart"].get("render_path"), "codegen")
+            self.assertNotIn("render_fallback_reason", snapshot["snapshot"]["chart"])
 
     def test_retryable_failure_repairs_to_success(self):
         # First code raises at runtime (retryable); repair returns working code.
@@ -547,8 +573,9 @@ class CodegenOrchestrationTests(unittest.TestCase):
             artifact_path = artifact_dir / f"{store['latest_artifact']['artifact_id']}.png"
             self.assertEqual(artifact_path.read_bytes()[:8], PNG_SIGNATURE)
 
-    def test_repair_exhausted_fails_closed(self):
-        # Every attempt fails at runtime; budget exhausted -> codegen_render_failed.
+    def test_repair_exhausted_falls_back_to_pillow_surfaced(self):
+        # Scenario C (ADR-0030): budget exhausted -> the trusted Pillow renderer
+        # completes the job with the fallback surfaced on the chart.
         worker = SandboxWorkerRenderer()
         codegen = FakeCodegenClient(
             generate_code=broken_generated_python("always fails"),
@@ -567,13 +594,13 @@ class CodegenOrchestrationTests(unittest.TestCase):
             start = _start_job(hass, entry)
             snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
 
-        self.assertEqual(snapshot["snapshot"]["status"], "failed", snapshot)
-        self.assertEqual(snapshot["snapshot"]["failure"]["code"], "codegen_render_failed")
-        # initial + 2 repairs = 3 dispatches; 2 repair calls.
+        self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot)
+        # initial + 2 repairs = 3 dispatches; 2 repair calls; then the fallback.
         self.assertEqual(len(worker.calls), 3)
         self.assertEqual(len(codegen.repair_calls), 2)
-        # No silent fallback: the trusted renderer never produced this card.
-        self.assertNotIn("in_process", str(snapshot["snapshot"].get("failure", {})))
+        chart = snapshot["snapshot"]["chart"]
+        self.assertEqual(chart.get("render_path"), "pillow")
+        self.assertEqual(chart.get("render_fallback_reason"), "runtime_error")
 
     def test_unsafe_code_is_repaired_to_success(self):
         # Scenario D (ADR-0030): a static-safety rejection is repairable like any
@@ -602,10 +629,10 @@ class CodegenOrchestrationTests(unittest.TestCase):
         self.assertEqual(len(codegen.repair_calls), 1)
         self.assertEqual(codegen.repair_calls[0]["sandbox_error"].get("code"), "unsafe_code")
 
-    def test_unsafe_code_through_exhaustion_fails_closed(self):
+    def test_unsafe_code_through_exhaustion_falls_back_surfaced(self):
         # Scenario D2 (ADR-0030): repair gets another try at the gate, never
-        # around it — persistently unsafe code exhausts the budget and fails
-        # closed carrying unsafe_code.
+        # around it — persistently unsafe code exhausts the budget and the job
+        # completes through the Pillow fallback carrying unsafe_code.
         worker = SandboxWorkerRenderer()
         unsafe_code = unsafe_generated_python_examples()["requests_import"]
         codegen = FakeCodegenClient(
@@ -622,13 +649,42 @@ class CodegenOrchestrationTests(unittest.TestCase):
             start = _start_job(hass, entry)
             snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
 
-        self.assertEqual(snapshot["snapshot"]["status"], "failed", snapshot)
-        self.assertEqual(snapshot["snapshot"]["failure"]["code"], "codegen_render_failed")
+        self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot)
         # initial + 2 repaired dispatches, each re-running the static check.
         self.assertEqual(len(worker.calls), 3)
         self.assertEqual(len(codegen.repair_calls), 2)
+        chart = snapshot["snapshot"]["chart"]
+        self.assertEqual(chart.get("render_path"), "pillow")
+        self.assertEqual(chart.get("render_fallback_reason"), "unsafe_code")
 
-    def test_generation_failure_fails_closed_without_dispatch(self):
+    def test_worker_transport_fault_falls_back_surfaced(self):
+        # Scenario I (ADR-0030): an unreachable/unhealthy worker (transport
+        # fault, not a sandbox result) falls back to Pillow, surfaced.
+        class UnreachableWorker(SandboxWorkerRenderer):
+            def render_chart(self, transport_request):
+                self.calls.append(transport_request["body"]["render_request"])
+                return {
+                    "accepted": False,
+                    "code": "worker_connection_error",
+                    "retry_safe": True,
+                    "message": "connection refused",
+                }
+
+        worker = UnreachableWorker()
+        codegen = FakeCodegenClient(generate_code=safe_generated_python())
+        with tempfile.TemporaryDirectory() as temp_dir:
+            hass, entry = _configured_codegen_hass(
+                codegen_client=codegen, worker=worker, artifact_dir=Path(temp_dir)
+            )
+            start = _start_job(hass, entry)
+            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+        self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot)
+        chart = snapshot["snapshot"]["chart"]
+        self.assertEqual(chart.get("render_path"), "pillow")
+        self.assertTrue(chart.get("render_fallback_reason"), chart)
+
+    def test_generation_failure_falls_back_without_dispatch(self):
         worker = SandboxWorkerRenderer()
         codegen = FakeCodegenClient(
             generate_code="",
@@ -647,10 +703,12 @@ class CodegenOrchestrationTests(unittest.TestCase):
             start = _start_job(hass, entry)
             snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
 
-        self.assertEqual(snapshot["snapshot"]["status"], "failed", snapshot)
-        self.assertEqual(snapshot["snapshot"]["failure"]["code"], "codegen_render_failed")
-        # Generation failed before any worker dispatch.
+        self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot)
+        # Generation failed before any worker dispatch; Pillow completed the job.
         self.assertEqual(worker.calls, [])
+        chart = snapshot["snapshot"]["chart"]
+        self.assertEqual(chart.get("render_path"), "pillow")
+        self.assertEqual(chart.get("render_fallback_reason"), "model_provider_connection_error")
 
     def test_codegen_model_default_and_override_are_threaded_to_client(self):
         # Default (unset): the planner model is passed to generate_chart_code.

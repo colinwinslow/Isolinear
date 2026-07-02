@@ -83,6 +83,11 @@ export interface IsolinearJobSnapshot {
     }>;
     // ADR-0027: renderer color manifest the card renders as the legend.
     legend?: IsolinearLegendItem[];
+    // ADR-0030: how the chart was rendered; render_fallback_reason is present
+    // when the trusted Pillow renderer completed the job because codegen
+    // could not (fallback surfaced, never silent).
+    render_path?: "codegen" | "pillow";
+    render_fallback_reason?: string;
   };
   entities?: Array<{
     entity_id: string;

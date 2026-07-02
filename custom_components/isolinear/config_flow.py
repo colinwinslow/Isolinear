@@ -17,8 +17,10 @@ from .const import (
     DOMAIN,
     MODEL_PROVIDER_OLLAMA_COMPATIBLE,
     NAME,
+    RENDER_PATH_AUTO,
     SUPPORTED_MODEL_PROVIDER_TYPES,
     SUPPORTED_RENDER_MODES,
+    SUPPORTED_RENDER_PATHS,
 )
 
 
@@ -82,7 +84,7 @@ CONFIG_FLOW_FIELDS = (
 OPTIONS_FLOW_FIELDS = (
     "default_render_mode",
     "max_codegen_repair_attempts",
-    "codegen_enabled",
+    "render_path",
     "entity_allowlist",
 )
 ENTITY_ALLOWLIST_SELECTOR_METADATA = {
@@ -253,9 +255,9 @@ def build_options_flow_schema(current_options: Mapping[str, Any] | None = None):
                 default=defaults["max_codegen_repair_attempts"],
             ): int,
             vol.Required(
-                "codegen_enabled",
-                default=defaults["codegen_enabled"],
-            ): bool,
+                "render_path",
+                default=defaults["render_path"],
+            ): vol.In(SUPPORTED_RENDER_PATHS),
             vol.Optional(
                 "entity_allowlist",
                 default=defaults["entity_allowlist"],
@@ -362,14 +364,15 @@ def normalize_options_user_input(
     if isinstance(attempts, str) and attempts.strip().isdigit():
         options_data["max_codegen_repair_attempts"] = int(attempts.strip())
 
-    codegen_enabled_value = options_data.get("codegen_enabled")
-    if isinstance(codegen_enabled_value, str):
-        options_data["codegen_enabled"] = codegen_enabled_value.strip().lower() in {
-            "true",
-            "1",
-            "yes",
-            "on",
-        }
+    # ADR-0030: the legacy codegen_enabled boolean is dropped on normalization
+    # (both values map to the new render_path default "auto"); an explicit
+    # render_path value wins.
+    options_data.pop("codegen_enabled", None)
+    render_path_value = options_data.get("render_path")
+    if isinstance(render_path_value, str):
+        options_data["render_path"] = render_path_value.strip().lower()
+    if not options_data.get("render_path"):
+        options_data["render_path"] = RENDER_PATH_AUTO
 
     options_data["entity_allowlist"] = _normalize_allowlist_value(
         options_data.get("entity_allowlist")

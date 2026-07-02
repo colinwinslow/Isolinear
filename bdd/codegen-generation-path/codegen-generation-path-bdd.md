@@ -3,17 +3,21 @@
 ## Status
 
 Accepted. Paired with [docs/specs/codegen-generation-path.md](../../docs/specs/codegen-generation-path.md).
-ADR-0029 packet 4. Scenario D revised 2026-07-02 per ADR-0030 (all sandbox
-failure classes repairable, including `unsafe_code`).
+ADR-0029 packet 4. Revised 2026-07-02 per ADR-0030: Scenario D (all sandbox
+failure classes repairable, including `unsafe_code`); Scenarios C/D2/E/H/I
+(codegen primary via `render_path: auto`, Pillow the surfaced fallback,
+`render_path: pillow` the explicit trusted option).
 
 ## Why this BDD exists
 
-Pins the user-visible behavior of the opt-in codegen render path: when enabled,
-the model generates matplotlib code that a locally-booted worker renders to a
-real PNG; on a retryable sandbox error the integration asks the model to repair
-the code and re-renders; and the path fails closed (never silently falls back to
-the trusted renderer) on exhausted repair. When disabled, the trusted render
-path is untouched.
+Pins the user-visible behavior of the codegen render path — the PRIMARY path
+per ADR-0030: with `render_path: auto` (the default) and a worker configured,
+the model generates matplotlib code that the worker renders to a real PNG; on
+any sandbox error the integration asks the model to repair the code and
+re-renders; and on generation failure / exhausted repair / worker transport
+fault the integration falls back to the trusted Pillow renderer with the
+fallback **surfaced** on the chart (`render_path` + `render_fallback_reason`),
+never silently. `render_path: pillow` explicitly keeps the trusted renderer.
 
 ## Scenarios
 
@@ -39,15 +43,16 @@ and the render succeeds with a real PNG served through the existing artifact pat
 code + the sandbox error/traceback), re-dispatches a second `render_mode:
 "codegen"` request, and the second render succeeds with a real PNG served.
 
-### Scenario C — exhausted repair fails closed
+### Scenario C — exhausted repair falls back to Pillow, surfaced (ADR-0030)
 
-**Given** codegen is enabled with `max_codegen_repair_attempts` repairs allowed
-**And** every attempt (initial + repairs) fails in the sandbox with a retryable
+**Given** `render_path: auto` with `max_codegen_repair_attempts` repairs allowed
+**And** every attempt (initial + repairs) fails in the sandbox with a
 `runtime_error`
 **When** the render job runs
-**Then** after the budget is exhausted the job fails with a card-facing
-`codegen_render_failed` result carrying the final sandbox error code — the
-trusted renderer is **not** silently used as a fallback.
+**Then** after the budget is exhausted the job **completes** through the trusted
+Pillow renderer, and the served chart carries `render_path: "pillow"` +
+`render_fallback_reason` (the final codegen failure context) — the fallback is
+surfaced, never silent.
 
 ### Scenario D — `unsafe_code` is repairable, bounded (ADR-0030 revision)
 
@@ -58,22 +63,39 @@ sandbox (`error.code == "unsafe_code"`)
 code is re-dispatched (the worker re-runs the full static check + sandbox on the
 fresh attempt), and a safe repair completes the job with a served PNG.
 
-### Scenario D2 — `unsafe_code` through exhaustion fails closed
+### Scenario D2 — `unsafe_code` through exhaustion falls back, surfaced
 
-**Given** codegen is enabled and the code still fails static safety after every
-repair attempt
+**Given** `render_path: auto` and the code still fails static safety after
+every repair attempt
 **When** the repair budget (`max_codegen_repair_attempts`) is exhausted
-**Then** the job fails closed with `codegen_render_failed` carrying
-`unsafe_code` as the final error code — the security gate enforced on every
-attempt; repair only ever got another try at it, never around it.
+**Then** the security gate enforced on every attempt (repair only ever got
+another try at it, never around it), and the job completes through the Pillow
+fallback with `render_fallback_reason: "unsafe_code"` surfaced on the chart.
 
-### Scenario E — disabled leaves the trusted path unchanged
+### Scenario E — `render_path: pillow` explicitly keeps the trusted renderer
 
-**Given** codegen is disabled (`codegen_enabled: false`)
+**Given** `render_path: "pillow"` is configured (even with a worker configured)
 **When** a render job runs
-**Then** the render request uses `render_mode: "safe"` / the trusted renderer,
-no `generate_chart_code` or `repair_chart_code` call is made, and behavior is
-identical to today's default path.
+**Then** the trusted in-process Pillow renderer produces the chart, no
+`generate_chart_code` / `repair_chart_code` call is made, no worker dispatch
+occurs, and the chart carries `render_path: "pillow"` with **no**
+`render_fallback_reason` (an explicit choice is not a fallback).
+
+### Scenario H — auto is the default: codegen primary with no toggle
+
+**Given** a fresh options surface (no legacy `codegen_enabled`, nothing set)
+**When** a worker + planner are configured and a render job runs
+**Then** `render_path` defaults to `"auto"`, the codegen client is installed,
+and the job renders through codegen (`render_path: "codegen"` on the chart).
+
+### Scenario I — worker transport fault falls back to Pillow, surfaced
+
+**Given** `render_path: auto` and the worker is unreachable/unhealthy at
+dispatch time (a transport-layer fault, not a sandbox result)
+**When** the render job runs
+**Then** the job completes through the Pillow fallback with
+`render_path: "pillow"` + `render_fallback_reason` carrying the transport
+failure classification code.
 
 ### Scenario F — codegen model selection
 
