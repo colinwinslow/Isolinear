@@ -1,0 +1,32 @@
+# Build context is `worker/` (ADR-0029 packet 3), so custom_components/, src/,
+# and frontend/ are already OUTSIDE the context and cannot be copied — the image
+# is HA-agnostic (worker package + requirements only). This file keeps build/test
+# cruft inside worker/ out of the image and out of the build cache key.
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Docs / notes (not needed at runtime; keep the image minimal)
+*.md
+
+# The Dockerfile / dockerignore themselves
+Dockerfile
+.dockerignore
+
+# VCS + editor metadata (in case a broader context ever drags it in)
+.git/
+.gitignore
+.venv/
+venv/
+.idea/
+.vscode/
+
+# Local scratch / render output dirs
+work/
+*.png
+*.log

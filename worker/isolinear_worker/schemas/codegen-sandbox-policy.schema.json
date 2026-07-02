@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/codegen-sandbox-policy.schema.json",
+  "title": "CodegenSandboxPolicy",
+  "type": "object",
+  "required": [
+    "policy_version",
+    "execution_model",
+    "entry_point",
+    "entry_point_args",
+    "python_flags",
+    "allowed_imports",
+    "forbidden_imports",
+    "forbidden_call_names",
+    "timeout_seconds",
+    "cpu_seconds",
+    "memory_limit_mb",
+    "max_output_bytes",
+    "network_access",
+    "filesystem",
+    "environment",
+    "resource_limits"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "policy_version": {
+      "const": 1
+    },
+    "execution_model": {
+      "const": "isolated_subprocess"
+    },
+    "entry_point": {
+      "const": "render_chart"
+    },
+    "entry_point_args": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 2
+    },
+    "python_flags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_imports": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "forbidden_imports": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "forbidden_call_names": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 30
+    },
+    "cpu_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 30
+    },
+    "memory_limit_mb": {
+      "type": "integer",
+      "minimum": 64,
+      "maximum": 1024
+    },
+    "max_output_bytes": {
+      "type": "integer",
+      "minimum": 1024,
+      "maximum": 10485760
+    },
+    "network_access": {
+      "const": "denied"
+    },
+    "filesystem": {
+      "type": "object",
+      "required": [
+        "write_policy",
+        "output_path",
+        "read_policy"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "write_policy": {
+          "const": "fixed_output_path_only"
+        },
+        "output_path": {
+          "const": "provided_render_chart_output_path"
+        },
+        "read_policy": {
+          "const": "worker_runtime_roots_only"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "required": [
+        "inherit_parent_environment",
+        "explicit_environment_keys"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "inherit_parent_environment": {
+          "const": false
+        },
+        "explicit_environment_keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "resource_limits": {
+      "type": "object",
+      "required": [
+        "timeout",
+        "cpu",
+        "memory"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "timeout": {
+          "const": "subprocess_timeout"
+        },
+        "cpu": {
+          "enum": [
+            "resource_rlimit_cpu_when_available",
+            "timeout_fallback"
+          ]
+        },
+        "memory": {
+          "enum": [
+            "resource_rlimit_as_when_available",
+            "not_available_on_platform"
+          ]
+        }
+      }
+    }
+  }
+}

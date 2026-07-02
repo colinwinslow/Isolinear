@@ -18,14 +18,26 @@ The MVP worker sandbox strategy for generated Python is:
 2. Run static AST safety checks before execution. Generated code must define
    exactly one `render_chart(data, output_path)` function. Top-level execution
    is limited to imports and function definitions.
-3. Allow generated code to import only exact modules from the configured import
+3. Allow generated code to import only modules from the configured import
    allowlist. The first codegen release allows small standard-library helpers
    plus selected matplotlib entry points that are expected to be installed in
    the worker image. Generated-code imports such as `os`, `pathlib`, `socket`,
    `subprocess`, `requests`, `urllib`, `http`, `ssl`, and `importlib` are
-   forbidden. Vetted runtime libraries may perform their normal transitive
-   imports while loading; those transitive imports do not widen the
-   generated-code allowlist or grant access to Home Assistant secrets.
+   forbidden. For a `from X import Y` statement the allowlisted unit is the
+   module named after `from` (`X` — the module that actually executes); `Y` is
+   an attribute or submodule of that already-trusted module and is not required
+   to be separately allowlisted, but a qualified `X.Y` that resolves into a
+   forbidden module is still rejected (CPython resolves fromlist items only
+   within `X`, so a from-import cannot reach a forbidden top-level module). The
+   allowlist also carries private helpers of allowed modules that those modules
+   import lazily at call time (e.g. `datetime.strptime` pulls in `_strptime`).
+   Vetted runtime libraries may perform their normal transitive imports while
+   loading; those transitive imports do not widen the generated-code allowlist
+   or grant access to Home Assistant secrets. Generated code additionally runs
+   under a curated allowlist of pure, escape-free builtins (iteration, math,
+   formatting, common exceptions); introspection/code-execution/IO builtins
+   (`getattr`, `eval`, `exec`, `compile`, `type`, `vars`, …) and `print` are
+   withheld.
 4. Execute generated code in an isolated Python subprocess using `-I`, a
    stripped environment, a temporary working directory, and no Home Assistant
    token or worker bearer token.
@@ -102,10 +114,14 @@ The worker should return structured errors:
 
 The worker must avoid assuming GPU availability. It should use standard Python and matplotlib for rendering. Heavy model inference is expected to run elsewhere.
 
-The sandbox anchor is implemented in
-`src/Isolinear/codegen_sandbox_anchor.py` and is validated by:
+The sandbox is implemented as a self-contained worker module at
+`worker/isolinear_worker/codegen_sandbox.py` (promoted from the original anchor
+per ADR-0029 and `docs/specs/codegen-sandbox-module-promotion.md`) and is
+validated by:
 
-- `docs/schemas/codegen-sandbox-policy.schema.json`
-- `tests/test_codegen_sandbox_anchor.py`
+- `docs/schemas/codegen-sandbox-policy.schema.json` (bundled into the worker
+  package at `worker/isolinear_worker/schemas/`)
+- `tests/test_codegen_sandbox.py`
 - `evals/codegen_sandbox.py`
 - `bdd/sandbox-codegen/sandbox-codegen-bdd.md`
+- `bdd/sandbox-codegen/codegen-sandbox-module-promotion-bdd.md`

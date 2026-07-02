@@ -167,6 +167,14 @@
           "items": {
             "$ref": "#/$defs/legendItem"
           }
+        },
+        "render_path": {
+          "enum": ["codegen", "pillow"],
+          "description": "How the chart was rendered (ADR-0030). Optional; absent for older artifacts and the legacy safe worker path."
+        },
+        "render_fallback_reason": {
+          "type": "string",
+          "description": "Present when the Pillow render happened because codegen could not complete (ADR-0030: fallback surfaced, never silent). The card shows a fallback indicator."
         }
       }
     },

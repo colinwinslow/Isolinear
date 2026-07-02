@@ -1,7 +1,7 @@
 ---
 id: 0018
 title: Production artifact serving
-status: draft
+status: accepted
 date: 2026-06-13
 supersedes: []
 superseded-by: null

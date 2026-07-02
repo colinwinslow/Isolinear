@@ -2,6 +2,583 @@
 
 ## Current project phase
 
+### 2026-07-02 (4th session) — ADR-0031 DRAFTED + hardened by a real-data benchmark; direction: Isolinear answers questions, not just charts
+
+Exploration + design session (no integration code changed; branch
+`adr-0029-worker-codegen-eval`, all pushed through `ac71de8`). **ADR-0031
+(`docs/decisions/0031-model-authored-analysis.md`, status: DRAFT) — to be
+ACCEPTED next session, then spec + BDD.** The direction: with pandas +
+open-ended sandboxed codegen, Isolinear becomes a plain-language data analyst
+for the house — a question gets a **grounded natural-language answer + a
+supporting chart**, both computed by the worker.
+
+**ADR-0031 decisions (9):** (1) identity expands visualization→analysis;
+(2) first slice = always answer + chart (`answer_text` additive, PNG pipeline
+untouched); (3) **grounding principle** — generated code computes AND formats
+the answer (placeholders filled in-sandbox; the number can't be hallucinated),
+extended to qualitative verdicts (compute the "Yes/No", don't assert it);
+enforced by prompt + eval backstop, not structural decomposition (capability-
+floor rationale: gemma4:e4b is the baseline, everyone runs that or better);
+(4) modality model-decided, deterministically validated (invariant #9 intact);
+(5) the ADR-0030 transforms scope merges in as tranche 1 (cross-sensor math +
+smoothing); (6) library allowlist principle (training-saturation + pure-compute
++ genuinely-new) → **add scipy + seaborn** now, statsmodels/sklearn tier-2,
+plotly/prophet/duckdb rejected; (7) TTS deferred; (8) **two-part quality
+validation** — deterministic answer-grounding check (broken numbers) + a
+**capability-gated visual validator** (broken pictures), with a
+**progressive-verification UX** (show first render immediately + "Checking our
+work…" indicator, verify in place, REVISE→"found something off, revising now"
++ bounded repair, fail-soft); (9) **normalize timestamps at the data boundary**
+(hand the model epoch ints, never raw ISO).
+
+**The benchmark (committed `evals/analysis_benchmark/`; real HA data + generated
+code GITIGNORED as private).** 16 prompts × gemma4:e4b + qwen2.5-coder:7b,
+generated `render_chart` code **executed against 7 days of real HA history**
+(16 entities pulled via the HA REST API, token from the ha-access memory).
+Findings that became decisions 6/8/9: **with a clean epoch-ms contract, gemma
+12–13/16, qwen 7–11/16** (both ≈2/16 on a raw-ISO-timestamp contract — the
+dominant failure was ONE `pandas.to_datetime` format-inference gotcha on HA's
+mixed-precision timestamps, NOT model incompetence; only `format='ISO8601'`
+fixes it, and epoch-ms erased the whole class). **accept≠quality reconfirmed
+hard** (flat-zero seasonal decompose, single-point `r=nan` scatter, `0.00 °F/hr`
+cooling all "passed" execution). **Both validators demonstrated live:**
+multimodal gemma (has `vision`; qwen-coder does NOT — checked via Ollama
+`/api/show`) flagged the flat-zero decompose that execution + answer-text
+missed; a structured checklist prompt beat a vague one; the visual-repair loop
+fixed the decompose end-to-end. The benchmark is ADR-0031's **acceptance proof
+gate**.
+
+**Parked stub (STATUS open-queue (l)):** conversational refinement + saved
+live-refresh dashboard cards (integration-scheduled, no model in the refresh
+loop; axes-drift open question).
+
+**Next session:** accept ADR-0031 → write `docs/specs/model-authored-analysis.md`
++ paired BDD (contract surfaces: `answer_text` + `verification_status` schema
+fields, epoch-timestamp render-data shape, the validator config gate +
+checklist prompt, benchmark-gate proof requirements) → implementation packets.
+
+### 2026-07-02 (3rd session) — ADR-0030 IMPLEMENTED in code (pandas, 1024MB cap, repair-everything, codegen-primary render default), version 0.2.1
+
+The ADR-0030 decisions are now real in code (the prior session only recorded the
+decisions + purged scaffold). Four bounded changes on branch
+`adr-0029-worker-codegen-eval`, all committed (`4532ba5`, `a038b9b`, `940887b`):
+
+1. **pandas + 1024MB cap (`4532ba5`, worker-only).** `pandas>=2,<3` in
+   `worker/requirements.txt` + the sandbox import allowlist (exact-match,
+   alongside numpy); sandbox `memory_limit_mb` 256→1024 (the schema already
+   permitted 1024 — no schema change; the Pi-compat test now pins 1024 and
+   asserts pandas is allowlisted). **Proven LIVE on CT103** (root SSH from
+   claude-box; `docker build` via `tar | ssh`, rsync absent on the host): image
+   rebuilt **526MB** (was 419MB), in-container worker suite **27 passed, zero
+   skips**, and a real pandas `resample("1h").mean()` render returned a valid
+   PNG over `POST /v1/render` under the new cap (eyes-on verified). CT103 left
+   clean — throwaway container + `/tmp/iw-build` removed; only the rebuilt
+   `isolinear-worker:dev` image retained beside the compose-managed
+   ollama/frigate/plex/caddy. (Note: the homelab `docker_host` role has since
+   LANDED — the earlier coordination dependency is resolved; deploying the
+   worker as a compose service is now an available homelab follow-up.)
+
+2. **Repair-everything (`a038b9b`, integration).** The packet-4 `unsafe_code`-
+   is-terminal rule is gone: every sandbox failure class is repairable, bounded
+   by `max_codegen_repair_attempts`; the worker re-runs the full static check +
+   sandbox on every fresh dispatch, so the security boundary still enforces —
+   repair only gets another try at the gate, never around it. `unsafe_code`
+   through exhaustion still terminates (now → fallback, see #3).
+   `CODEGEN_TERMINAL_SANDBOX_ERROR_CODES` deleted.
+
+3. **Codegen-primary render default (`940887b`, integration + card, 0.2.0→0.2.1).**
+   The `codegen_enabled` opt-in boolean is replaced by a **`render_path` select
+   (`auto` | `pillow`, default `auto`)**; legacy stored `codegen_enabled` values
+   are dropped to `auto` on options normalization. With `auto` + a worker +
+   planner, codegen renders; **codegen failures (generation failure, repair
+   exhaustion incl. persistent `unsafe_code`, worker transport fault) now FALL
+   BACK to the trusted Pillow renderer and COMPLETE the job — surfaced, never
+   silent**: the artifact + snapshot `chart` carry `render_path` +
+   `render_fallback_reason` (additive optional fields on both synced copies of
+   the artifact-metadata + job-snapshot schemas), and the Lit card renders a
+   warning-colored fallback notice under the caption. An explicit
+   `render_path: pillow` renders in-process with **no** fallback reason (a
+   choice is not a fallback). This supersedes packet-4's fail-closed
+   `codegen_render_failed` posture (whose only purpose was keeping the packet-5
+   eval unpolluted — that eval has run and ADR-0029 is decided KEEP; silent
+   masking is still forbidden, hence the mandatory surfacing).
+
+**Invariant #6 rewritten in BOTH `AGENTS.md` and `CLAUDE.md`** to
+"Codegen-primary, fallback-safe rendering" (ADR-0030, ADR-0008) — the prior
+session updated CLAUDE.md only; the stale AGENTS.md copy (still "chart-spec-
+first … codegen is an opt-in advanced path") was caught + aligned at this
+closeout. The two files are now byte-identical for #6.
+
+**Verification:** full suite **312 passed / 4 skipped** (309 baseline + 3 net
+new codegen tests); frontend **23 passed** (2 new fallback-notice tests);
+`codegen-generation-path` spec + BDD + evidence revised (10 scenarios A/B/C/D/
+D2/E/F/G/H/I, raw outputs, timestamped); all six touched evals PASS
+(`codegen_sandbox`, `codegen_generation_path`, `worker_http_server`,
+`timeline_render_family_routing`, `composition_membership_prune`,
+`model_resolved_window_data_source`); schema byte-parity + bundle sync green;
+architecture review OK (no invariant violations; the flip executes accepted
+ADR-0030, no new ADR); BDD-evidence review OK. **NOT pushed** (commit-only per
+norms; ask before pushing).
+
+**DIRECTION PIVOT declared this session (Colin) — ADR-0031, not yet written:**
+with pandas + open-ended sandboxed codegen, Isolinear expands beyond charts to
+answer questions in **natural language** ("are the upstairs and downstairs
+temps correlated?" → "Yes — the correlation coefficient is 0.42"), computed by
+the worker. Decisions captured: **always answer + supporting chart** in the
+first slice (so `answer_text` is purely additive — the PNG pipeline is
+untouched); the **grounding principle** that the generated code both computes
+AND formats the answer sentence (f-string over computed values — the number
+can't be hallucinated; same trust level + repair loop as charts, NOT a second
+free-text pass); **modality intent model-decided, deterministically validated**
+(invariant #9 intact — modality sits above chart-family routing); the
+**earlier-scoped transforms spec (cross-sensor math + smoothing) MERGES into
+ADR-0031** as the shared compute layer; **TTS deferred** (card-side browser
+speech is read-only-safe; HA TTS service calls collide with invariant #2 — its
+own decision). **Next packet = write ADR-0031 + spec `model-authored-analysis`
++ BDD (draft), then implement.** The runner's `render_chart` metadata dict is
+the wire for the answer (no sandbox change); render-result/artifact/snapshot
+gain optional `answer_text`; the card promotes the caption slot.
+
+### 2026-07-02 (2nd session) — ADR-0029 resolved KEEP; ADR-0030: matplotlib codegen is the primary render path; the simulated scaffold is purged
+
+The human resolved the ADR-0029 kill condition on the packet-5 data: **KEEP**.
+The worker and the codegen path are permanent architecture. The same session
+recorded the larger direction change as **ADR-0030 (accepted)** and executed a
+project-wide cleanup.
+
+**ADR-0030 decides:** sandboxed **matplotlib codegen is the PRIMARY render
+path** when a healthy worker is configured; the **Pillow renderer becomes the
+fallback** (no worker / unhealthy / repair exhaustion — always surfaced in
+render metadata and the card, never silent) and remains an explicit option.
+The **ChartSpec stays the validated planning contract and the data boundary**
+(invariants #1/#3/#4/#5 unchanged). The **model is empowered to transform data
+in generated code** — cross-series math (e.g. averaging two sensors),
+resampling, derived series — instead of growing the closed ChartSpec transform
+enum (which the Pillow renderer never implemented anyway: every operation but
+`none` returns `transform_not_supported`). **pandas** is added to the worker
+image; the **sandbox memory cap rises 256MB → 1024MB**; and **every sandbox
+failure class is repairable, including static security rejections** — bounded
+by `max_codegen_repair_attempts`, with the full static check + sandbox re-run
+on every attempt (the boundary still enforces; repair just gets another try at
+the gate). `CLAUDE.md` invariant #6 is rewritten accordingly.
+
+**The purge (commit `f8f7760`):** the entire pre-pivot simulated universe is
+deleted — `src/Isolinear/` (~15K LOC of `*_anchor.py` verifiers + the
+3,334-line `fake_slice.py`), 29 anchor test files, 48 fake-path evals, and 23
+`*scaffold-spec.md` docs: **135 files, ~40,156 deletions**. Production code
+imported none of it (verified; only docstring mentions remain). The suite drops
+from 623 to **309 passed / 4 skipped (~7s)** — the deleted half tested only the
+deleted scaffold. The 7 real-path evals (`codegen_*`,
+`composition_membership_prune`, `model_resolved_window_data_source`,
+`timeline_render_family_routing`, `worker_http_server`) plus `evidence.py`
+remain.
+
+**ADR consolidation (commit `255b0c3`, human-approved immutability exception):**
+0004 superseded by 0030 (its ChartSpec-contract half carried forward); 0029
+draft→accepted with the KEEP outcome recorded; 0018 + its spec draft→accepted
+(artifact serving has been implemented and live since ~0.1.20); 0015/0016
+deprecated and moved to `docs/decisions/archive/` (designed for the simulated
+worker — their runtime machinery in `custom_components/` still runs and is
+scheduled for simplification); 0017 labeled historical in the index.
+
+**Version: 0.1.49 → 0.2.0** (closeout addendum, human's call) — the minor bump
+marks the ADR-0030 direction change; `manifest.json` + `const.py` updated,
+suite re-verified green post-bump.
+
+**Next packet — implement ADR-0030 in code:** (1) pandas into
+`worker/requirements.txt` + image rebuild on CT103; (2) memory cap 1024MB +
+update the `memory_limit_mb <= 256` test; (3) the repair policy in
+`job_orchestration.py` (packet-4 currently makes `unsafe_code` terminal);
+(4) flip the render default to codegen-primary with surfaced Pillow fallback
+(spec update + version bump). After that: the model-authored transforms spec;
+simplify the deprecated worker-durability machinery (~3.4K LOC); split the
+7.7K-line `job_orchestration.py`.
+
+### 2026-07-02 — ADR-0029 packet 5 landed: the codegen reliability eval + sandbox codegen-friendliness fixes (the keep/remove data)
+
+Packet 5 produces the data the ADR-0029 keep/remove decision rests on: a
+**codegen accept/reject/repair reliability eval** run **live through the CT103
+worker sandbox**. The eval (`evals/codegen_reliability.py`) drives the new
+**42-prompt real benchmark corpus** (`evals/prompts/benchmark_prompts.json` +
+README; 35 of the 42 are chartable) through two 3060-class local models —
+**`gemma4:e4b`** and **`qwen2.5-coder:7b`**: each model **generates** matplotlib
+from a schema-valid ChartSpec plus synthetic history, the code is **rendered LIVE
+through the CT103 worker sandbox**, and an **integration-orchestrated repair
+loop** (max 2 repairs) feeds sandbox errors back on recoverable failures. The
+report gallery is regenerated by `evals/prompts/gen_report.py` into
+`evals/prompts/reliability_results.json` + `reliability_report.md` +
+`renders/` (66 PNGs).
+
+**Result: both models accept 33/35 (3 recovered via repair each).**
+`gemma4:e4b` went **24/35 strict → 33/35** with the refined repair policy
+(repair recovered syntax typos plus `typing`/pandas imports);
+`qwen2.5-coder:7b` went **30/35 → 33/35**. Crucially there were **no sandbox
+false positives** — all 4 remaining rejects are legitimate: gemma `ov-02` is a
+forbidden `locals()` call (the security gate working as intended — terminal);
+qwen `ov-03`/`ov-04` are a real numpy `isfinite` `TypeError` (a genuine code bug
+the repair didn't fix); gemma `agg-03` is `output_missing` (the code ran but
+never wrote the PNG).
+
+**The refined repair policy** (built in the eval, recommended for the
+integration) distinguishes genuine **SECURITY** violations — `forbidden_import`,
+`forbidden_attribute`, `forbidden_call`, `dunder_attribute`, `scope_escape` —
+which stay **TERMINAL**, from **recoverable static failures** (`syntax_error`,
+`import_not_allowlisted`) and `runtime_error`, which are **REPAIRABLE** (the
+sandbox error is fed back to the model). This is a refinement of the packet-4
+loop, which currently treats *all* `unsafe_code` as terminal.
+
+**The key finding is a strong KEEP signal for ADR-0029:** the two models fail in
+**characteristically different ways** — gemma trips **STATIC** checks it can
+repair (syntax / imports), while qwen trips **RUNTIME** limits (the 256 MB
+address-space cap). 3060-class local models produce good, safe matplotlib at
+**~94% accept with repair**.
+
+Alongside the eval, a batch of **sandbox codegen-friendliness fixes** landed —
+each a **boundary-preserving correction of an under-specified allowlist**, not a
+relaxation of the security model: allow `from`-imports that target an
+allowlisted module (checks the module after `from`, not the qualified name;
+forbidden and relative imports still rejected — **security-reviewed OK**,
+`40b9464`); expand safe builtins (`next`/`iter`/`map`/`filter`/`set`/… plus
+common exceptions) and allow `datetime._strptime` (`a11ae4f`); whitelist
+`numpy`/`itertools`/`functools`/`collections` and unblock the `replace`
+attribute false-positive (`str.replace` is safe; `os.replace` is unreachable and
+audit-blocked, `03fa792`); whitelist `typing` (`bfd99a0`); and pre-warm a
+**READ-ONLY** matplotlib font cache in the Dockerfile
+(`ISOLINEAR_WORKER_MPL_CACHE`, ~20% faster renders, no font warning, **no
+write-policy relaxation**, `882af2e`). All sandbox changes are **worker-only** —
+no integration version bump (still **0.1.49**). The full suite stayed
+**623 passed, 4 skipped** throughout.
+
+**Three open decisions recorded for the human (all non-blocking):** (1) **pandas
+support** — gemma reached for pandas (not installed) and repair worked around it;
+adding it is an image-size decision; (2) **raise the 256 MB sandbox memory cap**
+— qwen's two remaining rejects plus earlier `MemoryError`s hit it, and there is
+an explicit test asserting `memory_limit_mb <= 256`; this is a resource-policy
+call; (3) **adopt the security-vs-recoverable repair distinction in
+`job_orchestration.py`** — the packet-4 loop treats all `unsafe_code` as
+terminal, and the eval showed distinguishing repairable syntax/import failures
+from terminal security violations recovers most gemma failures.
+
+**Remaining ADR-0029 work:** the eval data now exists, so the **keep/remove
+DECISION** is decidable but not yet decided — ADR-0029 stays **draft** until the
+human calls it. Deploy target unchanged: CT103/10.0.1.39, standalone amd64
+GPU-less Docker via the homelab `docker_host` role.
+
+### 2026-07-01 — ADR-0029 packet 4 landed: the model codegen path + integration-orchestrated repair (0.1.49, `b22992b`)
+
+The worker can render matplotlib (packet 3); packet 4 is the *integration side*
+that makes codegen a real product path — the model that **generates** the
+matplotlib code and the loop that **repairs** it on a retryable sandbox error.
+It is an **opt-in** render path behind a new options toggle **`codegen_enabled`
+(default `False`)**: when off, the trusted in-process ChartSpec renderer is the
+default and untouched (invariant #6, chart-spec-first). Codegen uses a
+**separately configurable model** — **`codegen_model`** (config field, already
+present) that **defaults to the planner model when unset** (`codegen_model or
+planner_model`), so codegen can point at a code-specialized model without
+touching the planner. Both knobs are cleanly removable (packet 5 may revisit).
+
+**Model-provider generation** (`custom_components/isolinear/model_provider.py`):
+two new methods on the Ollama-compatible client emit **freeform Python** via one
+`/api/chat` call each — **`generate_chart_code`** (system prompt asks for a
+single `render_chart(data, output_path)` matplotlib function implementing the
+already-validated ChartSpec) and **`repair_chart_code`** (feeds the previous
+code plus the sandbox error — `error.code`, `error.message`, and the traceback
+from `error.details` — back and asks for corrected code). Output is
+markdown-stripped with the existing `_strip_markdown_json` helper; **no
+constrained-decoding `format`** is set (Ollama's `format` is for JSON, not
+Python). Only the validated ChartSpec + normalized, allowlist-checked render
+data cross into the prompt — the **data-boundary projection
+`_codegen_request_view`** strips `request_id`/tokens/secrets, so no HA token,
+worker token, model token, or secret is ever placed in a generation/repair
+prompt (data boundary; invariants #1/#3).
+
+**The repair loop is integration-orchestrated**, in
+`job_orchestration.py`. When `codegen_enabled` is true and a worker client is
+configured, only the render step is replaced (planning, entity selection,
+allowlist enforcement, and deterministic render-family routing stay upstream and
+unchanged): **generate** the code, dispatch a `render_mode: "codegen"` request
+carrying `codegen.python_code` over the existing `HttpJsonWorkerRenderClient`,
+and on a **retryable** sandbox error (`runtime_error`/`timeout`/`output_missing`/
+`output_too_large`) ask the model to repair given the previous code + error/
+traceback and **re-dispatch**, up to `max_codegen_repair_attempts` (each
+re-dispatch is a fresh `POST /v1/render`; the worker re-runs static safety every
+attempt). **`unsafe_code` is terminal** — never repaired (it's a security gate,
+not a correctness bug). The worker-local `invoke_codegen_with_repair` convenience
+is **NOT** used over HTTP: the data boundary forbids the worker from holding a
+model client, so the integration drives the loop with its own model provider.
+
+**Fail-closed, no silent fallback.** On generation failure, `unsafe_code`, or
+exhausted repair, the codegen path returns a dedicated card-facing
+**`codegen_render_failed`** failed snapshot carrying the final sandbox/provider
+error code — it does **not** silently fall back to the trusted renderer.
+Rationale: a silent trusted fallback would mask codegen failures and muddy the
+packet-5 accept/reject/repair eval — the very data the ADR-0029 keep/remove
+decision rests on.
+
+**Proven LOCALLY only.** The full orchestration (generate → dispatch → repair →
+serve / fail-closed) is exercised against an **in-process sandbox worker**, and
+the wire end-to-end is proven by booting the **real packet-2
+`isolinear_worker.http_server` on an ephemeral port** and driving the loop over
+the actual HTTP boundary into a real PNG (`evals/codegen_generation_path.py`). No
+CT103 / remote host is touched. The **live CT103 end-to-end + the codegen
+accept/reject/repair reliability eval are packet 5** — the data the keep/remove
+decision rests on. Suite `620 passed, 4 skipped`; both evals PASS
+(`codegen_generation_path.py`, `worker_http_server.py` — no regression). Version
+bumped **0.1.48 → 0.1.49**. `codegen-generation-path` spec + BDD promoted
+draft→ACCEPTED (both reviews OK — architecture review: no invariant violations;
+BDD-evidence review: OK).
+
+### 2026-07-01 — ADR-0029 packet 3 PROVEN LIVE on CT103 (+ OpenBLAS sandbox fix `2bb2747`)
+
+The packet-3 worker container image is no longer a deferred artifact — it was
+**built and run live on the deploy target CT103** (`docker-host`, `10.0.1.39`,
+Debian 13 trixie, x86_64, Docker 29.5.2, 6 cores) from a fresh clone at commit
+`2bb2747`, and **all six previously-deferred BDD scenarios (A–F) now pass** with
+raw outputs recorded in the evidence file. The image **builds on amd64 with
+matplotlib-3.11.0 installed from prebuilt wheels** (no source build; final image
+418MB); `GET /v1/health` reports **`ready`** (matplotlib importable under
+`python -I` from the system site-packages — the packet's whole purpose); a
+**real matplotlib chart rendered end-to-end over `POST /v1/render`** (a valid
+16557-byte PNG, signature `89504e470d0a1a0a`, written to the container work
+root); the **three matplotlib-gated tests un-skip and pass in-container**
+(`24 passed`, zero skips); the image is **HA-agnostic** (an in-image `find`
+returns nothing from `custom_components`/`src`); the container **`HEALTHCHECK`
+reports `healthy`**; and startup still **fails closed** on a missing or short
+token. This validates the core ADR-0029 premise for real: **the sandbox can
+actually render matplotlib in the target deployment** — a key de-risking of the
+codegen experiment before packet 4 (the codegen model) and packet 5 (the
+accept/repair reliability eval).
+
+**The live build surfaced a real bug — the most important thing it produced.**
+matplotlib *imported* fine under `-I` (so health was `ready`), but the **first
+actual render failed** with
+`OpenBLAS error: Memory allocation still failed after 10 retries, giving up.`
+Root cause: numpy's OpenBLAS backend reserves **per-core address space** for its
+thread pool **at import time**, scaled to the host CPU count — CT103 has **6
+cores**, so that reservation exceeded the sandbox's **256 MB `RLIMIT_AS`** cap
+and aborted before any chart was drawn. It only surfaced here because the safe
+(non-numpy) render path is unaffected and the matplotlib tests skip on the dev
+box (where `-I` cannot import matplotlib at all). **Fixed in `2bb2747`:** pin
+`OPENBLAS_NUM_THREADS` / `OMP_NUM_THREADS` / `MKL_NUM_THREADS` /
+`NUMEXPR_NUM_THREADS` / `VECLIB_MAXIMUM_THREADS` to `1` in the sandbox's stripped
+subprocess environment (`_sandbox_environment` in
+`worker/isolinear_worker/codegen_sandbox.py`) and add them to the policy's
+`explicit_environment_keys`. These variables only ever **reduce** resource use,
+so the **sandbox is not weakened** — the `-I` isolation, import allowlist, audit
+hook, fixed output path, timeout, and `resource` limits are all unchanged
+(invariant #3 intact). After rebuilding the image at `2bb2747`, all scenarios
+pass.
+
+The **`worker-container-image` spec is now `accepted`** (the documented
+acceptance trigger — Scenarios A–F passing with raw outputs recorded — is met);
+the BDD scenarios A–F are retagged verified-on-Docker-host, and the evidence
+file carries the raw CT103 outputs plus a dedicated OpenBLAS finding/fix
+subsection. The integration is **untouched and NOT version-bumped** (worker-only,
+matching packets 1–3). The dev-box suite is unchanged (`595 passed, 3 skipped` —
+the 3 matplotlib skips only flip inside the container). The bearer token used on
+CT103 was an ephemeral `secrets.token_urlsafe(24)` (never printed) and the temp
+clone was removed; the **proven `isolinear-worker:dev` image (418MB) is retained
+on CT103**.
+
+**Remaining ADR-0029 packets:** (4) codegen path in the model provider + real
+repair model; (5) end-to-end proof + the codegen accept/repair reliability eval
+the keep/remove decision rests on. Deploy target: CT103/10.0.1.39, standalone
+amd64 GPU-less Docker via the homelab `docker_host` role.
+
+### 2026-07-01 — ADR-0029 packet 3 landed: the standalone amd64 worker Dockerfile
+
+The packet-2 HTTP server now has a container to run in. A single-stage
+**`worker/Dockerfile`** (`python:3.12-slim`) plus **`worker/.dockerignore`**
+packages the self-contained `isolinear_worker` package into a linux/amd64 image.
+The load-bearing choice: **matplotlib is installed into the interpreter's
+*system* site-packages** — no venv, no `--user`, a plain
+`pip install -r requirements.txt` as root — because the sandbox runs generated
+code under `python -I` (isolated mode excludes user site-packages). Only a
+system-site install lets the packet-2 readiness probe's `python -I -c "import
+matplotlib"` subprocess succeed, so **`GET /v1/health` flips from `not_ready` to
+`ready`** and the worker can actually render. That flip is the whole purpose of
+this packet — it dissolves the ADR-0017 matplotlib-on-HAOS/aarch64 blocker by
+moving matplotlib into the worker's own amd64 image.
+
+The image runs unprivileged as a non-root **`worker` user (uid/gid 10001)**; the
+`work_root` where PNGs are written is created, chowned to that user, and declared
+a `VOLUME` so a host/orchestrator can mount durable or tmpfs artifact storage.
+Config is 12-factor and matches packet-2's `load_config_from_env` exactly
+(`ISOLINEAR_WORKER_BIND_HOST`/`_PORT`/`_WORK_ROOT` as `ENV`); crucially
+**`ISOLINEAR_WORKER_TOKEN` is never an `ENV`/layer** — it is a secret supplied at
+`docker run` time, and with no valid token the entry point fails closed (non-zero
+exit, no socket bound). The **`HEALTHCHECK` is stdlib-only** (no curl/wget added):
+it reads the token + port from the container's own runtime env, makes an
+authenticated `/v1/health` request, and exits 0 only when the transport returns
+200 **and** `health.status == "ready"`. The entry point is
+`ENTRYPOINT ["python","-m","isolinear_worker.http_server"]`, mapping directly to
+the packet-2 `__main__` guard. The image is **HA-agnostic by construction**: the
+build context is `worker/`, so nothing from `custom_components/`, `src/`, or
+`frontend/` is even reachable (the `.dockerignore` trims the rest).
+
+Docker is **not installed in this authoring environment**, so the **image build +
+container run proofs are DEFERRED to a linux/amd64 Docker host** (deploy target
+CT103/10.0.1.39). **6 of the 9 BDD scenarios (A–F: image build, fail-closed
+startup on a missing/short token, `/v1/health` → `ready`, `/v1/render` returning a
+PNG, the 3 matplotlib-gated tests un-skipping in-container, and no HA code in the
+image) are honestly marked `DEFERRED (needs Docker host)` with exact reproduction
+commands recorded in the evidence file** — no build log is fabricated, matching
+the repo's established live-retest deferral pattern. The 3 STATIC scenarios (G
+entry-point, H config-contract, I suite-green) carry real raw outputs. Because
+the core proof is that deferred live build, the **spec is intentionally left
+`draft`** (not promoted to accepted) until it passes on a Docker host. The
+integration is **untouched and NOT version-bumped** (worker-only, matching
+packets 1–2). Full suite unchanged: **`595 passed, 3 skipped`** (the 3 matplotlib
+skips only flip inside the container). BDD-evidence review OK; architecture review
+OK (no invariant violations — the sandbox security model at invariant #3 is
+untouched: matplotlib in system-site only makes an already-allowlisted import
+present, and the allowlist still governs generated code; base image / non-root
+user / healthcheck / VOLUME are all within ADR-0029's decided
+"standalone amd64 Docker first" scope, so no new ADR). One optional note carried
+forward: digest-pin `python:3.12-slim` when the image is first built.
+
+**Remaining ADR-0029 packets:** (4) codegen path in the model provider + real
+repair model; (5) end-to-end proof + the codegen accept/repair reliability eval
+the keep/remove decision rests on. Deploy target: CT103/10.0.1.39, standalone
+amd64 GPU-less Docker via the homelab `docker_host` role.
+
+### 2026-07-01 — ADR-0029 packet 2 landed: the standalone worker HTTP server
+
+The packet-1 worker module now has an HTTP front door. A new standalone server
+at **`worker/isolinear_worker/http_server.py`** wraps the self-contained
+`isolinear_worker.codegen_sandbox` public API in a long-running process built on
+the Python stdlib `http.server`/`ThreadingHTTPServer` — **no new runtime
+dependency** (invariant #8), which also keeps the packet-3 image minimal. It
+serves the ADR-0012 worker transport: **`POST /v1/render`** (run the sandbox on a
+model-generated matplotlib render request) and **`GET /v1/health`** (ADR-0014
+readiness probe).
+
+Request handling is **strictly fail-closed and ordered on every request**: auth →
+API-version → envelope-schema → sandbox. Bearer auth uses a constant-time
+`hmac.compare_digest` compare, and **no sandbox subprocess is ever spawned for an
+unauthenticated request**. The transport/sandbox failure split is deliberate:
+**sandbox-level failures ride inside an HTTP 200** as `{"render_result": {...}}`
+(an `unsafe_code`/`runtime_error`/`timeout` outcome is a valid *render* result,
+not a transport fault), while **transport faults are non-200** — 401
+`unauthorized`, 400 `unsupported_api_version` / `invalid_request`. Token material
+never reaches responses or logs (redacted to `Bearer <redacted>`).
+
+Config is 12-factor and HA-agnostic: `ISOLINEAR_WORKER_TOKEN` (**≥24 chars,
+fail-closed at startup** — a missing/short token exits 1 with no socket bound),
+plus bind host/port and `work_root`. `create_worker_app(config)` is socket-free
+and unit-testable; `serve(config)` / `python -m isolinear_worker.http_server` bind
+and serve. The server **imports nothing from `custom_components/isolinear/` or
+`src/Isolinear/`** — verified by an import-graph test — so it stays deployment-
+independent per the ADR-0029/ADR-0012 boundary; the only cross-boundary import
+lives correctly in the wire-interop *eval*, not the server.
+
+`GET /v1/health` returns the `integration-worker-health` `response` sub-schema
+under `{"health": ...}` (HTTP 200 in both ready and not_ready). On the dev box it
+reports `not_ready` with matplotlib `unavailable`: the `-I` sandbox can't import
+user-site matplotlib, so this is the **expected dev-box behavior** and flips to
+`ready` in the packet-3 container (matplotlib in the system site). The
+`evals/worker_http_server.py` wire-interop eval drives the **real
+`HttpJsonWorkerRenderClient`** (the integration-side ADR-0012 client) against a
+live loopback instance of the server, proving the two halves speak the same
+transport. Single `invoke_codegen_sandbox` call — no repair loop (packet 4) — and
+the `image_path` is returned as-is (no base64 yet — packet 5).
+
+The HACS-shipped integration is **untouched and NOT version-bumped** (worker-only
+change, matching packet 1). One deferrable future refinement noted by review:
+`_read_body` returns `b""` on an oversized/invalid `Content-Length`, which
+surfaces as a generic `invalid_request` 400 — acceptable fail-closed behavior, not
+changed now. Spec + BDD promoted draft→accepted. Verify: full suite
+`595 passed, 3 skipped` (the 3rd skip is the new matplotlib-render scenario, same
+`-I`/user-site limitation as packet 1's 2 skips); `evals/worker_http_server.py`
+PASS; `evals/codegen_sandbox.py` PASS; BDD-evidence review OK; architecture review
+OK (no invariant violations).
+
+**Remaining ADR-0029 packets:** (3) standalone amd64 Dockerfile with matplotlib
+(where health flips to `ready`); (4) codegen path in the model provider + real
+repair model; (5) end-to-end proof + the codegen accept/repair reliability eval
+the keep/remove decision rests on. Deploy target: CT103/10.0.1.39, standalone
+amd64 GPU-less Docker via the homelab `docker_host` role.
+
+### 2026-06-30 — ADR-0029 packet 1 landed: codegen sandbox promoted to a self-contained worker module
+
+The proven codegen sandbox is now a real, importable, Home-Assistant-agnostic
+worker package at **`worker/isolinear_worker/`** (promoted from the retired
+`src/Isolinear/codegen_sandbox_anchor.py`). It carries its own minimal schema
+validator (`_schema_validation.py`, a deliberate subset-copy of the integration's
+`contracts.py`) and a bundled copy of the five schemas it validates
+(`worker/isolinear_worker/schemas/`), so it imports nothing from
+`custom_components/isolinear/` or `src/Isolinear/` — the deployment-independence
+boundary ADR-0029/ADR-0012 require. The sandbox **security model is unchanged and
+preserved at parity** (`-I` isolation, import allowlist, audit hook, fixed
+output-path write, timeout, `resource` limits, max output bytes); only the
+anchor/fixture/verifier scaffolding was dropped and two public signatures cleaned
+up (`work_root` replaces `output_directory`; `repo_root` removed; the repair loop
+takes an injected `repair(prev, error)->next` callable instead of a pre-baked
+code list — a real repair model is packet 4). The HACS-shipped integration is
+**untouched** (no new dependency, no version bump).
+
+`tests/test_codegen_sandbox.py` drives the public API for sandbox-codegen
+scenarios A-G plus the promotion scenarios (self-containment via a clean-subprocess
+`sys.modules` import-graph check; a schema byte-parity drift guard; an
+injected-repair loop; a timeout). The matplotlib-rendering scenarios are
+`skipUnless` the `-I` sandbox can import matplotlib: on a dev box matplotlib is
+user-site-only and `-I` excludes it, so they skip there and run on the worker
+container (where matplotlib is in the system site). Suite is green —
+`584 passed, 2 skipped` (the prior "3 pre-existing codegen-sandbox failures" were
+exactly this environment limitation, now honest skips). `evals/codegen_sandbox.py`
+repointed and passing; a real PNG was produced through the promoted public API and
+eyes-on-confirmed. Spec + BDD promoted draft→accepted; ADR-0029 stays draft until
+the experiment's accept/repair-rate kill condition is decided. Architecture review
+OK; its drift-guard recommendation is implemented as a test.
+
+**Remaining ADR-0029 packets:** (2) the worker HTTP server (`POST /v1/render`,
+`GET /v1/health`, bearer auth, versioned headers, 12-factor/HA-agnostic) wrapping
+`isolinear_worker.codegen_sandbox`; (3) standalone amd64 Dockerfile with
+matplotlib; (4) codegen path in the model provider + real repair model; (5)
+end-to-end proof + the codegen accept/repair reliability eval the keep/remove
+decision rests on. Deploy target: CT103/10.0.1.39, standalone amd64 GPU-less
+Docker via the homelab `docker_host` role (homelab half waits on that role
+landing).
+
+### 2026-06-30 — Direction: revive the worker to evaluate sandboxed codegen (experiment branch)
+
+A rewrite-vs-refactor review concluded the architecture is sound and the worker
+tree is **not** dead weight — it is load-bearing (`__init__.py` aborts setup
+without `worker_token_lifecycle`; `job_orchestration.py:55` imports
+`worker_renderer`) and ADR-0017 *defers* it on purpose. The new direction
+(ADR-0029, draft) **revives** the deferred worker as a deployment-agnostic HTTP
+service that runs the existing sandbox on model-generated matplotlib code — the
+original product intent, never evaluated because matplotlib won't install on the
+HAOS/aarch64 (Alpine) Pi. The worker dissolves that: matplotlib lives in the
+worker's own amd64 image.
+
+This is an **experiment with a kill condition**: if a 3060-class local model
+can't produce good-enough matplotlib (accept/repair eval), the worker subsystem
+is removed and the architecture refactors to in-process-only (its own
+superseding ADR). In-process trusted rendering stays the default throughout.
+
+**Data boundary (defense-in-depth):** entity selection, allowlist enforcement,
+and history retrieval stay integration-side; only normalized, allowlist-checked
+render data crosses to the worker, which never queries HA. The integration
+controls what data goes in; the sandbox controls what the code can do.
+
+**Build plan:** (1) promote the sandbox anchor → self-contained
+`worker/isolinear_worker/` [spec `codegen-sandbox-module-promotion`, drafted];
+(2) worker HTTP server (`/v1/render`, `/v1/health`, 12-factor, HA-agnostic);
+(3) standalone amd64 Dockerfile with matplotlib; (4) codegen path in the model
+provider + real repair model; (5) end-to-end proof + reliability eval. The hard
+parts already exist (the sandbox and the integration-side worker client);
+the missing piece is the worker server.
+
+**Deployment:** standalone Docker on CT103/10.0.1.39 (the ollama box), amd64,
+GPU-less, deployed via the homelab `docker_host` Ansible role (two-repo split:
+Isolinear publishes the image, homelab deploys it; the HA add-on for other users
+is a later aarch64 packaging wrapper, deferred). All of this lives on branch
+`adr-0029-worker-codegen-eval` (planning committed, not pushed; no integration
+code changed yet).
+
+---
+
 MVP design phase closed. The first production Home Assistant custom integration
 scaffold, config-flow/options surface, dashboard resource registration surface,
 WebSocket command registration surface, job state scaffold, approved entity

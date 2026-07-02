@@ -85,4 +85,7 @@ artifact
 ## Evidence
 
 The implementing slice produces raw outputs from
-`tests/test_codegen_sandbox_anchor.py` and `evals/codegen_sandbox.py`.
+`tests/test_codegen_sandbox.py` and `evals/codegen_sandbox.py`. (The original
+anchor test `tests/test_codegen_sandbox_anchor.py` was retired when the sandbox
+was promoted to the `isolinear_worker` package — see ADR-0029 and
+`codegen-sandbox-module-promotion-bdd.md`.)

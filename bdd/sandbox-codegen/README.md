@@ -33,8 +33,9 @@ Scenarios for sandboxed code generation, matplotlib rendering, and safety checks
 
 Evidence for these scenarios is produced by:
 
-- `tests/test_codegen_sandbox_anchor.py` — Sandbox policy, static checks,
-  fixed entry point, output limits, and capped repair-loop unit coverage
+- `tests/test_codegen_sandbox.py` — Sandbox policy, static checks,
+  fixed entry point, output limits, and capped repair-loop unit coverage,
+  driven through the promoted `isolinear_worker.codegen_sandbox` public API
 - `evals/codegen_sandbox.py` — Deterministic raw CASE evidence for the paired BDD
 - `docs/evals/codegen_repair_loop.yaml` (outline) — Legacy eval outline for
   codegen failure and repair attempts

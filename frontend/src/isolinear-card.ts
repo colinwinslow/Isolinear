@@ -258,6 +258,7 @@ export class IsolinearCard extends LitElement {
           <img data-testid="chart-image" src=${snapshot.chart?.image_url ?? ""} alt=${snapshot.chart?.title ?? "Generated chart"}>
           <div class="result-meta">
             <h3>${snapshot.chart?.summary ?? snapshot.chart?.title}</h3>
+            ${this.renderRenderPathNotice(snapshot)}
             ${this.renderLegend(snapshot)}
           </div>
         </section>
@@ -309,6 +310,20 @@ export class IsolinearCard extends LitElement {
           </button>
         </div>
       </div>
+    `;
+  }
+
+  private renderRenderPathNotice(snapshot: IsolinearJobSnapshot) {
+    // ADR-0030: surface the Pillow fallback — never silent. An explicit
+    // pillow render_path (no reason) needs no notice.
+    const reason = snapshot.chart?.render_fallback_reason;
+    if (!reason) {
+      return nothing;
+    }
+    return html`
+      <p class="render-fallback" data-testid="render-fallback-notice" title=${`Reason: ${reason}`}>
+        Rendered by the built-in chart renderer (advanced renderer unavailable: ${reason})
+      </p>
     `;
   }
 
@@ -679,6 +694,13 @@ export class IsolinearCard extends LitElement {
     .clarification {
       display: grid;
       gap: 10px;
+    }
+
+    /* ADR-0030: surfaced Pillow-fallback notice under the caption. */
+    .render-fallback {
+      color: var(--warning-color, #b26b00);
+      font-size: 12px;
+      margin: 0;
     }
 
     /* ADR-0025 R5: live model reasoning in the chart slot during the wait —

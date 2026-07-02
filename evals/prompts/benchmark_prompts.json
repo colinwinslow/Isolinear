@@ -1,0 +1,69 @@
+{
+  "schema": "isolinear-benchmark-prompts/v1",
+  "description": "A corpus of REAL natural-language prompts that have actually been used against Isolinear during development (harvested from BDD evidence, evals, tests, STATUS/HANDOFF, and git history). Intended as a shared, stable set for testing and model benchmarking — planner quality, entity selection, render-family routing, and (ADR-0029) codegen accept/reject/repair rates.",
+  "provenance": "Assembled 2026-07-01 by trawling the working tree + full git history of the isolinear repo. Each prompt below appeared verbatim (or near-verbatim) in a captured artifact; `expect` is the intended/observed system behavior, not a guarantee.",
+  "how_to_use": "Load `prompts`. For planner/selection benchmarking, feed `prompt` and score against `expect.render_family` / `expect.behavior`. For ADR-0029 codegen benchmarking, run the resolved ChartSpec+data through generate_chart_code -> worker sandbox and tally accept/reject/repair per model. `category` groups by capability; `edge` flags non-happy-path cases.",
+  "render_families": {
+    "time_series": "numeric line chart(s) over time (ADR-0022)",
+    "time_series_overlay": "one numeric primary + one/more binary entities shaded as intervals behind it (ADR-0022 D4/D5)",
+    "timeline": "binary/categorical step track(s), no numeric axis (ADR-0022)",
+    "histogram": "distribution of a single numeric entity (ADR-0023)",
+    "aggregate_bar": "grouped aggregate (mean/min/max/sum/count) per period (ADR-0023)",
+    "clarification": "genuinely ambiguous -> the planner asks, never guesses (invariant #1)",
+    "refuse": "out of scope for the read-only MVP (e.g. mutation) -> decline / clarify (invariant #2)"
+  },
+  "prompts": [
+    {"id": "ts-01", "prompt": "Show the upstairs temperature", "category": "single_numeric", "expect": {"render_family": "time_series"}},
+    {"id": "ts-02", "prompt": "Show upstairs temperature for the last day", "category": "single_numeric", "expect": {"render_family": "time_series", "window": "24h"}},
+    {"id": "ts-03", "prompt": "Show the bathroom temperature", "category": "single_numeric", "expect": {"render_family": "time_series"}},
+    {"id": "ts-04", "prompt": "Show the family room temperature", "category": "single_numeric", "expect": {"render_family": "time_series"}},
+    {"id": "ts-05", "prompt": "Show office temperature", "category": "single_numeric", "expect": {"render_family": "time_series"}},
+    {"id": "ts-06", "prompt": "show kitchen temperature today", "category": "single_numeric", "expect": {"render_family": "time_series", "window": "today"}},
+    {"id": "ts-07", "prompt": "show humidity", "category": "single_numeric", "expect": {"render_family": "time_series"}},
+    {"id": "ts-08", "prompt": "Show me the temperature over time", "category": "single_numeric", "expect": {"render_family": "time_series"}},
+
+    {"id": "win-01", "prompt": "show upstairs temperature overnight", "category": "relative_window", "edge": true, "expect": {"render_family": "time_series", "window": "overnight (fuzzy)"}},
+    {"id": "win-02", "prompt": "attic temperature last weekend", "category": "relative_window", "edge": true, "expect": {"render_family": "time_series", "window": "last weekend (fuzzy, model-resolved ADR-0020)"}},
+    {"id": "win-03", "prompt": "Show me the attic temperature over the last 46 hours", "category": "relative_window", "expect": {"render_family": "time_series", "window": "46h"}},
+    {"id": "win-04", "prompt": "show me the kitchen door state over the last four hours", "category": "relative_window", "expect": {"render_family": "timeline", "window": "4h"}},
+    {"id": "win-05", "prompt": "show me the distribution of upstairs temperature this week", "category": "relative_window", "expect": {"render_family": "histogram", "window": "this week"}},
+
+    {"id": "cmp-01", "prompt": "Compare upstairs and downstairs temperatures", "category": "multi_numeric", "expect": {"render_family": "time_series", "series": 2}},
+    {"id": "cmp-02", "prompt": "Compare upstairs and downstairs temperatures over the last 24 hours", "category": "multi_numeric", "expect": {"render_family": "time_series", "series": 2, "window": "24h"}},
+
+    {"id": "ov-01", "prompt": "Show the family room temperature and when the AC was running", "category": "numeric_binary_overlay", "expect": {"render_family": "time_series_overlay"}},
+    {"id": "ov-02", "prompt": "show kitchen temp and when the AC was running", "category": "numeric_binary_overlay", "edge": true, "expect": {"render_family": "time_series_overlay"}, "notes": "Historically triggered entity-selection over-composition ('kitchen' noise-matched the ecobee temp sensor); fixed by ADR-0028 model-validated composition prune."},
+    {"id": "ov-03", "prompt": "show me the temperature and when the AC was running", "category": "numeric_binary_overlay", "expect": {"render_family": "time_series_overlay"}},
+    {"id": "ov-04", "prompt": "show me maren's room temperature and when the AC was running", "category": "numeric_binary_overlay", "edge": true, "expect": {"render_family": "time_series_overlay"}, "notes": "'AC' has no token overlap with the ecobee entity name; historically needed D2 expansion / semantic alias (ADR-0024)."},
+    {"id": "ov-05", "prompt": "show me the kitchen temperature yesterday and when the kitchen door was open", "category": "numeric_binary_overlay", "expect": {"render_family": "time_series_overlay", "window": "yesterday"}},
+    {"id": "ov-06", "prompt": "kitchen temperature and the front door", "category": "numeric_binary_overlay", "edge": true, "expect": {"render_family": "time_series_overlay"}},
+
+    {"id": "tl-01", "prompt": "when was the kitchen door open today", "category": "binary_timeline", "edge": true, "expect": {"render_family": "timeline", "window": "today"}, "notes": "Historically failed via over-composition with a temp sensor; ADR-0028."},
+    {"id": "tl-02", "prompt": "show me when the kitchen door was open this morning", "category": "binary_timeline", "expect": {"render_family": "timeline", "window": "this morning"}},
+    {"id": "tl-03", "prompt": "Mark when the dishwasher was running over the last day", "category": "binary_timeline", "expect": {"render_family": "timeline", "window": "24h"}},
+    {"id": "tl-04", "prompt": "when was the air conditioning on", "category": "binary_timeline", "expect": {"render_family": "timeline"}},
+    {"id": "tl-05", "prompt": "show me the air conditioning", "category": "binary_timeline", "edge": true, "expect": {"render_family": "timeline"}, "notes": "Terse; a climate/binary entity, no explicit metric."},
+
+    {"id": "dist-01", "prompt": "show the distribution of bathroom temp", "category": "distribution_histogram", "expect": {"render_family": "histogram"}},
+    {"id": "dist-02", "prompt": "show distribution of upstairs temp", "category": "distribution_histogram", "expect": {"render_family": "histogram"}},
+
+    {"id": "agg-01", "prompt": "what's the average temperature per day", "category": "aggregate_bar", "expect": {"render_family": "aggregate_bar", "group_by": "day", "op": "mean"}},
+    {"id": "agg-02", "prompt": "what's the average upstairs temperature per day", "category": "aggregate_bar", "expect": {"render_family": "aggregate_bar", "group_by": "day", "op": "mean"}},
+    {"id": "agg-03", "prompt": "family room average temperature per day", "category": "aggregate_bar", "expect": {"render_family": "aggregate_bar", "group_by": "day", "op": "mean"}},
+
+    {"id": "eid-01", "prompt": "Show sensor.upstairs_temperature for the last 24 hours", "category": "explicit_entity_id", "expect": {"render_family": "time_series", "window": "24h"}},
+    {"id": "eid-02", "prompt": "Show sensor.family_room_sensor_temperature", "category": "explicit_entity_id", "expect": {"render_family": "time_series"}},
+    {"id": "eid-03", "prompt": "Show binary_sensor.kitchen_door for the last 24 hours", "category": "explicit_entity_id", "expect": {"render_family": "timeline", "window": "24h"}},
+    {"id": "eid-04", "prompt": "Show sensor.upstairs_temperature binary_sensor.kitchen_door for the last 24 hours", "category": "explicit_entity_id", "expect": {"render_family": "time_series_overlay", "window": "24h"}},
+
+    {"id": "amb-01", "prompt": "upstairs temperature", "category": "ambiguous_clarification", "edge": true, "expect": {"render_family": "clarification"}, "notes": "Three upstairs temperature sensors -> planner asks 'Should I average them and call that upstairs temperature?' (invariant #1)."},
+    {"id": "amb-02", "prompt": "Show the temperature", "category": "ambiguous_clarification", "edge": true, "expect": {"render_family": "clarification"}, "notes": "Which temperature entity? Depends on the configured allowlist."},
+    {"id": "amb-03", "prompt": "show thermostat history", "category": "ambiguous_clarification", "edge": true, "expect": {"render_family": "clarification"}, "notes": "Underspecified; thermostat exposes multiple attributes/entities."},
+
+    {"id": "alias-01", "prompt": "Use and remember as upstairs temperature", "category": "semantic_alias", "edge": true, "expect": {"behavior": "save SemanticAlias on clarification answer (ADR-0009, Tranche 2)"}, "notes": "Follow-up to an entity clarification; a reworded prompt should then skip clarification."},
+
+    {"id": "neg-01", "prompt": "Turn on the kitchen lights", "category": "out_of_scope_refuse", "edge": true, "expect": {"render_family": "refuse"}, "notes": "Mutation request; the read-only MVP must not act (invariant #2)."},
+    {"id": "neg-02", "prompt": "Show light.kitchen compared with the approved climate sensor", "category": "out_of_scope_refuse", "edge": true, "expect": {"render_family": "clarification"}, "notes": "Mixes a non-charted/likely-unapproved entity with an approved one; allowlist boundary applies (invariant #1)."},
+    {"id": "neg-03", "prompt": "Render unsupported energy histogram", "category": "unsupported", "edge": true, "expect": {"behavior": "fail closed with a clear unsupported result, not a bad render"}}
+  ]
+}

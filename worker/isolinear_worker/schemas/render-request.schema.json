@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/render-request.schema.json",
+  "title": "RenderRequest",
+  "type": "object",
+  "required": [
+    "request_id",
+    "render_mode",
+    "chart_spec",
+    "history_series"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "type": "string"
+    },
+    "render_mode": {
+      "enum": [
+        "safe",
+        "codegen",
+        "auto"
+      ]
+    },
+    "chart_spec": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "history_series": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "derived_intervals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "default": []
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "enum": [
+            "png",
+            "svg"
+          ],
+          "default": "png"
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 320,
+          "maximum": 4096,
+          "default": 1400
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 240,
+          "maximum": 4096,
+          "default": 800
+        }
+      },
+      "default": {}
+    },
+    "theme": {
+      "type": "object",
+      "additionalProperties": true,
+      "default": {}
+    },
+    "codegen": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "python_code": {
+          "type": "string"
+        },
+        "max_repair_attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5,
+          "default": 2
+        }
+      }
+    }
+  }
+}

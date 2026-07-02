@@ -47,7 +47,7 @@ These are the non-negotiable rules of Isolinear. Every diff is checked against t
 
 5. **Deterministic plan validation** — Plans pass a validation gate (pre-render) that checks schema validity and entity allowlist membership. Invalid or hidden-entity plans return a clear failure, not a render attempt. (ADR-0006)
 
-6. **Chart-spec-first rendering** — Prefer rendering through the trusted chart-spec renderer. Sandboxed codegen is an opt-in advanced path, not the default. Generated code must implement a validated ChartSpec, use a fixed entry point and output path, pass static safety checks, and cap retry loops. (ADR-0004, ADR-0008)
+6. **Codegen-primary, fallback-safe rendering** — Sandboxed matplotlib codegen via the worker is the primary render path when a healthy worker is configured; the trusted Pillow chart-spec renderer is the fallback (no worker, worker unhealthy, repair exhaustion — fallback is surfaced, never silent) and remains available as an explicit option. Generated code implements a validated ChartSpec, uses a fixed entry point and output path, passes static safety checks on every attempt, and runs only in the sandbox with a capped repair loop. (ADR-0030, ADR-0008)
 
 7. **Semantic memory is deterministic** — Saved aliases (SemanticAlias records) are deterministic and reusable. Invalidated aliases (entity unavailable, no longer allowlisted) do not silently reuse; they trigger clarification or a `cannot_resolve` result. (ADR-0009)
 
@@ -143,12 +143,11 @@ npm run build                                      # type-check + Vite bundle
 
 ## What is out of scope (now)
 
-- Home Assistant custom integration implementation (deferred until MVP design phase closes)
-- Persistent semantic-memory storage-helper implementation, migrations, and repair UI beyond the completed envelope contract
-- Exact dashboard card implementation technology
-- Exact worker API transport and authentication
-- Exact sandbox implementation details for Raspberry Pi compatibility
-- Which chart primitives are included in the first trusted renderer release
+- Home Assistant mutation of any kind (invariant #2 — MVP is read-only)
+- Multi-arch worker image builds and HA add-on packaging/ingress (deferred, not boxed out — ADR-0029)
+- Semantic-memory migrations and repair UI beyond the shipped save/load/match tranches
+- Visual-match validation of rendered charts (`visual_validator_model` — planned direction, not yet specced)
+- Floorplan heatmap renderer (open queue; needs user-provided geometry)
 
 ## When in doubt
 
