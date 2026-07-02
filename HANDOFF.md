@@ -2,6 +2,57 @@
 
 ## Current project phase
 
+### 2026-07-02 (2nd session) — ADR-0029 resolved KEEP; ADR-0030: matplotlib codegen is the primary render path; the simulated scaffold is purged
+
+The human resolved the ADR-0029 kill condition on the packet-5 data: **KEEP**.
+The worker and the codegen path are permanent architecture. The same session
+recorded the larger direction change as **ADR-0030 (accepted)** and executed a
+project-wide cleanup.
+
+**ADR-0030 decides:** sandboxed **matplotlib codegen is the PRIMARY render
+path** when a healthy worker is configured; the **Pillow renderer becomes the
+fallback** (no worker / unhealthy / repair exhaustion — always surfaced in
+render metadata and the card, never silent) and remains an explicit option.
+The **ChartSpec stays the validated planning contract and the data boundary**
+(invariants #1/#3/#4/#5 unchanged). The **model is empowered to transform data
+in generated code** — cross-series math (e.g. averaging two sensors),
+resampling, derived series — instead of growing the closed ChartSpec transform
+enum (which the Pillow renderer never implemented anyway: every operation but
+`none` returns `transform_not_supported`). **pandas** is added to the worker
+image; the **sandbox memory cap rises 256MB → 1024MB**; and **every sandbox
+failure class is repairable, including static security rejections** — bounded
+by `max_codegen_repair_attempts`, with the full static check + sandbox re-run
+on every attempt (the boundary still enforces; repair just gets another try at
+the gate). `CLAUDE.md` invariant #6 is rewritten accordingly.
+
+**The purge (commit `f8f7760`):** the entire pre-pivot simulated universe is
+deleted — `src/Isolinear/` (~15K LOC of `*_anchor.py` verifiers + the
+3,334-line `fake_slice.py`), 29 anchor test files, 48 fake-path evals, and 23
+`*scaffold-spec.md` docs: **135 files, ~40,156 deletions**. Production code
+imported none of it (verified; only docstring mentions remain). The suite drops
+from 623 to **309 passed / 4 skipped (~7s)** — the deleted half tested only the
+deleted scaffold. The 7 real-path evals (`codegen_*`,
+`composition_membership_prune`, `model_resolved_window_data_source`,
+`timeline_render_family_routing`, `worker_http_server`) plus `evidence.py`
+remain.
+
+**ADR consolidation (commit `255b0c3`, human-approved immutability exception):**
+0004 superseded by 0030 (its ChartSpec-contract half carried forward); 0029
+draft→accepted with the KEEP outcome recorded; 0018 + its spec draft→accepted
+(artifact serving has been implemented and live since ~0.1.20); 0015/0016
+deprecated and moved to `docs/decisions/archive/` (designed for the simulated
+worker — their runtime machinery in `custom_components/` still runs and is
+scheduled for simplification); 0017 labeled historical in the index.
+
+**Next packet — implement ADR-0030 in code:** (1) pandas into
+`worker/requirements.txt` + image rebuild on CT103; (2) memory cap 1024MB +
+update the `memory_limit_mb <= 256` test; (3) the repair policy in
+`job_orchestration.py` (packet-4 currently makes `unsafe_code` terminal);
+(4) flip the render default to codegen-primary with surfaced Pillow fallback
+(spec update + version bump). After that: the model-authored transforms spec;
+simplify the deprecated worker-durability machinery (~3.4K LOC); split the
+7.7K-line `job_orchestration.py`.
+
 ### 2026-07-02 — ADR-0029 packet 5 landed: the codegen reliability eval + sandbox codegen-friendliness fixes (the keep/remove data)
 
 Packet 5 produces the data the ADR-0029 keep/remove decision rests on: a
