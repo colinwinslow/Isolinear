@@ -2,6 +2,88 @@
 
 ## Current project phase
 
+### 2026-07-02 (3rd session) — ADR-0030 IMPLEMENTED in code (pandas, 1024MB cap, repair-everything, codegen-primary render default), version 0.2.1
+
+The ADR-0030 decisions are now real in code (the prior session only recorded the
+decisions + purged scaffold). Four bounded changes on branch
+`adr-0029-worker-codegen-eval`, all committed (`4532ba5`, `a038b9b`, `940887b`):
+
+1. **pandas + 1024MB cap (`4532ba5`, worker-only).** `pandas>=2,<3` in
+   `worker/requirements.txt` + the sandbox import allowlist (exact-match,
+   alongside numpy); sandbox `memory_limit_mb` 256→1024 (the schema already
+   permitted 1024 — no schema change; the Pi-compat test now pins 1024 and
+   asserts pandas is allowlisted). **Proven LIVE on CT103** (root SSH from
+   claude-box; `docker build` via `tar | ssh`, rsync absent on the host): image
+   rebuilt **526MB** (was 419MB), in-container worker suite **27 passed, zero
+   skips**, and a real pandas `resample("1h").mean()` render returned a valid
+   PNG over `POST /v1/render` under the new cap (eyes-on verified). CT103 left
+   clean — throwaway container + `/tmp/iw-build` removed; only the rebuilt
+   `isolinear-worker:dev` image retained beside the compose-managed
+   ollama/frigate/plex/caddy. (Note: the homelab `docker_host` role has since
+   LANDED — the earlier coordination dependency is resolved; deploying the
+   worker as a compose service is now an available homelab follow-up.)
+
+2. **Repair-everything (`a038b9b`, integration).** The packet-4 `unsafe_code`-
+   is-terminal rule is gone: every sandbox failure class is repairable, bounded
+   by `max_codegen_repair_attempts`; the worker re-runs the full static check +
+   sandbox on every fresh dispatch, so the security boundary still enforces —
+   repair only gets another try at the gate, never around it. `unsafe_code`
+   through exhaustion still terminates (now → fallback, see #3).
+   `CODEGEN_TERMINAL_SANDBOX_ERROR_CODES` deleted.
+
+3. **Codegen-primary render default (`940887b`, integration + card, 0.2.0→0.2.1).**
+   The `codegen_enabled` opt-in boolean is replaced by a **`render_path` select
+   (`auto` | `pillow`, default `auto`)**; legacy stored `codegen_enabled` values
+   are dropped to `auto` on options normalization. With `auto` + a worker +
+   planner, codegen renders; **codegen failures (generation failure, repair
+   exhaustion incl. persistent `unsafe_code`, worker transport fault) now FALL
+   BACK to the trusted Pillow renderer and COMPLETE the job — surfaced, never
+   silent**: the artifact + snapshot `chart` carry `render_path` +
+   `render_fallback_reason` (additive optional fields on both synced copies of
+   the artifact-metadata + job-snapshot schemas), and the Lit card renders a
+   warning-colored fallback notice under the caption. An explicit
+   `render_path: pillow` renders in-process with **no** fallback reason (a
+   choice is not a fallback). This supersedes packet-4's fail-closed
+   `codegen_render_failed` posture (whose only purpose was keeping the packet-5
+   eval unpolluted — that eval has run and ADR-0029 is decided KEEP; silent
+   masking is still forbidden, hence the mandatory surfacing).
+
+**Invariant #6 rewritten in BOTH `AGENTS.md` and `CLAUDE.md`** to
+"Codegen-primary, fallback-safe rendering" (ADR-0030, ADR-0008) — the prior
+session updated CLAUDE.md only; the stale AGENTS.md copy (still "chart-spec-
+first … codegen is an opt-in advanced path") was caught + aligned at this
+closeout. The two files are now byte-identical for #6.
+
+**Verification:** full suite **312 passed / 4 skipped** (309 baseline + 3 net
+new codegen tests); frontend **23 passed** (2 new fallback-notice tests);
+`codegen-generation-path` spec + BDD + evidence revised (10 scenarios A/B/C/D/
+D2/E/F/G/H/I, raw outputs, timestamped); all six touched evals PASS
+(`codegen_sandbox`, `codegen_generation_path`, `worker_http_server`,
+`timeline_render_family_routing`, `composition_membership_prune`,
+`model_resolved_window_data_source`); schema byte-parity + bundle sync green;
+architecture review OK (no invariant violations; the flip executes accepted
+ADR-0030, no new ADR); BDD-evidence review OK. **NOT pushed** (commit-only per
+norms; ask before pushing).
+
+**DIRECTION PIVOT declared this session (Colin) — ADR-0031, not yet written:**
+with pandas + open-ended sandboxed codegen, Isolinear expands beyond charts to
+answer questions in **natural language** ("are the upstairs and downstairs
+temps correlated?" → "Yes — the correlation coefficient is 0.42"), computed by
+the worker. Decisions captured: **always answer + supporting chart** in the
+first slice (so `answer_text` is purely additive — the PNG pipeline is
+untouched); the **grounding principle** that the generated code both computes
+AND formats the answer sentence (f-string over computed values — the number
+can't be hallucinated; same trust level + repair loop as charts, NOT a second
+free-text pass); **modality intent model-decided, deterministically validated**
+(invariant #9 intact — modality sits above chart-family routing); the
+**earlier-scoped transforms spec (cross-sensor math + smoothing) MERGES into
+ADR-0031** as the shared compute layer; **TTS deferred** (card-side browser
+speech is read-only-safe; HA TTS service calls collide with invariant #2 — its
+own decision). **Next packet = write ADR-0031 + spec `model-authored-analysis`
++ BDD (draft), then implement.** The runner's `render_chart` metadata dict is
+the wire for the answer (no sandbox change); render-result/artifact/snapshot
+gain optional `answer_text`; the card promotes the caption slot.
+
 ### 2026-07-02 (2nd session) — ADR-0029 resolved KEEP; ADR-0030: matplotlib codegen is the primary render path; the simulated scaffold is purged
 
 The human resolved the ADR-0029 kill condition on the packet-5 data: **KEEP**.
