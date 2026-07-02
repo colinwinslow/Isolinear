@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 date: 2026-06-13
 depends-on-adrs:
   - 0001

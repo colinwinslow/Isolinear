@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR-0030](0030-matplotlib-codegen-primary-render-path.md)
+(2026-07-02). The ChartSpec-as-central-contract half of this decision carries
+forward unchanged; the trusted-renderer-as-default half is inverted — sandboxed
+matplotlib codegen is now the primary render path.
 
 ## Context
 

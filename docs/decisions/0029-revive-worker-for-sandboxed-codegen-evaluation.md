@@ -1,7 +1,7 @@
 ---
 id: 0029
 title: Revive isolated worker to evaluate sandboxed model-generated chart codegen
-status: draft
+status: accepted
 date: 2026-06-30
 supersedes: []
 superseded-by: null
@@ -124,9 +124,15 @@ whether codegen works.
 
 ## Acceptance evidence
 
-<!-- To be filled on the build branch:
-     1. A real prompt → model-generated matplotlib → sandboxed PNG, served
-        through the existing artifact path.
-     2. A codegen reliability eval over N prompts: accept / reject / repair
-        rates from a 3060-class local model. This eval is the data the
-        keep/remove decision rests on. -->
+**Outcome (2026-07-02): KEEP.** The packet-5 reliability eval
+(`evals/codegen_reliability.py`, gallery `evals/prompts/reliability_report.md`,
+landed `9320cf0`) ran the 42-prompt benchmark corpus (35 chartable) through
+`gemma4:e4b` and `qwen2.5-coder:7b` against the live CT103 worker sandbox:
+**both models accepted 33/35 (~94%, 3 recoveries via repair each)** with zero
+sandbox false positives — all 4 remaining rejects were legitimate (one
+forbidden `locals()`, two genuine numpy type bugs, one output-missing). A real
+matplotlib chart was also rendered end-to-end over HTTP on CT103 during
+packet 3. The human resolved the kill condition to **keep** on 2026-07-02;
+the follow-on render-strategy decisions (codegen primary, pandas, memory cap,
+repair policy) are recorded in
+[ADR-0030](0030-matplotlib-codegen-primary-render-path.md).

@@ -1,7 +1,7 @@
 ---
 id: 0016
 title: Durable worker token lifecycle
-status: draft
+status: deprecated (2026-07-02; never promoted past draft)
 date: 2026-06-13
 supersedes: []
 superseded-by: null
