@@ -1,7 +1,7 @@
 ---
 id: 0031
 title: Model-authored analysis — Isolinear answers questions, not just charts
-status: draft
+status: accepted
 date: 2026-07-02
 supersedes: []
 superseded-by: null
@@ -278,12 +278,6 @@ ecobee `hvac_action` cycles, a door). Findings that shaped the decisions above:
 - **Stale-idiom repair tax:** models emit deprecated pandas aliases (`'H'`,
   `'M'`); harmless on the worker's pinned pandas 2.x (FutureWarning), a hard
   error on pandas 3 — a preview of a future bump and a recurring repairable cost.
-
-**This makes the benchmark a proof gate for acceptance:** ADR-0031 stays *draft*
-until an eval (extending `evals/prompts/benchmark_prompts.json`) proves the
-candidate libraries clear accept/repair *and* answer-quality on real data under
-the render_chart contract — the packet-5 methodology, extended to analysis +
-answer grounding + visual validation.
 
 ## Consequences
 

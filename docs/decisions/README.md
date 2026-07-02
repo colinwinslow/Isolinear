@@ -57,7 +57,7 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0028 — `Model-validated composition membership for overlay/timeline selection`
 - 0029 — `Revive isolated worker to evaluate sandboxed model-generated chart codegen` (outcome: KEEP — see 0030)
 - 0030 — `Matplotlib codegen is the primary render path; Pillow becomes the fallback` (supersedes 0004)
-- 0031 — `Model-authored analysis — Isolinear answers questions, not just charts` (draft)
+- 0031 — `Model-authored analysis — Isolinear answers questions, not just charts` (accepted)
 
 ## Archived ADRs (`archive/`)
 
