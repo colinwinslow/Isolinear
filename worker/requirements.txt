@@ -3,4 +3,5 @@
 # generated code imports matplotlib inside the isolated `-I` subprocess. The
 # repo dev .venv already provides matplotlib so the promotion tests can run.
 matplotlib>=3.7,<4
+pandas>=2,<3
 jsonschema>=4,<5

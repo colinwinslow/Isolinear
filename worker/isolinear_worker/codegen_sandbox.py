@@ -322,6 +322,7 @@ def default_codegen_sandbox_policy() -> dict[str, Any]:
             "matplotlib.dates",
             "matplotlib.pyplot",
             "numpy",
+            "pandas",
             "statistics",
             "struct",
             "typing",
@@ -357,7 +358,7 @@ def default_codegen_sandbox_policy() -> dict[str, Any]:
         ],
         "timeout_seconds": 10,
         "cpu_seconds": 10,
-        "memory_limit_mb": 256,
+        "memory_limit_mb": 1024,
         "max_output_bytes": 1_000_000,
         "network_access": "denied",
         "filesystem": {

@@ -75,9 +75,10 @@ class CodegenSandboxModuleTests(unittest.TestCase):
         self.assertEqual(policy["network_access"], "denied")
         self.assertEqual(policy["filesystem"]["write_policy"], "fixed_output_path_only")
         self.assertFalse(policy["environment"]["inherit_parent_environment"])
-        self.assertLessEqual(policy["memory_limit_mb"], 256)
+        self.assertEqual(policy["memory_limit_mb"], 1024)
         self.assertIn("-I", policy["python_flags"])
         self.assertIn("matplotlib.pyplot", policy["allowed_imports"])
+        self.assertIn("pandas", policy["allowed_imports"])
 
     # Scenario B (sandbox-codegen) — safe code renders a real PNG through the
     # fixed output path, with no matplotlib dependency.
