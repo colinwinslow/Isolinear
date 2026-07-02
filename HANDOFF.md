@@ -2,6 +2,61 @@
 
 ## Current project phase
 
+### 2026-07-02 (4th session) — ADR-0031 DRAFTED + hardened by a real-data benchmark; direction: Isolinear answers questions, not just charts
+
+Exploration + design session (no integration code changed; branch
+`adr-0029-worker-codegen-eval`, all pushed through `ac71de8`). **ADR-0031
+(`docs/decisions/0031-model-authored-analysis.md`, status: DRAFT) — to be
+ACCEPTED next session, then spec + BDD.** The direction: with pandas +
+open-ended sandboxed codegen, Isolinear becomes a plain-language data analyst
+for the house — a question gets a **grounded natural-language answer + a
+supporting chart**, both computed by the worker.
+
+**ADR-0031 decisions (9):** (1) identity expands visualization→analysis;
+(2) first slice = always answer + chart (`answer_text` additive, PNG pipeline
+untouched); (3) **grounding principle** — generated code computes AND formats
+the answer (placeholders filled in-sandbox; the number can't be hallucinated),
+extended to qualitative verdicts (compute the "Yes/No", don't assert it);
+enforced by prompt + eval backstop, not structural decomposition (capability-
+floor rationale: gemma4:e4b is the baseline, everyone runs that or better);
+(4) modality model-decided, deterministically validated (invariant #9 intact);
+(5) the ADR-0030 transforms scope merges in as tranche 1 (cross-sensor math +
+smoothing); (6) library allowlist principle (training-saturation + pure-compute
++ genuinely-new) → **add scipy + seaborn** now, statsmodels/sklearn tier-2,
+plotly/prophet/duckdb rejected; (7) TTS deferred; (8) **two-part quality
+validation** — deterministic answer-grounding check (broken numbers) + a
+**capability-gated visual validator** (broken pictures), with a
+**progressive-verification UX** (show first render immediately + "Checking our
+work…" indicator, verify in place, REVISE→"found something off, revising now"
++ bounded repair, fail-soft); (9) **normalize timestamps at the data boundary**
+(hand the model epoch ints, never raw ISO).
+
+**The benchmark (committed `evals/analysis_benchmark/`; real HA data + generated
+code GITIGNORED as private).** 16 prompts × gemma4:e4b + qwen2.5-coder:7b,
+generated `render_chart` code **executed against 7 days of real HA history**
+(16 entities pulled via the HA REST API, token from the ha-access memory).
+Findings that became decisions 6/8/9: **with a clean epoch-ms contract, gemma
+12–13/16, qwen 7–11/16** (both ≈2/16 on a raw-ISO-timestamp contract — the
+dominant failure was ONE `pandas.to_datetime` format-inference gotcha on HA's
+mixed-precision timestamps, NOT model incompetence; only `format='ISO8601'`
+fixes it, and epoch-ms erased the whole class). **accept≠quality reconfirmed
+hard** (flat-zero seasonal decompose, single-point `r=nan` scatter, `0.00 °F/hr`
+cooling all "passed" execution). **Both validators demonstrated live:**
+multimodal gemma (has `vision`; qwen-coder does NOT — checked via Ollama
+`/api/show`) flagged the flat-zero decompose that execution + answer-text
+missed; a structured checklist prompt beat a vague one; the visual-repair loop
+fixed the decompose end-to-end. The benchmark is ADR-0031's **acceptance proof
+gate**.
+
+**Parked stub (STATUS open-queue (l)):** conversational refinement + saved
+live-refresh dashboard cards (integration-scheduled, no model in the refresh
+loop; axes-drift open question).
+
+**Next session:** accept ADR-0031 → write `docs/specs/model-authored-analysis.md`
++ paired BDD (contract surfaces: `answer_text` + `verification_status` schema
+fields, epoch-timestamp render-data shape, the validator config gate +
+checklist prompt, benchmark-gate proof requirements) → implementation packets.
+
 ### 2026-07-02 (3rd session) — ADR-0030 IMPLEMENTED in code (pandas, 1024MB cap, repair-everything, codegen-primary render default), version 0.2.1
 
 The ADR-0030 decisions are now real in code (the prior session only recorded the
