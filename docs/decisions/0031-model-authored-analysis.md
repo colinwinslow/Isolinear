@@ -55,13 +55,35 @@ the trust model for generated code shipped with ADR-0029/0030.
    responses (no chart) are a later tranche behind their own schema decision.
 
 3. **Grounding principle (load-bearing): the generated code computes AND
-   formats the answer.** The answer sentence is assembled *inside the sandbox*
-   from the computed values (e.g. an f-string over a `df.corr()` result), so
-   the numbers in the answer cannot be hallucinated — they are the computation.
-   The answer is **never** produced by a second free-text model pass over the
-   raw data. The model's failure mode is choosing a wrong approach — exactly
-   the trust level charts already have, covered by the same static checks,
-   sandbox, repair loop, and (future) validation.
+   formats the answer.** The model authors the natural-language sentence with
+   **placeholders** for data-derived parts; the sentence is assembled *inside
+   the sandbox at execution time* from computed variables (an f-string/`.format`
+   over e.g. a `df.corr()` result), so those parts cannot be hallucinated —
+   they are the computation. The answer is **never** produced by a second
+   free-text model pass over the raw data.
+
+   The guarantee extends past the raw number to **any claim contingent on the
+   data — including qualitative verdicts.** A placeholder grounds
+   `{corr:.2f}`; it does not ground the word "Yes" in
+   `f"Yes — they're correlated (r={corr:.2f})"` if the model asserted "Yes" at
+   generation time before seeing the data (it could print an honest `0.04`
+   under a false "Yes"). So the rule is: **every part of the sentence that is a
+   claim about the data — number or judgment — comes from a computed variable
+   (`verdict = "Yes" if abs(corr) > 0.3 else "Not really"`); the model's
+   free-text is limited to framing true regardless of the data** ("The
+   correlation coefficient is…", "Over the last 24 hours…").
+
+   This is **enforced by the prompt, not structurally** (resolved with the
+   human, 2026-07-02): the codegen prompt instructs the model to compute its
+   verdicts, and the grounding-check eval is the deterministic backstop
+   (compare stated claims against a reference computation). We deliberately do
+   **not** split the sentence into separate number+label metadata fields
+   assembled integration-side — that would drag back the closed-vocabulary
+   rigidity ADR-0030 just removed, and it over-invests in protecting against
+   sub-baseline model incompetence (see Rationale: capability floor). The
+   model's failure mode is choosing a wrong approach — exactly the trust level
+   charts already have, covered by the same static checks, sandbox, repair
+   loop, and (future) validation.
 
 4. **Output-modality intent is model-decided, deterministically validated.**
    The planner signals whether a prompt wants a picture, an answer, or both;
@@ -116,6 +138,18 @@ the trust model for generated code shipped with ADR-0029/0030.
   f-strings it into a sentence cannot misquote its own result. This confines
   model risk to approach selection — the identical risk profile the packet-5
   eval already measured at ~94% accept-with-repair for charts.
+- **Capability-floor assumption (shapes how much guardrail is worth building).**
+  `gemma4:e4b` — the smallest model in the packet-5 eval, running on Colin's
+  RTX 3060 — is treated as the **baseline**: every deployment is assumed to run
+  that or something better (a larger local model, or a cloud model that is
+  dramatically more capable). Effort spent structurally protecting the pipeline
+  against *sub-baseline* model incompetence is therefore misplaced — it buys
+  safety for a configuration that does not exist while re-introducing rigidity
+  the project has been removing. This is the explicit reason grounding is
+  enforced by prompt + eval backstop (decision 3) rather than by structural
+  decomposition, and it generalizes: prefer prompt guidance + a deterministic
+  backstop over hard-coded scaffolding whenever the baseline model can already
+  do the thing.
 - **The wire distance is short.** The runner's metadata return channel already
   exists (no sandbox change, no new entry point, no security-model change);
   the ADR-0027 caption slot already renders model-authored text; `answer_text`
@@ -168,8 +202,11 @@ the trust model for generated code shipped with ADR-0029/0030.
   (its only non-expert self-rating) — the eval corpus must exercise
   scipy-requiring prompts (lag correlation, curve_fit, find_peaks) so
   accept/repair rates decide, as packet 5 did for matplotlib.
-- Grounding-check eval design: assert the stated number matches a reference
-  computation, not just that the code ran.
+- Grounding-check eval design (enforcement backstop resolved to prompt + eval,
+  decision 3): assert not only that the stated **number** matches a reference
+  computation, but that the **qualitative verdict** is consistent with it (an
+  honest number under a false "Yes" must be caught) — not just that the code
+  ran. How to check a free-text verdict deterministically is the open part.
 - The answer-only tranche trigger and its schema surface.
 
 ## References
