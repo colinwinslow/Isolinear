@@ -44,6 +44,10 @@ deprecated and moved to `docs/decisions/archive/` (designed for the simulated
 worker — their runtime machinery in `custom_components/` still runs and is
 scheduled for simplification); 0017 labeled historical in the index.
 
+**Version: 0.1.49 → 0.2.0** (closeout addendum, human's call) — the minor bump
+marks the ADR-0030 direction change; `manifest.json` + `const.py` updated,
+suite re-verified green post-bump.
+
 **Next packet — implement ADR-0030 in code:** (1) pandas into
 `worker/requirements.txt` + image rebuild on CT103; (2) memory cap 1024MB +
 update the `memory_limit_mb <= 256` test; (3) the repair policy in
