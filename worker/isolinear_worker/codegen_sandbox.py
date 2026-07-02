@@ -324,6 +324,7 @@ def default_codegen_sandbox_policy() -> dict[str, Any]:
             "numpy",
             "statistics",
             "struct",
+            "typing",
             "zlib",
         ],
         "forbidden_imports": [
