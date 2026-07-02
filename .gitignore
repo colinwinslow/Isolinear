@@ -5,3 +5,9 @@ __pycache__/
 .test-output/
 .test-output/frontend-server.out
 .test-output/frontend-server.err
+
+# Analysis benchmark: real HA home data + generated code stay local (private)
+evals/analysis_benchmark/home_data.json
+evals/analysis_benchmark/ha_history_raw.json
+evals/analysis_benchmark/results.json
+evals/analysis_benchmark/runs/
