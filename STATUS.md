@@ -278,6 +278,34 @@ _(older sessions — ADR-0029 packet 3 Dockerfile (`6321215`) + packets 1–2, A
   static deferral-snapshot message) instead of "Planning chart…"; reasoning
   still streams. `apply_live_reasoning` should also normalize the message/stage
   to the active phase label on the entities-bearing planning snapshot.
+- (l) **STUB (Colin, 2026-07-02): conversational refinement + saved live
+  visualizations** — likely one or two future ADRs, after ADR-0031 lands.
+  (1) *Refinement:* back-and-forth with the model to refine a chart —
+  mechanically the codegen repair loop with human feedback instead of sandbox
+  errors (previous code + instruction → revised code). (2) *Saved live cards:*
+  "save" a refined visualization as `{generated python_code, entity_ids,
+  RELATIVE window, render policy}` in an integration-owned versioned store
+  (SemanticAlias-style, use-time invalidation when an entity leaves the
+  allowlist); the *integration* refreshes on a schedule (`async_track_time_
+  interval`) — re-fetch history through the allowlist path, re-resolve the
+  relative window deterministically, dispatch the SAVED code to the worker
+  (static check re-runs every dispatch; worker stays stateless, never queries
+  HA) — **no model call in the refresh cycle**. Refresh failures fail soft:
+  keep the last good render + a stale/error badge (bounded model-repair on
+  refresh failure = an ADR knob, lean no for slice 1). Card creation stays
+  user-driven (`custom:isolinear-card` in saved-viz mode pointing at a saved ID
+  — the integration does NOT write Lovelace config; invariant #2 intact).
+  Synergy with ADR-0031: the answer channel refreshes for free (live-updating
+  computed numbers, not just the PNG). Could ship saving before refinement
+  (one-shot "pin this"). **OPEN QUESTION (axes drift):** a viz created in
+  winter has winter-scaled temp axes; summer data will clip or cramp. Colin's
+  proposal: instruct the model to always write axis limits scaled to the
+  data's high/low. Alternatives to weigh in the ADR: just *omit* explicit
+  limits (matplotlib autoscales by default — simplest and robust) vs.
+  data-scaled-with-padding vs. fixed-at-creation; note autoscale makes a live
+  card's y-scale jump between refreshes (visual comparability suffers, can
+  exaggerate noise on quiet days) — maybe quantized/padded bounds, or a
+  refresh-time policy outside the generated code. Decide in the saved-viz ADR.
 
 ## Blockers
 
