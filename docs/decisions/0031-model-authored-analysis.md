@@ -167,6 +167,28 @@ the trust model for generated code shipped with ADR-0029/0030.
      flat-seasonal chart → flagged it → diagnosed the missing uniform resample →
      rewrote the code → re-rendered a correct decomposition with a real daily
      cycle.
+   - **Progressive-verification UX (resolves the latency concern).** The two
+     checks run at *different times* so the user never just waits: (a) the
+     **instant deterministic check gates the FIRST display** — a broken *number*
+     (`nan`/`0.00`/verdict mismatch) is caught before anything is shown; (b) the
+     **slow visual validator runs while the chart is already on screen.** The
+     card shows the first valid render immediately in a **provisionally-complete
+     state with a "Checking our work…" indicator** (it keeps polling
+     `job/snapshot` through this phase — extends the ADR-0025 poll-until-terminal
+     loop; the served-PNG URL already exists). On **PASS** it becomes verified
+     (indicator drops); on **REVISE** the card shows a user-facing message
+     (e.g. *"Isolinear found something off with this chart — revising it now"*;
+     the specific critique goes to diagnostics, not the user) and runs the
+     bounded visual-repair loop, re-rendering in place. **Fail-soft:** if it
+     never PASSes within the cap, surface the last render with a soft caveat —
+     never an infinite loop, never a blank wait (consistent with ADR-0030's
+     surfaced-never-silent fallback). This is **schema-touching**: the
+     job-snapshot gains a verification status (`verifying` | `revising` |
+     `verified`) and the card treats `verifying`/`revising` as non-terminal.
+     **Accepted tradeoff:** optimistic rendering may briefly show a chart that is
+     then revised (a *visually* degenerate one — broken numbers are already
+     gated out); the prominent "checking" indicator frames it as provisional,
+     which is preferred over a long blank wait.
 
 9. **The integration MUST normalize the timestamp representation at the data
    boundary — the model never parses raw Home Assistant timestamp strings.**
@@ -304,9 +326,11 @@ answer grounding + visual validation.
   computation, but that the **qualitative verdict** is consistent with it (an
   honest number under a false "Yes" must be caught) — not just that the code
   ran. How to check a free-text verdict deterministically is the open part.
-- Visual-validator cost/latency: it adds a multimodal round-trip (+ a repair
-  round when it flags) — spec should decide when it runs (always vs. only on
-  low-confidence / answer-bearing results) and its own bounded attempt cap.
+- Visual-validator cost/latency: **UX resolved** (decision 8 progressive
+  verification — show first render + "checking" indicator, verify in place,
+  fail-soft). Still spec-level: the bounded revise-attempt cap, and *whether*
+  the visual pass runs on every answer-bearing result or only some (e.g. skip it
+  for trivially-simple single-series line charts to save the round-trip).
 - The answer-only tranche trigger and its schema surface.
 
 ## References
