@@ -4,6 +4,9 @@ Scenarios (per spec docs/specs/answer-grounding-check.md):
   A  — Seeded false-Yes: verdict contradicts rule at reference → repair_contradicted
   B  — Grounded verdict passes end-to-end → verified
   C  — Parametric hours_above with window + threshold → verified
+  D  — Event anchors (tranche 2, §1a): fabricated event → anchor_unfound;
+       mismatched resolved_at → anchor_mismatch; a correctly re-detected
+       anchor → verified; an irreproducible-by-construction anchor → caveat
   E  — Unknown metric → unverified_caveat (never error)
   F  — Borderline non-flap: reference at band edge → pass (not a contradiction)
   G  — Sentence tripwire: answer starts yes/no, no claim carries verdict
@@ -33,6 +36,23 @@ def _series(entity_id: str, values: list, start_ms: int = 0, step_ms: int = 3_60
         "points": [
             {"ts_epoch_ms": start_ms + i * step_ms, "value": v}
             for i, v in enumerate(values)
+        ],
+    }
+
+
+def _raw_state_series(
+    entity_id: str,
+    states: list,
+    start_ms: int = 0,
+    step_ms: int = 3_600_000,
+    kind: str = "binary_state",
+) -> dict:
+    return {
+        "entity_id": entity_id,
+        "kind": kind,
+        "points": [
+            {"ts_epoch_ms": start_ms + i * step_ms, "raw_state": s}
+            for i, s in enumerate(states)
         ],
     }
 
@@ -188,6 +208,112 @@ class TestScenarioC:
         ref = result["diagnostics"]["claim_results"][0].get("details", {}).get("reference")
         assert ref is not None
         assert abs(ref - 2.0) < _TOLERANCE
+
+
+# ---------------------------------------------------------------------------
+# Scenario D — Event anchors (§1a): fabricated/mismatched/verified/irreproducible
+# ---------------------------------------------------------------------------
+
+class TestScenarioD:
+    """The fabricated-anchor artifact: a narrated event with no matching raw-state
+    transition must not ride through as an unverified caveat — it is positive
+    evidence of a contradiction (§3a), same tier as a value mismatch.
+    """
+
+    DOOR_NO_EVENT = _raw_state_series("binary_sensor.door", ["off", "off", "off"])
+    DOOR_ONE_EVENT = _raw_state_series("binary_sensor.door", ["off", "on", "off"])
+
+    def _anchor(self, resolved_at: int, entity: str = "binary_sensor.door") -> dict:
+        return {
+            "entity": entity,
+            "to": "on",
+            "from": "off",
+            "occurrence": 1,
+            "search": {"start": 0, "end": 7_200_000},
+            "resolved_at": resolved_at,
+        }
+
+    def test_fabricated_anchor_unfound(self):
+        """No 'off'->'on' transition exists anywhere → grounding_anchor_unfound,
+        contradicted, withheld — the fabricated-event proof requirement."""
+        claim = {
+            "metric": "mean",
+            "inputs": ["binary_sensor.door"],
+            "value": 1.0,
+            "window": {"anchor": self._anchor(3_600_000), "direction": "after", "duration_ms": 1_000_000},
+        }
+        result = run_grounding_check(
+            {"answer_text": "The door opened around then and stayed open a while.", "claims": [claim]},
+            [self.DOOR_NO_EVENT],
+        )
+        assert result["outcome"] == "repair_contradicted"
+        assert result["withheld"] is True
+        assert result["answer_verification"] == "unverified"
+        assert result["synthetic_error"]["code"] == "grounding_anchor_unfound"
+
+    def test_anchor_mismatch(self):
+        """A real transition exists, but not at the claimed resolved_at →
+        grounding_anchor_mismatch (identity, not just existence, per §1a-4)."""
+        claim = {
+            "metric": "mean",
+            "inputs": ["binary_sensor.door"],
+            "value": 1.0,
+            # real transition is at t=3_600_000; claim asserts a different instant
+            "window": {"anchor": self._anchor(999), "direction": "after", "duration_ms": 1_000_000},
+        }
+        result = _check_claim(claim, [self.DOOR_ONE_EVENT], {"binary_sensor.door"}, None)
+        assert result["outcome"] == "repair_contradicted"
+        assert result["code"] == "grounding_anchor_mismatch"
+
+    def test_verified_via_anchor(self):
+        """A correctly re-detected anchor resolves an absolute window that the
+        registry recompute independently confirms → verified, the strong
+        value↔data guarantee extended to an event-scoped claim."""
+        temp = _series("sensor.temp", [10.0, 20.0, 30.0])  # ts 0, 3.6M, 7.2M
+        claim = {
+            "metric": "mean",
+            "inputs": ["sensor.temp"],
+            "value": 20.0,
+            # door transitions off->on at t=3.6M; window [3.6M, 7.2M) keeps
+            # only the t=3.6M temp point (7.2M excluded, half-open) → mean 20.0
+            "window": {"anchor": self._anchor(3_600_000), "direction": "after", "duration_ms": 3_600_000},
+        }
+        result = run_grounding_check(
+            {"answer_text": "It was 20 degrees after the door opened.", "claims": [claim]},
+            [self.DOOR_ONE_EVENT, temp],
+        )
+        assert result["outcome"] == "verified"
+        assert result["answer_verification"] == "verified"
+
+    def test_irreproducible_out_of_kind_entity_is_caveat(self):
+        """Anchoring on a numeric (non-raw-state) entity is explicitly NOT
+        reproducible (§1a criterion 2) → unverified caveat, never attempted."""
+        claim = {
+            "metric": "mean",
+            "inputs": ["sensor.temp"],
+            "value": 1.0,
+            "window": {
+                "anchor": self._anchor(3_600_000, entity="sensor.temp"),
+                "direction": "after",
+                "duration_ms": 1_000_000,
+            },
+        }
+        result = _check_claim(claim, [_series("sensor.temp", [1.0, 2.0, 3.0])], {"sensor.temp"}, None)
+        assert result["outcome"] == "unverified_caveat"
+        assert result["code"] == "grounding_anchor_unreproducible"
+
+    def test_irreproducible_missing_search_is_caveat(self):
+        """An anchor missing search/occurrence is irreproducible by construction."""
+        anchor = {"entity": "binary_sensor.door", "to": "on"}  # no occurrence/search/resolved_at
+        claim = {
+            "metric": "mean",
+            "inputs": ["binary_sensor.door"],
+            "value": 1.0,
+            "window": {"anchor": anchor, "direction": "after", "duration_ms": 1_000_000},
+        }
+        result = _check_claim(claim, [self.DOOR_ONE_EVENT], {"binary_sensor.door"}, None)
+        assert result["outcome"] == "unverified_caveat"
+        assert result["code"] == "grounding_anchor_unreproducible"
 
 
 # ---------------------------------------------------------------------------
@@ -528,7 +654,10 @@ class TestRecipeCompleteness:
         assert result["outcome"] == "repair_soft"
         assert result["code"] == "grounding_recipe_incomplete"
 
-    def test_anchored_window_is_caveat(self):
+    def test_malformed_anchor_shape_is_caveat(self):
+        """A window carrying an 'anchor' key that isn't a proper §1a anchor dict
+        (here: a bare string) is irreproducible by construction → caveat, not
+        an attempted-and-failed check."""
         claim = {
             "metric": "mean",
             "inputs": ["sensor.t"],
@@ -538,7 +667,7 @@ class TestRecipeCompleteness:
         from custom_components.isolinear.answer_grounding import _check_claim
         result = _check_claim(claim, self.SERIES, {"sensor.t"}, None)
         assert result["outcome"] == "unverified_caveat"
-        assert result["code"] == "grounding_anchor_deferred"
+        assert result["code"] == "grounding_anchor_unreproducible"
 
     def test_nonfinite_value_contradicted(self):
         claim = {

@@ -2,6 +2,85 @@
 
 ## Current project phase
 
+### 2026-07-03 (7th session) — Sub-packet 4d implemented: event anchors (ADR-0031 D8a §1a), 0.2.4→0.2.5
+
+The last open piece of the answer-grounding check is now built. Packet 4's
+sub-packets 4a/4b/4c shipped last session (committed + pushed at session
+start, `4af08f1`); this session closes **4d — event anchors**, which the spec
+explicitly allowed to ship later since the claim `window` shape was already
+fixed. Branch `adr-0029-worker-codegen-eval`; **this session's work is
+uncommitted at handoff**.
+
+**The re-detection (`custom_components/isolinear/answer_grounding.py`).**
+Anchored windows (`window: {anchor, direction, duration_ms}`) previously
+short-circuited to a blanket `grounding_anchor_deferred` caveat. Now, per spec
+§1a, `_anchor_criteria_ok` checks all four reproducibility criteria — the
+anchor's `entity` is among the delivered series AND its raw-state kind
+(ADR-0022 `binary_state`/`categorical_state`, reusing the existing kind
+taxonomy); `to`/`from` are non-empty strings (crisp discrete transition, no
+fuzzy matching); `occurrence` is a non-zero int (1-based, negative from end);
+`search`/`resolved_at` are numeric. Any failure is **irreproducible by
+construction** → `grounding_anchor_unreproducible` (caveat, never attempted
+further). Criteria-passing anchors are re-detected by `_detect_transitions`
+(scans the full ordered raw-state timeline — `raw_state` or
+`attrs[attribute]` — for exact `to`/`from` transitions, filtered to those
+whose own timestamp falls in `search`) and `_select_occurrence` (the same
+1-based/negative-from-end indexing a model would use). No match →
+`grounding_anchor_unfound` (contradicted — the fabricated-event case). A match
+at a different instant than the claimed `resolved_at` → `grounding_anchor_mismatch`
+(contradicted — identity, not just existence). A correctly re-detected anchor
+resolves absolute `{start, end}` bounds from `direction`/`duration_ms`, which
+then flow through the **same** span-check and registry recompute as an
+absolute window — extending the full value↔data guarantee to event-scoped
+claims. Window-shape validation (`direction`/`duration_ms`) runs *before* the
+re-detection scan (architecture-review nit, applied) so a malformed window
+doesn't pay for walking the series.
+
+**No schema change.** The claims-ledger `window` field was already an open
+object (`additionalProperties: true`), so the anchored shape fits without
+touching any of the three synced schema copies — confirmed byte-identical.
+
+**Tests.** 5 new cases in `TestScenarioD`
+(`tests/test_answer_grounding.py`): fabricated anchor → `anchor_unfound` →
+contradicted/withheld (spec proof requirement #1's fabricated-anchor case);
+mismatched `resolved_at` → `anchor_mismatch`; a correctly re-detected anchor
+→ `verified` (reference recompute over the resolved window matches the
+claimed value); an anchor on a numeric (non-raw-state) entity → caveat;
+an anchor missing `search`/`occurrence` → caveat. The pre-existing stub test
+(`test_anchored_window_is_caveat`, asserting the old blanket
+`grounding_anchor_deferred` code) is renamed
+`test_malformed_anchor_shape_is_caveat` and now asserts
+`grounding_anchor_unreproducible` — same observable outcome (caveat), correct
+code name.
+
+**Reviews.** BDD-evidence review (inline) OK — Scenario D added to
+`docs/bdd/answer-grounding-check/answer-grounding-check-bdd.md` with raw
+pytest output and a run timestamp (previously absent from the file).
+Architecture review (fresh-context subagent) OK — no invariant violations
+(allowlist gate reused for `anchor.entity`; no schema/config/sandbox change;
+kind taxonomy reused, not redefined); one non-blocking ordering nit
+(validate window shape before the re-detection scan) applied.
+
+**Verification.** Suite **371 passed / 4 skipped** (+5 anchor tests);
+frontend unchanged **35 passed** (4d is check-side only, no card change);
+eval `model_authored_analysis` PASS; schema byte-parity unchanged (all three
+render-result copies still byte-identical — confirmed via md5sum). Version
+bumped 0.2.4→0.2.5 in `const.py` + `manifest.json` (completed implementation
+packet).
+
+**ADR-0031 D8a is now fully shipped** (4a/4b/4c/4d all landed). **Next
+session — choose one:** (A) **floor-model claim-emission rate** (spec proof
+requirement #4, still open): extend the answer-family benchmark
+(`evals/prompts/benchmark_prompts.json` + `evals/analysis_benchmark/`) to
+measure whether `gemma4:e4b` reliably emits well-formed claim recipes —
+note the codegen prompt (`_CODEGEN_PROMPT_RULES` in `model_provider.py`)
+still only documents the absolute-window claim shape, not the anchored form,
+so this benchmark work would also want a prompt extension for anchors to be
+exercised by a real model. (B) **Packet 3 — scipy+seaborn** into the worker
+image (CT103 rebuild) toward a live deploy. (C) Push this session's commit
+plus the still-unpushed packets 1–2 (`068d7ef`/`c833991`) — ask before
+pushing.
+
 ### 2026-07-03 (6th session) — Packet 4 implemented: the deterministic answer-grounding check (ADR-0031 D8a), 0.2.3→0.2.4
 
 The open half of ADR-0031 D8a is now built. Sub-packets **4a/4b/4c** shipped;

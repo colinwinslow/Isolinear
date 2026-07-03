@@ -53,6 +53,13 @@ def _find_series(entity_id: str, history_series: list[dict[str, Any]]) -> list[d
     return []
 
 
+def _find_series_meta(entity_id: str, history_series: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for s in history_series:
+        if isinstance(s, dict) and s.get("entity_id") == entity_id:
+            return s
+    return None
+
+
 def _in_window(pts: list[dict], window: dict | None) -> list[dict]:
     if not window or not isinstance(window, dict):
         return pts
@@ -224,6 +231,120 @@ def _recompute(metric: str, inputs: list[str], window: dict | None, params: dict
 
 
 # ---------------------------------------------------------------------------
+# Event anchors (spec §1a) — reproducibility criteria + re-detection.
+#
+# An anchor is {entity, attribute (None=state), to, from?, occurrence,
+# search:{start,end}, resolved_at}. Reproducible iff ALL of: (1) entity is
+# among the delivered series AND its raw-state kind (ADR-0022
+# binary_state/categorical_state); (2) a crisp discrete transition — exact
+# string equality of `to`/`from`, no fuzzy matching; (3) occurrence + search
+# bounds select a unique index into the finite ordered transition list; (4)
+# resolved_at lets the check confirm the *same* event. Any failure is
+# "irreproducible by construction" — unverified-caveat, never attempted
+# further (tranche-2 scope explicitly excludes analog thresholds, rate/shape
+# conditions, and out-of-set entities).
+# ---------------------------------------------------------------------------
+
+_RAW_STATE_KINDS = ("binary_state", "categorical_state")
+
+
+def _anchor_criteria_ok(
+    anchor: Any,
+    delivered_entity_ids: set[str],
+    history_series: list[dict[str, Any]],
+) -> tuple[bool, str]:
+    if not isinstance(anchor, dict):
+        return False, "anchor is not a dict"
+    entity = anchor.get("entity")
+    if not isinstance(entity, str) or entity not in delivered_entity_ids:
+        return False, "anchor.entity is not among the delivered series"
+    series_meta = _find_series_meta(entity, history_series)
+    if series_meta is None or series_meta.get("kind") not in _RAW_STATE_KINDS:
+        return False, "anchor.entity is not a raw-state (binary/categorical) series"
+    to = anchor.get("to")
+    if not isinstance(to, str) or not to:
+        return False, "anchor.to must be a non-empty string (crisp discrete transition)"
+    from_ = anchor.get("from")
+    if from_ is not None and not isinstance(from_, str):
+        return False, "anchor.from must be a string when given"
+    occurrence = anchor.get("occurrence")
+    if not isinstance(occurrence, int) or isinstance(occurrence, bool) or occurrence == 0:
+        return False, "anchor.occurrence must be a non-zero integer (1-based; negative from end)"
+    search = anchor.get("search")
+    if (
+        not isinstance(search, dict)
+        or not isinstance(search.get("start"), (int, float))
+        or not isinstance(search.get("end"), (int, float))
+    ):
+        return False, "anchor.search must supply numeric start/end bounds"
+    if not isinstance(anchor.get("resolved_at"), (int, float)):
+        return False, "anchor.resolved_at must be numeric"
+    return True, ""
+
+
+def _state_at(point: dict, attribute: str | None) -> str | None:
+    if attribute:
+        attrs = point.get("attrs")
+        val = attrs.get(attribute) if isinstance(attrs, dict) else None
+    else:
+        val = point.get("raw_state")
+        if val is None:
+            val = point.get("value")
+    return str(val) if val is not None else None
+
+
+def _detect_transitions(
+    pts: list[dict],
+    attribute: str | None,
+    to: str,
+    from_: str | None,
+    search: dict,
+) -> list[int]:
+    """Every transition INTO `to` (from `from_` if given) on the ordered raw-state
+    timeline, restricted to transitions whose own timestamp lies in [start, end].
+
+    Scans the full series (not just the search window) to know the state
+    immediately preceding each candidate point — a transition at the search
+    boundary still needs the prior state from outside it.
+    """
+    ordered = sorted(
+        (p for p in pts if isinstance(p.get("ts_epoch_ms"), (int, float))),
+        key=lambda p: p["ts_epoch_ms"],
+    )
+    start = search.get("start")
+    end = search.get("end")
+    transitions: list[int] = []
+    prev_state: str | None = None
+    for p in ordered:
+        cur_state = _state_at(p, attribute)
+        ts = int(p["ts_epoch_ms"])
+        if prev_state is not None and cur_state == to and (from_ is None or prev_state == from_):
+            if (start is None or ts >= start) and (end is None or ts <= end):
+                transitions.append(ts)
+        prev_state = cur_state
+    return transitions
+
+
+def _select_occurrence(transitions: list[int], occurrence: int) -> int | None:
+    if not transitions:
+        return None
+    idx = occurrence - 1 if occurrence > 0 else occurrence
+    try:
+        return transitions[idx]
+    except IndexError:
+        return None
+
+
+def _resolve_anchor(anchor: dict, history_series: list[dict[str, Any]]) -> int | None:
+    """Re-detect the anchor's transition. Returns its ts_epoch_ms, or None if unfound."""
+    pts = _find_series(anchor["entity"], history_series)
+    transitions = _detect_transitions(
+        pts, anchor.get("attribute"), anchor["to"], anchor.get("from"), anchor["search"]
+    )
+    return _select_occurrence(transitions, anchor["occurrence"])
+
+
+# ---------------------------------------------------------------------------
 # Rule application  (bands: [[threshold, label], …, [None, catch-all]])
 # ---------------------------------------------------------------------------
 
@@ -335,6 +456,7 @@ def _check_claim(
 
     # ---- step 2: recipe completeness --------------------------------------
     in_registry = metric in _REGISTRY
+    is_anchored = isinstance(window, dict) and "anchor" in window
     if in_registry:
         required = _REGISTRY[metric][1]
         for rp in required:
@@ -344,12 +466,9 @@ def _check_claim(
                     f"registry metric '{metric}' missing required param '{rp}'",
                     {"metric": metric, "missing_param": rp},
                 )
-        # anchored window → defer to tranche 2 (shape defined, re-detection deferred)
-        is_anchored = isinstance(window, dict) and "anchor" in window
-        if is_anchored:
-            return _caveat("grounding_anchor_deferred", "anchor re-detection is tranche 2", {})
-        # window outside delivered span → unverifiable caveat
-        if window and not _window_within_span(window, history_series):
+        # Anchored windows resolve to absolute bounds at step 4 (anchor
+        # re-detection); span-checking waits until bounds exist.
+        if window and not is_anchored and not _window_within_span(window, history_series):
             return _caveat("grounding_window_outside_span", "window lies outside delivered data span", {"window": window})
 
     # ---- step 3: degeneracy -----------------------------------------------
@@ -361,10 +480,52 @@ def _check_claim(
                 {"value": value},
             )
 
-    # ---- step 4: reference recompute (registry metrics only) ---------------
+    # ---- step 4: anchor resolution + reference recompute -------------------
     reference: float | None = None
-    if in_registry and (window is None or not isinstance(window, dict) or "anchor" not in window):
-        reference = _recompute(metric, inputs, window, params, history_series)
+    effective_window = window
+    if is_anchored:
+        anchor = window.get("anchor")
+        ok, reason = _anchor_criteria_ok(anchor, delivered_entity_ids, history_series)
+        if not ok:
+            return _caveat("grounding_anchor_unreproducible", reason, {"anchor": anchor})
+        # Validate the window shape before the re-detection scan, not after —
+        # a malformed direction/duration_ms shouldn't pay for walking the series.
+        direction = window.get("direction")
+        duration_ms = window.get("duration_ms")
+        if direction not in ("after", "before") or not isinstance(duration_ms, (int, float)) or duration_ms < 0:
+            return _soft(
+                "grounding_claim_malformed",
+                "anchored window requires direction ('after'|'before') and a non-negative duration_ms",
+                {},
+            )
+        resolved_ts = _resolve_anchor(anchor, history_series)
+        if resolved_ts is None:
+            return _contradicted(
+                "grounding_anchor_unfound",
+                "no transition matching the anchor was found within the search bounds",
+                {"anchor": anchor},
+            )
+        resolved_at = anchor.get("resolved_at")
+        if int(resolved_ts) != int(resolved_at):
+            return _contradicted(
+                "grounding_anchor_mismatch",
+                f"re-detected transition at {resolved_ts} does not match claimed resolved_at {resolved_at}",
+                {"resolved_ts": resolved_ts, "resolved_at": resolved_at},
+            )
+        effective_window = (
+            {"start": resolved_ts, "end": resolved_ts + duration_ms}
+            if direction == "after"
+            else {"start": resolved_ts - duration_ms, "end": resolved_ts}
+        )
+        if not _window_within_span(effective_window, history_series):
+            return _caveat(
+                "grounding_window_outside_span",
+                "the resolved anchor window lies outside the delivered data span",
+                {"window": effective_window},
+            )
+
+    if in_registry:
+        reference = _recompute(metric, inputs, effective_window, params, history_series)
         if reference is not None and isinstance(value, (int, float)):
             if abs(float(value) - reference) > _TOLERANCE:
                 return _contradicted(
