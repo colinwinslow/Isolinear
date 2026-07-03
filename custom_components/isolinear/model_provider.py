@@ -129,6 +129,24 @@ _CODEGEN_PROMPT_RULES = [
     "answer_text = f'The correlation coefficient is {corr:.2f}.' Never write the "
     "number or a Yes/No verdict as a literal; derive the verdict too "
     "(verdict = 'Yes' if abs(corr) > 0.3 else 'Not really').",
+    # ADR-0031 D8a: claims ledger for the integration-side grounding check.
+    # The model emits a machine-readable recipe so the integration can independently
+    # recompute the stated value and confirm the verdict follows the declared rule.
+    # Band labels must not be substrings of one another (longest-match safety).
+    # The ledger is used ONLY for verification; it never appears to the user.
+    "When answer_text includes a qualitative verdict (yes/no/comparison), also "
+    "return a 'claims' list in the metadata dict. Each claim is a dict with: "
+    "'metric' (e.g. 'pearson_r', 'mean', 'hours_above', 'delta'), "
+    "'inputs' (list of entity_ids from history_series), "
+    "'value' (the same variable formatted into the sentence), "
+    "'verdict' (the same verdict variable formatted into the sentence), "
+    "'rule' ({\"bands\": [[threshold_or_null, label], ...], \"basis\": \"value\"}; "
+    "bands in descending threshold order; last entry has null threshold as catch-all; "
+    "labels must not be substrings of one another), and optionally "
+    "'window' ({\"start\": epoch_ms, \"end\": epoch_ms}) and 'params' (flat dict). "
+    "Example: claims = [{'metric': 'pearson_r', 'inputs': ['sensor.a', 'sensor.b'], "
+    "'value': corr, 'verdict': verdict, "
+    "'rule': {'bands': [[0.3, 'Yes'], [None, 'Not really']], 'basis': 'value'}}].",
     "Return only the code — no commentary, no example invocation.",
 ]
 

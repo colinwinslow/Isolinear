@@ -127,6 +127,32 @@
           "minimum": 0,
           "default": 0
         },
+        "claims": {
+          "type": "array",
+          "description": "Claims ledger for deterministic answer-grounding check (ADR-0031 D8a). Used ONLY for verification by the integration; deleting it leaves user-visible output byte-identical. Absent for chart-only renders and non-codegen paths.",
+          "items": {
+            "type": "object",
+            "required": ["metric", "inputs", "value"],
+            "additionalProperties": true,
+            "properties": {
+              "metric": {"type": "string"},
+              "inputs": {"type": "array", "items": {"type": "string"}},
+              "window": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Absolute {start, end} in epoch-ms (half-open), or anchored {anchor, direction, duration_ms}."
+              },
+              "params": {"type": "object", "additionalProperties": true},
+              "value": {"type": ["number", "null"]},
+              "verdict": {"type": "string"},
+              "rule": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Threshold rule: {bands: [[threshold_or_null, label], ...], basis: 'value'|'abs'}."
+              }
+            }
+          }
+        },
         "legend": {
           "type": "array",
           "description": "Color manifest: one entry per drawn series/overlay, the single source of truth for legend colors (ADR-0027 D1). Present for time_series and time_series_overlay families.",

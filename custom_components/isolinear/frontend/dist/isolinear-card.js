@@ -827,10 +827,20 @@ var Q = class extends U {
     `;
 	}
 	renderAnswer(e) {
-		let t = e.chart?.answer_text;
-		return !t || !t.trim() ? P : M`
+		let t = e.chart?.answer_text?.trim() || void 0, n = e.chart?.answer_verification;
+		if (!t && !n) return P;
+		let r = n === "unverified" ? M`<p class="answer-caveat" data-testid="answer-caveat">
+            Answer not independently verified. ${"Inside the boundary: value↔data — the integration independently recomputed the number from allowlisted history using the claim's own recipe; the verdict provably follows from the declared rule at that reference. Outside the boundary: internal consistency only (value↔verdict↔rule). The caveat means 'not independently reproduced,' not 'probably fine.'"}
+          </p>` : P;
+		return t ? M`
       <p class="answer" data-testid="analysis-answer">${t}</p>
-    `;
+      ${r}
+    ` : M`
+        <p class="answer answer--withheld" data-testid="analysis-answer-withheld">
+          Isolinear could not produce a verifiable answer for this query.
+        </p>
+        ${r}
+      `;
 	}
 	renderRenderPathNotice(e) {
 		let t = e.chart?.render_fallback_reason;

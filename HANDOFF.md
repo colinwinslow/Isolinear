@@ -2,6 +2,81 @@
 
 ## Current project phase
 
+### 2026-07-03 (6th session) — Packet 4 implemented: the deterministic answer-grounding check (ADR-0031 D8a), 0.2.3→0.2.4
+
+The open half of ADR-0031 D8a is now built. Sub-packets **4a/4b/4c** shipped;
+**4d (event anchors) is deferred to tranche 2** — the claim shape and a
+`grounding_anchor_deferred` caveat path exist so re-detection slots in later
+without schema churn. Branch `adr-0029-worker-codegen-eval`; **the packet-4
+work is uncommitted at handoff** (and packets 1–2 remain committed-locally but
+not pushed — ask before pushing).
+
+**The check (`custom_components/isolinear/answer_grounding.py`, new).** Pure
+Python, no numpy/scipy, so it runs integration-side on the Pi. A metric
+**registry** maps the seven tranche-1 metrics (`mean`, `delta`, `pearson_r`,
+`rolling_mean`, `daily_max`, `daily_min`, `hours_above`) to recompute
+implementations over the normalized `ts_epoch_ms` history — `pearson_r` is
+hand-rolled over common timestamps. `run_grounding_check(render_metadata,
+history_series)` runs the spec's six-step claim check plus the sentence-initial
+yes/no **tripwire**, returning a three-state outcome — **verified**
+(registry recompute matches within `_TOLERANCE = 0.05` and the verdict follows
+the declared rule at the reference), **unverified-caveat** (nothing
+contradicted but nobody reproduced the value — unknown metric, window outside
+span, anchored window), or **contradicted** (positive evidence: value mismatch,
+verdict-vs-rule contradiction, non-finite value). Verdict containment uses a
+longest word-boundary match so "not correlated" beats "correlated"; a
+band-edge **borderline guard** passes rather than flap-fails. The two-tier
+guarantee text is verbatim in the module, the card caveat, and diagnostics.
+
+**Wiring (`job_orchestration.py`).** The check runs in
+`_record_codegen_worker_dispatch` after a successful sandbox render, before the
+artifact is served. `{pass, verified, unverified_caveat}` serve immediately;
+`{repair_contradicted, repair_soft}` feed a `synthetic_error` into the **shared**
+codegen repair loop (same `max_codegen_repair_attempts` budget as sandbox
+failures). On exhaustion the last successful render is still served — with the
+answer **withheld** (contradicted) or shown **with a caveat** (soft), always
+`answer_verification="unverified"`. The new `answer_verification` /
+`withheld_answer` values thread `_finish_codegen_success` →
+`_record_worker_rendered_artifact` → `_build_worker_artifact_metadata` →
+snapshot chart → card. The worker `_normalize_render_metadata` passes `claims`
+through unchanged (check-only; delete it → output byte-identical, the D3
+reconciliation), and `_CODEGEN_PROMPT_RULES` now instructs the model to emit a
+well-formed claim.
+
+**Surfacing.** Schemas add `render_metadata.claims` (3 copies) and
+`chart.answer_verification` (artifact + snapshot, 2 copies each), all
+byte-identical. The Lit card renders three states — verified (no caveat),
+unverified (answer + caveat), withheld (a "couldn't produce a verifiable
+answer" line + caveat) — with the caveat as a **separate element**, never
+spliced into `answer_text` (§4: the verdict prose is never edited).
+
+**Post-review hardening.** A fresh-context architecture-review subagent
+returned CONCERNS on one real gap: `_check_claim` received `delivered_entity_ids`
+but never read it, so a claim citing a non-delivered/unallowlisted entity
+silently became an unverified caveat (spec §1 / invariant #1). Fixed —
+step 1 now rejects `claim.inputs ⊄ delivered_entity_ids` as
+`grounding_claim_malformed` (repair_soft), with tests. The reviewer's other
+note (the single global `_TOLERANCE` applied across correlation / means /
+hour-counts) is an accepted tranche-1 coarseness, not a violation.
+
+**Verification.** Suite **366 passed / 4 skipped** (+39 grounding tests, incl.
+BDD scenarios A/B/C/E/F/G/H/J, negation safety, the allowlist gap, and edge
+cases); frontend **35 passed** (+9 grounding card tests). Eval
+`model_authored_analysis` PASS. Schema byte-parity (3× render-result, 2×
+artifact, 2× snapshot) + bundle sync verified via md5sum. Version bumped
+0.2.3→0.2.4 in `const.py` + `manifest.json`. BDD evidence at
+`docs/bdd/answer-grounding-check/answer-grounding-check-bdd.md`.
+
+**Next session — choose one:** (A) **4d event anchors** (tranche 2): anchor
+re-detection over delivered raw-state series per spec §1a
+(`grounding_anchor_unfound` / `grounding_anchor_mismatch`); the deferred-caveat
+path already exists, so this is additive. (B) **Floor-model claim-emission
+rate** (spec proof req #4): extend the answer-family benchmark to check that
+`gemma4:e4b` reliably emits a well-formed claim recipe (real HA data stays
+gitignored). Toward a live test (orthogonal): packet 3 (scipy + seaborn into the
+worker image, CT103 rebuild) → deploy the worker as a running homelab
+`docker_host` compose service → point the integration at it → ship via HACS.
+
 ### 2026-07-03 (5th session) — ADR-0031 ACCEPTED; tranche-1 answer channel + timestamp boundary shipped (0.2.3); the deterministic verdict-grounding check designed & specced
 
 ADR-0031 is accepted and its first tranche is being built. Branch

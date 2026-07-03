@@ -179,6 +179,10 @@
         "render_fallback_reason": {
           "type": "string",
           "description": "Present when the Pillow render happened because codegen could not complete (ADR-0030: fallback surfaced, never silent). The card shows a fallback indicator."
+        },
+        "answer_verification": {
+          "enum": ["verified", "unverified"],
+          "description": "Grounding check result (ADR-0031 D8a). 'verified': value independently reproduced; 'unverified': internal consistency only, or the metric is outside the registry. Absent when no grounding check ran (chart-only, Pillow path). A withheld answer is an absent answer_text with answer_verification 'unverified'."
         }
       }
     },

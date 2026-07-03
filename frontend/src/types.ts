@@ -86,6 +86,10 @@ export interface IsolinearJobSnapshot {
     }>;
     // ADR-0027: renderer color manifest the card renders as the legend.
     legend?: IsolinearLegendItem[];
+    // ADR-0031 D8a: grounding check result. 'verified' = value reproduced from
+    // data; 'unverified' = internal consistency only or metric outside registry.
+    // A withheld answer is absent answer_text with answer_verification 'unverified'.
+    answer_verification?: "verified" | "unverified";
     // ADR-0030: how the chart was rendered; render_fallback_reason is present
     // when the trusted Pillow renderer completed the job because codegen
     // could not (fallback surfaced, never silent).

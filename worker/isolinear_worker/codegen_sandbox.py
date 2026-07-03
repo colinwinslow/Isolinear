@@ -1024,6 +1024,11 @@ def _normalize_render_metadata(
     answer_text = metadata.get("answer_text")
     if isinstance(answer_text, str) and answer_text.strip():
         normalized["answer_text"] = answer_text.strip()
+    # ADR-0031 D8a: claims ledger for the integration-side grounding check.
+    # Passed through unchanged; used ONLY for verification, never for display.
+    claims = metadata.get("claims")
+    if isinstance(claims, list):
+        normalized["claims"] = claims
     return normalized
 
 
