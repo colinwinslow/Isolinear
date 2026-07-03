@@ -19,4 +19,4 @@ are **not load-bearing** — they may or may not promote to a spec or ADR.
 
 ## Current research notes
 
-(None yet. Research notes will be scaffolded with `/research <slug>` as needed.)
+- `answer-verdict-grounding-check.md` — deterministic verdict verification via a claims ledger; the design rationale behind `docs/specs/answer-grounding-check.md` (promoted-to-spec, 2026-07-03)

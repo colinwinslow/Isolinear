@@ -51,3 +51,4 @@ implementing slice produces an evidence file proving each scenario was hit.
 - `worker-container-image.md` — Standalone amd64 worker Docker image installing matplotlib into system site-packages so the `-I` sandbox can render (ADR-0029 packet 3) (accepted)
 - `codegen-generation-path.md` — Model-generated matplotlib + integration-orchestrated repair loop, opt-in and fail-closed (ADR-0029 packet 4) (accepted)
 - `model-authored-analysis.md` — Grounded natural-language answers + supporting charts: answer channel, grounding, timestamp normalization, two-part validation + progressive-verification UX, scipy/seaborn, tranche-1 transforms (ADR-0031 tranche 1) (accepted)
+- `answer-grounding-check.md` — Deterministic verdict verification via a claims ledger: full recompute recipe (window/params/event anchor), three-state verified boundary, two-tier guarantee, fail-soft (ADR-0031 D8a, model-authored-analysis packet 4) (accepted)

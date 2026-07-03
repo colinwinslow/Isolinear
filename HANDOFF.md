@@ -2,6 +2,86 @@
 
 ## Current project phase
 
+### 2026-07-03 (5th session) — ADR-0031 ACCEPTED; tranche-1 answer channel + timestamp boundary shipped (0.2.3); the deterministic verdict-grounding check designed & specced
+
+ADR-0031 is accepted and its first tranche is being built. Branch
+`adr-0029-worker-codegen-eval`; the spec/ADR/docs work is pushed through
+`0436eef`, but the two implementation commits (`068d7ef`, `c833991`) are
+**committed locally and NOT pushed** (ask before pushing).
+
+**Accepted + specced.** ADR-0031 draft→accepted (`7d266cb`): the now-met
+proof-gate paragraph was dropped, and the `CLAUDE.md`/`AGENTS.md` identity line
+moved from "visualization assistant" to "data-analysis assistant" (D1). The
+paired spec `model-authored-analysis` + BDD was written and **accepted**
+(`9d52103`→`0436eef`), defining all seven tranche-1 contract surfaces.
+
+**Packet 1 — the answer channel (`068d7ef`, 0.2.1→0.2.2).** Isolinear now ships
+a grounded natural-language answer alongside the chart, purely additive on the
+codegen render path (the PNG pipeline is untouched). The sandbox
+`_normalize_render_metadata` passes a stripped, non-empty `answer_text` through
+the existing metadata channel (no security-model change); it is additive/optional
+on render-result, artifact-metadata, and job-snapshot (docs + packaged + worker
+copies byte-identical); it threads worker-artifact→complete-snapshot
+`chart.answer_text`; the Lit card renders it under the caption
+(`[data-testid=analysis-answer]`, bundle rebuilt + synced). The codegen prompt
+instructs the model to COMPUTE and f-string the answer, deriving verdicts rather
+than asserting them. Grounding is proven deterministically: the sample history
+71.2/71.8 forces exactly "The average reading is 71.50 degF." at the sandbox
+boundary and over the HTTP wire (`evals/model_authored_analysis.py`); the
+integration end-to-end test confirms the number reflects the real job history.
+
+**Packet 2 — the epoch-ms timestamp boundary / D9 (`c833991`, 0.2.2→0.2.3).**
+The codegen path hands the model epoch-ms integers, never raw HA ISO strings —
+killing the benchmark's dominant failure class (`pandas.to_datetime` inferring
+one format from HA's mixed-precision first row). Rather than overload the shared
+`ts`/`x_min`/`x_max` string contracts, an additive integer `ts_epoch_ms` is added
+to history points (history-series schema, all three copies), precomputed by
+`_timestamp_to_epoch_ms` (robust to on-the-second + microsecond + `Z` + naive-UTC
++ int passthrough + fail-soft) at both codegen build sites; `_codegen_request_view`
+strips raw `ts` from the prompt so the model literally never sees an ISO string.
+The safe/Pillow paths are untouched.
+
+**The deterministic verdict-grounding check — designed & specced (packet 4).**
+The open half of ADR-0031 D8a — how to deterministically catch a free-text
+qualitative verdict that contradicts the data ("Yes … r=0.04") without violating
+D3's rejection of integration-side assembly — was handed to a Fable subagent for
+design. It produced the **claims ledger**: the generated code emits an optional
+`claims` record (the full recompute recipe `{metric, inputs, window?, params?,
+value, verdict?, rule?}`) used ONLY for checking — delete it and the user-visible
+output is byte-identical, which is the D3 reconciliation (the ledger is to the
+answer what the PNG is to the visual validator: reviewed, not composed). A second
+Fable pass hardened it against a "does this generalize past correlation?"
+critique: the claim now carries the window/params/event-anchor so parametric
+metrics reproduce faithfully, event anchors are reproducible under four crisp
+criteria (§1a), a three-state **verified / unverified-caveat / contradicted**
+boundary is drawn (contradicted requires positive evidence — inability to check
+is never contradiction), and the two-tier guarantee (value↔data inside the
+metric registry, internal-consistency-only outside) is stated verbatim. The human
+ratified; it is distilled into the **accepted** spec `answer-grounding-check` +
+BDD, with the research note `answer-verdict-grounding-check` (the design rationale
+of record) **promoted-to-spec**.
+
+**Verification.** Suite **327 passed / 4 skipped** (312 baseline → 320 packet 1
+→ 327 packet 2); frontend **26 passed** (+3); evals `model_authored_analysis`,
+`codegen_generation_path`, `codegen_sandbox` PASS; schema byte-parity + bundle
+sync green; `git diff --check` clean. Inline architecture-invariant review OK
+(both packets are additive on the accepted codegen path — allowlist #1, sandbox
+#3, render-family #9, and the data boundary are all untouched); a fresh-context
+architecture-review subagent was not spawned (available on request).
+
+**Next session — implement `answer-grounding-check` (packet 4) in sub-packets:**
+4a the metric registry (mean / delta / pearson_r / rolling_mean / daily_max/min /
+hours_above, recompute over normalized history) + the number half, wired into
+`_record_codegen_worker_dispatch` before serve, repairing via the shared codegen
+loop; 4b the `render_metadata.claims` schema + `_normalize_render_metadata`
+passthrough + the codegen prompt extension + the deterministic check
+(steps 1–6 + the yes/no tripwire); 4c the `chart.answer_verification` schema +
+the card caveat/withheld-answer states with the two-tier-guarantee copy; 4d event
+anchors as tranche 2 (claim shape fixed now, re-detection deferred). Toward a live
+test (orthogonal): packet 3 (scipy + seaborn into the worker image, CT103 rebuild),
+then deploy the worker as a running homelab `docker_host` compose service, point
+the integration at it, and ship 0.2.3 via HACS.
+
 ### 2026-07-02 (4th session) — ADR-0031 DRAFTED + hardened by a real-data benchmark; direction: Isolinear answers questions, not just charts
 
 Exploration + design session (no integration code changed; branch
