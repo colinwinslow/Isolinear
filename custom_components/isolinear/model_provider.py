@@ -147,6 +147,19 @@ _CODEGEN_PROMPT_RULES = [
     "Example: claims = [{'metric': 'pearson_r', 'inputs': ['sensor.a', 'sensor.b'], "
     "'value': corr, 'verdict': verdict, "
     "'rule': {'bands': [[0.3, 'Yes'], [None, 'Not really']], 'basis': 'value'}}].",
+    # Spec §1 anchored window (event-scoped answers, e.g. "after the AC started
+    # cooling"): the claim window may carry an anchor record instead of absolute
+    # bounds; the integration re-detects the transition to verify the same event.
+    "When the analysis is scoped to a state-change event (e.g. 'after the AC "
+    "started cooling'), the claim 'window' may instead be an ANCHORED window: "
+    "{\"anchor\": {\"entity\": <the binary/categorical entity_id>, \"to\": <state "
+    "transitioned INTO, exact string>, \"from\": <prior state, optional>, "
+    "\"occurrence\": <1-based index among matching transitions; negative counts "
+    "from the end, e.g. -1 = most recent>, \"search\": {\"start\": epoch_ms, "
+    "\"end\": epoch_ms}, \"resolved_at\": <the epoch_ms timestamp of the "
+    "transition your code actually found in the data>}, \"direction\": \"after\" "
+    "or \"before\", \"duration_ms\": <window length>}. resolved_at must be the "
+    "COMPUTED transition timestamp (a variable), never a guess.",
     "Return only the code — no commentary, no example invocation.",
 ]
 

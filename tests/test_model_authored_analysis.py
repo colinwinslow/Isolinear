@@ -279,6 +279,16 @@ class CodegenPromptGroundingTests(unittest.TestCase):
         self.assertIn("ts_epoch_ms", rules)
         self.assertIn("epoch", rules)
 
+    def test_prompt_rules_document_the_anchored_claim_window(self):
+        # Spec §1 (answer-grounding-check): event-scoped claims carry an anchored
+        # window the integration can re-detect (4d shipped the check side; the
+        # prompt must teach the emission side or the anchor path never exercises).
+        rules = " ".join(_CODEGEN_PROMPT_RULES).lower()
+        self.assertIn("anchor", rules)
+        self.assertIn("duration_ms", rules)
+        self.assertIn("resolved_at", rules)
+        self.assertIn("occurrence", rules)
+
 
 if __name__ == "__main__":
     unittest.main()
