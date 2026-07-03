@@ -80,6 +80,13 @@
           ],
           "description": "Model-authored chart summary copied from chart_spec.summary (ADR-0027). Surfaced as the card caption."
         },
+        "answer_text": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Grounded model-authored analysis answer (ADR-0031 tranche 1). Computed AND formatted inside the sandbox by the generated render_chart from data-derived variables; never a free-text pass. Optional; absent for chart-only renders and non-codegen renderers."
+        },
         "series_plotted": {
           "type": "array",
           "items": {

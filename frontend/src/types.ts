@@ -71,6 +71,9 @@ export interface IsolinearJobSnapshot {
     image_url: string;
     time_range: string;
     summary?: string;
+    // ADR-0031 tranche 1: grounded model-authored analysis answer, computed in
+    // the sandbox and rendered under the caption. Absent for chart-only renders.
+    answer_text?: string;
     series: Array<{
       series_id: string;
       label: string;

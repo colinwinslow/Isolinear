@@ -258,6 +258,7 @@ export class IsolinearCard extends LitElement {
           <img data-testid="chart-image" src=${snapshot.chart?.image_url ?? ""} alt=${snapshot.chart?.title ?? "Generated chart"}>
           <div class="result-meta">
             <h3>${snapshot.chart?.summary ?? snapshot.chart?.title}</h3>
+            ${this.renderAnswer(snapshot)}
             ${this.renderRenderPathNotice(snapshot)}
             ${this.renderLegend(snapshot)}
           </div>
@@ -310,6 +311,18 @@ export class IsolinearCard extends LitElement {
           </button>
         </div>
       </div>
+    `;
+  }
+
+  private renderAnswer(snapshot: IsolinearJobSnapshot) {
+    // ADR-0031 tranche 1: the grounded analysis answer, computed in the sandbox
+    // and rendered under the caption. Absent for chart-only renders.
+    const answer = snapshot.chart?.answer_text;
+    if (!answer || !answer.trim()) {
+      return nothing;
+    }
+    return html`
+      <p class="answer" data-testid="analysis-answer">${answer}</p>
     `;
   }
 
@@ -694,6 +707,14 @@ export class IsolinearCard extends LitElement {
     .clarification {
       display: grid;
       gap: 10px;
+    }
+
+    /* ADR-0031 tranche 1: the grounded analysis answer, under the caption. */
+    .answer {
+      color: var(--primary-text-color, #1f2933);
+      font-size: 15px;
+      line-height: 1.45;
+      margin: 0;
     }
 
     /* ADR-0030: surfaced Pillow-fallback notice under the caption. */

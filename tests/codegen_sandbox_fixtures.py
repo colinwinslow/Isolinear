@@ -65,6 +65,32 @@ def render_chart(data, output_path):
 '''.strip()
 
 
+def grounded_answer_generated_python() -> str:
+    """A safe render body that COMPUTES its answer from the data (ADR-0031 D3).
+
+    The average is calculated inside the sandbox and f-stringed into answer_text —
+    the number is the computation, not a literal — so the anchor test can assert
+    the exact grounded string against the known sample values.
+    """
+    return f'''
+def render_chart(data, output_path):
+    png_bytes = bytes.fromhex("{SAFE_SAMPLE_PNG_HEX}")
+    with open(output_path, "wb") as image_file:
+        image_file.write(png_bytes)
+    values = [point["value"] for point in data["history_series"][0]["points"]]
+    mean = sum(values) / len(values)
+    return {{
+        "title": data["chart_spec"]["title"],
+        "series_plotted": [series["series_id"] for series in data["chart_spec"]["series"]],
+        "overlays_plotted": [],
+        "x_min": data["history_series"][0]["points"][0]["ts"],
+        "x_max": data["history_series"][0]["points"][-1]["ts"],
+        "warnings": [],
+        "answer_text": f"The average reading is {{mean:.2f}} degF.",
+    }}
+'''.strip()
+
+
 def matplotlib_generated_python() -> str:
     return '''
 import matplotlib

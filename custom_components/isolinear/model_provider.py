@@ -111,6 +111,19 @@ _CODEGEN_PROMPT_RULES = [
     "Do not read environment variables, secrets, tokens, or files other than writing "
     "the figure to output_path.",
     "Return a small metadata dict (title, series_plotted, warnings) from render_chart.",
+    # ADR-0031 tranche 1: grounded natural-language answer. The number and any
+    # verdict MUST be computed inside render_chart and formatted into the string —
+    # never asserted at generation time (an honest number must not ride a
+    # contradicting verdict). Packet 5 gates this on the resolved output modality;
+    # for now it is conditional on the prompt posing a question.
+    "If the prompt asks a question (e.g. 'are they correlated?', 'how much…?'), also "
+    "return an 'answer_text' string in the metadata dict answering it in one plain "
+    "sentence.",
+    "Compute the answer_text from variables you calculate over the data and format "
+    "them in with an f-string — e.g. corr = df['a'].corr(df['b']); "
+    "answer_text = f'The correlation coefficient is {corr:.2f}.' Never write the "
+    "number or a Yes/No verdict as a literal; derive the verdict too "
+    "(verdict = 'Yes' if abs(corr) > 0.3 else 'Not really').",
     "Return only the code — no commentary, no example invocation.",
 ]
 

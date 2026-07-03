@@ -5090,10 +5090,17 @@ def _build_worker_artifact_metadata(
 ) -> dict[str, Any]:
     rendered = deepcopy(artifact)
     render_metadata = render_result.get("render_metadata") if isinstance(render_result, dict) else {}
+    if not isinstance(render_metadata, dict):
+        render_metadata = {}
     rendered["status"] = "rendered"
     if render_path is not None:
         rendered["render_path"] = render_path
     rendered["image_url"] = image_url
+    # ADR-0031 tranche 1: carry the grounded analysis answer the sandbox computed
+    # onto the artifact so the complete snapshot can surface it under the caption.
+    answer_text = render_metadata.get("answer_text")
+    if isinstance(answer_text, str) and answer_text.strip():
+        rendered["answer_text"] = answer_text.strip()
     rendered["render_metadata"] = {
         "renderer": WORKER_RENDERER_NAME,
         "render_attempted": True,
@@ -7193,6 +7200,10 @@ def _append_artifact_complete_snapshot(
     # Optional ADR-0027 fields: caption summary and renderer color manifest.
     if isinstance(artifact.get("summary"), str) and artifact["summary"].strip():
         chart["summary"] = artifact["summary"].strip()
+    # Optional ADR-0031 field: the grounded analysis answer, rendered by the card
+    # under the caption.
+    if isinstance(artifact.get("answer_text"), str) and artifact["answer_text"].strip():
+        chart["answer_text"] = artifact["answer_text"].strip()
     if isinstance(artifact.get("legend"), list) and artifact["legend"]:
         chart["legend"] = deepcopy(artifact["legend"])
     # Optional ADR-0030 fields: how the chart was rendered + surfaced fallback.

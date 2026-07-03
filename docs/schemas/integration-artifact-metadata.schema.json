@@ -74,6 +74,10 @@
       "type": "string",
       "description": "Model-authored chart caption (ADR-0027 D3). Optional; threaded into the complete snapshot's chart.summary."
     },
+    "answer_text": {
+      "type": "string",
+      "description": "Grounded model-authored analysis answer (ADR-0031 tranche 1). Optional; threaded from render_metadata.answer_text into the complete snapshot's chart.answer_text. Absent for chart-only renders and the Pillow fallback."
+    },
     "legend": {
       "type": "array",
       "description": "Renderer color manifest (ADR-0027 D1). Optional; threaded into the complete snapshot's chart.legend.",

@@ -783,6 +783,7 @@ var Q = class extends U {
           <img data-testid="chart-image" src=${e.chart?.image_url ?? ""} alt=${e.chart?.title ?? "Generated chart"}>
           <div class="result-meta">
             <h3>${e.chart?.summary ?? e.chart?.title}</h3>
+            ${this.renderAnswer(e)}
             ${this.renderRenderPathNotice(e)}
             ${this.renderLegend(e)}
           </div>
@@ -823,6 +824,12 @@ var Q = class extends U {
           </button>
         </div>
       </div>
+    `;
+	}
+	renderAnswer(e) {
+		let t = e.chart?.answer_text;
+		return !t || !t.trim() ? P : M`
+      <p class="answer" data-testid="analysis-answer">${t}</p>
     `;
 	}
 	renderRenderPathNotice(e) {
@@ -1067,6 +1074,14 @@ var Q = class extends U {
     .clarification {
       display: grid;
       gap: 10px;
+    }
+
+    /* ADR-0031 tranche 1: the grounded analysis answer, under the caption. */
+    .answer {
+      color: var(--primary-text-color, #1f2933);
+      font-size: 15px;
+      line-height: 1.45;
+      margin: 0;
     }
 
     /* ADR-0030: surfaced Pillow-fallback notice under the caption. */
