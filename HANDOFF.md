@@ -2,6 +2,89 @@
 
 ## Current project phase
 
+### 2026-07-03 (8th session) — Grounding-check proof req #4 answered: floor-model claim-emission rate measured with production scoring, 0.2.5→0.2.6
+
+The grounding-check packet is now closed end to end: implemented (4a–4d, prior
+sessions) **and proof-measured at the capability floor** (this session). Branch
+`adr-0029-worker-codegen-eval`; **everything is committed and pushed** —
+packets 1–4d (`068d7ef`, `c833991`, `4af08f1`, `523cb57`) plus this session's
+two commits (`079431d`, `e1c6ef7`) and the closeout commit. The stale
+"committed-not-pushed" notes carried by earlier sessions below are corrected.
+
+**What changed (commit 1 — `079431d`, anchored-claim prompt shape).** Packet 4d
+shipped anchor re-detection check-side, but `_CODEGEN_PROMPT_RULES`
+(`model_provider.py`) only documented the absolute `{start, end}` claim window —
+so no model could ever emit the event-anchored form and the 4d path would never
+exercise in production. The spec §1/§1a anchored window (anchor
+`entity`/`to`/`from`/`occurrence`/`search`/`resolved_at` + `direction` +
+`duration_ms`) is now documented with the same compute-not-guess discipline as
+`value`/`verdict`: `resolved_at` must be the transition timestamp the code
+actually found, so the integration can confirm the SAME event. A prompt-rule
+test rides alongside the existing grounding/epoch-ms rule tests.
+
+**What changed (commit 2 — `e1c6ef7`, the proof-req-#4 benchmark, 0.2.6).** The
+answer-family benchmark (`evals/analysis_benchmark/`) now scores emitted claims
+with the **real production checker**
+(`custom_components.isolinear.answer_grounding`) against fresh real HA history
+(7-day extract, 16 entities, 16,318 points — gitignored), so "well-formed"
+means what production means. Corpus: 18 prompts with `claim`/`claim_window`
+expectation flags + `anchor-01` (the registry-verifiable anchored case); the
+`answer_question` category was added to `evals/prompts/benchmark_prompts.json`
+(proof req #4 names both files); `num_predict` 3000→6000 (the old cap
+truncated claim-bearing generations; production doesn't cap). Three live
+`gemma4:e4b` runs, one variable at a time; full evidence in
+`evals/analysis_benchmark/FINDINGS.md` and mirrored into the BDD evidence file.
+
+**The answer.** **Emission is reliable** — every claim-expected prompt whose
+generated code executed emitted a `claims` list (6/6, then 5/5); structure is
+mostly right (6/6, 4/5 well-formed). **Registry-verified: 0 in every run**,
+with three now-measured causes: (1) run 1's "value formatted into the
+sentence" wording made gemma stringify 13/13 values (`'3.0°F'`) — the
+production prompt now demands a **raw JSON number**, which fixed the type on
+every subsequent claim; (2) free metric naming (`mean_difference`,
+`percentage_running`, …) lands honest-but-unregistered metrics in the caveat
+box — correct per D3, and renaming them would fabricate `value_mismatch`;
+(3) the registry's exact-timestamp `pearson_r` intersection returns no
+reference on real irregular data — ADR-0031's "prescribe the alignment" open
+item, confirmed live. Anchored windows were never emitted (0/2 every run:
+event logic appears in the code, but the record carries absolute bounds) —
+acceptable for tranche 1 (value↔data still holds; only event *identity* goes
+unconfirmed). Crucially, **no false "verified" was ever produced**, and the
+check caught a genuine live `grounding_verdict_contradicted` (pd-05) — the
+exact class it exists for. The fail-soft three-state boundary — not the strong
+guarantee — is what carries floor-model UX, exactly as spec §3b anticipated.
+
+**Closeout hygiene.** The BDD evidence file was misplaced at
+`docs/bdd/answer-grounding-check/answer-grounding-check-bdd.md` — a path the
+BDD never named — and is moved to the conventional
+`bdd/answer-grounding-check/answer-grounding-check-evidence.md` (the path the
+BDD's Evidence section declares), with a proof-req-#4 section appended and the
+stale "nothing yet prompts gemma to emit anchors" note corrected. All five
+grounding-check spec proof requirements are now met or measured.
+
+**Verification.** Suite **372 passed / 4 skipped** (+1 prompt-rule test); eval
+`model_authored_analysis` PASS. Architecture review skipped (benchmark/eval
+extension — no new integration surface, no invariant touched); BDD-evidence
+review run inline (OK; the path/staleness findings above were fixed in this
+closeout).
+
+**What remains (open items, none blocking).** (a) **Registry recompute
+fidelity:** integration-prescribed alignment for `pearson_r` (exact-timestamp
+intersection finds no common timestamps on real irregular series — correlation
+claims can never verify live until this lands); demand-driven registry
+additions the corpus actually requested (aligned `mean_difference`-style
+delta, time-in-state fraction). (b) **Anchored-window tranche 2:** the floor
+model records absolute bounds even with the anchored form documented, so 4d
+re-detection won't exercise at the floor until the prompt pushes harder or a
+stronger model emits it — recorded as an open item, not a defect.
+(c) **Next packet options:** packet 3 (scipy+seaborn into the worker image,
+~650MB, in-container import under the 1024MB cap, CT103 rebuild) toward the
+live-deploy path (homelab `docker_host` compose service + point the
+integration at it + ship via HACS); or the registry follow-ups above. PARKED:
+packet 5 (output-modality signal), packet 6 (visual validator +
+progressive-verification UX), open-queue (l), worker-durability
+simplification, `job_orchestration.py` split.
+
 ### 2026-07-03 (7th session) — Sub-packet 4d implemented: event anchors (ADR-0031 D8a §1a), 0.2.4→0.2.5
 
 The last open piece of the answer-grounding check is now built. Packet 4's
@@ -9,7 +92,8 @@ sub-packets 4a/4b/4c shipped last session (committed + pushed at session
 start, `4af08f1`); this session closes **4d — event anchors**, which the spec
 explicitly allowed to ship later since the claim `window` shape was already
 fixed. Branch `adr-0029-worker-codegen-eval`; **this session's work is
-uncommitted at handoff**.
+uncommitted at handoff** *(corrected at the 8th-session closeout: since
+committed as `523cb57` and pushed)*.
 
 **The re-detection (`custom_components/isolinear/answer_grounding.py`).**
 Anchored windows (`window: {anchor, direction, duration_ms}`) previously
@@ -79,7 +163,8 @@ so this benchmark work would also want a prompt extension for anchors to be
 exercised by a real model. (B) **Packet 3 — scipy+seaborn** into the worker
 image (CT103 rebuild) toward a live deploy. (C) Push this session's commit
 plus the still-unpushed packets 1–2 (`068d7ef`/`c833991`) — ask before
-pushing.
+pushing. *(Corrected at the 8th-session closeout: (A) is done — proof req #4
+answered — and everything is pushed.)*
 
 ### 2026-07-03 (6th session) — Packet 4 implemented: the deterministic answer-grounding check (ADR-0031 D8a), 0.2.3→0.2.4
 
@@ -88,7 +173,8 @@ The open half of ADR-0031 D8a is now built. Sub-packets **4a/4b/4c** shipped;
 `grounding_anchor_deferred` caveat path exist so re-detection slots in later
 without schema churn. Branch `adr-0029-worker-codegen-eval`; **the packet-4
 work is uncommitted at handoff** (and packets 1–2 remain committed-locally but
-not pushed — ask before pushing).
+not pushed — ask before pushing). *(Corrected at the 8th-session closeout:
+packet 4 since committed as `4af08f1` and pushed, as are packets 1–2.)*
 
 **The check (`custom_components/isolinear/answer_grounding.py`, new).** Pure
 Python, no numpy/scipy, so it runs integration-side on the Pi. A metric
@@ -161,7 +247,8 @@ worker image, CT103 rebuild) → deploy the worker as a running homelab
 ADR-0031 is accepted and its first tranche is being built. Branch
 `adr-0029-worker-codegen-eval`; the spec/ADR/docs work is pushed through
 `0436eef`, but the two implementation commits (`068d7ef`, `c833991`) are
-**committed locally and NOT pushed** (ask before pushing).
+**committed locally and NOT pushed** (ask before pushing). *(Corrected at the
+8th-session closeout: both since pushed.)*
 
 **Accepted + specced.** ADR-0031 draft→accepted (`7d266cb`): the now-met
 proof-gate paragraph was dropped, and the `CLAUDE.md`/`AGENTS.md` identity line

@@ -2,7 +2,7 @@
 
 Spec: `docs/specs/answer-grounding-check.md`
 
-Last verified: 2026-07-03 (7th session, sub-packet 4d — event anchors)
+Last verified: 2026-07-03 (8th session — proof req #4 claim-emission benchmark; full suite 372 passed / 4 skipped)
 
 ## Test run evidence
 
@@ -120,4 +120,34 @@ with no matching transition → `anchor_unfound` → withheld) is
 prompt guidance for emitting anchor-shaped claims (the floor-model
 claim-emission-rate benchmark is a separate open item) — the anchor path is
 exercised by the deterministic check and available to any model that emits a
-well-formed anchor, but nothing yet prompts `gemma4:e4b` to do so.
+well-formed anchor. *(Update, 8th session: `_CODEGEN_PROMPT_RULES` now documents
+the anchored window shape — commit `079431d` — but the floor model still records
+absolute bounds; see the next section.)*
+
+## Proof requirement #4 — floor-model claim-emission rate (2026-07-03, 8th session)
+
+The spec's proof requirement #4 — "does the floor model (`gemma4:e4b`) reliably
+emit a well-formed claim recipe?" — is answered by extending the answer-family
+benchmark (`evals/prompts/benchmark_prompts.json` + `evals/analysis_benchmark/`),
+with emitted claims scored by the REAL production checker
+(`custom_components.isolinear.answer_grounding`) against fresh real HA history
+(gitignored). Full raw numbers, per-run tables, and the three measured causes
+live in `evals/analysis_benchmark/FINDINGS.md` ("claim-emission rate,
+2026-07-03"). Headline evidence:
+
+- **Emission is reliable**: every claim-expected prompt whose generated code
+  executed emitted a `claims` list (run 1: 6/6; run 3: 5/5). Misses are prompts
+  whose code never ran, not prompts that skipped the ledger.
+- **Well-formedness is high** (6/6 and 4/5 pass the production structure step).
+- **Registry-verified: 0 in every run** — three measured causes: (1) a prompt
+  wording bug made run 1 stringify all values ('3.0°F'); the raw-JSON-number
+  hardening now in `_CODEGEN_PROMPT_RULES` fixed the type on every subsequent
+  claim; (2) free metric naming lands honest-but-unregistered metrics in the
+  caveat box (correct per D3); (3) the registry's exact-timestamp `pearson_r`
+  intersection returns no reference on real irregular data — the spec's
+  "prescribe the alignment" open item, confirmed live.
+- **No false "verified" was ever produced**, and the check caught a genuine live
+  `grounding_verdict_contradicted` (pd-05) — the exact class it exists for.
+- **Anchored windows: 0/2 emitted in every run** (event logic appears in code
+  but records absolute bounds) — acceptable for tranche 1 (value↔data still
+  holds); 4d re-detection will not exercise at the capability floor yet.
