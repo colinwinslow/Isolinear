@@ -4628,6 +4628,10 @@ def _build_codegen_render_request(
         render_plan=render_plan,
     )
     render_request["render_mode"] = "codegen"
+    # ADR-0031 D9: hand the model epoch-ms integers, never raw HA ISO timestamps.
+    render_request["history_series"] = _history_series_with_epoch_ms(
+        render_request["history_series"]
+    )
     render_request["codegen"] = {
         "python_code": python_code,
         "max_repair_attempts": max_repair_attempts,
@@ -4700,8 +4704,13 @@ def _record_codegen_worker_dispatch(
     max_repair_attempts = _configured_max_codegen_repair_attempts(hass, entry_id)
 
     # 1. Generate the initial code from the validated ChartSpec + render data.
+    #    ADR-0031 D9: normalize timestamps to epoch-ms before the data reaches the
+    #    model, matching the dispatch request the sandbox will execute against.
     codegen_request = _build_worker_render_request(
         store, hass=hass, entry_id=entry_id, render_plan=render_plan
+    )
+    codegen_request["history_series"] = _history_series_with_epoch_ms(
+        codegen_request["history_series"]
     )
     generation = codegen_client.generate_chart_code(codegen_request, model=codegen_model)
     if not isinstance(generation, dict) or not generation.get("accepted"):
@@ -5393,6 +5402,57 @@ def _build_worker_render_request(
         "theme": {},
         "codegen": None,
     }
+
+
+def _timestamp_to_epoch_ms(ts: Any) -> int | None:
+    """Convert an ISO-8601 timestamp string to Unix epoch milliseconds (ADR-0031 D9).
+
+    Robust to HA's mixed-precision recorder output — the initial state is written
+    on-the-second, later states with microseconds — and to a trailing ``Z``. A
+    naive datetime is treated as UTC. Already-integer input passes through so the
+    conversion is idempotent. Returns ``None`` for unparseable input (the point
+    then simply carries no epoch-ms field).
+    """
+    if isinstance(ts, bool):
+        return None
+    if isinstance(ts, int):
+        return ts
+    if isinstance(ts, float):
+        return int(ts)
+    if not isinstance(ts, str) or not ts.strip():
+        return None
+    text = ts.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp() * 1000)
+
+
+def _history_series_with_epoch_ms(history_series: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return a copy of the history with each point's ts precomputed as epoch ms.
+
+    The codegen data boundary (ADR-0031 D9): the model is handed epoch integers
+    so it never runs ``pandas.to_datetime`` on HA's mixed-precision ISO strings
+    (the benchmark's dominant failure). The raw ``ts`` stays on the point for the
+    render-request contract; the prompt projection strips it so the model only
+    ever sees ``ts_epoch_ms``.
+    """
+    normalized = deepcopy(history_series)
+    for series in normalized:
+        if not isinstance(series, dict):
+            continue
+        for point in series.get("points", []):
+            if not isinstance(point, dict):
+                continue
+            epoch_ms = _timestamp_to_epoch_ms(point.get("ts"))
+            if epoch_ms is not None:
+                point["ts_epoch_ms"] = epoch_ms
+    return normalized
 
 
 def _history_series_for_render_plan(

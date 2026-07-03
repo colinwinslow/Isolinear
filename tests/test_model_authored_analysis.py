@@ -22,6 +22,7 @@ import re
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -39,7 +40,14 @@ from codegen_sandbox_fixtures import (  # noqa: E402
     sample_codegen_render_request,
 )
 
-from custom_components.isolinear.model_provider import _CODEGEN_PROMPT_RULES  # noqa: E402
+from custom_components.isolinear.model_provider import (  # noqa: E402
+    _CODEGEN_PROMPT_RULES,
+    _codegen_request_view,
+)
+from custom_components.isolinear.job_orchestration import (  # noqa: E402
+    _history_series_with_epoch_ms,
+    _timestamp_to_epoch_ms,
+)
 
 # Reuse the proven codegen-path harness (real sandbox + in-process worker).
 from test_codegen_generation_path import (  # noqa: E402
@@ -182,6 +190,80 @@ class AnswerChannelSchemaTests(unittest.TestCase):
                 self.assertEqual((worker / name).read_bytes(), canonical, f"worker/{name}")
 
 
+class TimestampNormalizationTests(unittest.TestCase):
+    """Packet 2 (ADR-0031 D9) — epoch-ms at the codegen data boundary."""
+
+    def test_parses_on_the_second_and_microsecond_iso(self):
+        # HA writes the first state on-the-second, later states with microseconds.
+        on_second = _timestamp_to_epoch_ms("2026-06-05T08:00:00Z")
+        with_micros = _timestamp_to_epoch_ms("2026-06-05T08:00:00.123456+00:00")
+        # Cross-check against an independently-constructed reference.
+        ref = int(datetime(2026, 6, 5, 8, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        self.assertEqual(on_second, ref)
+        self.assertEqual(with_micros, ref + 123)
+
+    def test_naive_iso_is_treated_as_utc(self):
+        naive = _timestamp_to_epoch_ms("2026-06-05T08:00:00")
+        ref = int(datetime(2026, 6, 5, 8, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        self.assertEqual(naive, ref)
+
+    def test_conversion_is_idempotent_and_fails_soft(self):
+        self.assertEqual(_timestamp_to_epoch_ms(1_749_110_400_000), 1_749_110_400_000)
+        self.assertIsNone(_timestamp_to_epoch_ms("not-a-timestamp"))
+        self.assertIsNone(_timestamp_to_epoch_ms(None))
+
+    def test_history_series_gains_integer_epoch_ms_keeping_raw_ts(self):
+        history = [
+            {"entity_id": "sensor.x", "points": [
+                {"ts": "2026-06-05T08:00:00Z", "value": 71.2},
+                {"ts": "2026-06-05T09:00:00.5+00:00", "value": 71.8},
+            ]},
+        ]
+        normalized = _history_series_with_epoch_ms(history)
+        point = normalized[0]["points"][0]
+        self.assertIsInstance(point["ts_epoch_ms"], int)
+        self.assertNotIsInstance(point["ts_epoch_ms"], bool)
+        # Raw ts stays on the point for the render-request contract.
+        self.assertEqual(point["ts"], "2026-06-05T08:00:00Z")
+        # The source is not mutated.
+        self.assertNotIn("ts_epoch_ms", history[0]["points"][0])
+
+    def test_prompt_projection_strips_raw_ts_keeps_epoch_ms(self):
+        request = {
+            "chart_spec": {"title": "t"},
+            "history_series": _history_series_with_epoch_ms(
+                [{"entity_id": "sensor.x", "points": [
+                    {"ts": "2026-06-05T08:00:00Z", "value": 71.2},
+                ]}]
+            ),
+        }
+        view = _codegen_request_view(request)
+        point = view["history_series"][0]["points"][0]
+        # The model never sees a raw ISO timestamp string.
+        self.assertNotIn("ts", point)
+        self.assertIn("ts_epoch_ms", point)
+        self.assertIsInstance(point["ts_epoch_ms"], int)
+
+    def test_dispatched_codegen_data_carries_epoch_ms(self):
+        # Regression guard: the render_request the sandbox executes against carries
+        # integer ts_epoch_ms on every point (the model reads it, never raw ISO).
+        worker = SandboxWorkerRenderer()
+        codegen = FakeCodegenClient(generate_code=grounded_answer_generated_python())
+        with tempfile.TemporaryDirectory() as temp_dir:
+            hass, entry = _configured_codegen_hass(
+                codegen_client=codegen, worker=worker, artifact_dir=Path(temp_dir)
+            )
+            start = _start_job(hass, entry)
+            _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+        self.assertTrue(worker.calls, "no codegen dispatch recorded")
+        for series in worker.calls[-1]["history_series"]:
+            for point in series["points"]:
+                self.assertIn("ts_epoch_ms", point)
+                self.assertIsInstance(point["ts_epoch_ms"], int)
+                self.assertNotIsInstance(point["ts_epoch_ms"], bool)
+
+
 class CodegenPromptGroundingTests(unittest.TestCase):
     """The codegen prompt instructs COMPUTE-and-format, verdicts derived (ADR-0031 D3)."""
 
@@ -190,6 +272,12 @@ class CodegenPromptGroundingTests(unittest.TestCase):
         self.assertIn("answer_text", rules)
         self.assertIn("f-string", rules)
         self.assertIn("verdict", rules)
+
+    def test_prompt_rules_direct_the_model_to_epoch_ms(self):
+        # Packet 2 (D9): the prompt names ts_epoch_ms and forbids parsing raw strings.
+        rules = " ".join(_CODEGEN_PROMPT_RULES).lower()
+        self.assertIn("ts_epoch_ms", rules)
+        self.assertIn("epoch", rules)
 
 
 if __name__ == "__main__":

@@ -123,3 +123,47 @@ Test Files  1 passed (1)
   → PASS (no regression).
 - Schema byte-parity green across docs / packaged / worker copies; frontend
   bundle rebuilt and synced to `custom_components/isolinear/frontend/dist/`.
+
+## Packet 2 — data-boundary timestamp normalization, Scenario C (2026-07-03)
+
+**Scope proven here:** Scenario C — the codegen path hands the model epoch-ms
+integers, never raw HA ISO timestamps. `ts_epoch_ms` (an additive optional
+integer on history points) is precomputed at the integration boundary; the
+prompt projection strips raw `ts` so the model literally never sees an ISO
+string; the raw `ts` stays on the render-request for the existing contract; the
+safe / Pillow paths are untouched.
+
+### Unit + regression tests — `tests/test_model_authored_analysis.py`
+
+```
+TimestampNormalizationTests::test_conversion_is_idempotent_and_fails_soft PASSED
+TimestampNormalizationTests::test_dispatched_codegen_data_carries_epoch_ms PASSED
+TimestampNormalizationTests::test_history_series_gains_integer_epoch_ms_keeping_raw_ts PASSED
+TimestampNormalizationTests::test_naive_iso_is_treated_as_utc PASSED
+TimestampNormalizationTests::test_parses_on_the_second_and_microsecond_iso PASSED
+TimestampNormalizationTests::test_prompt_projection_strips_raw_ts_keeps_epoch_ms PASSED
+CodegenPromptGroundingTests::test_prompt_rules_direct_the_model_to_epoch_ms PASSED
+7 passed
+```
+
+- `test_parses_on_the_second_and_microsecond_iso` — the exact HA mixed-precision
+  case that broke `to_datetime`: `...:00Z` and `...:00.123456+00:00` both parse
+  (the second is `ref`, the first `ref + 123` ms), cross-checked against an
+  independently-constructed reference datetime.
+- `test_naive_iso_is_treated_as_utc`, `test_conversion_is_idempotent_and_fails_soft`
+  — naive → UTC; already-int passthrough; unparseable → `None` (fail-soft, no
+  epoch-ms field).
+- `test_history_series_gains_integer_epoch_ms_keeping_raw_ts` — each point gains
+  an integer `ts_epoch_ms`; raw `ts` is retained; the source is not mutated.
+- `test_prompt_projection_strips_raw_ts_keeps_epoch_ms` — `_codegen_request_view`
+  drops `ts` and keeps `ts_epoch_ms`: the model never sees a raw ISO string.
+- `test_dispatched_codegen_data_carries_epoch_ms` — **regression guard through
+  the REAL integration path**: the render_request the sandbox executes against
+  carries integer `ts_epoch_ms` on every point.
+
+### Suite posture (packet 2)
+
+- `python3 -m pytest tests/` → **327 passed, 4 skipped** (320 + 7 new).
+- `evals/model_authored_analysis.py`, `codegen_generation_path.py`,
+  `codegen_sandbox.py` → PASS (no regression).
+- history-series schema byte-parity green across docs / packaged / worker copies.

@@ -104,7 +104,12 @@ _CODEGEN_SYSTEM_PROMPT = (
 _CODEGEN_PROMPT_RULES = [
     "Define exactly one top-level function: def render_chart(data, output_path):",
     "Implement the supplied chart_spec using matplotlib and the supplied history_series.",
-    "Read the series points from data['history_series']; each point has 'ts' and 'value'.",
+    # ADR-0031 D9: the model is handed epoch integers, never raw HA ISO strings —
+    # the projection below strips 'ts', so 'ts_epoch_ms' is the only timestamp key.
+    "Read the series points from data['history_series']; each point has 'ts_epoch_ms' "
+    "(Unix epoch MILLISECONDS, an integer) and 'value'. Use ts_epoch_ms directly for "
+    "the x-axis; if you need datetimes, pandas.to_datetime(<ts_epoch_ms values>, "
+    "unit='ms'). Never parse a raw timestamp string.",
     "Save the figure to output_path as PNG (fig.savefig(output_path, format='png')).",
     "Do not import anything except matplotlib (and matplotlib.pyplot). No os, sys, "
     "socket, requests, subprocess, open() on arbitrary paths, or network access.",
@@ -140,10 +145,36 @@ def _codegen_request_view(request: dict[str, Any]) -> dict[str, Any]:
         return {"chart_spec": {}, "history_series": []}
     return {
         "chart_spec": deepcopy(request.get("chart_spec") or {}),
-        "history_series": deepcopy(request.get("history_series") or []),
+        "history_series": _history_series_prompt_view(request.get("history_series") or []),
         "derived_intervals": deepcopy(request.get("derived_intervals") or []),
         "output": deepcopy(request.get("output") or {}),
     }
+
+
+def _history_series_prompt_view(history_series: Any) -> list[dict[str, Any]]:
+    """Project history for the prompt with raw ISO ``ts`` stripped (ADR-0031 D9).
+
+    The integration precomputes ``ts_epoch_ms`` at the data boundary; dropping
+    ``ts`` here means the model literally never sees a raw HA timestamp string, so
+    it cannot ``to_datetime``-parse one (the benchmark's dominant failure class).
+    """
+    if not isinstance(history_series, list):
+        return []
+    projected: list[dict[str, Any]] = []
+    for series in history_series:
+        if not isinstance(series, Mapping):
+            continue
+        series_view = deepcopy(dict(series))
+        points = series_view.get("points")
+        if isinstance(points, list):
+            series_view["points"] = [
+                {key: value for key, value in point.items() if key != "ts"}
+                if isinstance(point, Mapping)
+                else point
+                for point in points
+            ]
+        projected.append(series_view)
+    return projected
 
 
 def _sandbox_error_view(sandbox_error: Any) -> dict[str, Any]:
