@@ -15,14 +15,22 @@ timestamps** — invisible with clean synthetic data. Hence: real history.
 
 ## Layout
 
-- `prompts.json` — 16 natural-language prompts mapped to library targets, plus
-  grounding adversarials. Committed.
+- `prompts.json` — 18 natural-language prompts mapped to library targets, plus
+  grounding adversarials. `claim: true` marks the answer-family prompts whose
+  reference demands a computed verdict/comparison (the claim-emission-rate
+  measurement, grounding-check spec proof req #4); `claim_window: "anchored"`
+  additionally expects the spec-§1a event-anchored window form. Committed.
 - `extract_fixture.py` — pulls a 7-day history sample from your HA into
   `home_data.json` (timestamps as epoch-ms per ADR-0031 decision 9).
   **gitignored output** (real home data).
 - `run_benchmark.py` — drives both models, executes each generation against the
   fixture, scores strict / repaired / png / answer. One repair round per failure.
-- `FINDINGS.md` — the 2026-07-02 results and what they decided in ADR-0031.
+  Emitted `claims` recipes are scored by the REAL production checker
+  (`custom_components.isolinear.answer_grounding`) against the same fixture:
+  well-formedness (spec §3 steps 1–2) + independent registry recompute of
+  `value` + anchored-window emission.
+- `FINDINGS.md` — the 2026-07-02 results (→ ADR-0031 D6/D8/D9) and the
+  2026-07-03 claim-emission results (→ grounding-check proof req #4).
 - `runs/`, `home_data.json`, `results.json` — **gitignored** (real data +
   generated code).
 

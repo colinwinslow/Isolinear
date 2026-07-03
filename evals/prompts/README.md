@@ -15,6 +15,11 @@ draw from one stable, shared set instead of ad-hoc one-offs.
   history, run `generate_chart_code` → worker sandbox and tally
   accept / reject / repair per model (gemma4:e4b, qwen2.5-coder:7b, …). This is
   the data the keep/remove decision (ADR-0029) rests on.
+- **ADR-0031 answer-family benchmarking** — the `answer_question` category is
+  the grounded-answer prompt set (verdicts/comparisons that must be computed,
+  never asserted). The claim-emission-rate measurement (grounding-check spec
+  proof req #4) runs these through `evals/analysis_benchmark/` against real,
+  gitignored HA history.
 
 ## Shape
 
@@ -24,7 +29,7 @@ Each entry:
 |---|---|
 | `id` | stable short id (`ts-01`, `ov-02`, …) |
 | `prompt` | the verbatim user prompt |
-| `category` | capability group (single_numeric, numeric_binary_overlay, timeline, distribution_histogram, aggregate_bar, explicit_entity_id, ambiguous_clarification, semantic_alias, out_of_scope_refuse, unsupported) |
+| `category` | capability group (single_numeric, numeric_binary_overlay, timeline, distribution_histogram, aggregate_bar, explicit_entity_id, ambiguous_clarification, semantic_alias, out_of_scope_refuse, unsupported, answer_question) |
 | `expect` | intended/observed behavior — `render_family`, `window`, `series`, `group_by`/`op`, or `behavior` |
 | `edge` | present + `true` for non-happy-path cases (fuzzy windows, ambiguity, refusals) |
 | `notes` | provenance/history where a prompt exercised a specific bug or ADR |
