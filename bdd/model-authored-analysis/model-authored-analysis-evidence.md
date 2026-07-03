@@ -167,3 +167,67 @@ CodegenPromptGroundingTests::test_prompt_rules_direct_the_model_to_epoch_ms PASS
 - `evals/model_authored_analysis.py`, `codegen_generation_path.py`,
   `codegen_sandbox.py` → PASS (no regression).
 - history-series schema byte-parity green across docs / packaged / worker copies.
+
+## Packet 3 — scipy + seaborn library additions, Scenario H (2026-07-03, live CT103)
+
+**Scope proven here:** Scenario H — the worker image with scipy + seaborn added
+to `worker/requirements.txt` + the sandbox import allowlist imports
+`matplotlib` + `pandas` + `numpy` + `scipy` + `seaborn` **together in the `-I`
+sandbox under the 1024MB `RLIMIT_AS` cap** (OpenBLAS thread pins applied), and a
+`scipy.stats` correlation + `seaborn.heatmap` render produces a valid PNG —
+**proven live on CT103** (`docker-host`, 10.0.1.39, amd64, 6 cores).
+
+Allowlist entries added (exact-match, mirroring the `matplotlib` /
+`matplotlib.pyplot` pattern): `scipy`, `scipy.optimize`, `scipy.signal`,
+`scipy.stats`, `seaborn`. The stale codegen prompt rule "Do not import anything
+except matplotlib" (which contradicted the packet-2 pandas epoch-ms hint) now
+enumerates the five allowlisted libraries.
+
+### Image rebuild (CT103, context shipped via `tar | ssh` — no rsync on host)
+
+```
+isolinear-worker:dev 719MB   (was 526MB; spec estimated ~650MB)
+container libs: matplotlib=3.11.0 pandas=2.3.3 numpy=2.5.0 scipy=1.18.0 seaborn=0.13.2
+```
+
+### In-container worker suite (zero skips — matplotlib-gated tests all run)
+
+```
+$ python -m pytest tests/test_codegen_sandbox.py tests/test_worker_http_server.py -q
+27 passed, 28 subtests passed in 6.55s
+```
+
+### Scenario H sandbox render (raw driver output, in-container)
+
+```
+policy memory_limit_mb=1024
+allowlist carries scipy/scipy.stats/scipy.signal/scipy.optimize/seaborn
+sandbox status=success
+png bytes=16232 signature=89504e470d0a1a0a
+answer_text='The correlation coefficient is 1.00.'
+SCENARIO H PASS
+```
+
+The generated code imports all five libraries inside the `-I` sandbox, computes
+`scipy.stats.pearsonr` over the series, renders `seaborn.heatmap` to the fixed
+output path, and f-strings the coefficient into `answer_text` (the grounding
+contract). Success under `memory_limit_mb=1024` **is** the under-cap proof: the
+sandbox applies the policy limit via `RLIMIT_AS` before executing.
+
+**Security boundary spot-check (incidental but real):** the first driver
+attempt included `module.__version__` reporting inside the generated code — the
+static gate rejected it (`unsafe_code` / `dunder_attribute`, render never
+attempted). The new libraries are *available*; the allowlist + static checks
+still gate what generated code may do.
+
+### Suite posture (packet 3)
+
+- `python3 -m pytest tests/` → **373 passed, 4 skipped** (372 + 1 new
+  prompt-rule test; skips are the documented matplotlib-in-`-I` dev-box
+  limitation).
+- `evals/codegen_sandbox.py`, `evals/model_authored_analysis.py` → PASS.
+- Schema copies untouched (codegen-sandbox-policy schema is an unconstrained
+  string array); byte-parity across docs / packaged / worker copies confirmed
+  via md5sum.
+- CT103 left clean: `/tmp/iw-build` removed; the rebuilt `isolinear-worker:dev`
+  (719MB) retained.

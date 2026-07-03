@@ -111,8 +111,12 @@ _CODEGEN_PROMPT_RULES = [
     "the x-axis; if you need datetimes, pandas.to_datetime(<ts_epoch_ms values>, "
     "unit='ms'). Never parse a raw timestamp string.",
     "Save the figure to output_path as PNG (fig.savefig(output_path, format='png')).",
-    "Do not import anything except matplotlib (and matplotlib.pyplot). No os, sys, "
-    "socket, requests, subprocess, open() on arbitrary paths, or network access.",
+    # ADR-0031 D6: the analysis libraries the sandbox allowlists. Kept in sync
+    # with the worker sandbox policy (worker/isolinear_worker/codegen_sandbox.py).
+    "You may import matplotlib (and matplotlib.pyplot), pandas, numpy, scipy "
+    "(scipy.stats / scipy.signal / scipy.optimize), and seaborn. Import nothing "
+    "else: no os, sys, socket, requests, subprocess, open() on arbitrary paths, "
+    "or network access.",
     "Do not read environment variables, secrets, tokens, or files other than writing "
     "the figure to output_path.",
     "Return a small metadata dict (title, series_plotted, warnings) from render_chart.",

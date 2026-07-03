@@ -79,6 +79,12 @@ class CodegenSandboxModuleTests(unittest.TestCase):
         self.assertIn("-I", policy["python_flags"])
         self.assertIn("matplotlib.pyplot", policy["allowed_imports"])
         self.assertIn("pandas", policy["allowed_imports"])
+        # ADR-0031 D6: the analysis libraries, exact-match alongside numpy/pandas.
+        self.assertIn("scipy", policy["allowed_imports"])
+        self.assertIn("scipy.stats", policy["allowed_imports"])
+        self.assertIn("scipy.signal", policy["allowed_imports"])
+        self.assertIn("scipy.optimize", policy["allowed_imports"])
+        self.assertIn("seaborn", policy["allowed_imports"])
 
     # Scenario B (sandbox-codegen) — safe code renders a real PNG through the
     # fixed output path, with no matplotlib dependency.

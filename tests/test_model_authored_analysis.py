@@ -279,6 +279,15 @@ class CodegenPromptGroundingTests(unittest.TestCase):
         self.assertIn("ts_epoch_ms", rules)
         self.assertIn("epoch", rules)
 
+    def test_prompt_rules_enumerate_the_sandbox_analysis_libraries(self):
+        # Packet 3 (D6): the prompt names every allowlisted analysis library —
+        # the old "nothing except matplotlib" rule contradicted the pandas
+        # epoch-ms hint and would suppress scipy/seaborn analysis outright.
+        rules = " ".join(_CODEGEN_PROMPT_RULES).lower()
+        for library in ("matplotlib", "pandas", "numpy", "scipy", "seaborn"):
+            self.assertIn(library, rules)
+        self.assertNotIn("do not import anything except matplotlib", rules)
+
     def test_prompt_rules_document_the_anchored_claim_window(self):
         # Spec §1 (answer-grounding-check): event-scoped claims carry an anchored
         # window the integration can re-detect (4d shipped the check side; the
