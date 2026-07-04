@@ -39,6 +39,36 @@ from .codegen_sandbox import (
 
 LOGGER = logging.getLogger("isolinear_worker.http_server")
 
+
+def _log_render_outcome(request_id: object, render_result: object) -> None:
+    """Log the sandbox outcome per render so `docker logs` shows more than the
+    bare HTTP line. Success → INFO; a sandbox failure → WARNING with the error
+    code and, for `unsafe_code`, a compact `code@Lline` violation summary
+    (construct names only — the data boundary already strips secrets)."""
+    if not isinstance(render_result, dict):
+        return
+    status = render_result.get("status")
+    if status == "success":
+        LOGGER.info("render request_id=%s status=success", request_id)
+        return
+    error = render_result.get("error") if isinstance(render_result.get("error"), dict) else {}
+    details = error.get("details") if isinstance(error.get("details"), dict) else {}
+    violations = details.get("violations")
+    summary = ""
+    if isinstance(violations, list) and violations:
+        summary = " violations=[%s]" % ", ".join(
+            f"{v.get('code')}@L{v.get('line')}"
+            for v in violations[:8]
+            if isinstance(v, dict)
+        )
+    LOGGER.warning(
+        "render request_id=%s status=%s error=%s%s",
+        request_id,
+        status,
+        error.get("code"),
+        summary,
+    )
+
 WORKER_API_VERSION = "1"
 RENDER_PATH = "/v1/render"
 HEALTH_PATH = "/v1/health"
@@ -215,6 +245,7 @@ class WorkerApp:
             envelope["render_request"],
             work_root=self.work_root(),
         )
+        _log_render_outcome(envelope.get("request_id"), render_result)
         return WorkerResponse(HTTPStatus.OK, {"render_result": render_result})
 
     def handle_health(

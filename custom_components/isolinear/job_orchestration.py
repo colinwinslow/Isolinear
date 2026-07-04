@@ -3338,6 +3338,14 @@ def _record_artifact_and_render_plan(
         # ADR-0030: codegen failures (generation, repair exhaustion, transport)
         # fall back to the trusted Pillow renderer, surfaced via render_path +
         # render_fallback_reason on the artifact/chart — never silent.
+        # Log at WARNING (visible via the HA system-log channel) with the failure
+        # stage/code/attempts + compact detail so codegen fallbacks are
+        # diagnosable without reproducing; the worker log carries the full detail.
+        _LOGGER.warning(
+            "Isolinear codegen render failed, falling back to Pillow: %s",
+            worker_dispatch_result.get("codegen_failure")
+            or {"code": worker_dispatch_result.get("code")},
+        )
         fallback_reason = _codegen_fallback_reason(hass, entry_id, worker_dispatch_result)
         if fallback_reason is not None:
             fallback_render_result = _record_in_process_render(
@@ -4644,6 +4652,34 @@ def _build_codegen_render_request(
     return render_request
 
 
+def _compact_codegen_error_detail(final_error: Any) -> dict[str, Any] | None:
+    """Compact, log-safe detail from a sandbox error for diagnostics.
+
+    Returns a `violations` list (`code@Lline: message`) for `unsafe_code`, or a
+    short `traceback_tail` for runtime failures. No secrets cross here — the
+    data boundary already strips tokens from the generated code; violations name
+    code constructs (imports/attributes/calls), not data.
+    """
+    if not isinstance(final_error, dict):
+        return None
+    details = final_error.get("details")
+    if not isinstance(details, dict):
+        return None
+    violations = details.get("violations")
+    if isinstance(violations, list) and violations:
+        summary = [
+            f"{v.get('code')}@L{v.get('line')}: {str(v.get('message'))[:120]}"
+            for v in violations[:8]
+            if isinstance(v, dict)
+        ]
+        if summary:
+            return {"violations": summary}
+    traceback = details.get("traceback")
+    if isinstance(traceback, str) and traceback.strip():
+        return {"traceback_tail": traceback.strip().splitlines()[-3:]}
+    return None
+
+
 def _codegen_render_failed(
     *,
     worker_summary: dict[str, Any],
@@ -4653,6 +4689,7 @@ def _codegen_render_failed(
     chart_rendering_called: bool,
     codegen_attempts: int,
     repair_attempts: int,
+    final_error: Any = None,
 ) -> dict[str, Any]:
     """Fail-closed codegen result (no silent fallback to the trusted renderer).
 
@@ -4661,6 +4698,15 @@ def _codegen_render_failed(
     fallback would mask codegen failures and muddy the packet-5 accept/reject/
     repair eval.
     """
+    codegen_failure: dict[str, Any] = {
+        "stage": stage,
+        "final_error_code": final_error_code,
+        "codegen_attempts": codegen_attempts,
+        "repair_attempts": repair_attempts,
+    }
+    detail = _compact_codegen_error_detail(final_error)
+    if detail is not None:
+        codegen_failure["detail"] = detail
     return {
         "accepted": False,
         "code": CODEGEN_RENDER_FAILED_CODE,
@@ -4668,12 +4714,7 @@ def _codegen_render_failed(
         "chart_rendering_called": chart_rendering_called,
         "worker_progress_streaming_called": False,
         "worker": worker_summary,
-        "codegen_failure": {
-            "stage": stage,
-            "final_error_code": final_error_code,
-            "codegen_attempts": codegen_attempts,
-            "repair_attempts": repair_attempts,
-        },
+        "codegen_failure": codegen_failure,
     }
 
 
@@ -4930,11 +4971,13 @@ def _record_codegen_worker_dispatch(
             withheld_answer=withheld,
         )
 
-    # Sandbox-level exhaustion: fail closed carrying the final sandbox error code.
+    # Sandbox-level exhaustion: fail closed carrying the final sandbox error code
+    # + a compact detail (violations / traceback tail) for diagnostics.
     return _codegen_render_failed(
         worker_summary=worker_summary,
         final_error_code=final_error_code,
         stage="render",
+        final_error=error if isinstance(error, dict) else None,
         worker_called=True,
         chart_rendering_called=True,
         codegen_attempts=max_repair_attempts + 1,

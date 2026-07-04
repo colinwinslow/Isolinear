@@ -86,5 +86,50 @@ class RepairPromptTests(unittest.TestCase):
         self.assertIn("remove or replace", parsed["task"].lower())
 
 
+class CodegenFailureDetailTests(unittest.TestCase):
+    """Diagnostics: the fallback WARNING carries a compact, log-safe detail."""
+
+    def test_unsafe_code_detail_summarizes_violations(self) -> None:
+        from custom_components.isolinear import job_orchestration
+
+        detail = job_orchestration._compact_codegen_error_detail(UNSAFE_ERROR)
+        self.assertIn("violations", detail)
+        self.assertTrue(any("forbidden_import@L3" in v for v in detail["violations"]))
+
+    def test_runtime_detail_keeps_traceback_tail(self) -> None:
+        from custom_components.isolinear import job_orchestration
+
+        detail = job_orchestration._compact_codegen_error_detail(RUNTIME_ERROR)
+        self.assertIn("traceback_tail", detail)
+
+    def test_clean_error_has_no_detail(self) -> None:
+        from custom_components.isolinear import job_orchestration
+
+        self.assertIsNone(job_orchestration._compact_codegen_error_detail({"code": "x"}))
+        self.assertIsNone(job_orchestration._compact_codegen_error_detail(None))
+
+
+class WorkerRenderLogTests(unittest.TestCase):
+    """The worker logs each sandbox outcome (docker-logs visibility)."""
+
+    def test_unsafe_code_logs_warning_with_violation_summary(self) -> None:
+        sys.path.insert(0, str(REPO_ROOT / "worker"))
+        from isolinear_worker import http_server
+
+        with self.assertLogs("isolinear_worker.http_server", level="WARNING") as cm:
+            http_server._log_render_outcome("req-1", {"status": "failed", "error": UNSAFE_ERROR})
+        joined = " ".join(cm.output)
+        self.assertIn("unsafe_code", joined)
+        self.assertIn("forbidden_import@L3", joined)
+
+    def test_success_logs_info(self) -> None:
+        sys.path.insert(0, str(REPO_ROOT / "worker"))
+        from isolinear_worker import http_server
+
+        with self.assertLogs("isolinear_worker.http_server", level="INFO") as cm:
+            http_server._log_render_outcome("req-2", {"status": "success"})
+        self.assertIn("status=success", " ".join(cm.output))
+
+
 if __name__ == "__main__":
     unittest.main()
