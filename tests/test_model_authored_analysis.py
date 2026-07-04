@@ -298,6 +298,15 @@ class CodegenPromptGroundingTests(unittest.TestCase):
         self.assertIn("resolved_at", rules)
         self.assertIn("occurrence", rules)
 
+    def test_prompt_rules_forbid_bare_non_ascii_tokens(self):
+        # Bare non-ASCII characters (like °) outside string literals cause
+        # syntax_error@LN in the sandbox; the prompt must steer models to always
+        # put them inside quoted strings.
+        rules = " ".join(_CODEGEN_PROMPT_RULES).lower()
+        self.assertIn("bare", rules)
+        self.assertIn("string literal", rules)
+        self.assertIn("°", " ".join(_CODEGEN_PROMPT_RULES))
+
 
 if __name__ == "__main__":
     unittest.main()
