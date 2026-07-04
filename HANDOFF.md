@@ -2,6 +2,94 @@
 
 ## Current project phase
 
+### 2026-07-04 (10th session) — Shipped to `main` and brought up live: the chain reaches the worker, and three bugs found in real use are fixed (0.2.8→0.2.11)
+
+Isolinear ran end-to-end against real Home Assistant for the first time this
+session, and the debugging happened live. `main` is now `1d923c6` = **0.2.11**;
+everything is pushed. Live HA still needs one more HACS redownload (it was on
+0.1.48, briefly 0.2.1 from a stale PR, now 0.2.11) plus Colin's retest to
+confirm a clean codegen render — the last unconfirmed step. A **new bug** Colin
+found during testing is deferred to next session (STATUS open-queue (n),
+details TBD).
+
+**The merge, and a stale-PR catch.** Completing the ship meant merging
+`adr-0029-worker-codegen-eval` → `main`. On the way I found that Colin's GitHub
+**PR #3 had already merged a stale commit** (`4d0e153`, the 4th-session tip,
+version 0.2.1) — so `origin/main` was a half-shipped 0.2.1: missing the entire
+5th–9th-session line (answer channel, grounding check, scipy/seaborn, ADR-0032)
+and still carrying the deleted ADR-0015/0016 machinery. Had HACS pulled that,
+it would have been a broken build. I rebuilt the current tip on top of the PR
+merge (kept the PR merge commit in history — no force-push) so `main` is the
+complete 0.2.11.
+
+**Three live bugs, each root-caused, fixed, tested, shipped:**
+
+1. **Endpoints not editable post-install (`0.2.9`, `8ea4a7f`).** `model_endpoint_url`
+   and `worker_endpoint_url` were config-flow (setup-time) fields only. A fresh
+   install's worker endpoint was therefore stuck on the placeholder entered
+   before the worker existed, so the integration tried a dead address and fell
+   back to Pillow with `worker_connection_error`. Both endpoints are now
+   editable in the Configure (options) form, positioned above the entity picker
+   (Colin's request). They stay config-entry *data* (the single source
+   consumers read): the options flow extracts them before options validation
+   (like the ADR-0032 token), validates with the same URL rules (malformed +
+   credential-bearing rejected), persists via `async_update_entry`, and rebuilds
+   the model-provider + worker-renderer setups so the change is live without a
+   restart. +8 tests; config-flow spec updated.
+
+2. **Codegen repair was blind to `unsafe_code` (`0.2.10`, `de7ec4f`) — the big
+   one.** With the endpoint fixed, renders reached the worker but fell back with
+   `unsafe_code` on *every* attempt regardless of `max_codegen_repair_attempts`.
+   Root cause: `_sandbox_error_view` projected only `code`/`message`/`traceback`
+   into the repair prompt, but a static-check failure has **no traceback** — its
+   specifics live in `details.violations`, which was dropped. So the model
+   repaired blind and re-emitted the same disallowed construct until the budget
+   exhausted. (This is exactly why the packet-5 reliability eval's ~94%
+   with-repair rate never appeared in production: the eval saw the violations,
+   production didn't.) The error view now carries `violations` and the repair
+   task text tells the model to remove/replace each flagged construct using only
+   the allowed libraries. Proven against the live model: deliberately-unsafe
+   code (`import os` + dunder + forbidden attribute, 3 violations) → one repair
+   pass → statically clean, `os` gone. +4 tests. Note: the default
+   `max_codegen_repair_attempts` is 1 (stingy now that repair works — STATUS
+   open-queue (m) to raise it).
+
+3. **Thin failure visibility (`0.2.11`, `1d923c6`).** The whole session's
+   debugging was slow because a fallback surfaced only the reason code and the
+   violations were buried in DEBUG / unlogged. Now: the integration logs a
+   WARNING on codegen fallback (stage / final error code / attempts + a compact
+   log-safe detail — the `unsafe_code` violations as `code@Lline: message`, or a
+   runtime traceback tail — reachable via the HA system-log channel), and the
+   worker logs each `/v1/render` outcome (INFO success; WARNING with error code
+   + `code@Lline` violation summary), so `docker logs isolinear-worker` shows
+   more than the bare HTTP line. No secrets cross either log (violations name
+   code constructs; the data boundary already strips tokens). +5 tests; worker
+   image rebuilt + recreated on CT103.
+
+**Live proof of the chain.** Two `POST /v1/render` from `10.0.1.200` (the Pi)
+are in the worker log — the endpoint fix worked and the full path (HA → model →
+CT103 worker → sandbox) connects. The render fell back on the repair-blind bug,
+now fixed. **Infra:** Colin now has SSH to CT103 — his Termius ed25519 key
+(`colin-termius-phone`) is in root's `authorized_keys`; CT103 root is key-only
+(`permitrootlogin without-password`), so he reads the deployment token himself
+via `docker exec isolinear-worker env | grep ISOLINEAR_WORKER_TOKEN` rather than
+it ever crossing the chat transcript.
+
+**Verification.** Suite **408 passed / 4 skipped** (+17 across the three fixes);
+evals `home_assistant_hacs_install_packaging`, `codegen_generation_path`,
+`model_authored_analysis` PASS. Inline invariant check OK — no sandbox,
+allowlist, schema, or new-service change: the config-flow endpoints route into
+existing config data, and the repair-view + logging changes are additive /
+diagnostic. A fresh-context architecture-review subagent was not spawned (these
+are bounded hotfixes on the accepted codegen path); available on request.
+
+**Next session.** (A) Confirm the first clean codegen render: Colin redownloads
+0.2.11, sets `max_codegen_repair_attempts` to 2, re-asks — watch
+`docker logs isolinear-worker` for a clean render + a grounded answer (the new
+logging will show the exact violation immediately if it still trips). (B) The
+new bug (open-queue (n)) once Colin describes it. (C) Registry follow-ups
+(`pearson_r` alignment; corpus-requested metrics). PARKED as before.
+
 ### 2026-07-04 (9th session) — The live-deploy path is open: scipy+seaborn shipped, the worker runs as a CT103 compose service, and the integration can authenticate to it (0.2.6→0.2.8)
 
 Three landings this session move Isolinear from "proven in evals" to "a real
