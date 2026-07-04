@@ -9,8 +9,8 @@ lives only in the homelab SOPS store and the integration-owned HA Store.
 
 ```
 $ python3 -m pytest tests/test_deployment_worker_token.py -q
-................                                                         [100%]
-16 passed in 0.72s
+..................                                                       [100%]
+18 passed in 0.73s
 ```
 
 Load-bearing assertions, by scenario:
@@ -78,12 +78,14 @@ rebuilds the renderer client so a pasted token takes effect without a restart.
 
 ```
 $ python3 -m pytest tests/ -q
-389 passed, 4 skipped in 7.55s
+391 passed, 4 skipped in 7.57s
 ```
 
-(373 before the packet; +16 new. The deletion itself broke ONLY the packaging
-test's schema-path imports — the 2026-07-02 purge had already removed every
-behavioral test of the machinery, confirming it ran uncovered.)
+(373 before the packet; +18 new — 16 initial + 2 architecture-review
+follow-ups: the eval-import deletion guard and the token-only re-paste rebuild.
+The deletion itself broke ONLY the packaging test's schema-path imports — the
+2026-07-02 purge had already removed every behavioral test of the machinery,
+confirming it ran uncovered.)
 
 ## Scenario F — missing token stays fail-soft
 

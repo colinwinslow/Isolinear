@@ -2,6 +2,106 @@
 
 ## Current project phase
 
+### 2026-07-04 (9th session) — The live-deploy path is open: scipy+seaborn shipped, the worker runs as a CT103 compose service, and the integration can authenticate to it (0.2.6→0.2.8)
+
+Three landings this session move Isolinear from "proven in evals" to "a real
+worker the real integration can reach." Isolinear branch
+`adr-0029-worker-codegen-eval` is pushed through `54eaffb`; the homelab side is
+on `main` (`311eac9`, pushed). **What remains before a first live render is a
+merge + a HACS redownload + Colin pasting two values** — no more code.
+
+**Packet 3 — scipy + seaborn into the worker (`8964bc1`, 0.2.7).** The two
+tranche-1 analysis libraries (ADR-0031 D6) land in `worker/requirements.txt`
+and the sandbox import allowlist (exact-match entries `scipy`, `scipy.stats`,
+`scipy.signal`, `scipy.optimize`, `seaborn` — mirroring the matplotlib
+submodule pattern). A stale codegen prompt rule ("Do not import anything
+except matplotlib") that contradicted the packet-2 pandas hint now enumerates
+the five libraries. **Proven live on CT103 (Scenario H):** the image rebuilt to
+**719MB** (was 526MB), the in-container worker suite ran **27 passed / 0
+skips**, all five libraries imported together in the `-I` sandbox under the
+1024MB `RLIMIT_AS` cap, and a `scipy.stats` correlation + `seaborn.heatmap`
+generated a valid PNG through the fixed output path. The static gate
+incidentally re-proved itself by rejecting a dunder attribute in the first
+driver attempt. Evidence appended to
+`bdd/model-authored-analysis/model-authored-analysis-evidence.md`.
+
+**Homelab — the worker as a managed service (`311eac9` on `main`).** The
+worker (`isolinear-worker:dev`, a local tag built on CT103 from this repo,
+`pull_policy: never`) is now a GPU-less `docker_host` compose service on port
+8080, with the bearer token injected from SOPS
+(`docker_host.isolinear_worker_token`) and a tmpfs work root (rendered PNGs are
+ephemeral). Spec + BDD `isolinear-worker-service` (A–E) passed live: the image's
+own authenticated HEALTHCHECK reports healthy under compose; `/v1/health`
+returns `ready` with token+version, 401 without a token, 400 on a missing
+version; re-apply is `changed=0`; and ollama/frigate/plex/caddy kept their
+uptimes (the full-stack handler moved from `state: restarted` to
+`state: present`, so an additive service block converges only changed
+services — a rebuilt same-tag image still needs a manual force-recreate). No
+plaintext token in the repo (gitleaks green). **CT103 gotchas that held:** no
+rsync on the host (ship context via `tar | ssh`); the worker's auth→version→
+schema ordering means an authenticated but version-less health call is a 400,
+not a 200.
+
+**ADR-0032 — the deployment token, and a 3.1K-LOC deletion (`54eaffb`,
+0.2.8).** Deploying the worker surfaced a mismatch designed into the scaffold
+era: the integration self-provisioned a bearer token (the deprecated ADR-0016
+lifecycle) that the real worker — which reads `ISOLINEAR_WORKER_TOKEN` from
+SOPS at deploy time — had never heard of, so every live dispatch would have
+401'd. The evals never hit it because they controlled both ends of the wire.
+ADR-0032 (accepted; direction Colin 2026-07-03) makes the token **deployment
+configuration**: a write-only options-flow password field (`worker_api_token`)
+persists to an integration-owned HA Store (`worker_token_storage.py`, the
+semantic-memory storage shape), extracted **before** options validation so
+options/config data never carry it (the `config_schema` secret-vocabulary
+fail-closed check is untouched), never pre-filled or echoed. A save/clear
+rebuilds the renderer client in the options flow itself — HA fires update
+listeners only when options changed, and a token-only re-paste leaves options
+identical (an architecture-review catch). `setup_worker_renderer` now builds
+the client from `worker_endpoint_url` + the stored token; missing either piece
+keeps the existing disabled `worker_renderer_token_missing`, so `render_path:
+auto` falls back to Pillow (ADR-0030, surfaced) — no new failure mode. **The
+deletion:** eight uncovered ADR-0015/0016 modules (`worker_token_lifecycle`,
+`worker_readiness`, `worker_health`, `worker_health_polling` +
+`_constants`/`_contract`/`_state`/`_storage`), five schemas from both bundled
+copies, and the `__init__` lifecycle-abort/readiness/health/polling chain.
+Worker health is now on-demand via the client's existing `check_health()`. The
+2026-07-02 purge had already deleted every behavioral test of this machinery —
+the deletion broke only the packaging test's schema-path imports, confirming it
+ran uncovered. A deletion-guard test pins the modules/schemas gone and no
+imports remaining (both `custom_components/` **and** `evals/` — a second
+review finding, since pytest never runs evals). **Live-proven**
+(`evals/deployment_worker_token.py`): the real `HttpJsonWorkerRenderClient`
+authenticated to the compose-managed CT103 worker with the SOPS deployment
+token and got `status: ready`; a wrong token surfaced a 401 fault as a dict
+(no exception, no token material). This is the first time the real integration
+client spoke to the real deployed worker.
+
+**Verification.** Suite **391 passed / 4 skipped** (+18 across the two
+packets); five worker-path evals PASS (`codegen_sandbox`,
+`codegen_generation_path`, `worker_http_server`, `model_authored_analysis`,
+`home_assistant_hacs_install_packaging`). Architecture review (fresh-context
+subagent) on ADR-0032 returned CONCERNS→resolved: a broken packaging eval
+(fixed), the token-only re-paste rebuild (added + test), and spec/ADR drift
+(aligned, deviations recorded in the spec). BDD-evidence review OK — stale
+counts in the token evidence file were corrected at this closeout.
+
+**What remains (none blocking).** (a) **Ship + first live render:** merge
+`adr-0029-worker-codegen-eval` → `main` (30+ commits ahead: the scaffold purge,
+the 0.2.x pivot, ADR-0030/0031/0032 — HACS tracks the default branch, and live
+HA still runs 0.1.48), HACS Redownload 0.2.8, restart, then Colin sets
+`worker_endpoint_url` = `http://10.0.1.39:8080` and pastes the SOPS token into
+the new options field → ask a question → the first end-to-end
+model→matplotlib→sandboxed-PNG + grounded answer through the live worker. Colin
+chose merge-after-smoke-test; the pre-merge smoke test (real client, real
+worker, real token) has passed. (b) **Registry recompute fidelity** (from the
+8th session, still open): `pearson_r` prescribed alignment; corpus-requested
+metric additions. (c) A rebuilt same-tag worker image needs a manual
+`docker compose up -d --force-recreate isolinear-worker` on CT103 (the compose
+handler won't re-pull/re-read a `:dev` tag) — worth a real image version/registry
+when distribution matters. PARKED: packet 5 (output-modality signal), packet 6
+(visual validator + progressive-verification UX), open-queue (l), split
+`job_orchestration.py`.
+
 ### 2026-07-03 (8th session) — Grounding-check proof req #4 answered: floor-model claim-emission rate measured with production scoring, 0.2.5→0.2.6
 
 The grounding-check packet is now closed end to end: implemented (4a–4d, prior
