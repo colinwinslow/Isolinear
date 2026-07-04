@@ -58,13 +58,14 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0029 — `Revive isolated worker to evaluate sandboxed model-generated chart codegen` (outcome: KEEP — see 0030)
 - 0030 — `Matplotlib codegen is the primary render path; Pillow becomes the fallback` (supersedes 0004)
 - 0031 — `Model-authored analysis — Isolinear answers questions, not just charts` (accepted)
+- 0032 — `Deployment-configured worker token; retire the ADR-0015/0016 durability machinery` (accepted)
 
 ## Archived ADRs (`archive/`)
 
 - 0015 — `Durable worker health polling` (deprecated 2026-07-02 — designed for
   the pre-reality simulated worker; the real worker (ADR-0029) is a simple HTTP
-  service with `GET /v1/health`. The runtime polling machinery in
-  `custom_components/` still runs and is scheduled for simplification.)
+  service with `GET /v1/health`. The runtime polling machinery was
+  removed by ADR-0032 on 2026-07-04.)
 - 0016 — `Durable worker token lifecycle` (deprecated 2026-07-02, never left
   draft — same rationale; the real worker uses a static bearer token from
-  config/secrets.)
+  config/secrets. Its runtime machinery was removed by ADR-0032 on 2026-07-04.)

@@ -15,10 +15,6 @@ from custom_components.isolinear import job_orchestration
 from custom_components.isolinear import job_state
 from custom_components.isolinear import model_provider
 from custom_components.isolinear import model_provider_health
-from custom_components.isolinear import worker_health
-from custom_components.isolinear import worker_health_polling_constants
-from custom_components.isolinear import worker_readiness
-from custom_components.isolinear import worker_token_lifecycle
 from custom_components.isolinear._paths import FRONTEND_DIST_DIR, PACKAGE_DIR, SCHEMAS_DIR
 from custom_components.isolinear.const import INTEGRATION_VERSION
 
@@ -42,11 +38,6 @@ SCHEMA_PATH_CONSTANTS = (
     model_provider.PLANNER_RESULT_SCHEMA_PATH,
     model_provider_health.MODEL_PROVIDER_HEALTH_SCHEMA_PATH,
     model_provider_health.MODEL_PROVIDER_HEALTH_REQUEST_SCHEMA_PATH,
-    worker_health.WORKER_HEALTH_SCHEMA_PATH,
-    worker_health.WORKER_HEALTH_REQUEST_SCHEMA_PATH,
-    worker_health_polling_constants.WORKER_HEALTH_POLLING_SCHEMA_PATH,
-    worker_readiness.WORKER_READINESS_SCHEMA_PATH,
-    worker_token_lifecycle.WORKER_TOKEN_LIFECYCLE_SCHEMA_PATH,
 )
 
 

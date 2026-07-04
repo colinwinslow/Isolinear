@@ -9,11 +9,11 @@ from copy import deepcopy
 from typing import Any
 
 from .const import DOMAIN
+from .worker_token_storage import stored_worker_token
 
 
 DATA_WORKER_RENDER_CLIENT = "worker_render_client"
 DATA_WORKER_RENDER_SETUP = "worker_render_setup"
-DATA_WORKER_RENDER_TOKEN = "worker_render_token"
 
 WORKER_TRANSPORT_VERSION = 1
 WORKER_RENDER_PATH = "/v1/render"
@@ -23,7 +23,11 @@ MIN_WORKER_RENDER_TOKEN_LENGTH = 24
 
 
 def setup_worker_renderer(hass: Any, entry: Any) -> dict[str, Any]:
-    """Install a worker renderer client only when an integration-owned token exists."""
+    """Install a worker renderer client only when a deployment token is stored.
+
+    ADR-0032: the bearer token is deployment configuration pasted by the user
+    (worker_token_storage), never integration-provisioned.
+    """
     entry_id = getattr(entry, "entry_id", "scaffold-entry")
     entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})
     existing = entry_data.get(DATA_WORKER_RENDER_CLIENT)
@@ -34,7 +38,7 @@ def setup_worker_renderer(hass: Any, entry: Any) -> dict[str, Any]:
 
     config_data = getattr(entry, "data", {}) or {}
     endpoint_url = config_data.get("worker_endpoint_url")
-    token = entry_data.get(DATA_WORKER_RENDER_TOKEN)
+    token = stored_worker_token(hass, entry_id)
     if (
         isinstance(endpoint_url, str)
         and endpoint_url.strip().startswith(("http://", "https://"))
