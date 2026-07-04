@@ -215,16 +215,29 @@ def _history_series_prompt_view(history_series: Any) -> list[dict[str, Any]]:
 
 
 def _sandbox_error_view(sandbox_error: Any) -> dict[str, Any]:
-    """Project the sandbox error into a repair-prompt-safe view (code, message, traceback)."""
+    """Project the sandbox error into a repair-prompt-safe view.
+
+    Carries ``code``, ``message``, the runtime ``traceback`` (runtime failures),
+    AND the static-check ``violations`` (``unsafe_code`` failures). The
+    violations are essential: an ``unsafe_code`` failure has NO traceback — its
+    specifics (the exact disallowed import/attribute/call and line number) live
+    only in ``details.violations``. Without them the model repairs blind and can
+    never clear the static gate, so a single systematically-disallowed construct
+    exhausts the whole repair budget and falls back to Pillow every time.
+    """
     if not isinstance(sandbox_error, Mapping):
         return {"code": None, "message": str(sandbox_error), "traceback": None}
     details = sandbox_error.get("details")
     traceback = details.get("traceback") if isinstance(details, Mapping) else None
-    return {
+    violations = details.get("violations") if isinstance(details, Mapping) else None
+    view: dict[str, Any] = {
         "code": sandbox_error.get("code"),
         "message": sandbox_error.get("message"),
         "traceback": traceback,
     }
+    if violations:
+        view["violations"] = deepcopy(violations)
+    return view
 
 
 def setup_model_provider_codegen(hass: Any, entry: Any) -> dict[str, Any]:
@@ -828,8 +841,10 @@ class OllamaCompatiblePlannerClient:
         (``code``, ``message``, and the traceback from ``details`` when present)
         back to the model and asks for corrected freeform Python. Same
         markdown-stripped, ``_provider_failure``-on-error contract as
-        ``generate_chart_code``. ``unsafe_code`` is terminal upstream and never
-        reaches this method (the caller fails closed on it).
+        ``generate_chart_code``. Per ADR-0030 every sandbox failure class is
+        repairable — including ``unsafe_code`` — so the error view carries the
+        static-check ``violations`` (the specific disallowed constructs) and not
+        just the runtime traceback, or the model would repair blind.
         """
         chat_url = _ollama_chat_url(self.endpoint_url)
         payload = self._codegen_repair_payload(
@@ -915,7 +930,10 @@ class OllamaCompatiblePlannerClient:
             "task": (
                 "The previous render_chart code failed in the sandbox. Return corrected "
                 "Python matplotlib code that fixes the reported error and still implements "
-                "the ChartSpec."
+                "the ChartSpec. If sandbox_error.violations is present, each entry names an "
+                "exact disallowed import, attribute, or call (with a line number) that the "
+                "sandbox rejected — remove or replace every one of them (use only the "
+                "allowed libraries listed in the rules); do not reintroduce them."
             ),
             "rules": _CODEGEN_PROMPT_RULES,
             "previous_code": previous_code,
