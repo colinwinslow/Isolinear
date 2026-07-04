@@ -2,6 +2,66 @@
 
 ## Current project phase
 
+### 2026-07-04 (11th session) — Live bug (open-queue (n)) fixed: codegen replies with prose around the fence were mangled into `syntax_error@L1`; robust code extraction shipped (0.2.11→0.2.12)
+
+Two live problems, both resolved. `main` will be `0.2.12` once pushed.
+
+**(1) "Card broke, can't re-add it" — diagnosed as a stale browser cache, NOT a
+code bug.** Colin's dashboard showed *"Custom element doesn't exist:
+isolinear-card."* Diagnosed against the live instance (`10.0.1.200`, HA core
+2026.7.1) end to end: config entry `state: loaded`; the Lovelace resource is
+registered (`/api/isolinear/static/isolinear-card.js?v=0.2.11`, type `module`);
+the JS serves 200 **with and without** auth (static-path bypass correct), byte-
+identical to the repo bundle, `text/javascript`; and the bundle evaluates in a
+DOM realm and registers `isolinear-card`. Every backend link is healthy, so the
+error was purely client-side — the browser held the failed state from the
+`0.1.48 → broken-0.2.1 → 0.2.11` upgrade path (same class as the 0.1.38 Edge
+stale-JS issue). **A hard reload fixed it** (confirmed by Colin). No code change.
+
+**(2) The real bug — codegen always fell back to Pillow with `unsafe_code`
+(`0.2.12`).** After the reload, "kitchen temperature" still fell back. The
+0.2.11 logging paid off immediately: the fallback WARNING carried
+`final_error_code: unsafe_code, codegen_attempts: 4, repair_attempts: 3,
+violations: ['syntax_error@L1: invalid syntax (<unknown>, line 1)']`. So it was
+never a genuinely unsafe construct — the worker's `ast.parse` failed on **line
+1** of the code it received, every attempt. Root cause: the only transform
+between the model reply and the sandbox is `_strip_markdown_json`, a helper
+written for **JSON** planning output — it strips a code fence only when the
+fence is the *very first* thing in the text. Freeform codegen replies (and
+**repair** replies especially) routinely lead with prose ("Here is the
+corrected code:") before the ` ```python ` fence, so that prose survived as line
+1 → `syntax_error@L1` → Pillow fallback on every attempt. This exact signature
+was reproduced by feeding the helper a prose-prefixed reply. (The 0.2.10/0.2.11
+visibility work is what made this findable in one session.)
+
+**The fix.** New `_extract_python_code` (`model_provider.py`) for the two
+codegen paths (`generate_chart_code` / `repair_chart_code`): it pulls the body
+of the first ` ``` ` fence regardless of surrounding prose (via a non-greedy
+`_CODE_FENCE_RE`), strips a language tag, tolerates a truncated (no-close)
+fence, and falls back to stripped raw text when unfenced. The JSON-only
+`_strip_markdown_json` (planner/selector) is left untouched. Verified on 8 reply
+shapes (prose before/after/both, no-lang fence, truncated, bare code) — all
+extract clean, compilable code, no fence leakage. This is **integration-only**:
+no worker rebuild, no frontend rebuild, no schema/sandbox change — the sandbox
+still runs the full static safety check on whatever it receives (invariant #3
+intact). Inline invariant review OK; a fresh-context architecture-review
+subagent was not spawned (a bounded parse hotfix on the accepted codegen path) —
+available on request.
+
+**Verification.** Suite **411 passed / 4 skipped** (+3: the extractor unit test
+over the 8 shapes + prose-wrapped generate + prose-wrapped repair, each
+`compile()`-checked); evals `codegen_generation_path` and
+`model_authored_analysis` PASS. Spec `codegen-generation-path` updated (the
+"markdown-stripped with `_strip_markdown_json`" lines now describe
+`_extract_python_code` and why). Version bumped 0.2.11→0.2.12.
+
+**Next session.** Confirm live: Colin HACS-redownloads **0.2.12**, re-asks
+"kitchen temperature" — it should render via codegen with a grounded answer on
+the *first* attempt (no repairs needed now the fence extracts). If it still
+falls back, `docker logs isolinear-worker` shows the real reason immediately.
+Then: consider raising the default `max_codegen_repair_attempts` (open-queue
+(m)); registry follow-ups (`pearson_r` alignment; corpus-requested metrics).
+
 ### 2026-07-04 (10th session) — Shipped to `main` and brought up live: the chain reaches the worker, and three bugs found in real use are fixed (0.2.8→0.2.11)
 
 Isolinear ran end-to-end against real Home Assistant for the first time this

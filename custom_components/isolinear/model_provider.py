@@ -788,8 +788,9 @@ class OllamaCompatiblePlannerClient:
         constrained JSON), codegen output is *freeform Python* — a single
         ``render_chart(data, output_path)`` function implementing the already-
         validated ChartSpec. Ollama's ``format`` is for JSON only, so this call
-        sets no ``format``; the model's fenced code is stripped with the existing
-        ``_strip_markdown_json`` helper. ``model`` overrides the model id (used to
+        sets no ``format``; the model's fenced code is extracted with
+        ``_extract_python_code`` (tolerant of prose around the fence, unlike the
+        JSON-only ``_strip_markdown_json``). ``model`` overrides the model id (used to
         point codegen at a code-specialized model while keeping the planner
         model); it defaults to ``planner_model``.
         """
@@ -812,7 +813,7 @@ class OllamaCompatiblePlannerClient:
                 "Chart-code generation response content was empty.",
                 retry_safe=True,
             )
-        python_code = _strip_markdown_json(content)
+        python_code = _extract_python_code(content)
         if not python_code.strip():
             return _provider_failure(
                 "model_provider_empty_response",
@@ -867,7 +868,7 @@ class OllamaCompatiblePlannerClient:
                 "Chart-code repair response content was empty.",
                 retry_safe=True,
             )
-        python_code = _strip_markdown_json(content)
+        python_code = _extract_python_code(content)
         if not python_code.strip():
             return _provider_failure(
                 "model_provider_empty_response",
@@ -1325,6 +1326,37 @@ def _strip_markdown_json(text: str) -> str:
             text = text[:-3]
         text = text.strip()
     return text
+
+
+# Opening fence (optional language tag) → non-greedy body → closing fence.
+_CODE_FENCE_RE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+
+
+def _extract_python_code(text: str) -> str:
+    """Extract Python source from a freeform (non-JSON) codegen response.
+
+    Unlike the constrained JSON planner/selector output, freeform code replies
+    routinely carry prose *around* the fenced block — a repair reply in
+    particular tends to lead with "Here is the corrected code:\\n```python …".
+    ``_strip_markdown_json`` only strips a fence that is the very first thing in
+    the text, so any leading prose survives as line 1 and the sandbox rejects the
+    whole payload with ``syntax_error`` on line 1 (observed live: repeated
+    ``syntax_error@L1`` fallbacks to Pillow). This extractor pulls the body of
+    the first fenced block regardless of surrounding prose, and only falls back
+    to the stripped raw text when no fence is present.
+    """
+    if not isinstance(text, str):
+        return ""
+    match = _CODE_FENCE_RE.search(text)
+    if match is not None:
+        return match.group(1).strip()
+    stripped = text.strip()
+    # Opening fence with no closing fence (e.g. a truncated reply): drop the
+    # opening fence line and keep whatever code followed it.
+    if stripped.startswith("```"):
+        parts = stripped.split("\n", 1)
+        return parts[1].strip() if len(parts) > 1 else ""
+    return stripped
 
 
 def _ollama_chat_url(endpoint_url: str) -> str:

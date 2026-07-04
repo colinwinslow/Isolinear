@@ -102,16 +102,19 @@ schema-constrained — Ollama's `format` is for JSON; codegen output is Python):
 - `generate_chart_code(request) -> dict` — one `/api/chat` call. System prompt
   instructs the model to emit a single `render_chart(data, output_path)` Python
   function that implements the already-validated ChartSpec using matplotlib, and
-  nothing else. Output is markdown-stripped with the existing
-  `_strip_markdown_json` helper (models fence code the same way they fence
-  JSON). Returns `{"accepted": True, "code": "model_provider_chart_code_received",
+  nothing else. Output is code-extracted with `_extract_python_code`, which
+  pulls the body of the first ` ``` ` fence regardless of any prose around it
+  (a repair reply commonly leads with "Here is the corrected code:"; the
+  JSON-only `_strip_markdown_json` only strips a fence at the very start, which
+  left that prose as line 1 and the sandbox rejected it with `syntax_error@L1`).
+  Returns `{"accepted": True, "code": "model_provider_chart_code_received",
   "provider": ..., "python_code": <str>, "provider_response": ...}` or a
   sanitized `_provider_failure(...)`.
 - `repair_chart_code(previous_code, sandbox_error, request) -> dict` — one
   `/api/chat` call that feeds the previous code **and** the sandbox error
   (`error.code`, `error.message`, and the traceback from `error.details` when
   present) back to the model and asks for corrected code. Same freeform,
-  markdown-stripped, `_provider_failure`-on-error contract, returning
+  code-extracted (`_extract_python_code`), `_provider_failure`-on-error contract, returning
   `"code": "model_provider_chart_code_repaired"` on success.
 
 Both reuse the existing `_read_chat` transport and the `_chat_payload`-style

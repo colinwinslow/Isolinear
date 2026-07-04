@@ -245,6 +245,70 @@ class CodegenModelProviderTests(unittest.TestCase):
         self.assertFalse(captured["body"]["stream"])
         self.assertEqual(captured["body"]["model"], "llama3.1")
 
+    def test_extract_python_code_recovers_code_around_prose(self):
+        """Freeform codegen replies wrap the fence in prose; the extractor must
+        recover just the code so the sandbox does not see line-1 syntax errors.
+
+        Regression for the live bug where a repair reply led with
+        "Here is the corrected code:" and every attempt fell back to Pillow with
+        ``syntax_error@L1`` because ``_strip_markdown_json`` only strips a fence
+        at the very start of the text.
+        """
+        body = safe_generated_python()
+        shapes = [
+            "```python\n" + body + "\n```",
+            "Here is the corrected code:\n\n```python\n" + body + "\n```",
+            "```python\n" + body + "\n```\n\nThis fixes the import error.",
+            "Sure, fixed it:\n```\n" + body + "\n```\nDone!",
+            "```python\n" + body,  # opening fence, truncated (no close)
+        ]
+        for raw in shapes:
+            with self.subTest(raw=raw[:32]):
+                extracted = model_provider._extract_python_code(raw)
+                self.assertNotIn("```", extracted)
+                self.assertTrue(extracted.startswith("def render_chart"), extracted[:40])
+                # Must be parseable — this is exactly what the sandbox checks.
+                compile(extracted, "<test>", "exec")
+
+    def test_generate_chart_code_recovers_code_with_leading_prose(self):
+        """The production failure shape: prose before the fence."""
+        client = self._client()
+        reply = "Here is the corrected code:\n\n```python\n" + safe_generated_python() + "\n```"
+
+        def fake_urlopen(req, timeout=None):
+            return _FakeUrlopenCtx(io.BytesIO(self._chat_response(reply)))
+
+        with unittest.mock.patch.object(model_provider.urllib.request, "urlopen", fake_urlopen):
+            result = client.generate_chart_code(sample_codegen_render_request())
+
+        self.assertTrue(result["accepted"], result)
+        self.assertTrue(result["python_code"].startswith("def render_chart"))
+        self.assertNotIn("```", result["python_code"])
+        compile(result["python_code"], "<test>", "exec")
+
+    def test_repair_chart_code_recovers_code_with_leading_prose(self):
+        """Repair replies are the worst offenders for leading prose."""
+        client = self._client()
+        reply = "Sure — I removed the os import:\n```python\n" + safe_generated_python() + "\n```"
+        sandbox_error = {
+            "code": "unsafe_code",
+            "message": "Static safety check rejected the generated code.",
+            "details": {"violations": [{"code": "forbidden_import", "line": 2, "message": "import of 'os' is not allowed"}]},
+        }
+
+        def fake_urlopen(req, timeout=None):
+            return _FakeUrlopenCtx(io.BytesIO(self._chat_response(reply)))
+
+        with unittest.mock.patch.object(model_provider.urllib.request, "urlopen", fake_urlopen):
+            result = client.repair_chart_code(
+                broken_generated_python("boom"), sandbox_error, sample_codegen_render_request()
+            )
+
+        self.assertTrue(result["accepted"], result)
+        self.assertTrue(result["python_code"].startswith("def render_chart"))
+        self.assertNotIn("```", result["python_code"])
+        compile(result["python_code"], "<test>", "exec")
+
     def test_generate_chart_code_uses_model_override(self):
         client = self._client()
         captured: dict[str, Any] = {}
