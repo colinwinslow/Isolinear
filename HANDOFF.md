@@ -58,10 +58,15 @@ accept-rate in the eval.
 **Deploy split (important).** The generation-side prevention is integration-only
 and ships via HACS in 0.2.14 — that alone should stop the live symptom, since it
 prevents the bare `°` at generation time. The `source_line` robustness is
-**worker-side**: it needs an image rebuild + `docker compose up -d
---force-recreate isolinear-worker` on CT103 to take effect (no rsync — ship
-context via `tar | ssh`; a rebuilt same-tag `:dev` image needs the manual
-force-recreate). I did **not** rebuild the live worker this session.
+**worker-side**: it needed an image rebuild + `docker compose up -d
+--force-recreate isolinear-worker` on CT103 (no rsync — ship context via
+`tar | ssh`; a rebuilt same-tag `:dev` image needs the manual force-recreate).
+**DONE this session:** shipped `worker/` to `/tmp/iw-build` via `tar | ssh`,
+`docker build -t isolinear-worker:dev`, force-recreated the `/srv/compose`
+service. Verified the live image attaches `source_line` (bare-° snippet →
+`syntax_error` violation with `source_line='ax.set_ylabel(Temperature °F)'`),
+`/v1/health` `ready` (matplotlib ok), container healthy; build dir cleaned up.
+Both halves of the fix are now live.
 
 **Verification.** Suite **414 passed / 4 skipped** (+2: worker
 `test_violations_carry_the_offending_source_line`; integration
