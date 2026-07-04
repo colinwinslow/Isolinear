@@ -399,6 +399,37 @@ def default_codegen_sandbox_policy() -> dict[str, Any]:
     }
 
 
+# A repairing model receives violations as `code@Lline` plus the code itself in
+# the prompt, but small models struggle to locate line N by counting. Attaching
+# the offending source line lets repair act on the exact text — a generic fix
+# for every line-numbered violation class, not a per-error prompt instruction.
+_MAX_SOURCE_LINE_CHARS = 200
+
+
+def _source_line_at(python_code: str, line: Any) -> str | None:
+    if not isinstance(line, int) or isinstance(line, bool) or line < 1:
+        return None
+    lines = python_code.splitlines()
+    if line > len(lines):
+        return None
+    text = lines[line - 1].strip()
+    if not text:
+        return None
+    if len(text) > _MAX_SOURCE_LINE_CHARS:
+        text = text[:_MAX_SOURCE_LINE_CHARS] + "..."
+    return text
+
+
+def _attach_source_lines(
+    violations: list[dict[str, Any]], python_code: str
+) -> list[dict[str, Any]]:
+    for violation in violations:
+        source = _source_line_at(python_code, violation.get("line"))
+        if source is not None:
+            violation["source_line"] = source
+    return violations
+
+
 def static_safety_check(
     python_code: str,
     *,
@@ -414,13 +445,16 @@ def static_safety_check(
             "accepted": False,
             "code": "invalid_code",
             "render_attempted": False,
-            "violations": [
-                {
-                    "code": "syntax_error",
-                    "message": str(exc),
-                    "line": exc.lineno,
-                }
-            ],
+            "violations": _attach_source_lines(
+                [
+                    {
+                        "code": "syntax_error",
+                        "message": str(exc),
+                        "line": exc.lineno,
+                    }
+                ],
+                python_code,
+            ),
         }
 
     render_functions = [
@@ -472,7 +506,7 @@ def static_safety_check(
             "accepted": False,
             "code": "unsafe_code",
             "render_attempted": False,
-            "violations": violations,
+            "violations": _attach_source_lines(violations, python_code),
         }
 
     return {

@@ -165,6 +165,32 @@ class CodegenSandboxModuleTests(unittest.TestCase):
         self.assertEqual(result["code"], "unsafe_code")
         self.assertEqual(result["violations"][0]["module"], "os")
 
+    def test_violations_carry_the_offending_source_line(self):
+        # Every line-numbered violation is decorated with source_line — the exact
+        # offending text from the code — so a repairing model acts on the line
+        # without having to count. Generic across violation classes.
+
+        # 1. syntax_error: a bare non-ASCII token (the live 0.2.12 fallback).
+        syntax = (
+            "def render_chart(data, output_path):\n"
+            "    ax.set_ylabel(Temperature °F)\n"
+        )
+        result = static_safety_check(syntax)
+        self.assertEqual(result["code"], "invalid_code")
+        violation = result["violations"][0]
+        self.assertEqual(violation["code"], "syntax_error")
+        self.assertEqual(violation["source_line"], "ax.set_ylabel(Temperature °F)")
+
+        # 2. unsafe_code: the source_line names the disallowed construct in place.
+        forbidden = (
+            "from os import getcwd\n\n\n"
+            "def render_chart(data, output_path):\n"
+            "    return {\"warnings\": [getcwd()]}"
+        )
+        result = static_safety_check(forbidden)
+        self.assertEqual(result["code"], "unsafe_code")
+        self.assertEqual(result["violations"][0]["source_line"], "from os import getcwd")
+
     def test_from_imports_of_allowlisted_modules_are_accepted(self):
         # A from-import that targets an allowlisted module is accepted, whether
         # the imported name is a class/attribute (`datetime.datetime`) or a

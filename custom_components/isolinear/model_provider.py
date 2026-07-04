@@ -940,14 +940,12 @@ class OllamaCompatiblePlannerClient:
                 "The previous render_chart code failed in the sandbox. Return corrected "
                 "Python matplotlib code that fixes the reported error and still implements "
                 "the ChartSpec. If sandbox_error.violations is present, each entry carries "
-                "a violation code and a line number. 'unsafe_code' entries name an exact "
-                "disallowed import, attribute, or call — remove or replace every one (use "
-                "only the allowed libraries in the rules); do not reintroduce them. "
-                "'syntax_error' entries indicate a Python syntax error at the named line — "
-                "fix the syntax on that line; if the message says 'invalid character' (e.g. "
-                "'invalid character \\'°\\' (U+00B0)') the character is a bare token outside "
-                "a string literal and must be placed inside a quoted string "
-                "(e.g. ax.set_ylabel('Temperature (°F)') not ax.set_ylabel(Temperature °F))."
+                "a violation 'code', a 'line' number, the sandbox 'message', and — when "
+                "available — the exact offending 'source_line' from your previous code. Fix "
+                "each violation on its line: 'unsafe_code' entries name a disallowed import, "
+                "attribute, or call (remove or replace it, using only the allowed libraries "
+                "in the rules; do not reintroduce it); 'syntax_error' entries name a Python "
+                "syntax error to correct on that exact line."
             ),
             "rules": _CODEGEN_PROMPT_RULES,
             "previous_code": previous_code,

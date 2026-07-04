@@ -350,6 +350,40 @@ class CodegenModelProviderTests(unittest.TestCase):
         self.assertIn("runtime_error", prompt)
         self.assertIn("Traceback", prompt)
 
+    def test_repair_prompt_carries_violation_source_line(self):
+        # The worker attaches source_line to line-numbered violations; the repair
+        # view must pass it through so the model sees the exact offending line
+        # (not just @Lline) without counting lines in the previous code.
+        client = self._client()
+        captured: dict[str, Any] = {}
+        sandbox_error = {
+            "code": "unsafe_code",
+            "message": "Static safety check rejected the generated code.",
+            "details": {
+                "violations": [
+                    {
+                        "code": "syntax_error",
+                        "line": 19,
+                        "message": "invalid character '°' (U+00B0)",
+                        "source_line": "ax.set_ylabel(Temperature °F)",
+                    }
+                ]
+            },
+        }
+
+        def fake_urlopen(req, timeout=None):
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return _FakeUrlopenCtx(io.BytesIO(self._chat_response(safe_generated_python())))
+
+        with unittest.mock.patch.object(model_provider.urllib.request, "urlopen", fake_urlopen):
+            client.repair_chart_code(
+                broken_generated_python("boom"), sandbox_error, sample_codegen_render_request()
+            )
+
+        prompt = captured["body"]["messages"][1]["content"]
+        self.assertIn("source_line", prompt)
+        self.assertIn("ax.set_ylabel(Temperature", prompt)
+
     def test_generate_empty_response_is_retry_safe_failure(self):
         client = self._client()
 
