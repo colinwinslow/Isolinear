@@ -2,6 +2,87 @@
 
 ## Current project phase
 
+### 2026-07-04 (12th session) — Second live codegen syntax fallback fixed: a bare `°` token; the generic fix is offending-line text on every violation (0.2.12→0.2.14)
+
+Colin redownloaded 0.2.12, retested "kitchen temperature," and still got a
+Pillow fallback — but a *different* one, and the logging made it fast. `main`
+will be `0.2.14` once pushed. Two commits (`345be4a`, `458a8b7`).
+
+**Diagnosis from live logs.** `docker logs isolinear-worker` on CT103 showed
+`status=failed error=unsafe_code violations=[syntax_error@L19]` — the fence fix
+(0.2.12) had worked: the error moved from line 1 to line 19, meaning real
+extracted code was now reaching the sandbox. The HA system-log WARNING (pulled
+via `scripts/ha_logs.py`, WebSocket `system_log/list`) carried the full message:
+`invalid character '°' (U+00B0) (<unknown>, line 19)`. Reproduced against the
+container's own Python: `°` parses fine inside a string, comment, or f-string —
+the *only* position `ast.parse` rejects is as a **bare token**. So the model
+wrote something like `ax.set_ylabel(Temperature °F)` with the label unquoted, and
+repair re-emitted it every attempt because the repair task text only described
+disallowed imports/attributes/calls, never syntax errors.
+
+**0.2.13 (`345be4a`) — the first, narrower pass.** A generation-side
+`_CODEGEN_PROMPT_RULES` rule (write all text labels as valid Python string
+literals; never use non-ASCII such as `°`/`%` as bare tokens; correct-vs-wrong
+example) plus a repair-task clarification distinguishing `syntax_error` from
+`unsafe_code`. This included a hardcoded `°` example in the repair task.
+
+**0.2.14 (`458a8b7`) — the generic fix, after Colin pushed back.** Colin's
+question: are we overfitting to this error and this model, and wouldn't it be
+better to give repair better information than to keep appending one-off
+instructions? He was right about the mechanism. The key realization: the
+information was never missing — a `SyntaxError` fails in `ast.parse` *before*
+execution, so there is no traceback to add, and the full diagnostic plus the
+prior code were already in the repair prompt. gemma still failed three times.
+The real gap is that small models can't reliably **locate line 19 by counting**
+in their own output. So the generic lever is to hand them the line. The worker's
+`static_safety_check` now attaches `source_line` — the exact offending text
+(≤200 chars) — to *every* line-numbered violation via `_attach_source_lines`,
+covering both the `syntax_error` early-return and all `unsafe_code` violations.
+The repair task points at `source_line` generically and the hardcoded `°`
+example was removed. `error.details` is `additionalProperties:true`, so violations
+are free-form inside it — no schema change — and `_sandbox_error_view` already
+deep-copies violations, so `source_line` reaches the repair prompt with no
+integration wiring. As a bonus this is exactly the field that would have made the
+diagnosis instant: we *inferred* the bare-° from the message; we never saw the
+rejected line.
+
+**On the generation rule.** It stays for now (it prevents the failure at the
+source and is a single general principle, not a per-error instruction), but it's
+recorded as a candidate for **eval-gated retirement** (STATUS open-queue (o)):
+once the worker carries `source_line` live, run `evals/codegen_reliability.py`
+with and without the rule; if `source_line`-assisted repair recovers the class
+on its own, drop it to keep the prompt lean. Proposed standing division —
+contract rules stay in the prompt; failure-driven style hints must earn their
+accept-rate in the eval.
+
+**Deploy split (important).** The generation-side prevention is integration-only
+and ships via HACS in 0.2.14 — that alone should stop the live symptom, since it
+prevents the bare `°` at generation time. The `source_line` robustness is
+**worker-side**: it needs an image rebuild + `docker compose up -d
+--force-recreate isolinear-worker` on CT103 to take effect (no rsync — ship
+context via `tar | ssh`; a rebuilt same-tag `:dev` image needs the manual
+force-recreate). I did **not** rebuild the live worker this session.
+
+**Verification.** Suite **414 passed / 4 skipped** (+2: worker
+`test_violations_carry_the_offending_source_line`; integration
+`test_repair_prompt_carries_violation_source_line`); evals `codegen_sandbox` and
+`codegen_generation_path` PASS. Spec `codegen-generation-path` updated (the
+`repair_chart_code` description now names traceback + violations + `source_line`
+and the generic task). Inline invariant review OK — `source_line` is the model's
+own generated code, already fully present in the prompt as `previous_code`, and
+the data boundary strips secrets on the way in, so nothing new crosses; the
+static gate still runs in full (the field is attached *after* the reject
+decision). A fresh-context architecture-review subagent was not spawned (a
+bounded hotfix on the accepted codegen path); available on request.
+
+**Next session.** Colin HACS-redownloads **0.2.14** and re-asks "kitchen
+temperature" — the generation rule should prevent the bare `°`; if any syntax or
+unsafe error still slips through, rebuild the worker on CT103 so `source_line`
+reaches repair (and `docker logs isolinear-worker` will show the exact offending
+line). Then: raise the default `max_codegen_repair_attempts` (open-queue (m));
+eval-gate the `°` rule (open-queue (o)); registry follow-ups (`pearson_r`
+alignment; corpus-requested metrics).
+
 ### 2026-07-04 (11th session) — Live bug (open-queue (n)) fixed: codegen replies with prose around the fence were mangled into `syntax_error@L1`; robust code extraction shipped (0.2.11→0.2.12)
 
 Two live problems, both resolved. `main` will be `0.2.12` once pushed.

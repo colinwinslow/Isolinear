@@ -111,11 +111,16 @@ schema-constrained — Ollama's `format` is for JSON; codegen output is Python):
   "provider": ..., "python_code": <str>, "provider_response": ...}` or a
   sanitized `_provider_failure(...)`.
 - `repair_chart_code(previous_code, sandbox_error, request) -> dict` — one
-  `/api/chat` call that feeds the previous code **and** the sandbox error
-  (`error.code`, `error.message`, and the traceback from `error.details` when
-  present) back to the model and asks for corrected code. Same freeform,
-  code-extracted (`_extract_python_code`), `_provider_failure`-on-error contract, returning
-  `"code": "model_provider_chart_code_repaired"` on success.
+  `/api/chat` call that feeds the previous code **and** the sandbox error back to
+  the model and asks for corrected code. `_sandbox_error_view` projects
+  `error.code`, `error.message`, the runtime `traceback` (runtime failures), and
+  the static-check `violations` (`unsafe_code`/`syntax_error` failures, which have
+  no traceback). Each violation carries a `line` and, when the worker could
+  resolve it, a `source_line` — the exact offending text — so the model fixes the
+  named line without counting lines in its own prior output. The repair task
+  text is generic across violation classes (no per-error instructions). Same
+  freeform, code-extracted (`_extract_python_code`), `_provider_failure`-on-error
+  contract, returning `"code": "model_provider_chart_code_repaired"` on success.
 
 Both reuse the existing `_read_chat` transport and the `_chat_payload`-style
 message shape, and both use the **codegen model** (which may equal the planner
