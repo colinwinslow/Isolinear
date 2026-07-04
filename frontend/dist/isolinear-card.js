@@ -783,6 +783,7 @@ var Q = class extends U {
           <img data-testid="chart-image" src=${e.chart?.image_url ?? ""} alt=${e.chart?.title ?? "Generated chart"}>
           <div class="result-meta">
             <h3>${e.chart?.summary ?? e.chart?.title}</h3>
+            ${this.renderAnswer(e)}
             ${this.renderRenderPathNotice(e)}
             ${this.renderLegend(e)}
           </div>
@@ -824,6 +825,22 @@ var Q = class extends U {
         </div>
       </div>
     `;
+	}
+	renderAnswer(e) {
+		let t = e.chart?.answer_text?.trim() || void 0, n = e.chart?.answer_verification;
+		if (!t && !n) return P;
+		let r = n === "unverified" ? M`<p class="answer-caveat" data-testid="answer-caveat">
+            Answer not independently verified. ${"Inside the boundary: value↔data — the integration independently recomputed the number from allowlisted history using the claim's own recipe; the verdict provably follows from the declared rule at that reference. Outside the boundary: internal consistency only (value↔verdict↔rule). The caveat means 'not independently reproduced,' not 'probably fine.'"}
+          </p>` : P;
+		return t ? M`
+      <p class="answer" data-testid="analysis-answer">${t}</p>
+      ${r}
+    ` : M`
+        <p class="answer answer--withheld" data-testid="analysis-answer-withheld">
+          Isolinear could not produce a verifiable answer for this query.
+        </p>
+        ${r}
+      `;
 	}
 	renderRenderPathNotice(e) {
 		let t = e.chart?.render_fallback_reason;
@@ -1067,6 +1084,14 @@ var Q = class extends U {
     .clarification {
       display: grid;
       gap: 10px;
+    }
+
+    /* ADR-0031 tranche 1: the grounded analysis answer, under the caption. */
+    .answer {
+      color: var(--primary-text-color, #1f2933);
+      font-size: 15px;
+      line-height: 1.45;
+      margin: 0;
     }
 
     /* ADR-0030: surfaced Pillow-fallback notice under the caption. */

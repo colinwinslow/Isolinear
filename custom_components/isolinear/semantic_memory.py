@@ -7,9 +7,9 @@ matches valid aliases to the prompt by token overlap, and reports the entity IDs
 to inject into entity selection. It does not write the store (propose/confirm/save
 is Tranche 2). See ``docs/specs/semantic-alias-live-wiring.md``.
 
-The validity/extraction logic mirrors the reference implementation in
-``src/Isolinear/fake_slice.py``; the storage helper mirrors
-``worker_token_lifecycle.WorkerTokenLifecycleStorageHelper``.
+The validity/extraction logic originated in the retired scaffold reference
+implementation; the storage-helper shape is shared with
+``worker_token_storage.WorkerTokenStorageHelper`` (ADR-0032).
 """
 
 from __future__ import annotations
@@ -143,7 +143,7 @@ class SemanticMemoryStorageHelper:
         """Persist one alias to ``entry_id``'s store, replacing any record with
         the same ``alias_id`` (ADR-0009/0010, Tranche 2).
 
-        Synchronous, mirroring ``worker_token_lifecycle.write_token_entry``: the
+        Synchronous, because the
         clarification-answer handler runs in an executor thread (not the event
         loop), so this validates and updates the in-memory store — making the
         alias immediately available for Tranche 1 injection — then schedules a
@@ -185,7 +185,7 @@ class SemanticMemoryStorageHelper:
     def _schedule_save(self) -> None:
         # delay=0 is an intentional near-immediate write (not debounced): an
         # alias the user just confirmed should survive a restart right away, and
-        # saves are rare (one per "remember"). Mirrors worker_token_lifecycle.
+        # saves are rare (one per "remember").
         # async_delay_save still hands the write to the event loop, which is
         # required since this runs in an executor thread.
         async_delay_save = getattr(self._ha_store, "async_delay_save", None)

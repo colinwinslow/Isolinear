@@ -4,4 +4,6 @@
 # repo dev .venv already provides matplotlib so the promotion tests can run.
 matplotlib>=3.7,<4
 pandas>=2,<3
+scipy>=1.11,<2
+seaborn>=0.13,<1
 jsonschema>=4,<5

@@ -323,6 +323,11 @@ def default_codegen_sandbox_policy() -> dict[str, Any]:
             "matplotlib.pyplot",
             "numpy",
             "pandas",
+            "scipy",
+            "scipy.optimize",
+            "scipy.signal",
+            "scipy.stats",
+            "seaborn",
             "statistics",
             "struct",
             "typing",
@@ -1007,7 +1012,7 @@ def _normalize_render_metadata(
     if x_max is None and points:
         x_max = points[-1].get("ts")
 
-    return {
+    normalized = {
         "title": metadata.get("title", chart_spec.get("title")),
         "series_plotted": list(metadata.get("series_plotted", [])),
         "overlays_plotted": list(metadata.get("overlays_plotted", [])),
@@ -1016,6 +1021,20 @@ def _normalize_render_metadata(
         "warnings": list(metadata.get("warnings", [])),
         "codegen_attempts": codegen_attempts,
     }
+    # ADR-0031 tranche 1: the model-authored analysis answer. Grounded — the
+    # generated code computed AND formatted this string inside the sandbox from
+    # data-derived variables (never a free-text pass). Additive and optional:
+    # passed through only when render_chart returned a non-empty string, so a
+    # chart-only render carries no answer.
+    answer_text = metadata.get("answer_text")
+    if isinstance(answer_text, str) and answer_text.strip():
+        normalized["answer_text"] = answer_text.strip()
+    # ADR-0031 D8a: claims ledger for the integration-side grounding check.
+    # Passed through unchanged; used ONLY for verification, never for display.
+    claims = metadata.get("claims")
+    if isinstance(claims, list):
+        normalized["claims"] = claims
+    return normalized
 
 
 def _new_codegen_failure(

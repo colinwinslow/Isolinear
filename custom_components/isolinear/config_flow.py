@@ -22,17 +22,30 @@ from .const import (
     SUPPORTED_RENDER_MODES,
     SUPPORTED_RENDER_PATHS,
 )
+from .worker_token_storage import (
+    get_worker_token_storage,
+    is_valid_deployment_worker_token,
+)
 
 
 try:  # pragma: no cover - exercised by Home Assistant, not the repo anchor.
     import voluptuous as vol
     from homeassistant import config_entries
     from homeassistant.core import callback
-    from homeassistant.helpers.selector import EntitySelector, EntitySelectorConfig
+    from homeassistant.helpers.selector import (
+        EntitySelector,
+        EntitySelectorConfig,
+        TextSelector,
+        TextSelectorConfig,
+        TextSelectorType,
+    )
 except ImportError:  # pragma: no cover - deterministic fallback for repo tests.
     vol = None
     EntitySelector = None
     EntitySelectorConfig = None
+    TextSelector = None
+    TextSelectorConfig = None
+    TextSelectorType = None
 
     def callback(func):
         return func
@@ -92,6 +105,14 @@ ENTITY_ALLOWLIST_SELECTOR_METADATA = {
     "multiple": True,
     "storage": "entity_id_list",
 }
+# ADR-0032: write-only password field; the value lands in worker_token_storage,
+# never in persisted options.
+WORKER_TOKEN_SELECTOR_METADATA = {
+    "type": "text",
+    "input_type": "password",
+    "storage": "worker_token_storage",
+    "write_only": True,
+}
 
 NO_FLOW_ORCHESTRATION_CALLS = {
     "worker_called": False,
@@ -141,6 +162,37 @@ class IsolinearConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
 
+# ADR-0032: the write-only options field carrying the deployment worker token.
+# It is extracted BEFORE options validation/persistence, so options data never
+# carries the token and config_schema's secret-vocabulary fail-closed check is
+# unaffected.
+WORKER_TOKEN_OPTIONS_FIELD = "worker_api_token"
+WORKER_TOKEN_CLEAR_SENTINEL = "clear"
+
+
+def extract_worker_token_action(user_input: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split the write-only worker-token field out of options user input.
+
+    Returns ``(action, remaining_input)`` where action is one of
+    ``{"kind": "keep"}`` (field absent/empty — stored token unchanged),
+    ``{"kind": "clear"}`` (the literal ``clear``),
+    ``{"kind": "save", "token": <token>}`` (a valid >=24-char token), or
+    ``{"kind": "too_short"}`` (anything else — form error, nothing stored).
+    """
+    if not isinstance(user_input, dict):
+        return {"kind": "keep"}, user_input if isinstance(user_input, dict) else {}
+    remaining = dict(user_input)
+    raw = remaining.pop(WORKER_TOKEN_OPTIONS_FIELD, None)
+    value = raw.strip() if isinstance(raw, str) else ""
+    if not value:
+        return {"kind": "keep"}, remaining
+    if value.lower() == WORKER_TOKEN_CLEAR_SENTINEL:
+        return {"kind": "clear"}, remaining
+    if is_valid_deployment_worker_token(value):
+        return {"kind": "save", "token": value}, remaining
+    return {"kind": "too_short"}, remaining
+
+
 class IsolinearOptionsFlow(config_entries.OptionsFlow):
     """Update safe Isolinear options for an existing config entry."""
 
@@ -155,20 +207,52 @@ class IsolinearOptionsFlow(config_entries.OptionsFlow):
         current_options = getattr(config_entry, "options", {}) or {}
 
         if user_input is not None:
-            result = validate_options_flow_user_input(
-                getattr(config_entry, "data", {}),
-                user_input,
-                current_options=current_options,
-            )
-            if result["accepted"]:
-                return self.async_create_entry(title="", data=result["options_data"])
-            errors = result["field_errors"]
+            token_action, options_input = extract_worker_token_action(user_input)
+            if token_action["kind"] == "too_short":
+                errors = {WORKER_TOKEN_OPTIONS_FIELD: "worker_token_too_short"}
+            else:
+                result = validate_options_flow_user_input(
+                    getattr(config_entry, "data", {}),
+                    options_input,
+                    current_options=current_options,
+                )
+                if result["accepted"]:
+                    self._apply_worker_token_action(config_entry, token_action)
+                    return self.async_create_entry(title="", data=result["options_data"])
+                errors = result["field_errors"]
 
         return self.async_show_form(
             step_id=OPTIONS_FLOW_STEP,
             data_schema=build_options_flow_schema(current_options),
             errors=errors,
         )
+
+    def _apply_worker_token_action(self, config_entry: Any, action: dict[str, Any]) -> None:
+        """Persist a save/clear token action and rebuild the renderer client.
+
+        The rebuild happens HERE, not only in the options-update listener: HA
+        fires update listeners only when the options payload actually changed,
+        and a token-only re-paste leaves options identical — the listener never
+        runs (architecture-review finding).
+        """
+        if action["kind"] not in ("save", "clear"):
+            return
+        hass = getattr(self, "hass", None)
+        entry_id = getattr(config_entry, "entry_id", None)
+        if hass is None or not isinstance(entry_id, str):
+            return
+        storage = get_worker_token_storage(hass)
+        if action["kind"] == "save":
+            storage.save_token(entry_id, action["token"])
+        else:
+            storage.clear_token(entry_id)
+
+        # Drop the cached client so setup rebuilds it from the stored token.
+        from .worker_renderer import DATA_WORKER_RENDER_CLIENT, setup_worker_renderer
+
+        entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})
+        entry_data.pop(DATA_WORKER_RENDER_CLIENT, None)
+        entry_data["worker_renderer_setup"] = setup_worker_renderer(hass, config_entry)
 
 
 def config_flow_field_metadata() -> dict[str, Any]:
@@ -232,10 +316,11 @@ def build_options_flow_schema(current_options: Mapping[str, Any] | None = None):
     if vol is None:
         return {
             "step": OPTIONS_FLOW_STEP,
-            "fields": list(OPTIONS_FLOW_FIELDS),
+            "fields": [*OPTIONS_FLOW_FIELDS, WORKER_TOKEN_OPTIONS_FIELD],
             "defaults": {key: defaults.get(key) for key in OPTIONS_FLOW_FIELDS},
             "selectors": {
                 "entity_allowlist": dict(ENTITY_ALLOWLIST_SELECTOR_METADATA),
+                WORKER_TOKEN_OPTIONS_FIELD: dict(WORKER_TOKEN_SELECTOR_METADATA),
             },
         }
 
@@ -243,6 +328,11 @@ def build_options_flow_schema(current_options: Mapping[str, Any] | None = None):
         EntitySelector(EntitySelectorConfig(multiple=True))
         if EntitySelector is not None and EntitySelectorConfig is not None
         else list
+    )
+    worker_token_selector = (
+        TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
+        if TextSelector is not None and TextSelectorConfig is not None
+        else str
     )
     return vol.Schema(
         {
@@ -262,6 +352,13 @@ def build_options_flow_schema(current_options: Mapping[str, Any] | None = None):
                 "entity_allowlist",
                 default=defaults["entity_allowlist"],
             ): entity_allowlist_selector,
+            # ADR-0032: write-only deployment worker token. Never pre-filled
+            # (default stays empty regardless of what is stored); extracted
+            # before options validation so it never persists into options.
+            vol.Optional(
+                WORKER_TOKEN_OPTIONS_FIELD,
+                default="",
+            ): worker_token_selector,
         }
     )
 

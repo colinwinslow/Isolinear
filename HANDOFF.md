@@ -2,6 +2,427 @@
 
 ## Current project phase
 
+### 2026-07-04 (9th session) — The live-deploy path is open: scipy+seaborn shipped, the worker runs as a CT103 compose service, and the integration can authenticate to it (0.2.6→0.2.8)
+
+Three landings this session move Isolinear from "proven in evals" to "a real
+worker the real integration can reach." Isolinear branch
+`adr-0029-worker-codegen-eval` is pushed through `54eaffb`; the homelab side is
+on `main` (`311eac9`, pushed). **What remains before a first live render is a
+merge + a HACS redownload + Colin pasting two values** — no more code.
+
+**Packet 3 — scipy + seaborn into the worker (`8964bc1`, 0.2.7).** The two
+tranche-1 analysis libraries (ADR-0031 D6) land in `worker/requirements.txt`
+and the sandbox import allowlist (exact-match entries `scipy`, `scipy.stats`,
+`scipy.signal`, `scipy.optimize`, `seaborn` — mirroring the matplotlib
+submodule pattern). A stale codegen prompt rule ("Do not import anything
+except matplotlib") that contradicted the packet-2 pandas hint now enumerates
+the five libraries. **Proven live on CT103 (Scenario H):** the image rebuilt to
+**719MB** (was 526MB), the in-container worker suite ran **27 passed / 0
+skips**, all five libraries imported together in the `-I` sandbox under the
+1024MB `RLIMIT_AS` cap, and a `scipy.stats` correlation + `seaborn.heatmap`
+generated a valid PNG through the fixed output path. The static gate
+incidentally re-proved itself by rejecting a dunder attribute in the first
+driver attempt. Evidence appended to
+`bdd/model-authored-analysis/model-authored-analysis-evidence.md`.
+
+**Homelab — the worker as a managed service (`311eac9` on `main`).** The
+worker (`isolinear-worker:dev`, a local tag built on CT103 from this repo,
+`pull_policy: never`) is now a GPU-less `docker_host` compose service on port
+8080, with the bearer token injected from SOPS
+(`docker_host.isolinear_worker_token`) and a tmpfs work root (rendered PNGs are
+ephemeral). Spec + BDD `isolinear-worker-service` (A–E) passed live: the image's
+own authenticated HEALTHCHECK reports healthy under compose; `/v1/health`
+returns `ready` with token+version, 401 without a token, 400 on a missing
+version; re-apply is `changed=0`; and ollama/frigate/plex/caddy kept their
+uptimes (the full-stack handler moved from `state: restarted` to
+`state: present`, so an additive service block converges only changed
+services — a rebuilt same-tag image still needs a manual force-recreate). No
+plaintext token in the repo (gitleaks green). **CT103 gotchas that held:** no
+rsync on the host (ship context via `tar | ssh`); the worker's auth→version→
+schema ordering means an authenticated but version-less health call is a 400,
+not a 200.
+
+**ADR-0032 — the deployment token, and a 3.1K-LOC deletion (`54eaffb`,
+0.2.8).** Deploying the worker surfaced a mismatch designed into the scaffold
+era: the integration self-provisioned a bearer token (the deprecated ADR-0016
+lifecycle) that the real worker — which reads `ISOLINEAR_WORKER_TOKEN` from
+SOPS at deploy time — had never heard of, so every live dispatch would have
+401'd. The evals never hit it because they controlled both ends of the wire.
+ADR-0032 (accepted; direction Colin 2026-07-03) makes the token **deployment
+configuration**: a write-only options-flow password field (`worker_api_token`)
+persists to an integration-owned HA Store (`worker_token_storage.py`, the
+semantic-memory storage shape), extracted **before** options validation so
+options/config data never carry it (the `config_schema` secret-vocabulary
+fail-closed check is untouched), never pre-filled or echoed. A save/clear
+rebuilds the renderer client in the options flow itself — HA fires update
+listeners only when options changed, and a token-only re-paste leaves options
+identical (an architecture-review catch). `setup_worker_renderer` now builds
+the client from `worker_endpoint_url` + the stored token; missing either piece
+keeps the existing disabled `worker_renderer_token_missing`, so `render_path:
+auto` falls back to Pillow (ADR-0030, surfaced) — no new failure mode. **The
+deletion:** eight uncovered ADR-0015/0016 modules (`worker_token_lifecycle`,
+`worker_readiness`, `worker_health`, `worker_health_polling` +
+`_constants`/`_contract`/`_state`/`_storage`), five schemas from both bundled
+copies, and the `__init__` lifecycle-abort/readiness/health/polling chain.
+Worker health is now on-demand via the client's existing `check_health()`. The
+2026-07-02 purge had already deleted every behavioral test of this machinery —
+the deletion broke only the packaging test's schema-path imports, confirming it
+ran uncovered. A deletion-guard test pins the modules/schemas gone and no
+imports remaining (both `custom_components/` **and** `evals/` — a second
+review finding, since pytest never runs evals). **Live-proven**
+(`evals/deployment_worker_token.py`): the real `HttpJsonWorkerRenderClient`
+authenticated to the compose-managed CT103 worker with the SOPS deployment
+token and got `status: ready`; a wrong token surfaced a 401 fault as a dict
+(no exception, no token material). This is the first time the real integration
+client spoke to the real deployed worker.
+
+**Verification.** Suite **391 passed / 4 skipped** (+18 across the two
+packets); five worker-path evals PASS (`codegen_sandbox`,
+`codegen_generation_path`, `worker_http_server`, `model_authored_analysis`,
+`home_assistant_hacs_install_packaging`). Architecture review (fresh-context
+subagent) on ADR-0032 returned CONCERNS→resolved: a broken packaging eval
+(fixed), the token-only re-paste rebuild (added + test), and spec/ADR drift
+(aligned, deviations recorded in the spec). BDD-evidence review OK — stale
+counts in the token evidence file were corrected at this closeout.
+
+**What remains (none blocking).** (a) **Ship + first live render:** merge
+`adr-0029-worker-codegen-eval` → `main` (30+ commits ahead: the scaffold purge,
+the 0.2.x pivot, ADR-0030/0031/0032 — HACS tracks the default branch, and live
+HA still runs 0.1.48), HACS Redownload 0.2.8, restart, then Colin sets
+`worker_endpoint_url` = `http://10.0.1.39:8080` and pastes the SOPS token into
+the new options field → ask a question → the first end-to-end
+model→matplotlib→sandboxed-PNG + grounded answer through the live worker. Colin
+chose merge-after-smoke-test; the pre-merge smoke test (real client, real
+worker, real token) has passed. (b) **Registry recompute fidelity** (from the
+8th session, still open): `pearson_r` prescribed alignment; corpus-requested
+metric additions. (c) A rebuilt same-tag worker image needs a manual
+`docker compose up -d --force-recreate isolinear-worker` on CT103 (the compose
+handler won't re-pull/re-read a `:dev` tag) — worth a real image version/registry
+when distribution matters. PARKED: packet 5 (output-modality signal), packet 6
+(visual validator + progressive-verification UX), open-queue (l), split
+`job_orchestration.py`.
+
+### 2026-07-03 (8th session) — Grounding-check proof req #4 answered: floor-model claim-emission rate measured with production scoring, 0.2.5→0.2.6
+
+The grounding-check packet is now closed end to end: implemented (4a–4d, prior
+sessions) **and proof-measured at the capability floor** (this session). Branch
+`adr-0029-worker-codegen-eval`; **everything is committed and pushed** —
+packets 1–4d (`068d7ef`, `c833991`, `4af08f1`, `523cb57`) plus this session's
+two commits (`079431d`, `e1c6ef7`) and the closeout commit. The stale
+"committed-not-pushed" notes carried by earlier sessions below are corrected.
+
+**What changed (commit 1 — `079431d`, anchored-claim prompt shape).** Packet 4d
+shipped anchor re-detection check-side, but `_CODEGEN_PROMPT_RULES`
+(`model_provider.py`) only documented the absolute `{start, end}` claim window —
+so no model could ever emit the event-anchored form and the 4d path would never
+exercise in production. The spec §1/§1a anchored window (anchor
+`entity`/`to`/`from`/`occurrence`/`search`/`resolved_at` + `direction` +
+`duration_ms`) is now documented with the same compute-not-guess discipline as
+`value`/`verdict`: `resolved_at` must be the transition timestamp the code
+actually found, so the integration can confirm the SAME event. A prompt-rule
+test rides alongside the existing grounding/epoch-ms rule tests.
+
+**What changed (commit 2 — `e1c6ef7`, the proof-req-#4 benchmark, 0.2.6).** The
+answer-family benchmark (`evals/analysis_benchmark/`) now scores emitted claims
+with the **real production checker**
+(`custom_components.isolinear.answer_grounding`) against fresh real HA history
+(7-day extract, 16 entities, 16,318 points — gitignored), so "well-formed"
+means what production means. Corpus: 18 prompts with `claim`/`claim_window`
+expectation flags + `anchor-01` (the registry-verifiable anchored case); the
+`answer_question` category was added to `evals/prompts/benchmark_prompts.json`
+(proof req #4 names both files); `num_predict` 3000→6000 (the old cap
+truncated claim-bearing generations; production doesn't cap). Three live
+`gemma4:e4b` runs, one variable at a time; full evidence in
+`evals/analysis_benchmark/FINDINGS.md` and mirrored into the BDD evidence file.
+
+**The answer.** **Emission is reliable** — every claim-expected prompt whose
+generated code executed emitted a `claims` list (6/6, then 5/5); structure is
+mostly right (6/6, 4/5 well-formed). **Registry-verified: 0 in every run**,
+with three now-measured causes: (1) run 1's "value formatted into the
+sentence" wording made gemma stringify 13/13 values (`'3.0°F'`) — the
+production prompt now demands a **raw JSON number**, which fixed the type on
+every subsequent claim; (2) free metric naming (`mean_difference`,
+`percentage_running`, …) lands honest-but-unregistered metrics in the caveat
+box — correct per D3, and renaming them would fabricate `value_mismatch`;
+(3) the registry's exact-timestamp `pearson_r` intersection returns no
+reference on real irregular data — ADR-0031's "prescribe the alignment" open
+item, confirmed live. Anchored windows were never emitted (0/2 every run:
+event logic appears in the code, but the record carries absolute bounds) —
+acceptable for tranche 1 (value↔data still holds; only event *identity* goes
+unconfirmed). Crucially, **no false "verified" was ever produced**, and the
+check caught a genuine live `grounding_verdict_contradicted` (pd-05) — the
+exact class it exists for. The fail-soft three-state boundary — not the strong
+guarantee — is what carries floor-model UX, exactly as spec §3b anticipated.
+
+**Closeout hygiene.** The BDD evidence file was misplaced at
+`docs/bdd/answer-grounding-check/answer-grounding-check-bdd.md` — a path the
+BDD never named — and is moved to the conventional
+`bdd/answer-grounding-check/answer-grounding-check-evidence.md` (the path the
+BDD's Evidence section declares), with a proof-req-#4 section appended and the
+stale "nothing yet prompts gemma to emit anchors" note corrected. All five
+grounding-check spec proof requirements are now met or measured.
+
+**Verification.** Suite **372 passed / 4 skipped** (+1 prompt-rule test); eval
+`model_authored_analysis` PASS. Architecture review skipped (benchmark/eval
+extension — no new integration surface, no invariant touched); BDD-evidence
+review run inline (OK; the path/staleness findings above were fixed in this
+closeout).
+
+**What remains (open items, none blocking).** (a) **Registry recompute
+fidelity:** integration-prescribed alignment for `pearson_r` (exact-timestamp
+intersection finds no common timestamps on real irregular series — correlation
+claims can never verify live until this lands); demand-driven registry
+additions the corpus actually requested (aligned `mean_difference`-style
+delta, time-in-state fraction). (b) **Anchored-window tranche 2:** the floor
+model records absolute bounds even with the anchored form documented, so 4d
+re-detection won't exercise at the floor until the prompt pushes harder or a
+stronger model emits it — recorded as an open item, not a defect.
+(c) **Next packet options:** packet 3 (scipy+seaborn into the worker image,
+~650MB, in-container import under the 1024MB cap, CT103 rebuild) toward the
+live-deploy path (homelab `docker_host` compose service + point the
+integration at it + ship via HACS); or the registry follow-ups above. PARKED:
+packet 5 (output-modality signal), packet 6 (visual validator +
+progressive-verification UX), open-queue (l), worker-durability
+simplification, `job_orchestration.py` split.
+
+### 2026-07-03 (7th session) — Sub-packet 4d implemented: event anchors (ADR-0031 D8a §1a), 0.2.4→0.2.5
+
+The last open piece of the answer-grounding check is now built. Packet 4's
+sub-packets 4a/4b/4c shipped last session (committed + pushed at session
+start, `4af08f1`); this session closes **4d — event anchors**, which the spec
+explicitly allowed to ship later since the claim `window` shape was already
+fixed. Branch `adr-0029-worker-codegen-eval`; **this session's work is
+uncommitted at handoff** *(corrected at the 8th-session closeout: since
+committed as `523cb57` and pushed)*.
+
+**The re-detection (`custom_components/isolinear/answer_grounding.py`).**
+Anchored windows (`window: {anchor, direction, duration_ms}`) previously
+short-circuited to a blanket `grounding_anchor_deferred` caveat. Now, per spec
+§1a, `_anchor_criteria_ok` checks all four reproducibility criteria — the
+anchor's `entity` is among the delivered series AND its raw-state kind
+(ADR-0022 `binary_state`/`categorical_state`, reusing the existing kind
+taxonomy); `to`/`from` are non-empty strings (crisp discrete transition, no
+fuzzy matching); `occurrence` is a non-zero int (1-based, negative from end);
+`search`/`resolved_at` are numeric. Any failure is **irreproducible by
+construction** → `grounding_anchor_unreproducible` (caveat, never attempted
+further). Criteria-passing anchors are re-detected by `_detect_transitions`
+(scans the full ordered raw-state timeline — `raw_state` or
+`attrs[attribute]` — for exact `to`/`from` transitions, filtered to those
+whose own timestamp falls in `search`) and `_select_occurrence` (the same
+1-based/negative-from-end indexing a model would use). No match →
+`grounding_anchor_unfound` (contradicted — the fabricated-event case). A match
+at a different instant than the claimed `resolved_at` → `grounding_anchor_mismatch`
+(contradicted — identity, not just existence). A correctly re-detected anchor
+resolves absolute `{start, end}` bounds from `direction`/`duration_ms`, which
+then flow through the **same** span-check and registry recompute as an
+absolute window — extending the full value↔data guarantee to event-scoped
+claims. Window-shape validation (`direction`/`duration_ms`) runs *before* the
+re-detection scan (architecture-review nit, applied) so a malformed window
+doesn't pay for walking the series.
+
+**No schema change.** The claims-ledger `window` field was already an open
+object (`additionalProperties: true`), so the anchored shape fits without
+touching any of the three synced schema copies — confirmed byte-identical.
+
+**Tests.** 5 new cases in `TestScenarioD`
+(`tests/test_answer_grounding.py`): fabricated anchor → `anchor_unfound` →
+contradicted/withheld (spec proof requirement #1's fabricated-anchor case);
+mismatched `resolved_at` → `anchor_mismatch`; a correctly re-detected anchor
+→ `verified` (reference recompute over the resolved window matches the
+claimed value); an anchor on a numeric (non-raw-state) entity → caveat;
+an anchor missing `search`/`occurrence` → caveat. The pre-existing stub test
+(`test_anchored_window_is_caveat`, asserting the old blanket
+`grounding_anchor_deferred` code) is renamed
+`test_malformed_anchor_shape_is_caveat` and now asserts
+`grounding_anchor_unreproducible` — same observable outcome (caveat), correct
+code name.
+
+**Reviews.** BDD-evidence review (inline) OK — Scenario D added to
+`docs/bdd/answer-grounding-check/answer-grounding-check-bdd.md` with raw
+pytest output and a run timestamp (previously absent from the file).
+Architecture review (fresh-context subagent) OK — no invariant violations
+(allowlist gate reused for `anchor.entity`; no schema/config/sandbox change;
+kind taxonomy reused, not redefined); one non-blocking ordering nit
+(validate window shape before the re-detection scan) applied.
+
+**Verification.** Suite **371 passed / 4 skipped** (+5 anchor tests);
+frontend unchanged **35 passed** (4d is check-side only, no card change);
+eval `model_authored_analysis` PASS; schema byte-parity unchanged (all three
+render-result copies still byte-identical — confirmed via md5sum). Version
+bumped 0.2.4→0.2.5 in `const.py` + `manifest.json` (completed implementation
+packet).
+
+**ADR-0031 D8a is now fully shipped** (4a/4b/4c/4d all landed). **Next
+session — choose one:** (A) **floor-model claim-emission rate** (spec proof
+requirement #4, still open): extend the answer-family benchmark
+(`evals/prompts/benchmark_prompts.json` + `evals/analysis_benchmark/`) to
+measure whether `gemma4:e4b` reliably emits well-formed claim recipes —
+note the codegen prompt (`_CODEGEN_PROMPT_RULES` in `model_provider.py`)
+still only documents the absolute-window claim shape, not the anchored form,
+so this benchmark work would also want a prompt extension for anchors to be
+exercised by a real model. (B) **Packet 3 — scipy+seaborn** into the worker
+image (CT103 rebuild) toward a live deploy. (C) Push this session's commit
+plus the still-unpushed packets 1–2 (`068d7ef`/`c833991`) — ask before
+pushing. *(Corrected at the 8th-session closeout: (A) is done — proof req #4
+answered — and everything is pushed.)*
+
+### 2026-07-03 (6th session) — Packet 4 implemented: the deterministic answer-grounding check (ADR-0031 D8a), 0.2.3→0.2.4
+
+The open half of ADR-0031 D8a is now built. Sub-packets **4a/4b/4c** shipped;
+**4d (event anchors) is deferred to tranche 2** — the claim shape and a
+`grounding_anchor_deferred` caveat path exist so re-detection slots in later
+without schema churn. Branch `adr-0029-worker-codegen-eval`; **the packet-4
+work is uncommitted at handoff** (and packets 1–2 remain committed-locally but
+not pushed — ask before pushing). *(Corrected at the 8th-session closeout:
+packet 4 since committed as `4af08f1` and pushed, as are packets 1–2.)*
+
+**The check (`custom_components/isolinear/answer_grounding.py`, new).** Pure
+Python, no numpy/scipy, so it runs integration-side on the Pi. A metric
+**registry** maps the seven tranche-1 metrics (`mean`, `delta`, `pearson_r`,
+`rolling_mean`, `daily_max`, `daily_min`, `hours_above`) to recompute
+implementations over the normalized `ts_epoch_ms` history — `pearson_r` is
+hand-rolled over common timestamps. `run_grounding_check(render_metadata,
+history_series)` runs the spec's six-step claim check plus the sentence-initial
+yes/no **tripwire**, returning a three-state outcome — **verified**
+(registry recompute matches within `_TOLERANCE = 0.05` and the verdict follows
+the declared rule at the reference), **unverified-caveat** (nothing
+contradicted but nobody reproduced the value — unknown metric, window outside
+span, anchored window), or **contradicted** (positive evidence: value mismatch,
+verdict-vs-rule contradiction, non-finite value). Verdict containment uses a
+longest word-boundary match so "not correlated" beats "correlated"; a
+band-edge **borderline guard** passes rather than flap-fails. The two-tier
+guarantee text is verbatim in the module, the card caveat, and diagnostics.
+
+**Wiring (`job_orchestration.py`).** The check runs in
+`_record_codegen_worker_dispatch` after a successful sandbox render, before the
+artifact is served. `{pass, verified, unverified_caveat}` serve immediately;
+`{repair_contradicted, repair_soft}` feed a `synthetic_error` into the **shared**
+codegen repair loop (same `max_codegen_repair_attempts` budget as sandbox
+failures). On exhaustion the last successful render is still served — with the
+answer **withheld** (contradicted) or shown **with a caveat** (soft), always
+`answer_verification="unverified"`. The new `answer_verification` /
+`withheld_answer` values thread `_finish_codegen_success` →
+`_record_worker_rendered_artifact` → `_build_worker_artifact_metadata` →
+snapshot chart → card. The worker `_normalize_render_metadata` passes `claims`
+through unchanged (check-only; delete it → output byte-identical, the D3
+reconciliation), and `_CODEGEN_PROMPT_RULES` now instructs the model to emit a
+well-formed claim.
+
+**Surfacing.** Schemas add `render_metadata.claims` (3 copies) and
+`chart.answer_verification` (artifact + snapshot, 2 copies each), all
+byte-identical. The Lit card renders three states — verified (no caveat),
+unverified (answer + caveat), withheld (a "couldn't produce a verifiable
+answer" line + caveat) — with the caveat as a **separate element**, never
+spliced into `answer_text` (§4: the verdict prose is never edited).
+
+**Post-review hardening.** A fresh-context architecture-review subagent
+returned CONCERNS on one real gap: `_check_claim` received `delivered_entity_ids`
+but never read it, so a claim citing a non-delivered/unallowlisted entity
+silently became an unverified caveat (spec §1 / invariant #1). Fixed —
+step 1 now rejects `claim.inputs ⊄ delivered_entity_ids` as
+`grounding_claim_malformed` (repair_soft), with tests. The reviewer's other
+note (the single global `_TOLERANCE` applied across correlation / means /
+hour-counts) is an accepted tranche-1 coarseness, not a violation.
+
+**Verification.** Suite **366 passed / 4 skipped** (+39 grounding tests, incl.
+BDD scenarios A/B/C/E/F/G/H/J, negation safety, the allowlist gap, and edge
+cases); frontend **35 passed** (+9 grounding card tests). Eval
+`model_authored_analysis` PASS. Schema byte-parity (3× render-result, 2×
+artifact, 2× snapshot) + bundle sync verified via md5sum. Version bumped
+0.2.3→0.2.4 in `const.py` + `manifest.json`. BDD evidence at
+`docs/bdd/answer-grounding-check/answer-grounding-check-bdd.md`.
+
+**Next session — choose one:** (A) **4d event anchors** (tranche 2): anchor
+re-detection over delivered raw-state series per spec §1a
+(`grounding_anchor_unfound` / `grounding_anchor_mismatch`); the deferred-caveat
+path already exists, so this is additive. (B) **Floor-model claim-emission
+rate** (spec proof req #4): extend the answer-family benchmark to check that
+`gemma4:e4b` reliably emits a well-formed claim recipe (real HA data stays
+gitignored). Toward a live test (orthogonal): packet 3 (scipy + seaborn into the
+worker image, CT103 rebuild) → deploy the worker as a running homelab
+`docker_host` compose service → point the integration at it → ship via HACS.
+
+### 2026-07-03 (5th session) — ADR-0031 ACCEPTED; tranche-1 answer channel + timestamp boundary shipped (0.2.3); the deterministic verdict-grounding check designed & specced
+
+ADR-0031 is accepted and its first tranche is being built. Branch
+`adr-0029-worker-codegen-eval`; the spec/ADR/docs work is pushed through
+`0436eef`, but the two implementation commits (`068d7ef`, `c833991`) are
+**committed locally and NOT pushed** (ask before pushing). *(Corrected at the
+8th-session closeout: both since pushed.)*
+
+**Accepted + specced.** ADR-0031 draft→accepted (`7d266cb`): the now-met
+proof-gate paragraph was dropped, and the `CLAUDE.md`/`AGENTS.md` identity line
+moved from "visualization assistant" to "data-analysis assistant" (D1). The
+paired spec `model-authored-analysis` + BDD was written and **accepted**
+(`9d52103`→`0436eef`), defining all seven tranche-1 contract surfaces.
+
+**Packet 1 — the answer channel (`068d7ef`, 0.2.1→0.2.2).** Isolinear now ships
+a grounded natural-language answer alongside the chart, purely additive on the
+codegen render path (the PNG pipeline is untouched). The sandbox
+`_normalize_render_metadata` passes a stripped, non-empty `answer_text` through
+the existing metadata channel (no security-model change); it is additive/optional
+on render-result, artifact-metadata, and job-snapshot (docs + packaged + worker
+copies byte-identical); it threads worker-artifact→complete-snapshot
+`chart.answer_text`; the Lit card renders it under the caption
+(`[data-testid=analysis-answer]`, bundle rebuilt + synced). The codegen prompt
+instructs the model to COMPUTE and f-string the answer, deriving verdicts rather
+than asserting them. Grounding is proven deterministically: the sample history
+71.2/71.8 forces exactly "The average reading is 71.50 degF." at the sandbox
+boundary and over the HTTP wire (`evals/model_authored_analysis.py`); the
+integration end-to-end test confirms the number reflects the real job history.
+
+**Packet 2 — the epoch-ms timestamp boundary / D9 (`c833991`, 0.2.2→0.2.3).**
+The codegen path hands the model epoch-ms integers, never raw HA ISO strings —
+killing the benchmark's dominant failure class (`pandas.to_datetime` inferring
+one format from HA's mixed-precision first row). Rather than overload the shared
+`ts`/`x_min`/`x_max` string contracts, an additive integer `ts_epoch_ms` is added
+to history points (history-series schema, all three copies), precomputed by
+`_timestamp_to_epoch_ms` (robust to on-the-second + microsecond + `Z` + naive-UTC
++ int passthrough + fail-soft) at both codegen build sites; `_codegen_request_view`
+strips raw `ts` from the prompt so the model literally never sees an ISO string.
+The safe/Pillow paths are untouched.
+
+**The deterministic verdict-grounding check — designed & specced (packet 4).**
+The open half of ADR-0031 D8a — how to deterministically catch a free-text
+qualitative verdict that contradicts the data ("Yes … r=0.04") without violating
+D3's rejection of integration-side assembly — was handed to a Fable subagent for
+design. It produced the **claims ledger**: the generated code emits an optional
+`claims` record (the full recompute recipe `{metric, inputs, window?, params?,
+value, verdict?, rule?}`) used ONLY for checking — delete it and the user-visible
+output is byte-identical, which is the D3 reconciliation (the ledger is to the
+answer what the PNG is to the visual validator: reviewed, not composed). A second
+Fable pass hardened it against a "does this generalize past correlation?"
+critique: the claim now carries the window/params/event-anchor so parametric
+metrics reproduce faithfully, event anchors are reproducible under four crisp
+criteria (§1a), a three-state **verified / unverified-caveat / contradicted**
+boundary is drawn (contradicted requires positive evidence — inability to check
+is never contradiction), and the two-tier guarantee (value↔data inside the
+metric registry, internal-consistency-only outside) is stated verbatim. The human
+ratified; it is distilled into the **accepted** spec `answer-grounding-check` +
+BDD, with the research note `answer-verdict-grounding-check` (the design rationale
+of record) **promoted-to-spec**.
+
+**Verification.** Suite **327 passed / 4 skipped** (312 baseline → 320 packet 1
+→ 327 packet 2); frontend **26 passed** (+3); evals `model_authored_analysis`,
+`codegen_generation_path`, `codegen_sandbox` PASS; schema byte-parity + bundle
+sync green; `git diff --check` clean. Inline architecture-invariant review OK
+(both packets are additive on the accepted codegen path — allowlist #1, sandbox
+#3, render-family #9, and the data boundary are all untouched); a fresh-context
+architecture-review subagent was not spawned (available on request).
+
+**Next session — implement `answer-grounding-check` (packet 4) in sub-packets:**
+4a the metric registry (mean / delta / pearson_r / rolling_mean / daily_max/min /
+hours_above, recompute over normalized history) + the number half, wired into
+`_record_codegen_worker_dispatch` before serve, repairing via the shared codegen
+loop; 4b the `render_metadata.claims` schema + `_normalize_render_metadata`
+passthrough + the codegen prompt extension + the deterministic check
+(steps 1–6 + the yes/no tripwire); 4c the `chart.answer_verification` schema +
+the card caveat/withheld-answer states with the two-tier-guarantee copy; 4d event
+anchors as tranche 2 (claim shape fixed now, re-detection deferred). Toward a live
+test (orthogonal): packet 3 (scipy + seaborn into the worker image, CT103 rebuild),
+then deploy the worker as a running homelab `docker_host` compose service, point
+the integration at it, and ship 0.2.3 via HACS.
+
 ### 2026-07-02 (4th session) — ADR-0031 DRAFTED + hardened by a real-data benchmark; direction: Isolinear answers questions, not just charts
 
 Exploration + design session (no integration code changed; branch

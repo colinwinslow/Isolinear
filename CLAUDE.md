@@ -4,7 +4,7 @@
 
 ## Identity
 
-**Isolinear** is a local-first Home Assistant visualization assistant. The product turns natural-language questions into validated charts using approved Home Assistant entity history.
+**Isolinear** is a local-first Home Assistant data-analysis assistant. The product turns natural-language questions into validated charts and grounded natural-language answers using approved Home Assistant entity history.
 
 Isolinear runs as a Home Assistant custom integration (ADR-0001) paired with an isolated worker service (ADR-0001). It uses schema-first design (ADR-0005), deterministic validation (ADR-0006), and semantic memory (ADR-0009) to deliver safe, reproducible visualizations. The MVP is read-only and sandboxed (ADR-0008).
 

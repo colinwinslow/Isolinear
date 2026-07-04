@@ -1,3 +1,113 @@
+# Benchmark findings — claim-emission rate, 2026-07-03
+
+Grounding-check spec **proof req #4**: does the capability floor (`gemma4:e4b`)
+reliably emit a well-formed claim recipe (`{metric, inputs, window?, params?,
+value, verdict?, rule?}`) alongside `answer_text`? Measured over the 18-prompt
+corpus (the original 17 + `anchor-01`, the registry-verifiable anchored case),
+9 flagged `claim: true` (verdict/comparison expected), 2 of those anchored.
+Emitted claims scored by the REAL production checker
+(`custom_components.isolinear.answer_grounding`) against the same live fixture
+(fresh 7-day extract, 16 entities, 16,318 points). Three runs, one variable at
+a time:
+
+| Run | Prompt variant | strict / repair (18) | claims emitted (9 expected) | well-formed | registry-verified | anchored (2 expected) |
+|---|---|:--:|:--:|:--:|:--:|:--:|
+| 1 | original "value formatted into the sentence", num_predict 3000 | 7 / 12 | 6/9 | 6/6 | 0/6 | 0/2 |
+| 2 | + "value is a raw JSON number" hardening, 3000 | 3 / 5 | 3/9 | 2/3 | 0/3 | 0/2 |
+| 3 | same wording, num_predict 6000 | 3 / 8 | 5/9 | 4/5 | 0/5 | 0/2 |
+
+## Headline: emission is reliable; the strong tier is not yet reached
+
+- **When the generated code executes, the claims channel fires essentially
+  every time**: run 1 — 6/6 claim-expected prompts that ran emitted claims;
+  run 3 — 5/5. Every miss in the "emitted" column is a prompt whose code never
+  executed at all (SyntaxError / runtime error), not a prompt that ran and
+  skipped the ledger. The floor model **does** follow the claims instruction.
+- **Structure is mostly right** (dict shape, metric string, inputs are real
+  entity_ids, bands lists) — 6/6 and 4/5 pass the checker's structure step.
+- **Registry-verified: 0 in every run.** No claim earned the strong value↔data
+  tier live. Three distinct causes, all now measured (below). Everything landed
+  in exactly the box the three-state boundary designed for it — **no false
+  "verified" was ever produced**, and every contradicted case was a genuine
+  defect the check caught before display.
+
+## What the wording of one prompt line did (run 1 → 2)
+
+Run 1's instruction said `'value' (the same variable formatted into the
+sentence)` — and gemma read "formatted" literally: **13/13 emitted claims
+carried a stringified value** (`'3.0°F'`, `'1189.7 minutes'`, `'nan'`), every
+one flagged `grounding_nonfinite_value`. One sentence of prompt hardening
+("raw JSON number — never a pre-formatted string; units belong in the
+sentence") fixed the type on **every** subsequent claim (runs 2–3: all values
+numeric). The production `_CODEGEN_PROMPT_RULES` now carries the hardened
+wording. Two corollary findings:
+
+- The 3000-token benchmark cap started truncating generations mid-string once
+  the claims scaffolding made the code longer (the run-2 execution collapse is
+  `unterminated string literal`, not analysis failures); production codegen
+  does not cap `num_predict`, so the benchmark now runs 6000.
+- Floor-model codegen is **highly prompt-sensitive** at temperature 0: a
+  three-line prompt delta swung execution success 12/18 → 8/18 with a disjoint
+  failure set. Per-prompt success is not a stable property; corpus-level rates
+  are the only meaningful signal.
+
+## Why nothing verified (the three causes, with examples)
+
+1. **Free metric naming (works as designed, costs verification).**
+   `mean_difference`, `percentage_running`, `max_daily_swing`, `spike_count`,
+   `slope_rate` — honest names for what the code computed, none in the
+   tranche-1 registry → `unverified_no_reference` caveat. Correct per D3
+   (registry decides *verifiability*, never *expressibility*) — and renaming
+   them would be wrong (`mean_difference` over aligned series is NOT the
+   registry `delta` = last−first; a forced rename would produce false
+   `value_mismatch`). Registry growth is the demand-driven fix.
+2. **Recompute-fidelity on `pearson_r` (the spec's "prescribe the alignment"
+   open item, confirmed live).** Run 3's sp-stats-01 emitted a textbook claim
+   (`pearson_r`, both entity ids, numeric `r=0.183`, banded rule, matching
+   verdict) — and the registry recompute returned no reference because
+   `_compute_pearson_r` intersects **exact** timestamps and real HA series
+   rarely share any. The registry needs the integration-prescribed alignment
+   (e.g. resample-to-grid) before correlation claims can ever verify on real
+   data.
+3. **Rule-structure defects the checker catches** (repairable, and the repair
+   loop exists in production but not in this first-attempt measurement):
+   ascending bands (`[[-1.0, 'Rapid'], [-0.1, 'Moderate'], …]` →
+   `grounding_claim_malformed`); no null catch-all; substring-violating labels
+   (`'Significantly Warmer'` / `'Not significantly warmer'` with sentence word
+   "warmer" → `grounding_verdict_absent`); a genuine
+   `grounding_verdict_contradicted` (pd-05: verdict `'hottest'` vs the claim's
+   own rule at its own value — the exact false-verdict class the check exists
+   for, caught).
+
+## Anchored windows: never emitted (0/2 every run)
+
+Both event-scoped prompts produced event logic in code (transition scans,
+`cooling_starts[-1]`) but recorded **absolute** window bounds, not the §1a
+anchor record — even with the anchored form documented with an example. The
+absolute form is still verifiable (value↔data holds; only event *identity*
+goes unconfirmed), so this is acceptable for tranche 1, but 4d's re-detection
+path will not exercise in production until either the prompt pushes harder or
+a capability above the floor emits it. Recorded as an open item, not a defect.
+
+## What this decides
+
+- **Proof req #4 is answered**: the floor model reliably *emits* (100% of
+  executing answer-family generations) and mostly *forms* the recipe; it does
+  not yet reach the verified tier. The fail-soft three-state boundary — not
+  the strong guarantee — is what carries floor-model UX, exactly as §3b's
+  two-tier framing anticipated.
+- The `value`-as-number prompt hardening ships in production
+  (`_CODEGEN_PROMPT_RULES`).
+- Registry follow-ups (demand-driven, not this packet): prescribed alignment
+  for `pearson_r`; candidate registry additions actually requested by the
+  corpus (`mean_difference`-style aligned delta, time-in-state fraction).
+
+Raw per-run artifacts (gitignored): `runs/run1_stringvalue.log`,
+`runs/results_run1.json`, `runs/run2_numericvalue_3000cap.log`,
+`runs/results_run2.json`, `results.json` (run 3).
+
+---
+
 # Benchmark findings — 2026-07-02
 
 16 prompts × `gemma4:e4b` + `qwen2.5-coder:7b`, generated `render_chart` code

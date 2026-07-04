@@ -60,6 +60,7 @@ from .semantic_memory import (
     save_semantic_alias,
     semantic_memory_store_for,
 )
+from .answer_grounding import run_grounding_check as _run_grounding_check
 from .worker_renderer import (
     build_worker_transport_request,
     get_worker_render_client,
@@ -3890,6 +3891,8 @@ def _record_worker_rendered_artifact(
     artifact: dict[str, Any],
     render_result: dict[str, Any],
     render_path: str | None = None,
+    answer_verification: str | None = None,
+    withheld_answer: bool = False,
 ) -> dict[str, Any]:
     png_result = _worker_png_bytes_from_render_result(render_result)
     if not png_result["accepted"]:
@@ -3924,6 +3927,8 @@ def _record_worker_rendered_artifact(
         render_result=sanitized_render_result,
         image_url=prepared_artifact["image_url"],
         render_path=render_path,
+        answer_verification=answer_verification,
+        withheld_answer=withheld_answer,
     )
     artifact_validation = validate_artifact_metadata_contract(rendered_artifact)
     if not artifact_validation["accepted"]:
@@ -4628,6 +4633,10 @@ def _build_codegen_render_request(
         render_plan=render_plan,
     )
     render_request["render_mode"] = "codegen"
+    # ADR-0031 D9: hand the model epoch-ms integers, never raw HA ISO timestamps.
+    render_request["history_series"] = _history_series_with_epoch_ms(
+        render_request["history_series"]
+    )
     render_request["codegen"] = {
         "python_code": python_code,
         "max_repair_attempts": max_repair_attempts,
@@ -4700,8 +4709,13 @@ def _record_codegen_worker_dispatch(
     max_repair_attempts = _configured_max_codegen_repair_attempts(hass, entry_id)
 
     # 1. Generate the initial code from the validated ChartSpec + render data.
+    #    ADR-0031 D9: normalize timestamps to epoch-ms before the data reaches the
+    #    model, matching the dispatch request the sandbox will execute against.
     codegen_request = _build_worker_render_request(
         store, hass=hass, entry_id=entry_id, render_plan=render_plan
+    )
+    codegen_request["history_series"] = _history_series_with_epoch_ms(
+        codegen_request["history_series"]
     )
     generation = codegen_client.generate_chart_code(codegen_request, model=codegen_model)
     if not isinstance(generation, dict) or not generation.get("accepted"):
@@ -4731,6 +4745,12 @@ def _record_codegen_worker_dispatch(
 
     repair_attempts_made = 0
     final_error_code = "runtime_error"
+    # Tracks the most recent sandbox-success for grounding-failure recovery.
+    _last_ok_render_result: dict[str, Any] | None = None
+    _last_ok_worker_response: dict[str, Any] | None = None
+    _last_ok_transport_request: dict[str, Any] | None = None
+    _last_grounding_outcome: str | None = None
+
     # Attempts: the initial render + up to max_repair_attempts repaired renders.
     for attempt_number in range(1, max_repair_attempts + 2):
         render_request = _build_codegen_render_request(
@@ -4818,29 +4838,51 @@ def _record_codegen_worker_dispatch(
             }
 
         if isinstance(render_result, dict) and render_result.get("status") == "success":
-            return _finish_codegen_success(
-                store,
-                hass=hass,
-                entry_id=entry_id,
-                job=job,
-                source_snapshot=source_snapshot,
-                artifact=artifact,
-                render_plan=render_plan,
-                serve_artifact=serve_artifact,
-                worker_client=worker_client,
-                worker_response=worker_response,
-                transport_request=transport_request,
-                render_result=render_result,
-                token=token,
-                worker_summary=worker_summary,
-            )
+            # ADR-0031 D8a: run the deterministic answer-grounding check before
+            # serving the artifact.  Grounding failures route through the shared
+            # repair loop (same budget); on exhaustion the chart is served with
+            # the answer withheld (contradicted) or caveated (soft failure).
+            render_metadata = render_result.get("render_metadata") or {}
+            grounding = _run_grounding_check(render_metadata, codegen_request["history_series"])
 
-        # Sandbox-level failure. Every failure class is repairable, including
-        # unsafe_code (ADR-0030): the worker re-runs the full static check +
-        # sandbox on each fresh dispatch, so the boundary still enforces —
-        # repair gets another try at the gate, never around it.
-        error = render_result.get("error") if isinstance(render_result, dict) else None
-        final_error_code = error.get("code") if isinstance(error, dict) else "runtime_error"
+            if grounding["outcome"] not in ("repair_contradicted", "repair_soft"):
+                # Pass / verified / unverified_caveat — serve immediately.
+                return _finish_codegen_success(
+                    store,
+                    hass=hass,
+                    entry_id=entry_id,
+                    job=job,
+                    source_snapshot=source_snapshot,
+                    artifact=artifact,
+                    render_plan=render_plan,
+                    serve_artifact=serve_artifact,
+                    worker_client=worker_client,
+                    worker_response=worker_response,
+                    transport_request=transport_request,
+                    render_result=render_result,
+                    token=token,
+                    worker_summary=worker_summary,
+                    answer_verification=grounding["answer_verification"],
+                    withheld_answer=False,
+                )
+
+            # Grounding failure: save this successful render for potential
+            # withheld-serve on repair exhaustion, then continue the loop.
+            _last_ok_render_result = render_result
+            _last_ok_worker_response = worker_response
+            _last_ok_transport_request = transport_request
+            _last_grounding_outcome = grounding["outcome"]
+            error = grounding["synthetic_error"] or {}
+            final_error_code = error.get("code", "grounding_check_failed")
+        else:
+            # Sandbox-level failure. Every failure class is repairable, including
+            # unsafe_code (ADR-0030): the worker re-runs the full static check +
+            # sandbox on each fresh dispatch, so the boundary still enforces —
+            # repair gets another try at the gate, never around it.
+            _last_ok_render_result = None
+            _last_grounding_outcome = None
+            error = render_result.get("error") if isinstance(render_result, dict) else None
+            final_error_code = error.get("code") if isinstance(error, dict) else "runtime_error"
 
         if attempt_number > max_repair_attempts:
             break
@@ -4863,7 +4905,32 @@ def _record_codegen_worker_dispatch(
             )
         current_code = repair["python_code"]
 
-    # Exhausted: fail closed carrying the final sandbox error code.
+    # Exhausted.
+    # If the last failure was a grounding check (the sandbox succeeded), serve
+    # the chart — with the answer withheld (contradicted) or present with a
+    # caveat (soft failure) — rather than failing closed.
+    if _last_ok_render_result is not None and _last_grounding_outcome is not None:
+        withheld = _last_grounding_outcome == "repair_contradicted"
+        return _finish_codegen_success(
+            store,
+            hass=hass,
+            entry_id=entry_id,
+            job=job,
+            source_snapshot=source_snapshot,
+            artifact=artifact,
+            render_plan=render_plan,
+            serve_artifact=serve_artifact,
+            worker_client=worker_client,
+            worker_response=_last_ok_worker_response,
+            transport_request=_last_ok_transport_request,
+            render_result=_last_ok_render_result,
+            token=token,
+            worker_summary=worker_summary,
+            answer_verification="unverified",
+            withheld_answer=withheld,
+        )
+
+    # Sandbox-level exhaustion: fail closed carrying the final sandbox error code.
     return _codegen_render_failed(
         worker_summary=worker_summary,
         final_error_code=final_error_code,
@@ -4891,6 +4958,8 @@ def _finish_codegen_success(
     render_result: dict[str, Any],
     token: str,
     worker_summary: dict[str, Any],
+    answer_verification: str | None = None,
+    withheld_answer: bool = False,
 ) -> dict[str, Any]:
     """Serve a successful codegen render through the existing worker artifact path."""
     artifact_result = None
@@ -4901,6 +4970,8 @@ def _finish_codegen_success(
             artifact=artifact,
             render_result=render_result,
             render_path=RENDER_MODE_CODEGEN,
+            answer_verification=answer_verification,
+            withheld_answer=withheld_answer,
         )
         if not artifact_result["accepted"]:
             return _codegen_render_failed(
@@ -5087,13 +5158,27 @@ def _build_worker_artifact_metadata(
     render_result: dict[str, Any],
     image_url: str,
     render_path: str | None = None,
+    answer_verification: str | None = None,
+    withheld_answer: bool = False,
 ) -> dict[str, Any]:
     rendered = deepcopy(artifact)
     render_metadata = render_result.get("render_metadata") if isinstance(render_result, dict) else {}
+    if not isinstance(render_metadata, dict):
+        render_metadata = {}
     rendered["status"] = "rendered"
     if render_path is not None:
         rendered["render_path"] = render_path
     rendered["image_url"] = image_url
+    # ADR-0031 tranche 1: carry the grounded analysis answer the sandbox computed
+    # onto the artifact so the complete snapshot can surface it under the caption.
+    # ADR-0031 D8a: suppress the answer when the grounding check determined it is
+    # contradicted and repair was exhausted (withheld_answer=True).
+    if not withheld_answer:
+        answer_text = render_metadata.get("answer_text")
+        if isinstance(answer_text, str) and answer_text.strip():
+            rendered["answer_text"] = answer_text.strip()
+    if answer_verification is not None:
+        rendered["answer_verification"] = answer_verification
     rendered["render_metadata"] = {
         "renderer": WORKER_RENDERER_NAME,
         "render_attempted": True,
@@ -5386,6 +5471,57 @@ def _build_worker_render_request(
         "theme": {},
         "codegen": None,
     }
+
+
+def _timestamp_to_epoch_ms(ts: Any) -> int | None:
+    """Convert an ISO-8601 timestamp string to Unix epoch milliseconds (ADR-0031 D9).
+
+    Robust to HA's mixed-precision recorder output — the initial state is written
+    on-the-second, later states with microseconds — and to a trailing ``Z``. A
+    naive datetime is treated as UTC. Already-integer input passes through so the
+    conversion is idempotent. Returns ``None`` for unparseable input (the point
+    then simply carries no epoch-ms field).
+    """
+    if isinstance(ts, bool):
+        return None
+    if isinstance(ts, int):
+        return ts
+    if isinstance(ts, float):
+        return int(ts)
+    if not isinstance(ts, str) or not ts.strip():
+        return None
+    text = ts.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp() * 1000)
+
+
+def _history_series_with_epoch_ms(history_series: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return a copy of the history with each point's ts precomputed as epoch ms.
+
+    The codegen data boundary (ADR-0031 D9): the model is handed epoch integers
+    so it never runs ``pandas.to_datetime`` on HA's mixed-precision ISO strings
+    (the benchmark's dominant failure). The raw ``ts`` stays on the point for the
+    render-request contract; the prompt projection strips it so the model only
+    ever sees ``ts_epoch_ms``.
+    """
+    normalized = deepcopy(history_series)
+    for series in normalized:
+        if not isinstance(series, dict):
+            continue
+        for point in series.get("points", []):
+            if not isinstance(point, dict):
+                continue
+            epoch_ms = _timestamp_to_epoch_ms(point.get("ts"))
+            if epoch_ms is not None:
+                point["ts_epoch_ms"] = epoch_ms
+    return normalized
 
 
 def _history_series_for_render_plan(
@@ -7193,6 +7329,13 @@ def _append_artifact_complete_snapshot(
     # Optional ADR-0027 fields: caption summary and renderer color manifest.
     if isinstance(artifact.get("summary"), str) and artifact["summary"].strip():
         chart["summary"] = artifact["summary"].strip()
+    # Optional ADR-0031 field: the grounded analysis answer, rendered by the card
+    # under the caption.
+    if isinstance(artifact.get("answer_text"), str) and artifact["answer_text"].strip():
+        chart["answer_text"] = artifact["answer_text"].strip()
+    # ADR-0031 D8a: grounding check result threaded to the card.
+    if artifact.get("answer_verification") in ("verified", "unverified"):
+        chart["answer_verification"] = artifact["answer_verification"]
     if isinstance(artifact.get("legend"), list) and artifact["legend"]:
         chart["legend"] = deepcopy(artifact["legend"])
     # Optional ADR-0030 fields: how the chart was rendered + surfaced fallback.

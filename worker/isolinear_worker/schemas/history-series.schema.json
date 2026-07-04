@@ -50,6 +50,10 @@
             "type": "string",
             "format": "date-time"
           },
+          "ts_epoch_ms": {
+            "type": "integer",
+            "description": "Unix epoch milliseconds for ts, precomputed at the data boundary (ADR-0031 D9). Optional; populated for the codegen render path so the model uses epoch integers and never parses raw HA timestamp strings."
+          },
           "value": {
             "type": [
               "number",

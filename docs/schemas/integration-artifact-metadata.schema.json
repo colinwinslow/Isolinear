@@ -74,6 +74,10 @@
       "type": "string",
       "description": "Model-authored chart caption (ADR-0027 D3). Optional; threaded into the complete snapshot's chart.summary."
     },
+    "answer_text": {
+      "type": "string",
+      "description": "Grounded model-authored analysis answer (ADR-0031 tranche 1). Optional; threaded from render_metadata.answer_text into the complete snapshot's chart.answer_text. Absent for chart-only renders and the Pillow fallback."
+    },
     "legend": {
       "type": "array",
       "description": "Renderer color manifest (ADR-0027 D1). Optional; threaded into the complete snapshot's chart.legend.",
@@ -88,6 +92,10 @@
     "render_fallback_reason": {
       "type": "string",
       "description": "Present when the Pillow render happened because codegen could not complete (ADR-0030: fallback surfaced, never silent). Carries the final codegen or transport failure code."
+    },
+    "answer_verification": {
+      "enum": ["verified", "unverified"],
+      "description": "Grounding check result (ADR-0031 D8a). 'verified': value independently reproduced from allowlisted data and verdict follows the declared rule; 'unverified': internal consistency only or the metric is outside the registry. Absent when no grounding check ran (chart-only, Pillow path)."
     },
     "render_metadata": {
       "type": "object",

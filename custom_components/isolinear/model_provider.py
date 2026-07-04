@@ -104,13 +104,68 @@ _CODEGEN_SYSTEM_PROMPT = (
 _CODEGEN_PROMPT_RULES = [
     "Define exactly one top-level function: def render_chart(data, output_path):",
     "Implement the supplied chart_spec using matplotlib and the supplied history_series.",
-    "Read the series points from data['history_series']; each point has 'ts' and 'value'.",
+    # ADR-0031 D9: the model is handed epoch integers, never raw HA ISO strings —
+    # the projection below strips 'ts', so 'ts_epoch_ms' is the only timestamp key.
+    "Read the series points from data['history_series']; each point has 'ts_epoch_ms' "
+    "(Unix epoch MILLISECONDS, an integer) and 'value'. Use ts_epoch_ms directly for "
+    "the x-axis; if you need datetimes, pandas.to_datetime(<ts_epoch_ms values>, "
+    "unit='ms'). Never parse a raw timestamp string.",
     "Save the figure to output_path as PNG (fig.savefig(output_path, format='png')).",
-    "Do not import anything except matplotlib (and matplotlib.pyplot). No os, sys, "
-    "socket, requests, subprocess, open() on arbitrary paths, or network access.",
+    # ADR-0031 D6: the analysis libraries the sandbox allowlists. Kept in sync
+    # with the worker sandbox policy (worker/isolinear_worker/codegen_sandbox.py).
+    "You may import matplotlib (and matplotlib.pyplot), pandas, numpy, scipy "
+    "(scipy.stats / scipy.signal / scipy.optimize), and seaborn. Import nothing "
+    "else: no os, sys, socket, requests, subprocess, open() on arbitrary paths, "
+    "or network access.",
     "Do not read environment variables, secrets, tokens, or files other than writing "
     "the figure to output_path.",
     "Return a small metadata dict (title, series_plotted, warnings) from render_chart.",
+    # ADR-0031 tranche 1: grounded natural-language answer. The number and any
+    # verdict MUST be computed inside render_chart and formatted into the string —
+    # never asserted at generation time (an honest number must not ride a
+    # contradicting verdict). Packet 5 gates this on the resolved output modality;
+    # for now it is conditional on the prompt posing a question.
+    "If the prompt asks a question (e.g. 'are they correlated?', 'how much…?'), also "
+    "return an 'answer_text' string in the metadata dict answering it in one plain "
+    "sentence.",
+    "Compute the answer_text from variables you calculate over the data and format "
+    "them in with an f-string — e.g. corr = df['a'].corr(df['b']); "
+    "answer_text = f'The correlation coefficient is {corr:.2f}.' Never write the "
+    "number or a Yes/No verdict as a literal; derive the verdict too "
+    "(verdict = 'Yes' if abs(corr) > 0.3 else 'Not really').",
+    # ADR-0031 D8a: claims ledger for the integration-side grounding check.
+    # The model emits a machine-readable recipe so the integration can independently
+    # recompute the stated value and confirm the verdict follows the declared rule.
+    # Band labels must not be substrings of one another (longest-match safety).
+    # The ledger is used ONLY for verification; it never appears to the user.
+    "When answer_text includes a qualitative verdict (yes/no/comparison), also "
+    "return a 'claims' list in the metadata dict. Each claim is a dict with: "
+    "'metric' (e.g. 'pearson_r', 'mean', 'hours_above', 'delta'), "
+    "'inputs' (list of entity_ids from history_series), "
+    "'value' (the SAME numeric variable formatted into the sentence, recorded as "
+    "a raw JSON number — 'value': corr, NEVER a pre-formatted string like "
+    "f'{corr:.2f}' or '3.0°F'; units belong in the sentence, not the claim), "
+    "'verdict' (the same verdict variable formatted into the sentence), "
+    "'rule' ({\"bands\": [[threshold_or_null, label], ...], \"basis\": \"value\"}; "
+    "bands in descending threshold order; last entry has null threshold as catch-all; "
+    "labels must not be substrings of one another), and optionally "
+    "'window' ({\"start\": epoch_ms, \"end\": epoch_ms}) and 'params' (flat dict). "
+    "Example: claims = [{'metric': 'pearson_r', 'inputs': ['sensor.a', 'sensor.b'], "
+    "'value': corr, 'verdict': verdict, "
+    "'rule': {'bands': [[0.3, 'Yes'], [None, 'Not really']], 'basis': 'value'}}].",
+    # Spec §1 anchored window (event-scoped answers, e.g. "after the AC started
+    # cooling"): the claim window may carry an anchor record instead of absolute
+    # bounds; the integration re-detects the transition to verify the same event.
+    "When the analysis is scoped to a state-change event (e.g. 'after the AC "
+    "started cooling'), the claim 'window' may instead be an ANCHORED window: "
+    "{\"anchor\": {\"entity\": <the binary/categorical entity_id>, \"to\": <state "
+    "transitioned INTO, exact string>, \"from\": <prior state, optional>, "
+    "\"occurrence\": <1-based index among matching transitions; negative counts "
+    "from the end, e.g. -1 = most recent>, \"search\": {\"start\": epoch_ms, "
+    "\"end\": epoch_ms}, \"resolved_at\": <the epoch_ms timestamp of the "
+    "transition your code actually found in the data>}, \"direction\": \"after\" "
+    "or \"before\", \"duration_ms\": <window length>}. resolved_at must be the "
+    "COMPUTED transition timestamp (a variable), never a guess.",
     "Return only the code — no commentary, no example invocation.",
 ]
 
@@ -127,10 +182,36 @@ def _codegen_request_view(request: dict[str, Any]) -> dict[str, Any]:
         return {"chart_spec": {}, "history_series": []}
     return {
         "chart_spec": deepcopy(request.get("chart_spec") or {}),
-        "history_series": deepcopy(request.get("history_series") or []),
+        "history_series": _history_series_prompt_view(request.get("history_series") or []),
         "derived_intervals": deepcopy(request.get("derived_intervals") or []),
         "output": deepcopy(request.get("output") or {}),
     }
+
+
+def _history_series_prompt_view(history_series: Any) -> list[dict[str, Any]]:
+    """Project history for the prompt with raw ISO ``ts`` stripped (ADR-0031 D9).
+
+    The integration precomputes ``ts_epoch_ms`` at the data boundary; dropping
+    ``ts`` here means the model literally never sees a raw HA timestamp string, so
+    it cannot ``to_datetime``-parse one (the benchmark's dominant failure class).
+    """
+    if not isinstance(history_series, list):
+        return []
+    projected: list[dict[str, Any]] = []
+    for series in history_series:
+        if not isinstance(series, Mapping):
+            continue
+        series_view = deepcopy(dict(series))
+        points = series_view.get("points")
+        if isinstance(points, list):
+            series_view["points"] = [
+                {key: value for key, value in point.items() if key != "ts"}
+                if isinstance(point, Mapping)
+                else point
+                for point in points
+            ]
+        projected.append(series_view)
+    return projected
 
 
 def _sandbox_error_view(sandbox_error: Any) -> dict[str, Any]:

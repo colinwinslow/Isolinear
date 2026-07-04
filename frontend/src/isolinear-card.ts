@@ -258,6 +258,7 @@ export class IsolinearCard extends LitElement {
           <img data-testid="chart-image" src=${snapshot.chart?.image_url ?? ""} alt=${snapshot.chart?.title ?? "Generated chart"}>
           <div class="result-meta">
             <h3>${snapshot.chart?.summary ?? snapshot.chart?.title}</h3>
+            ${this.renderAnswer(snapshot)}
             ${this.renderRenderPathNotice(snapshot)}
             ${this.renderLegend(snapshot)}
           </div>
@@ -310,6 +311,49 @@ export class IsolinearCard extends LitElement {
           </button>
         </div>
       </div>
+    `;
+  }
+
+  private renderAnswer(snapshot: IsolinearJobSnapshot) {
+    // ADR-0031 D8a: grounding-aware answer rendering.
+    // Three states: answer present (verified or unverified), answer withheld
+    // (answer_verification=unverified + no answer_text = contradicted on
+    // exhaustion), or no grounding context at all (chart-only / Pillow path).
+    const answer = snapshot.chart?.answer_text?.trim() || undefined;
+    const verification = snapshot.chart?.answer_verification;
+
+    if (!answer && !verification) {
+      return nothing;
+    }
+
+    const TWO_TIER_GUARANTEE =
+      "Inside the boundary: value↔data — the integration independently " +
+      "recomputed the number from allowlisted history using the claim's own " +
+      "recipe; the verdict provably follows from the declared rule at that reference. " +
+      "Outside the boundary: internal consistency only (value↔verdict↔rule). " +
+      "The caveat means 'not independently reproduced,' not 'probably fine.'";
+
+    const caveatNotice =
+      verification === "unverified"
+        ? html`<p class="answer-caveat" data-testid="answer-caveat">
+            Answer not independently verified. ${TWO_TIER_GUARANTEE}
+          </p>`
+        : nothing;
+
+    if (!answer) {
+      // Withheld: grounding check contradicted the answer and repair was
+      // exhausted. Show the chart without the answer but surface the caveat.
+      return html`
+        <p class="answer answer--withheld" data-testid="analysis-answer-withheld">
+          Isolinear could not produce a verifiable answer for this query.
+        </p>
+        ${caveatNotice}
+      `;
+    }
+
+    return html`
+      <p class="answer" data-testid="analysis-answer">${answer}</p>
+      ${caveatNotice}
     `;
   }
 
@@ -694,6 +738,14 @@ export class IsolinearCard extends LitElement {
     .clarification {
       display: grid;
       gap: 10px;
+    }
+
+    /* ADR-0031 tranche 1: the grounded analysis answer, under the caption. */
+    .answer {
+      color: var(--primary-text-color, #1f2933);
+      font-size: 15px;
+      line-height: 1.45;
+      margin: 0;
     }
 
     /* ADR-0030: surfaced Pillow-fallback notice under the caption. */

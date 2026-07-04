@@ -80,6 +80,13 @@
           ],
           "description": "Model-authored chart summary copied from chart_spec.summary (ADR-0027). Surfaced as the card caption."
         },
+        "answer_text": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Grounded model-authored analysis answer (ADR-0031 tranche 1). Computed AND formatted inside the sandbox by the generated render_chart from data-derived variables; never a free-text pass. Optional; absent for chart-only renders and non-codegen renderers."
+        },
         "series_plotted": {
           "type": "array",
           "items": {
@@ -119,6 +126,32 @@
           "type": "integer",
           "minimum": 0,
           "default": 0
+        },
+        "claims": {
+          "type": "array",
+          "description": "Claims ledger for deterministic answer-grounding check (ADR-0031 D8a). Used ONLY for verification by the integration; deleting it leaves user-visible output byte-identical. Absent for chart-only renders and non-codegen paths.",
+          "items": {
+            "type": "object",
+            "required": ["metric", "inputs", "value"],
+            "additionalProperties": true,
+            "properties": {
+              "metric": {"type": "string"},
+              "inputs": {"type": "array", "items": {"type": "string"}},
+              "window": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Absolute {start, end} in epoch-ms (half-open), or anchored {anchor, direction, duration_ms}."
+              },
+              "params": {"type": "object", "additionalProperties": true},
+              "value": {"type": ["number", "null"]},
+              "verdict": {"type": "string"},
+              "rule": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Threshold rule: {bands: [[threshold_or_null, label], ...], basis: 'value'|'abs'}."
+              }
+            }
+          }
         },
         "legend": {
           "type": "array",

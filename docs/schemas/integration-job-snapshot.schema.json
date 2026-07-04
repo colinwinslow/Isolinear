@@ -161,6 +161,10 @@
           "type": "string",
           "description": "Model-authored caption describing what the chart shows (ADR-0027 D3/C2). Optional; the card falls back to title when absent."
         },
+        "answer_text": {
+          "type": "string",
+          "description": "Grounded model-authored analysis answer the card renders under the caption (ADR-0031 tranche 1). Computed in the sandbox by the generated code; optional and absent for chart-only renders and the Pillow fallback."
+        },
         "legend": {
           "type": "array",
           "description": "Renderer color manifest the card renders as the legend (ADR-0027 D1/C4). Optional; absent for out-of-scope families and older artifacts.",
@@ -175,6 +179,10 @@
         "render_fallback_reason": {
           "type": "string",
           "description": "Present when the Pillow render happened because codegen could not complete (ADR-0030: fallback surfaced, never silent). The card shows a fallback indicator."
+        },
+        "answer_verification": {
+          "enum": ["verified", "unverified"],
+          "description": "Grounding check result (ADR-0031 D8a). 'verified': value independently reproduced; 'unverified': internal consistency only, or the metric is outside the registry. Absent when no grounding check ran (chart-only, Pillow path). A withheld answer is an absent answer_text with answer_verification 'unverified'."
         }
       }
     },
