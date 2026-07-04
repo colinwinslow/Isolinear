@@ -193,6 +193,32 @@ def extract_worker_token_action(user_input: Any) -> tuple[dict[str, Any], dict[s
     return {"kind": "too_short"}, remaining
 
 
+# The connection endpoints live in config-entry DATA (single source of truth for
+# consumers), but are surfaced in the options form so they are editable
+# post-install without deleting the integration. Extracted before options
+# validation, like the token, and routed to config data.
+ENDPOINT_OPTIONS_FIELDS = ("model_endpoint_url", "worker_endpoint_url")
+
+
+def extract_endpoint_edits(user_input: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split editable connection endpoints out of options user input.
+
+    Returns ``(edits, remaining_input)``. ``edits`` holds any of
+    ``model_endpoint_url`` / ``worker_endpoint_url`` present in the form
+    (stripped), to be merged into config-entry data and validated there; the
+    endpoints never enter the options payload (which enforces exact keys).
+    """
+    if not isinstance(user_input, dict):
+        return {}, user_input if isinstance(user_input, dict) else {}
+    remaining = dict(user_input)
+    edits: dict[str, Any] = {}
+    for key in ENDPOINT_OPTIONS_FIELDS:
+        if key in remaining:
+            value = remaining.pop(key)
+            edits[key] = value.strip() if isinstance(value, str) else value
+    return edits, remaining
+
+
 class IsolinearOptionsFlow(config_entries.OptionsFlow):
     """Update safe Isolinear options for an existing config entry."""
 
@@ -207,23 +233,31 @@ class IsolinearOptionsFlow(config_entries.OptionsFlow):
         current_options = getattr(config_entry, "options", {}) or {}
 
         if user_input is not None:
-            token_action, options_input = extract_worker_token_action(user_input)
+            token_action, remaining_input = extract_worker_token_action(user_input)
+            endpoint_edits, options_input = extract_endpoint_edits(remaining_input)
+            updated_config = {
+                **normalize_existing_config_entry_data(getattr(config_entry, "data", {})),
+                **endpoint_edits,
+            }
             if token_action["kind"] == "too_short":
                 errors = {WORKER_TOKEN_OPTIONS_FIELD: "worker_token_too_short"}
             else:
                 result = validate_options_flow_user_input(
-                    getattr(config_entry, "data", {}),
+                    updated_config,
                     options_input,
                     current_options=current_options,
                 )
                 if result["accepted"]:
                     self._apply_worker_token_action(config_entry, token_action)
+                    self._apply_endpoint_edits(config_entry, updated_config)
                     return self.async_create_entry(title="", data=result["options_data"])
                 errors = result["field_errors"]
 
         return self.async_show_form(
             step_id=OPTIONS_FLOW_STEP,
-            data_schema=build_options_flow_schema(current_options),
+            data_schema=build_options_flow_schema(
+                current_options, getattr(config_entry, "data", {})
+            ),
             errors=errors,
         )
 
@@ -254,6 +288,41 @@ class IsolinearOptionsFlow(config_entries.OptionsFlow):
         entry_data.pop(DATA_WORKER_RENDER_CLIENT, None)
         entry_data["worker_renderer_setup"] = setup_worker_renderer(hass, config_entry)
 
+    def _apply_endpoint_edits(self, config_entry: Any, updated_config: dict[str, Any]) -> None:
+        """Persist edited connection endpoints to config-entry data and rebuild
+        the endpoint-dependent setups so the change takes effect without a restart.
+
+        The endpoints are config-entry data (the single source consumers read),
+        so the options form routes edits here rather than into the options
+        payload. We persist via ``async_update_entry`` and rebuild the model
+        provider + worker renderer explicitly (the update listener may also fire,
+        but the explicit rebuild makes the new endpoints live immediately).
+        """
+        hass = getattr(self, "hass", None)
+        entry_id = getattr(config_entry, "entry_id", None)
+        if hass is None or not isinstance(entry_id, str):
+            return
+        normalized = normalize_existing_config_entry_data(updated_config)
+        update_entry = getattr(
+            getattr(hass, "config_entries", None), "async_update_entry", None
+        )
+        if callable(update_entry):
+            update_entry(config_entry, data=normalized)
+
+        from .model_provider import (
+            setup_model_provider_codegen,
+            setup_model_provider_planner,
+        )
+        from .worker_renderer import DATA_WORKER_RENDER_CLIENT, setup_worker_renderer
+
+        entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})
+        entry_data.pop(DATA_WORKER_RENDER_CLIENT, None)
+        entry_data["model_provider_setup"] = setup_model_provider_planner(hass, config_entry)
+        entry_data["model_provider_codegen_setup"] = setup_model_provider_codegen(
+            hass, config_entry
+        )
+        entry_data["worker_renderer_setup"] = setup_worker_renderer(hass, config_entry)
+
 
 def config_flow_field_metadata() -> dict[str, Any]:
     """Return deterministic field metadata for tests, evals, and evidence."""
@@ -262,6 +331,7 @@ def config_flow_field_metadata() -> dict[str, Any]:
         "options_step": OPTIONS_FLOW_STEP,
         "config_fields": list(CONFIG_FLOW_FIELDS),
         "options_fields": list(OPTIONS_FLOW_FIELDS),
+        "options_endpoint_fields": list(ENDPOINT_OPTIONS_FIELDS),
         "config_defaults": default_config_data(),
         "options_defaults": options_to_form_data(default_options_data()),
         "options_selectors": {
@@ -309,15 +379,26 @@ def build_config_flow_schema(user_input: Mapping[str, Any] | None = None):
     )
 
 
-def build_options_flow_schema(current_options: Mapping[str, Any] | None = None):
+def build_options_flow_schema(
+    current_options: Mapping[str, Any] | None = None,
+    current_config: Mapping[str, Any] | None = None,
+):
     """Build the options-flow form schema or a test-friendly fallback payload."""
     defaults = options_to_form_data({**default_options_data(), **dict(current_options or {})})
+    config_defaults = {**default_config_data(), **dict(current_config or {})}
 
     if vol is None:
         return {
             "step": OPTIONS_FLOW_STEP,
-            "fields": [*OPTIONS_FLOW_FIELDS, WORKER_TOKEN_OPTIONS_FIELD],
-            "defaults": {key: defaults.get(key) for key in OPTIONS_FLOW_FIELDS},
+            "fields": [
+                *ENDPOINT_OPTIONS_FIELDS,
+                *OPTIONS_FLOW_FIELDS,
+                WORKER_TOKEN_OPTIONS_FIELD,
+            ],
+            "defaults": {
+                **{key: config_defaults.get(key) for key in ENDPOINT_OPTIONS_FIELDS},
+                **{key: defaults.get(key) for key in OPTIONS_FLOW_FIELDS},
+            },
             "selectors": {
                 "entity_allowlist": dict(ENTITY_ALLOWLIST_SELECTOR_METADATA),
                 WORKER_TOKEN_OPTIONS_FIELD: dict(WORKER_TOKEN_SELECTOR_METADATA),
@@ -336,6 +417,16 @@ def build_options_flow_schema(current_options: Mapping[str, Any] | None = None):
     )
     return vol.Schema(
         {
+            # Connection endpoints first (above the entity picker) — editable
+            # post-install; persisted to config-entry data, not options.
+            vol.Required(
+                "model_endpoint_url",
+                default=config_defaults["model_endpoint_url"],
+            ): str,
+            vol.Required(
+                "worker_endpoint_url",
+                default=config_defaults["worker_endpoint_url"],
+            ): str,
             vol.Required(
                 "default_render_mode",
                 default=defaults["default_render_mode"],

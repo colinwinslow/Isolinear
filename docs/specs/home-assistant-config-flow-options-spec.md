@@ -53,7 +53,20 @@ shape:
 
 - default render mode,
 - maximum codegen repair attempts,
+- render path,
 - entity allowlist.
+
+The options flow must additionally surface the **model (Ollama) endpoint URL**
+and the **worker endpoint URL** as editable fields, positioned **above the
+entity picker**, so both connection endpoints are editable post-install without
+deleting the integration (2026-07-04). These two fields belong to config-entry
+*data* (the single source of truth consumers read), not the options payload:
+the flow extracts them before options validation, merges them into the config
+data, validates them with the same `config_schema` URL rules (rejecting
+malformed and credential-bearing URLs), persists them via `async_update_entry`,
+and rebuilds the model-provider and worker-renderer setups so the change takes
+effect without a restart. The deployment worker token (ADR-0032) is likewise a
+form-only field extracted before options validation.
 
 Both flows must reuse the existing pure `config_schema` validation helpers.
 They must reject malformed URLs, unsupported render modes, malformed entity
