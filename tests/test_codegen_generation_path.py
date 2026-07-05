@@ -309,6 +309,16 @@ class CodegenModelProviderTests(unittest.TestCase):
         self.assertNotIn("```", result["python_code"])
         compile(result["python_code"], "<test>", "exec")
 
+    def test_system_prompt_instructs_code_fence(self):
+        # The system prompt must explicitly tell the model to wrap output in a
+        # ```python fence. Without this, repair replies (especially from smaller
+        # models like gemma4:e4b) come back as prose + unfenced Python, which
+        # causes _extract_python_code to return the full raw text including the
+        # prose → syntax_error@L1 on every repair attempt. Regression guard.
+        prompt = model_provider._CODEGEN_SYSTEM_PROMPT
+        self.assertIn("```python", prompt)
+        self.assertIn("```", prompt[prompt.index("```python") + 1 :])
+
     def test_generate_chart_code_uses_model_override(self):
         client = self._client()
         captured: dict[str, Any] = {}

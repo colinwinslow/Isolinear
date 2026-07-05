@@ -100,13 +100,16 @@ Two new methods on the Ollama-compatible client (freeform code, **not**
 schema-constrained — Ollama's `format` is for JSON; codegen output is Python):
 
 - `generate_chart_code(request) -> dict` — one `/api/chat` call. System prompt
-  instructs the model to emit a single `render_chart(data, output_path)` Python
-  function that implements the already-validated ChartSpec using matplotlib, and
-  nothing else. Output is code-extracted with `_extract_python_code`, which
-  pulls the body of the first ` ``` ` fence regardless of any prose around it
-  (a repair reply commonly leads with "Here is the corrected code:"; the
-  JSON-only `_strip_markdown_json` only strips a fence at the very start, which
-  left that prose as line 1 and the sandbox rejected it with `syntax_error@L1`).
+  explicitly instructs the model to wrap its entire output in a single ` ```python
+  ``` ` code fence (no prose, nothing outside the fence). Without the explicit
+  fence instruction, repair-round models (e.g. gemma4:e4b) reply with prose +
+  unfenced Python; `_extract_python_code`'s fallback returns the full raw text
+  including prose → `syntax_error@L1` on every repair attempt. Output is
+  code-extracted with `_extract_python_code`, which pulls the body of the first
+  ` ``` ` fence regardless of surrounding prose (a repair reply may still lead with
+  "Here is the corrected code:" if the fence follows; the JSON-only
+  `_strip_markdown_json` only strips a fence at the very start, which left that
+  prose as line 1 and the sandbox rejected it with `syntax_error@L1`).
   Returns `{"accepted": True, "code": "model_provider_chart_code_received",
   "provider": ..., "python_code": <str>, "provider_response": ...}` or a
   sanitized `_provider_failure(...)`.

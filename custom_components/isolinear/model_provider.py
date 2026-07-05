@@ -97,9 +97,9 @@ def sanitize_reasoning(raw: str) -> str:
 # single fixed-entry-point function; the sandbox enforces safety (ADR-0008), so
 # the prompt only needs to communicate the contract, not police it.
 _CODEGEN_SYSTEM_PROMPT = (
-    "You are the Isolinear chart-code generator. Return ONLY Python source code "
-    "for a single function; no prose, no explanation, no markdown outside a code "
-    "fence."
+    "You are the Isolinear chart-code generator. Always wrap your entire Python "
+    "output in a single code fence: ```python\\n<code>\\n```. No prose, no "
+    "explanation, nothing outside the fence."
 )
 _CODEGEN_PROMPT_RULES = [
     "Define exactly one top-level function: def render_chart(data, output_path):",
