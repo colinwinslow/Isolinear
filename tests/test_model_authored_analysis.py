@@ -41,10 +41,13 @@ from codegen_sandbox_fixtures import (  # noqa: E402
 )
 
 from custom_components.isolinear.model_provider import (  # noqa: E402
+    _CODEGEN_PROMPT_PREVIEW_POINTS,
     _CODEGEN_PROMPT_RULES,
     _codegen_request_view,
+    _downsample_preview,
 )
 from custom_components.isolinear.job_orchestration import (  # noqa: E402
+    _apply_catalog_units,
     _history_series_with_epoch_ms,
     _timestamp_to_epoch_ms,
 )
@@ -239,15 +242,17 @@ class TimestampNormalizationTests(unittest.TestCase):
         }
         view = _codegen_request_view(request)
         series = view["history_series"][0]
-        point = series["sample_points"][0]
+        point = series["points"][0]
         # The model never sees a raw ISO timestamp string.
         self.assertNotIn("ts", point)
         self.assertIn("ts_epoch_ms", point)
         self.assertIsInstance(point["ts_epoch_ms"], int)
 
-    def test_prompt_projection_summarizes_rather_than_dumping_points(self):
+    def test_prompt_projection_previews_bounded_points_under_the_runtime_key(self):
         # The full points overflow the model context on real windows; the prompt
-        # carries a bounded summary while the runtime sandbox gets every point.
+        # carries a BOUNDED preview under the same 'points' key the runtime uses
+        # (so accessors work), while the sandbox gets every point. A pure summary
+        # (no real points) was measured to make the floor model produce empty plots.
         points = [{"ts": "2026-06-05T08:00:00Z", "value": 70.0 + i} for i in range(500)]
         request = {
             "chart_spec": {"title": "t"},
@@ -256,16 +261,36 @@ class TimestampNormalizationTests(unittest.TestCase):
             ),
         }
         series = _codegen_request_view(request)["history_series"][0]
-        # No full 'points' list is disclosed to the model.
-        self.assertNotIn("points", series)
-        # Shape + count + range + stats + a few samples are.
+        # A bounded preview is disclosed under the runtime key 'points' — not the
+        # whole 500-point series, and marked truncated so the model reads all at runtime.
+        self.assertIn("points", series)
+        self.assertLessEqual(len(series["points"]), _CODEGEN_PROMPT_PREVIEW_POINTS)
+        self.assertLess(len(series["points"]), 500)
+        self.assertTrue(series["points_truncated"])
+        # Preview spans the full range (first + last real points are kept).
+        self.assertEqual(series["points"][0]["value"], 70.0)
+        self.assertEqual(series["points"][-1]["value"], 569.0)
+        # Shape + count + range + stats accompany it.
         self.assertEqual(series["point_count"], 500)
-        self.assertLessEqual(len(series["sample_points"]), 3)
         self.assertEqual(series["unit"], "degF")
         self.assertIn("first", series["ts_epoch_ms_range"])
         self.assertIn("last", series["ts_epoch_ms_range"])
         self.assertEqual(series["value_stats"]["min"], 70.0)
         self.assertEqual(series["value_stats"]["max"], 569.0)
+
+    def test_prompt_projection_keeps_all_points_when_below_preview_cap(self):
+        # A short series is disclosed whole (not truncated).
+        points = [{"ts": "2026-06-05T08:00:00Z", "value": 71.0},
+                  {"ts": "2026-06-05T09:00:00Z", "value": 72.0}]
+        request = {
+            "chart_spec": {"title": "t"},
+            "history_series": _history_series_with_epoch_ms(
+                [{"entity_id": "sensor.x", "unit": "degF", "kind": "numeric", "points": points}]
+            ),
+        }
+        series = _codegen_request_view(request)["history_series"][0]
+        self.assertEqual(len(series["points"]), 2)
+        self.assertFalse(series["points_truncated"])
 
     def test_prompt_projection_summarizes_state_series_with_distinct_states(self):
         # Binary/categorical series get distinct_states (not numeric value_stats),
@@ -284,9 +309,9 @@ class TimestampNormalizationTests(unittest.TestCase):
         series = _codegen_request_view(request)["history_series"][0]
         self.assertNotIn("value_stats", series)
         self.assertEqual(series["distinct_states"], ["idle", "cooling", "heating"])
-        # 'heating' is beyond the 3 sample_points, so distinct_states is what
-        # surfaces it to the model.
-        self.assertNotIn("heating", [p.get("raw_state") for p in series["sample_points"]])
+        # distinct_states enumerates every state even when the points preview is
+        # a bounded subset that could miss a rare state.
+        self.assertIn("points", series)
 
     def test_dispatched_codegen_data_carries_epoch_ms(self):
         # Regression guard: the render_request the sandbox executes against carries
@@ -307,6 +332,53 @@ class TimestampNormalizationTests(unittest.TestCase):
                 self.assertIsInstance(point["ts_epoch_ms"], int)
                 self.assertNotIsInstance(point["ts_epoch_ms"], bool)
 
+    def test_downsample_preview_spans_range_and_is_bounded(self):
+        points = [{"value": float(i)} for i in range(100)]
+        preview = _downsample_preview(points, 12)
+        self.assertLessEqual(len(preview), 12)
+        # First and last real points are always kept so the span is visible.
+        self.assertEqual(preview[0]["value"], 0.0)
+        self.assertEqual(preview[-1]["value"], 99.0)
+        # Monotonic (evenly spaced, in order).
+        vals = [p["value"] for p in preview]
+        self.assertEqual(vals, sorted(vals))
+
+    def test_downsample_preview_returns_all_when_below_cap(self):
+        points = [{"value": 1.0}, {"value": 2.0}]
+        self.assertEqual(_downsample_preview(points, 12), points)
+        self.assertEqual(_downsample_preview([], 12), [])
+
+
+class PlannerUnitGroundingTests(unittest.TestCase):
+    """The planner's guessed series unit is overwritten from the catalog."""
+
+    def _spec(self, unit, entity_id="sensor.kitchen_ecobee_temperature"):
+        return {"series": [{"series_id": entity_id, "label": "Kitchen",
+                            "source": {"type": "entity", "entity_id": entity_id},
+                            "unit": unit}]}
+
+    def test_catalog_unit_overwrites_planner_guess(self):
+        # Planner hallucinated °C on an °F sensor (observed live); the catalog wins.
+        spec = self._spec("°C")
+        catalog = [{"entity_id": "sensor.kitchen_ecobee_temperature",
+                    "unit_of_measurement": "°F"}]
+        _apply_catalog_units(spec, catalog)
+        self.assertEqual(spec["series"][0]["unit"], "°F")
+
+    def test_unknown_entity_left_untouched(self):
+        spec = self._spec("°C", entity_id="sensor.not_in_catalog")
+        _apply_catalog_units(spec, [{"entity_id": "sensor.other", "unit_of_measurement": "%"}])
+        self.assertEqual(spec["series"][0]["unit"], "°C")
+
+    def test_aggregate_source_resolves_first_entity(self):
+        spec = {"series": [{"series_id": "agg", "label": "Avg",
+                            "source": {"type": "aggregate",
+                                       "entity_ids": ["sensor.basement_temperature"]},
+                            "unit": "°C"}]}
+        _apply_catalog_units(spec, [{"entity_id": "sensor.basement_temperature",
+                                     "unit_of_measurement": "°F"}])
+        self.assertEqual(spec["series"][0]["unit"], "°F")
+
 
 class CodegenPromptGroundingTests(unittest.TestCase):
     """The codegen prompt instructs COMPUTE-and-format, verdicts derived (ADR-0031 D3)."""
@@ -316,6 +388,17 @@ class CodegenPromptGroundingTests(unittest.TestCase):
         self.assertIn("answer_text", rules)
         self.assertIn("f-string", rules)
         self.assertIn("verdict", rules)
+
+    def test_prompt_rules_make_history_series_the_data_authority(self):
+        # 0.2.19 regression fix: the floor model must plot from history_series
+        # directly and never read data/units/the series list from chart_spec
+        # (which carries a planner-guessed unit and no top-level entity_id).
+        rules = " ".join(_CODEGEN_PROMPT_RULES).lower()
+        self.assertIn("chart_spec is intent", rules)
+        self.assertIn("iterating that list directly", rules)
+        # The preview is named as a bounded preview under the runtime 'points' key.
+        self.assertIn("points_truncated", rules)
+        self.assertIn("bounded preview", rules)
 
     def test_prompt_rules_direct_the_model_to_epoch_ms(self):
         # Packet 2 (D9): the prompt names ts_epoch_ms and forbids parsing raw strings.

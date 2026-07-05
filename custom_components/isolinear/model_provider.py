@@ -96,9 +96,17 @@ def sanitize_reasoning(raw: str) -> str:
 # ADR-0029 packet 4: codegen generation/repair prompts. The model writes a
 # single fixed-entry-point function; the sandbox enforces safety (ADR-0008), so
 # the prompt only needs to communicate the contract, not police it.
-# Sample points shown in the prompt so the model sees the exact runtime point
-# dict shape; the FULL points arrive at render time, not in the prompt.
-_CODEGEN_PROMPT_SAMPLE_POINTS = 3
+# A bounded, evenly-downsampled preview of REAL points shown in the prompt under
+# the SAME key the runtime data uses (`points`), so the model both sees the exact
+# point dict shape AND has concrete data to anchor its plotting/labeling on — the
+# FULL points still arrive at render time. A pure summary (no real points) was
+# tried in 0.2.18 and measured unreliable: gemma4:e4b drifted to the chart_spec
+# and produced EMPTY plots ~2/3 of the time; a live grounding experiment showed a
+# small preview restores 6/6 reliability. 12 sits comfortably above the ~6-point
+# floor at a modest, constant token cost. The preview key MUST stay `points`:
+# renaming it (the 0.2.18 `sample_points`) let the model bind to a key absent at
+# runtime → KeyError / empty plot.
+_CODEGEN_PROMPT_PREVIEW_POINTS = 12
 # Distinct state values disclosed for binary/categorical series (ADR-0022): the
 # state-data analog of numeric value_stats. Capped so a pathologically-varied
 # categorical series cannot reinflate the prompt.
@@ -116,15 +124,22 @@ _CODEGEN_SYSTEM_PROMPT = (
 _CODEGEN_PROMPT_RULES = [
     "Define exactly one top-level function: def render_chart(data, output_path):",
     "Implement the supplied chart_spec using matplotlib and the supplied history_series.",
-    # The prompt carries only a SUMMARY of each series (point_count, ranges, stats,
-    # sample_points) to keep it small; the FULL points are delivered to the code at
-    # runtime. The model must read the real data from `data`, never from the summary.
-    "The codegen_request.history_series in this prompt is a SUMMARY of each series "
-    "(point_count, ts_epoch_ms_range, value_stats for numeric series, distinct_states "
-    "for binary/categorical state series, and a few sample_points that show each point's "
-    "keys). Do NOT read data values from this summary. At runtime your render_chart "
-    "receives the COMPLETE data: iterate data['history_series'][i]['points'] — the full "
-    "list of points — and match each series by its 'entity_id'.",
+    # The prompt's history_series carries a bounded PREVIEW of points (key
+    # 'points', plus point_count / points_truncated) — enough real data to ground
+    # the code, not the whole series. At runtime the SAME 'points' key holds every
+    # point, so accessors written against the preview work unchanged.
+    "In this prompt each data['history_series'][i]['points'] is a bounded PREVIEW "
+    "(see point_count and points_truncated); at runtime that same 'points' list "
+    "holds EVERY point. Write your code to iterate data['history_series'][i]['points'] "
+    "in full — do not hard-code the preview length or assume only a few points.",
+    # The 0.2.18 failure mode: with only a summary, the floor model plotted/labeled
+    # from the chart_spec (planner-guessed unit, no top-level entity_id) → empty
+    # plots, wrong units. history_series is the sole source of truth for data.
+    "Plot EVERY series in data['history_series'] by iterating that list directly "
+    "(one line per series), using each series' own 'label' and 'unit'. The "
+    "chart_spec is intent/metadata only (title, requested series) — NEVER read the "
+    "data to plot, the list of series, or the unit from chart_spec; a chart_spec "
+    "unit may be wrong. When you need a series' identity use data['history_series'][i]['entity_id'].",
     # ADR-0031 D9: the model is handed epoch integers, never raw HA ISO strings —
     # the projection strips 'ts', so 'ts_epoch_ms' is the only timestamp key.
     "Read the series points from data['history_series']; each point has 'ts_epoch_ms' "
@@ -232,22 +247,46 @@ def _codegen_request_view(request: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _history_series_prompt_view(history_series: Any) -> list[dict[str, Any]]:
-    """Project a compact per-series SUMMARY for the codegen prompt.
+def _downsample_preview(points: list[Any], n: int) -> list[dict[str, Any]]:
+    """Return up to ``n`` real points spread evenly across ``points``.
 
-    The model authors code against a schema, not against the data. The COMPLETE
-    point list is delivered to ``render_chart(data, output_path)`` at RUNTIME in
-    the sandbox (``codegen_sandbox`` passes the full ``history_series`` as
-    ``data``), so the code iterates every point when it executes. Placing all
-    recorder points in the PROMPT is both unnecessary and harmful: a real window
+    Keeps the first and last point (so the timestamp span is visible) and evenly
+    samples in between. Non-mapping entries are skipped. A constant-size preview
+    keeps the prompt bounded regardless of the true point count.
+    """
+    mappings = [p for p in points if isinstance(p, Mapping)]
+    if n <= 0 or not mappings:
+        return []
+    if len(mappings) <= n:
+        return mappings
+    step = (len(mappings) - 1) / (n - 1) if n > 1 else 1
+    indices = sorted({round(i * step) for i in range(n)} | {0, len(mappings) - 1})
+    return [mappings[i] for i in indices if i < len(mappings)]
+
+
+def _history_series_prompt_view(history_series: Any) -> list[dict[str, Any]]:
+    """Project a compact per-series view for the codegen prompt.
+
+    The COMPLETE point list is delivered to ``render_chart(data, output_path)``
+    at RUNTIME in the sandbox (``codegen_sandbox`` passes the full
+    ``history_series`` as ``data``), so the code iterates every point when it
+    executes. Placing ALL recorder points in the PROMPT is harmful: a real window
     is thousands of points, which overflows the model's context, evicts the
     system prompt/rules, and makes the model emit a prose description instead of
     code (observed live as ``syntax_error@L1`` plus the ``missing_fixed_entry_point``
-    / leading-zero partial-truncation variants). So the prompt carries only the
-    shape the model needs to write correct accessors — kind, unit, point_count,
-    timestamp range, value stats, and a few sample points showing the point dict
-    keys — never the whole series. Raw ISO ``ts`` is dropped from the samples
-    (ADR-0031 D9): the model only ever sees integer ``ts_epoch_ms``.
+    / leading-zero partial-truncation variants).
+
+    But a pure summary is the opposite failure: with no concrete data to anchor
+    on, the small floor model (gemma4:e4b) drifts to plotting/labeling off the
+    ``chart_spec`` — which carries a planner-guessed unit and no top-level
+    ``entity_id`` — and produces EMPTY plots with wrong units (measured ~2/3 of
+    the time). So the prompt carries the shape AND a bounded, evenly-downsampled
+    PREVIEW of the real points under the SAME key the runtime uses (``points``):
+    enough concrete data to ground the code, constant in size, and keyed so the
+    model's accessors work against the full runtime data. Raw ISO ``ts`` is
+    dropped from the preview (ADR-0031 D9): the model only ever sees integer
+    ``ts_epoch_ms``. ``point_count`` and ``points_truncated`` tell the model the
+    preview is not the whole series.
     """
     if not isinstance(history_series, list):
         return []
@@ -261,11 +300,14 @@ def _history_series_prompt_view(history_series: Any) -> list[dict[str, Any]]:
         # overlay metadata) but replace the bulky point list with a summary.
         summary = {key: deepcopy(value) for key, value in series.items() if key != "points"}
         summary["point_count"] = len(points)
-        summary["sample_points"] = [
+        preview = _downsample_preview(points, _CODEGEN_PROMPT_PREVIEW_POINTS)
+        # Same key the RUNTIME data uses (`points`) so the model writes accessors
+        # that work at render time; raw ISO `ts` stripped (D9 — epoch-ms only).
+        summary["points"] = [
             {key: value for key, value in point.items() if key != "ts"}
-            for point in points[:_CODEGEN_PROMPT_SAMPLE_POINTS]
-            if isinstance(point, Mapping)
+            for point in preview
         ]
+        summary["points_truncated"] = len(preview) < len(points)
         epoch_values = [
             point["ts_epoch_ms"]
             for point in points
@@ -290,7 +332,7 @@ def _history_series_prompt_view(history_series: Any) -> list[dict[str, Any]]:
             }
         # Binary/categorical series (ADR-0022): disclose the distinct states the
         # code must handle (colour/branch on), since a numeric value_stats is
-        # meaningless and the sample_points alone may not surface every state.
+        # meaningless and the points preview alone may not surface every state.
         distinct_states: list[Any] = []
         for point in points:
             if not isinstance(point, Mapping):

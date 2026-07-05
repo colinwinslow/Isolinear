@@ -2,6 +2,91 @@
 
 ## Current project phase
 
+### 2026-07-05 (15th session) — Fixed the 0.2.18 empty-chart / wrong-unit regression: a bounded real-points preview grounds the floor model, and the series unit is set deterministically from the catalog (0.2.18→0.2.19)
+
+Colin retested **0.2.18** and got charts that rendered **COMPLETE but empty** —
+no data plotted, default 0–1 axes — with wrong axis labels: the kitchen+basement
+weekend chart read **"Temperature (°C)"** on °F sensors, and the kitchen
+last-3-days chart read a generic **"Value"**. `main` is now **0.2.19**; all pushed.
+Integration only — **no worker or frontend rebuild**.
+
+**Diagnosis (reproduced live, end to end, myself).** This was NOT the 14th
+session's overflow (the real prompts measured ~1.8–3.2K tokens, far under
+`num_ctx`). I reproduced the whole pipeline offline against the live systems:
+pulled real kitchen/basement history via the HA API, ran the **real planner** for
+the exact prompts, and generated with **live gemma**, then **executed** each
+generation in a venv (matplotlib/pandas) to measure ground truth — did it plot
+data, and what unit did it label. The 0.2.18 prompt-view produced empty plots
+~2/3 of the time; a clean synthetic case worked, which is what pointed at the
+real chart_spec/data as the trigger.
+
+**Root cause: 0.2.18's pure per-series SUMMARY removed the concrete data that
+anchored the floor model's code.** Three interacting failures, all confirmed on
+real generations:
+1. The summary renamed the point list to **`sample_points`** — a key that does
+   **not exist at runtime** (the runtime data uses `points`). The prompt was
+   literally self-contradictory: the JSON showed `sample_points`, the rule text
+   said iterate `points`. Caught gemma live writing
+   `history_series_data['sample_points']` → `KeyError` / empty.
+2. With only a summary, gemma drove plotting **and** labeling off the
+   **`chart_spec`** (5/6 real runs) rather than `history_series`. The chart_spec
+   is a trap: the **planner hallucinates the unit** (it emitted `°C` on °F
+   sensors), and its series are keyed by `series_id` / `source.entity_id` with
+   **no top-level `entity_id`**, so entity-matching fails → empty plot + wrong
+   unit. This is exactly the two symptoms.
+3. The `PlannerResult` schema **requires** a `unit` per series, but the planner
+   prompt never carries the real unit — so it can only guess.
+
+**The fix (Colin's steer: bounded real points, count chosen by experiment; and
+fix the planner too).**
+- **Grounded preview.** `_history_series_prompt_view` now carries a bounded,
+  evenly-downsampled **preview of the real points** under the **same runtime key
+  `points`** (plus `points_truncated`; first and last point always kept), via
+  `_downsample_preview` and `_CODEGEN_PROMPT_PREVIEW_POINTS = 12`. A live
+  grounding experiment (execution-truth, real chart_spec + real history) set the
+  count: **summary = 1/3 grounded (2/3 empty); 6 pts = 6/6; 10 = 3/3; 12 = 6/6;
+  40 = 6/6 but ~6.2K tok.** 12 sits comfortably above the ~6-point floor at
+  ~3.2K tokens for two series. The dispatched render request still carries every
+  point (the runtime `data`).
+- **Prompt rules.** `history_series` is now the sole data authority: plot every
+  series by iterating it directly; the **chart_spec is intent-only** — never read
+  the data, the unit, or the list of series to plot from it.
+- **Deterministic unit.** `_apply_catalog_units` (job_orchestration.py, right
+  after chart_spec validation, `catalog_items` already in scope) overwrites each
+  series' `unit` from the authoritative catalog `unit_of_measurement`, keyed by
+  `source.entity_id` — so no model-guessed unit reaches either render path.
+  Confirmed live: `['°C','°C'] → ['°F','°F']`.
+
+**Verification.** On the actual fixed code, five live generations against the
+real weekend chart_spec + history: **5/5 plotted the full data** (was 2/3 empty),
+**4/5 clean °F**. The one miss was an unrelated gemma runtime bug (`set.pop` on an
+empty set) that **still plotted the data** and would route through the repair loop
+/ surfaced Pillow fallback in production — not the empty-chart symptom. This
+reinforces open-queue (m): raise `max_codegen_repair_attempts` above 1 (a runtime
+slip currently one-shots to fallback). Suite **427 passed / 4 skipped** (+6);
+evals `codegen_generation_path` and `model_authored_analysis` PASS; spec
+`model-authored-analysis` updated (prompt view = grounded preview, not a bare
+summary; authoritative catalog unit). Inline invariant review OK — a prompt-only
+projection plus a deterministic post-plan step; no schema, sandbox, service, or
+data-boundary change (the preview is bounded and strictly less than 0.2.17's
+full-points prompt; raw ISO `ts` is still stripped per D9; the unit comes from the
+allowlisted catalog). A fresh-context architecture-review subagent was not spawned
+(a bounded change on the accepted codegen path); available on request.
+
+**Note on the 14th-session fix.** The pure summary shipped in 0.2.18 solved the
+overflow but is precisely what this session had to correct — for the floor model,
+removing all concrete data traded overflow-prose for empty-plot drift. The
+bounded preview keeps the prompt small (constant, ~250 tok/series) while giving
+the model enough real data to stay grounded. The `num_ctx=8192` and the runtime
+`codegen_context_overflow` safety net from the 14th session remain in place.
+
+**Next session.** Colin HACS-redownloads **0.2.19** and retests "basement
+temperature", "kitchen and basement temps over the weekend", "kitchen temperature
+last 3 days" — expect real data with a correct °F axis. Then: raise the default
+`max_codegen_repair_attempts` (open-queue (m); now more urgent); eval-gate the
+generation-side `°` rule (open-queue (o)); registry follow-ups (`pearson_r`
+alignment; corpus-requested metrics).
+
 ### 2026-07-05 (14th session) — Fixed the live codegen context-window overflow: the prompt carries a per-series summary, not the recorder points (0.2.17→0.2.18)
 
 Colin retested **0.2.17** and still got `unsafe_code` / `syntax_error` Pillow

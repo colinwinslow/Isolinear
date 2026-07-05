@@ -114,25 +114,45 @@ first row; epoch-ms erases the whole class — gemma 2/16 → 12/16 strict.) The
 Pillow fallback path and the trusted `render_mode: "safe"` worker path are
 unaffected (they consume the existing `ts` shape).
 
-**Prompt view vs. runtime data (context-window discipline).** The generation
-and repair *prompts* MUST carry only a compact **summary** of each series —
+**Prompt view vs. runtime data (context-window discipline, grounded preview).**
+The generation and repair *prompts* MUST carry, per series,
 `entity_id`/`kind`/`unit` and other series-level metadata, plus `point_count`,
 `ts_epoch_ms_range`, `value_stats` (numeric series) or `distinct_states`
-(binary/categorical state series, capped — ADR-0022), and a few `sample_points`
-showing the point dict keys — **never the full point list**
-(`_history_series_prompt_view`). The
-model authors code against a schema; the COMPLETE points are delivered to
-`render_chart(data, output_path)` at runtime in the sandbox, so the code
-iterates every point when it executes. Dumping the whole series into the prompt
-overflows the model's context on real windows (thousands of points ≈ tens of
-thousands of tokens vs. the model's small default `num_ctx`), which evicts the
-system prompt/rules and makes the model reply with a prose description instead of
-code — observed live as `syntax_error@L1` plus `missing_fixed_entry_point` /
-leading-zero partial-truncation variants, with repair unable to recover (the
-repair prompt is even larger). The codegen `/api/chat` options also set an
-explicit `num_ctx` as defense-in-depth. Only the prompt view is summarized; the
-dispatched `render_mode: "codegen"` render request still carries the full points
-(that path is the runtime `data`).
+(binary/categorical state series, capped — ADR-0022), **and a bounded,
+evenly-downsampled PREVIEW of the real points** — kept under the SAME key the
+runtime data uses (`points`, with a `points_truncated` flag), first and last
+point retained so the span is visible (`_history_series_prompt_view` /
+`_downsample_preview`, `_CODEGEN_PROMPT_PREVIEW_POINTS`). The prompt MUST NOT
+carry the full point list. The model authors code against this shape; the
+COMPLETE points are delivered to `render_chart(data, output_path)` at runtime in
+the sandbox under the same `points` key, so accessors written against the preview
+iterate every point when they execute.
+
+Both extremes were observed to fail live. **Dumping the whole series** overflows
+the model's context on real windows (thousands of points ≈ tens of thousands of
+tokens vs. the model's small default `num_ctx`), evicting the system prompt/rules
+so the model replies with prose instead of code (`syntax_error@L1` plus
+`missing_fixed_entry_point` / leading-zero partial-truncation variants), with
+repair unable to recover. **A pure summary with no real points** is the opposite
+failure: with nothing concrete to anchor on, the floor model (gemma4:e4b) drifts
+to plotting/labeling off the `chart_spec` — which carries a planner-guessed unit
+and no top-level `entity_id` — producing EMPTY plots with wrong units (measured
+~2/3 of generations; a bounded preview of ≥6 points restored full grounding in a
+live experiment; the default is 12 for margin). Renaming the preview key away from
+`points` (a 0.2.18 `sample_points`) is also unsafe: the model binds to a key
+absent at runtime → `KeyError` / empty plot. The prompt rules make `history_series`
+the sole data authority (plot every series by iterating it directly; the
+`chart_spec` is intent-only — never read data, units, or the series list from it).
+The codegen `/api/chat` options also set an explicit `num_ctx` as defense-in-depth.
+Only the prompt view is downsampled; the dispatched `render_mode: "codegen"` render
+request still carries the full points (that path is the runtime `data`).
+
+**Authoritative series unit (planner cannot guess).** The `PlannerResult` schema
+requires a `unit` on every series, but the planner prompt never carries the real
+unit, so the model guesses (observed live: `°C` on `°F` sensors). After planning,
+the integration overwrites each series' `unit` from the authoritative catalog
+`unit_of_measurement` (`_apply_catalog_units`, keyed by `source.entity_id`), so no
+model-guessed unit reaches either render path.
 
 **Runtime overflow detection (safety net).** Even with the summary, a
 pathological request (very many series) or a shrunk `num_ctx` / smaller model

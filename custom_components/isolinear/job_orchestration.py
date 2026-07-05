@@ -3595,6 +3595,12 @@ def _record_model_provider_plan(
             "model_provider": provider_summary,
         }
 
+    # The planner must emit a `unit` per series but is never told the real one, so
+    # it guesses (observed live: °C on °F sensors). Overwrite it deterministically
+    # from the authoritative catalog unit so no model-guessed unit ships to the
+    # renderer (codegen reads history_series units; the Pillow fallback reads these).
+    _apply_catalog_units(chart_spec, catalog_items)
+
     # Out-of-envelope gate (ADR-0023 D3): reject a model-chosen chart_type that
     # is outside the deterministic capability envelope computed before planning.
     family_validation = validate_model_provider_chart_family(chart_spec, routing)
@@ -7276,6 +7282,39 @@ def _hass_time_zone(hass: Any) -> str:
     if isinstance(time_zone, str) and time_zone.strip():
         return time_zone
     return "UTC"
+
+
+def _apply_catalog_units(chart_spec: Any, catalog_items: list[dict[str, Any]]) -> None:
+    """Overwrite each series' ``unit`` with the authoritative catalog unit, in place.
+
+    The PlannerResult schema requires a ``unit`` on every series, but the planner
+    prompt never carries the real unit, so the model guesses (observed live: ``°C``
+    on ``°F`` sensors). The authoritative unit is the catalog's
+    ``unit_of_measurement``; setting it here means no model-guessed unit reaches
+    either render path. Only overwrites series whose entity is in the catalog;
+    aggregate sources use their first resolvable entity. Overlays (binary/
+    categorical, unit ``None``) are left untouched.
+    """
+    if not isinstance(chart_spec, dict):
+        return
+    units = {
+        item["entity_id"]: item.get("unit_of_measurement")
+        for item in catalog_items
+        if isinstance(item, dict) and isinstance(item.get("entity_id"), str)
+    }
+    for series in chart_spec.get("series", []):
+        if not isinstance(series, dict):
+            continue
+        source = series.get("source")
+        if not isinstance(source, dict):
+            continue
+        entity_id = source.get("entity_id")
+        if not isinstance(entity_id, str):
+            entity_id = next(
+                (e for e in source.get("entity_ids", []) if isinstance(e, str)), None
+            )
+        if isinstance(entity_id, str) and entity_id in units:
+            series["unit"] = units[entity_id]
 
 
 def _chart_spec_entity_ids(chart_spec: dict[str, Any]) -> dict[str, Any]:
