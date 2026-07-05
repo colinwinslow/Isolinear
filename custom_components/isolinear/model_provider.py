@@ -110,7 +110,22 @@ _CODEGEN_PROMPT_RULES = [
     "(Unix epoch MILLISECONDS, an integer) and 'value'. Use ts_epoch_ms directly for "
     "the x-axis; if you need datetimes, pandas.to_datetime(<ts_epoch_ms values>, "
     "unit='ms'). Never parse a raw timestamp string.",
-    "Save the figure to output_path as PNG (fig.savefig(output_path, format='png')).",
+    # Grounding: the real HA unit is in the series record. Use it — do not guess
+    # or convert. Reading it from the data (a str variable) also keeps any
+    # non-ASCII unit symbol (e.g. '°F') out of a bare code literal.
+    "Each series in data['history_series'] carries a 'unit' string (e.g. '°F'). Label "
+    "the axis and any answer_text using that exact unit value read from the data — "
+    "e.g. unit = data['history_series'][0].get('unit') or ''; "
+    "ax.set_ylabel(f'Temperature ({unit})'). Never guess the unit or convert between "
+    "units; if 'unit' is missing or empty, omit the unit rather than inventing one.",
+    "Save the figure to output_path as PNG (fig.savefig(output_path, format='png', "
+    "bbox_inches='tight')).",
+    # Legibility: the PNG is displayed on a phone-width card, so it is scaled down.
+    # Render large enough that text stays readable after that downscale.
+    "Render for a phone-width card: create the figure at about 8x4.5 inches with "
+    "dpi=110 (fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)); use a title around "
+    "fontsize 15, axis labels around 13, and tick labels around 11 so text stays "
+    "legible when the image is scaled down.",
     # ADR-0031 D6: the analysis libraries the sandbox allowlists. Kept in sync
     # with the worker sandbox policy (worker/isolinear_worker/codegen_sandbox.py).
     "You may import matplotlib (and matplotlib.pyplot), pandas, numpy, scipy "

@@ -1063,7 +1063,7 @@ var Q = class extends U {
     .result {
       display: grid;
       gap: 12px;
-      grid-template-rows: minmax(260px, 1fr) auto;
+      grid-template-rows: auto auto;
       height: 100%;
     }
 
@@ -1071,9 +1071,10 @@ var Q = class extends U {
       background: #f7f9fb;
       border: 1px solid var(--divider-color, #d8dee8);
       border-radius: 6px;
-      height: 100%;
-      min-height: 260px;
-      object-fit: contain;
+      /* Size to the chart's natural aspect ratio and fill the card width, so
+         there is no letterbox gray around a landscape chart. */
+      display: block;
+      height: auto;
       width: 100%;
     }
 
