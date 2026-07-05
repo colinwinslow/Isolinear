@@ -80,10 +80,38 @@ bounded preview keeps the prompt small (constant, ~250 tok/series) while giving
 the model enough real data to stay grounded. The `num_ctx=8192` and the runtime
 `codegen_context_overflow` safety net from the 14th session remain in place.
 
-**Next session.** Colin HACS-redownloads **0.2.19** and retests "basement
+**Follow-on the same session (0.2.20) — the "Value ()" empty axis on the first
+successful 0.2.19 render.** Colin's first 0.2.19 render plotted real data (both
+kitchen + basement temperature lines, proper axes) — grounding fixed — but the
+y-axis read **"Value ()"**: an empty unit. Reproduced live: across six real
+generations the model reads the unit **correctly** from
+`history_series[i]['unit']` (`unit = series_data.get('unit')`) and labels the axis
+with it verbatim — so an empty `()` means the unit in the **data** is empty, not a
+model error. Root cause: `history_series.unit` comes from the catalog's
+`unit_of_measurement`, which is snapshotted at catalog **build** time; the ecobee
+sensors (a cloud integration) are frequently `unavailable` right after a restart —
+their state carries no `unit_of_measurement` attribute then — so the catalog cached
+`null` even though the live sensors now report `°F`. Both the codegen unit and the
+0.2.19 `_apply_catalog_units` overwrite read that same null. Fix:
+`backfill_catalog_units_from_state` (new, `history_retrieval.py`) backfills a
+missing unit from the entity's **live state**, applied inside **both**
+`_approved_catalog_items` copies (history_retrieval and job_orchestration) so every
+consumer — the codegen `history_series.unit` and the chart_spec unit — gets it;
+a unit the catalog already carries is never overridden. Verified live end to end:
+against the real live state, a stale `[None, None]` backfills to `['°F', '°F']`,
+and 4/4 generations then render the unit (`"Temperature (°F)"` / `"Value (°F)"`).
+Suite **430 passed / 4 skipped** (+3 backfill tests: missing→backfilled,
+present→kept, no-live-unit→unchanged). Version **0.2.20**; integration-only.
+**Residual cosmetic:** the axis *word* is still sometimes the generic "Value"
+rather than "Temperature" (the model's choice; `"Value (°F)"` is informative but
+`"Temperature (°F)"` is nicer). Optional follow-up: surface `device_class` in the
+prompt so the model names the measured quantity.
+
+**Next session.** Colin HACS-redownloads **0.2.20** and retests "basement
 temperature", "kitchen and basement temps over the weekend", "kitchen temperature
-last 3 days" — expect real data with a correct °F axis. Then: raise the default
-`max_codegen_repair_attempts` (open-queue (m); now more urgent); eval-gate the
+last 3 days" — expect real data with a correct **°F** axis (no `()`). Then: raise
+the default `max_codegen_repair_attempts` (open-queue (m); now more urgent — his
+live instance is already set to 3); optional axis-word cosmetic; eval-gate the
 generation-side `°` rule (open-queue (o)); registry follow-ups (`pearson_r`
 alignment; corpus-requested metrics).
 

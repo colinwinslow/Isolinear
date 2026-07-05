@@ -377,17 +377,63 @@ def _normalize_history_request(entity_ids: Any, *, start: Any, end: Any) -> dict
     }
 
 
+def _live_state_unit(hass: Any, entity_id: Any) -> str | None:
+    """Read ``unit_of_measurement`` from the entity's live state, if present."""
+    states = getattr(hass, "states", None)
+    if states is None or not isinstance(entity_id, str):
+        return None
+    getter = getattr(states, "get", None)
+    state = getter(entity_id) if callable(getter) else None
+    if state is None:
+        return None
+    if isinstance(state, dict):
+        attributes = state.get("attributes") or {}
+    else:
+        attributes = getattr(state, "attributes", {}) or {}
+    if not isinstance(attributes, dict):
+        return None
+    unit = attributes.get("unit_of_measurement")
+    return unit if isinstance(unit, str) and unit.strip() else None
+
+
+def backfill_catalog_units_from_state(
+    hass: Any, items: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Backfill each item's ``unit_of_measurement`` from live state when missing.
+
+    The stored catalog snapshots ``unit_of_measurement`` at build time, but a
+    cloud entity (e.g. an ecobee sensor) is frequently ``unavailable`` then — with
+    no unit attribute — so the snapshot can be ``null`` even though the entity now
+    reports a unit. That surfaced live as an empty axis label ("Value ()") on a
+    codegen render, because the model faithfully labels with the (empty) unit it
+    is handed. Backfill from the current state when the snapshot is missing a unit;
+    never override a unit the catalog already has. Returns shallow copies for the
+    items it changes (the store is not mutated).
+    """
+    resolved: list[dict[str, Any]] = []
+    for item in items:
+        if isinstance(item, dict) and not item.get("unit_of_measurement"):
+            live = _live_state_unit(hass, item.get("entity_id"))
+            if live:
+                item = {**item, "unit_of_measurement": live}
+        resolved.append(item)
+    return resolved
+
+
 def _approved_catalog_items(hass: Any, entry_id: str) -> list[dict[str, Any]]:
     entry_data = getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {})
     store = entry_data.get(DATA_ENTITY_CATALOG, {})
     items = store.get("items", []) if isinstance(store, dict) else []
     if not isinstance(items, list):
         return []
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("visible_to_agent") is True
-    ]
+    return backfill_catalog_units_from_state(
+        hass,
+        [
+            item
+            for item in items
+            if isinstance(item, dict) and item.get("visible_to_agent") is True
+        ],
+    )
 
 
 def _recorder_keep_days(hass: Any) -> float:

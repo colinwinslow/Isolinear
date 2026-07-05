@@ -147,12 +147,20 @@ The codegen `/api/chat` options also set an explicit `num_ctx` as defense-in-dep
 Only the prompt view is downsampled; the dispatched `render_mode: "codegen"` render
 request still carries the full points (that path is the runtime `data`).
 
-**Authoritative series unit (planner cannot guess).** The `PlannerResult` schema
-requires a `unit` on every series, but the planner prompt never carries the real
-unit, so the model guesses (observed live: `°C` on `°F` sensors). After planning,
-the integration overwrites each series' `unit` from the authoritative catalog
-`unit_of_measurement` (`_apply_catalog_units`, keyed by `source.entity_id`), so no
-model-guessed unit reaches either render path.
+**Authoritative series unit (planner cannot guess; catalog may be stale).** The
+`PlannerResult` schema requires a `unit` on every series, but the planner prompt
+never carries the real unit, so the model guesses (observed live: `°C` on `°F`
+sensors). After planning, the integration overwrites each series' `unit` from the
+authoritative catalog `unit_of_measurement` (`_apply_catalog_units`, keyed by
+`source.entity_id`), so no model-guessed unit reaches either render path. The
+catalog `unit_of_measurement` is itself snapshotted at build time, and a cloud
+entity is often `unavailable` then (no unit attribute) — so the snapshot can be
+`null` even though the entity now reports a unit, which surfaced live as an empty
+axis label (`"Value ()"`). `_approved_catalog_items` therefore backfills a missing
+unit from the entity's **live state** (`backfill_catalog_units_from_state`) before
+it is used, for both the codegen `history_series.unit` the model reads and the
+`_apply_catalog_units` overwrite; a unit the catalog already carries is never
+overridden.
 
 **Runtime overflow detection (safety net).** Even with the summary, a
 pathological request (very many series) or a shrunk `num_ctx` / smaller model

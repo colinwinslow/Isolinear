@@ -23,6 +23,7 @@ from .const import (
 from .entity_catalog import DATA_ENTITY_CATALOG, DATA_ENTITY_CATALOG_SETUP
 from .history_retrieval import (
     DATA_HISTORY_RETRIEVAL,
+    backfill_catalog_units_from_state,
     classify_series_kind,
     retrieve_approved_history,
     validate_history_series_collection_contract,
@@ -6974,11 +6975,14 @@ def _approved_catalog_items(hass: Any, entry_id: str) -> list[dict[str, Any]]:
     items = store.get("items", []) if isinstance(store, dict) else []
     if not isinstance(items, list):
         return []
-    return [
-        item
-        for item in items
-        if isinstance(item, dict) and item.get("visible_to_agent") is True
-    ]
+    return backfill_catalog_units_from_state(
+        hass,
+        [
+            item
+            for item in items
+            if isinstance(item, dict) and item.get("visible_to_agent") is True
+        ],
+    )
 
 
 def _synchronous_empty_catalog_failure(

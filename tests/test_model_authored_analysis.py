@@ -46,6 +46,9 @@ from custom_components.isolinear.model_provider import (  # noqa: E402
     _codegen_request_view,
     _downsample_preview,
 )
+from custom_components.isolinear.history_retrieval import (  # noqa: E402
+    backfill_catalog_units_from_state,
+)
 from custom_components.isolinear.job_orchestration import (  # noqa: E402
     _apply_catalog_units,
     _history_series_with_epoch_ms,
@@ -378,6 +381,53 @@ class PlannerUnitGroundingTests(unittest.TestCase):
         _apply_catalog_units(spec, [{"entity_id": "sensor.basement_temperature",
                                      "unit_of_measurement": "°F"}])
         self.assertEqual(spec["series"][0]["unit"], "°F")
+
+
+class _FakeStates:
+    def __init__(self, mapping):
+        self._mapping = mapping
+
+    def get(self, entity_id):
+        return self._mapping.get(entity_id)
+
+
+class _FakeState:
+    def __init__(self, attributes):
+        self.attributes = attributes
+
+
+class CatalogUnitBackfillTests(unittest.TestCase):
+    """A catalog snapshot missing a unit (entity unavailable at build time) is
+    backfilled from the live state — the empty-axis-label ("Value ()") fix."""
+
+    def _hass(self, unit):
+        states = _FakeStates({
+            "sensor.kitchen_ecobee_temperature": _FakeState({"unit_of_measurement": unit})
+        })
+        return type("Hass", (), {"states": states})()
+
+    def test_missing_unit_backfilled_from_live_state(self):
+        items = [{"entity_id": "sensor.kitchen_ecobee_temperature",
+                  "unit_of_measurement": None, "visible_to_agent": True}]
+        resolved = backfill_catalog_units_from_state(self._hass("°F"), items)
+        self.assertEqual(resolved[0]["unit_of_measurement"], "°F")
+        # The store item is not mutated (a copy is returned).
+        self.assertIsNone(items[0]["unit_of_measurement"])
+
+    def test_present_unit_not_overridden(self):
+        items = [{"entity_id": "sensor.kitchen_ecobee_temperature",
+                  "unit_of_measurement": "°C"}]
+        resolved = backfill_catalog_units_from_state(self._hass("°F"), items)
+        self.assertEqual(resolved[0]["unit_of_measurement"], "°C")
+
+    def test_no_live_unit_leaves_item_unchanged(self):
+        items = [{"entity_id": "binary_sensor.kitchen_door",
+                  "unit_of_measurement": None}]
+        # Entity has no unit attribute in state.
+        hass = type("Hass", (), {"states": _FakeStates({
+            "binary_sensor.kitchen_door": _FakeState({})})})()
+        resolved = backfill_catalog_units_from_state(hass, items)
+        self.assertIsNone(resolved[0]["unit_of_measurement"])
 
 
 class CodegenPromptGroundingTests(unittest.TestCase):
