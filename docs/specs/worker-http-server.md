@@ -185,11 +185,15 @@ are reported *inside* a `200`, not as an HTTP error. HTTP non-`200` is reserved
 for transport-layer faults (auth, version, malformed envelope).
 
 The PNG bytes: `invoke_codegen_sandbox` writes the PNG to `work_root` and
-returns `image_path` / `image_id`. This spec returns the RenderResult as-is
-(with `image_path`), matching the packet-1 contract; base64 inlining
-(`image_bytes_base64`, already in `render-result.schema.json`) is **deferred**
-to whichever packet wires artifact transfer end-to-end (packet 5) and is called
-out as an open question below.
+returns `image_path` / `image_id`. On a **successful** render the HTTP server
+then reads that file and inlines it as `image_bytes_base64` (base64, already in
+`render-result.schema.json`) in the returned RenderResult, because the
+integration runs on a different host (the HA box) with **no filesystem access to
+the worker container** — `image_path` alone is unreachable, so the served chart
+must travel in the HTTP response. Failure results are returned as-is (no bytes to
+inline). This was proven necessary at the first live end-to-end render: the
+worker reported `status=success` but the integration failed with
+`missing_worker_image_bytes` because only `image_path` crossed the wire.
 
 ### Auth rejection
 
@@ -300,8 +304,10 @@ Concrete-first:
   `invoke_codegen_sandbox`; it does not call `invoke_codegen_with_repair` from
   the HTTP path yet (no repair model to inject — packet 4 decides how repair is
   driven server-side vs. integration-side).
-- **Artifact byte transfer** (base64 inlining / artifact fetch endpoint)
-  end-to-end into the integration's artifact store — packet 5.
+- **Artifact fetch endpoint** (a separate GET for stored artifacts) — not built;
+  the served PNG travels inline as `image_bytes_base64` in the render response
+  (added when the first live render surfaced that `image_path` is unreachable
+  from the integration host).
 - **TLS termination** (assumed handled by the deployment/reverse proxy per
   ADR-0012's `http(s)://` endpoint), **streaming progress** (ADR-0012 open),
   **multi-arch images** and **Supervisor ingress/discovery** (deferred by

@@ -2,6 +2,92 @@
 
 ## Current project phase
 
+### 2026-07-05 (13th session) — 🎉 First live codegen chart rendered end to end; three bugs fixed to get there, then polish (0.2.14→0.2.17)
+
+**This is the milestone the whole worker/codegen arc was building toward: a real
+model-authored matplotlib chart rendered end to end and displayed in the card.**
+Colin asked "show me the kitchen temperature," gemma4:e4b wrote the matplotlib,
+the CT103 sandbox ran it, and the PNG came back and displayed. `main` is
+`0a02b51` = **0.2.17**; homelab `main` carries the tmpfs fix (`4e80bbc`). All
+pushed.
+
+**The three bugs, each surfaced only because the previous fix let the pipeline
+get one step further.** This is the signature of bringing up a real integration:
+each fix reveals the next latent problem.
+
+1. **`0.2.15` (`ec57839`) — the fence instruction.** After 0.2.14, Colin
+   retested: the initial generation failed `syntax_error@L11`, but all three
+   repair attempts degraded to `syntax_error@L1`. The `@L1`-on-every-repair
+   signature is diagnostic — it means `_extract_python_code`'s no-fence fallback
+   returned the raw reply text whose line 1 is prose. The repair model (gemma)
+   was replying with an explanation followed by **unfenced** code. Root cause:
+   `_CODEGEN_SYSTEM_PROMPT` said "no markdown *outside* a code fence" but never
+   told the model *to use* a fence. Fixed by mandating a ```` ```python ````
+   wrapper in the system prompt. A regression test pins the fence instruction.
+
+2. **homelab tmpfs perms (`4e80bbc` on homelab `main`).** With the fence fixed,
+   the generated code actually executed — and hit `PermissionError` on
+   `fig.savefig`. The compose `tmpfs` for `/var/lib/isolinear-worker/work` mounts
+   `root:root`, but the worker container runs as uid 10001; the Dockerfile's
+   `chown` is overridden by the runtime tmpfs mount. Fixed by adding
+   `uid=10001,gid=10001` to the tmpfs options — **both** live on CT103 **and** in
+   the homelab IaC template so the next `ansible` apply stays converged. (The
+   sandbox correctly blocked my direct production `sed` and my push to homelab
+   `main` until Colin explicitly authorized both — the right default.)
+
+3. **`0.2.16` (`9e14b9e`) — the image bytes.** The worker then logged
+   `status=success`, but the integration failed with `missing_worker_image_bytes`
+   at the serve stage. `invoke_codegen_sandbox` returns `image_path` (a path
+   *inside the worker container*) but not the bytes — and the integration runs on
+   the HA box with no filesystem access to that container. The worker-http-server
+   spec had explicitly marked base64 inlining "deferred to packet 5"; the first
+   live render is what forced it. Fixed: on a successful render the HTTP server
+   reads the PNG and inlines `image_bytes_base64` (the field already existed in
+   `render-result.schema.json`; `base64` is stdlib — no new dependency, no schema
+   change). Worker rebuilt + force-recreated on CT103. **Then it rendered.**
+
+**`0.2.17` (`0a02b51`) — polish on the first real chart.** Three issues Colin
+flagged, all shipping via HACS with **no worker rebuild** (the prompt rules are
+integration-side, the CSS is in the frontend bundle):
+
+- **Wrong unit** — the axis read °C on an °F sensor. The model was guessing: the
+  real HA unit is already in the prompt data (`history_series[i]['unit']='°F'`,
+  from the allowlisted catalog), but no prompt rule told the model to use it. New
+  grounding rule reads the unit from the data and f-strings it into the label —
+  which, as a bonus, keeps the `°` symbol out of a *bare literal* (a variable
+  reference, not a token), so it structurally can't retrigger the earlier
+  bare-`°` syntax-error class. This is why open-queue (o) — retiring the
+  generation-side `°` rule — is now *doubly* redundant.
+- **Fonts too small** — matplotlib's 640×480 default scaled down on a
+  phone-width card. New legibility rule: figsize ~8×4.5 at dpi 110 with explicit
+  title/label/tick sizes, plus `bbox_inches='tight'`.
+- **Card letterbox** — `.result img` used `object-fit: contain` inside a forced
+  `min-height: 260px` row, so a landscape chart floated in gray bars. Now
+  `height: auto` at the image's natural aspect ratio, filling the card width.
+
+**Verification.** Suite **415 passed / 4 skipped** (+1 fence-instruction test, and
+the worker-http success test now also asserts `image_bytes_base64` decodes to a
+PNG); frontend **35 passed**; evals `codegen_sandbox`, `worker_http_server`,
+`codegen_generation_path`, `model_authored_analysis` PASS; bundle rebuilt +
+synced (md5 identical). **Spec drift fixed:** `worker-http-server.md` marked
+base64 inlining deferred — corrected to IMPLEMENTED, with the live rationale
+(the integration host can't read `image_path`). Inline invariant review OK: no
+sandbox/allowlist/schema/service change — `image_bytes_base64` is the exact PNG
+that was always meant to be served (base64 runs in the server process, not the
+sandbox subprocess); the unit comes from allowlisted catalog data; the CSS is
+display-only. A fresh-context architecture-review subagent was not spawned
+(bounded live hotfixes + polish on the accepted codegen path); available on
+request.
+
+**Next session.** Colin HACS-redownloads **0.2.17** and retests — confirm the
+unit reads correctly (°F), fonts are legible, and the card fits the chart. The
+unit/font fixes depend on gemma *following* the new prompt rules; if the unit
+still comes out wrong, tighten the wording. Then the standing follow-ups: raise
+the default `max_codegen_repair_attempts` (open-queue (m); less urgent now that
+first-attempt renders work); eval-gate and likely drop the generation-side `°`
+rule (open-queue (o)); registry recompute fidelity (`pearson_r` alignment;
+corpus-requested metrics).
+
 ### 2026-07-04 (12th session) — Second live codegen syntax fallback fixed: a bare `°` token; the generic fix is offending-line text on every violation (0.2.12→0.2.14)
 
 Colin redownloaded 0.2.12, retested "kitchen temperature," and still got a
