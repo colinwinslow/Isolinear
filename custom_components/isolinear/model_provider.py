@@ -96,6 +96,18 @@ def sanitize_reasoning(raw: str) -> str:
 # ADR-0029 packet 4: codegen generation/repair prompts. The model writes a
 # single fixed-entry-point function; the sandbox enforces safety (ADR-0008), so
 # the prompt only needs to communicate the contract, not police it.
+# Sample points shown in the prompt so the model sees the exact runtime point
+# dict shape; the FULL points arrive at render time, not in the prompt.
+_CODEGEN_PROMPT_SAMPLE_POINTS = 3
+# Distinct state values disclosed for binary/categorical series (ADR-0022): the
+# state-data analog of numeric value_stats. Capped so a pathologically-varied
+# categorical series cannot reinflate the prompt.
+_CODEGEN_PROMPT_MAX_DISTINCT_STATES = 50
+# The prompt is now bounded (a per-series summary, not the full points), so a
+# modest explicit context window is ample and keeps the instructions in-window
+# regardless of the model's small default num_ctx (the overflow that made the
+# model reply with prose instead of code).
+_CODEGEN_NUM_CTX = 8192
 _CODEGEN_SYSTEM_PROMPT = (
     "You are the Isolinear chart-code generator. Always wrap your entire Python "
     "output in a single code fence: ```python\\n<code>\\n```. No prose, no "
@@ -104,8 +116,17 @@ _CODEGEN_SYSTEM_PROMPT = (
 _CODEGEN_PROMPT_RULES = [
     "Define exactly one top-level function: def render_chart(data, output_path):",
     "Implement the supplied chart_spec using matplotlib and the supplied history_series.",
+    # The prompt carries only a SUMMARY of each series (point_count, ranges, stats,
+    # sample_points) to keep it small; the FULL points are delivered to the code at
+    # runtime. The model must read the real data from `data`, never from the summary.
+    "The codegen_request.history_series in this prompt is a SUMMARY of each series "
+    "(point_count, ts_epoch_ms_range, value_stats for numeric series, distinct_states "
+    "for binary/categorical state series, and a few sample_points that show each point's "
+    "keys). Do NOT read data values from this summary. At runtime your render_chart "
+    "receives the COMPLETE data: iterate data['history_series'][i]['points'] — the full "
+    "list of points — and match each series by its 'entity_id'.",
     # ADR-0031 D9: the model is handed epoch integers, never raw HA ISO strings —
-    # the projection below strips 'ts', so 'ts_epoch_ms' is the only timestamp key.
+    # the projection strips 'ts', so 'ts_epoch_ms' is the only timestamp key.
     "Read the series points from data['history_series']; each point has 'ts_epoch_ms' "
     "(Unix epoch MILLISECONDS, an integer) and 'value'. Use ts_epoch_ms directly for "
     "the x-axis; if you need datetimes, pandas.to_datetime(<ts_epoch_ms values>, "
@@ -212,29 +233,78 @@ def _codegen_request_view(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def _history_series_prompt_view(history_series: Any) -> list[dict[str, Any]]:
-    """Project history for the prompt with raw ISO ``ts`` stripped (ADR-0031 D9).
+    """Project a compact per-series SUMMARY for the codegen prompt.
 
-    The integration precomputes ``ts_epoch_ms`` at the data boundary; dropping
-    ``ts`` here means the model literally never sees a raw HA timestamp string, so
-    it cannot ``to_datetime``-parse one (the benchmark's dominant failure class).
+    The model authors code against a schema, not against the data. The COMPLETE
+    point list is delivered to ``render_chart(data, output_path)`` at RUNTIME in
+    the sandbox (``codegen_sandbox`` passes the full ``history_series`` as
+    ``data``), so the code iterates every point when it executes. Placing all
+    recorder points in the PROMPT is both unnecessary and harmful: a real window
+    is thousands of points, which overflows the model's context, evicts the
+    system prompt/rules, and makes the model emit a prose description instead of
+    code (observed live as ``syntax_error@L1`` plus the ``missing_fixed_entry_point``
+    / leading-zero partial-truncation variants). So the prompt carries only the
+    shape the model needs to write correct accessors — kind, unit, point_count,
+    timestamp range, value stats, and a few sample points showing the point dict
+    keys — never the whole series. Raw ISO ``ts`` is dropped from the samples
+    (ADR-0031 D9): the model only ever sees integer ``ts_epoch_ms``.
     """
     if not isinstance(history_series, list):
         return []
-    projected: list[dict[str, Any]] = []
+    summaries: list[dict[str, Any]] = []
     for series in history_series:
         if not isinstance(series, Mapping):
             continue
-        series_view = deepcopy(dict(series))
-        points = series_view.get("points")
-        if isinstance(points, list):
-            series_view["points"] = [
-                {key: value for key, value in point.items() if key != "ts"}
-                if isinstance(point, Mapping)
-                else point
-                for point in points
-            ]
-        projected.append(series_view)
-    return projected
+        points = series.get("points")
+        points = points if isinstance(points, list) else []
+        # Carry every series-level field (entity_id, kind, unit, label, and any
+        # overlay metadata) but replace the bulky point list with a summary.
+        summary = {key: deepcopy(value) for key, value in series.items() if key != "points"}
+        summary["point_count"] = len(points)
+        summary["sample_points"] = [
+            {key: value for key, value in point.items() if key != "ts"}
+            for point in points[:_CODEGEN_PROMPT_SAMPLE_POINTS]
+            if isinstance(point, Mapping)
+        ]
+        epoch_values = [
+            point["ts_epoch_ms"]
+            for point in points
+            if isinstance(point, Mapping)
+            and isinstance(point.get("ts_epoch_ms"), int)
+            and not isinstance(point.get("ts_epoch_ms"), bool)
+        ]
+        if epoch_values:
+            summary["ts_epoch_ms_range"] = {"first": epoch_values[0], "last": epoch_values[-1]}
+        numeric_values = [
+            point["value"]
+            for point in points
+            if isinstance(point, Mapping)
+            and isinstance(point.get("value"), (int, float))
+            and not isinstance(point.get("value"), bool)
+        ]
+        if numeric_values:
+            summary["value_stats"] = {
+                "min": min(numeric_values),
+                "max": max(numeric_values),
+                "mean": round(sum(numeric_values) / len(numeric_values), 4),
+            }
+        # Binary/categorical series (ADR-0022): disclose the distinct states the
+        # code must handle (colour/branch on), since a numeric value_stats is
+        # meaningless and the sample_points alone may not surface every state.
+        distinct_states: list[Any] = []
+        for point in points:
+            if not isinstance(point, Mapping):
+                continue
+            state = point.get("raw_state")
+            if state is None or state in distinct_states:
+                continue
+            distinct_states.append(state)
+            if len(distinct_states) >= _CODEGEN_PROMPT_MAX_DISTINCT_STATES:
+                break
+        if distinct_states:
+            summary["distinct_states"] = distinct_states
+        summaries.append(summary)
+    return summaries
 
 
 def _sandbox_error_view(sandbox_error: Any) -> dict[str, Any]:
@@ -843,13 +913,21 @@ class OllamaCompatiblePlannerClient:
                 "Chart-code generation produced no code after fence stripping.",
                 retry_safe=True,
             )
-        return {
+        response_summary = _provider_response_summary(response_payload or {})
+        result = {
             "accepted": True,
             "code": "model_provider_chart_code_received",
             "provider": self._codegen_provider_metadata(model),
             "python_code": python_code,
-            "provider_response": _provider_response_summary(response_payload or {}),
+            "provider_response": response_summary,
         }
+        # Overflow produces bad-but-"accepted" content (the model, missing its
+        # instructions, emits prose that fails the sandbox downstream), so the
+        # flag rides the accepted result for the orchestration to act on.
+        overflow = _context_overflow(response_summary, _CODEGEN_NUM_CTX)
+        if overflow is not None:
+            result["context_overflow"] = overflow
+        return result
 
     def repair_chart_code(
         self,
@@ -898,13 +976,18 @@ class OllamaCompatiblePlannerClient:
                 "Chart-code repair produced no code after fence stripping.",
                 retry_safe=True,
             )
-        return {
+        response_summary = _provider_response_summary(response_payload or {})
+        result = {
             "accepted": True,
             "code": "model_provider_chart_code_repaired",
             "provider": self._codegen_provider_metadata(model),
             "python_code": python_code,
-            "provider_response": _provider_response_summary(response_payload or {}),
+            "provider_response": response_summary,
         }
+        overflow = _context_overflow(response_summary, _CODEGEN_NUM_CTX)
+        if overflow is not None:
+            result["context_overflow"] = overflow
+        return result
 
     def _codegen_model(self, model: str | None) -> str:
         return model or self.planner_model
@@ -938,7 +1021,7 @@ class OllamaCompatiblePlannerClient:
             "stream": False,
             # Freeform Python, NOT constrained JSON: Ollama `format` is for JSON
             # only, so no `format` is set. Fenced code is stripped downstream.
-            "options": {"temperature": 0},
+            "options": {"temperature": 0, "num_ctx": _CODEGEN_NUM_CTX},
         }
 
     def _codegen_repair_payload(
@@ -977,7 +1060,7 @@ class OllamaCompatiblePlannerClient:
                 },
             ],
             "stream": False,
-            "options": {"temperature": 0},
+            "options": {"temperature": 0, "num_ctx": _CODEGEN_NUM_CTX},
         }
 
     def _read_chat(
@@ -1415,6 +1498,30 @@ def _provider_response_summary(response_payload: dict[str, Any]) -> dict[str, An
         "prompt_eval_count": response_payload.get("prompt_eval_count"),
         "eval_count": response_payload.get("eval_count"),
     }
+
+
+def _context_overflow(response_summary: Mapping[str, Any] | None, num_ctx: int) -> dict[str, Any] | None:
+    """Detect a truncated (context-overflow) codegen prompt from the response.
+
+    Ollama silently truncates a prompt that exceeds ``num_ctx`` — it drops tokens
+    from the FRONT, so the system prompt and rules go first — then reports
+    ``prompt_eval_count`` capped at exactly ``num_ctx``. A prompt that fits sits
+    well below it. So ``prompt_eval_count >= num_ctx`` is a definitive signal that
+    the model never saw the full instructions, which makes its output (and any
+    repair, whose prompt is larger still) doomed. Measured against Ollama:
+    overflow → ``prompt_eval_count == num_ctx`` exactly; a fitting prompt is
+    strictly below. Surfaced so the integration can tell the user to raise the
+    codegen model's context window, reduce the request, or use bigger hardware —
+    rather than reporting a misleading downstream ``syntax_error``.
+    """
+    if not isinstance(response_summary, Mapping) or not isinstance(num_ctx, int):
+        return None
+    prompt_eval_count = response_summary.get("prompt_eval_count")
+    if not isinstance(prompt_eval_count, int) or isinstance(prompt_eval_count, bool):
+        return None
+    if prompt_eval_count < num_ctx:
+        return None
+    return {"prompt_eval_count": prompt_eval_count, "num_ctx": num_ctx}
 
 
 def _ollama_model_names(response_payload: Any) -> list[str]:

@@ -364,9 +364,24 @@ export class IsolinearCard extends LitElement {
     if (!reason) {
       return nothing;
     }
+    // A few fallback reasons are actionable by the user; show plain guidance
+    // instead of the raw code. Others keep the compact code (the WARNING log
+    // and diagnostics carry the detail).
+    const guidance: Record<string, string> = {
+      codegen_context_overflow:
+        "This request was too large for the analysis model's context window, so the " +
+        "chart was drawn by the built-in renderer. To use the advanced renderer for " +
+        "large requests, increase the codegen model's context in Ollama (num_ctx / " +
+        "OLLAMA_CONTEXT_LENGTH), ask for fewer series, or run a model/GPU with a " +
+        "larger context window. (The time range does not affect this — the model is " +
+        "sent a per-series summary, not the individual data points.)",
+    };
+    const message =
+      guidance[reason] ??
+      `Rendered by the built-in chart renderer (advanced renderer unavailable: ${reason})`;
     return html`
       <p class="render-fallback" data-testid="render-fallback-notice" title=${`Reason: ${reason}`}>
-        Rendered by the built-in chart renderer (advanced renderer unavailable: ${reason})
+        ${message}
       </p>
     `;
   }

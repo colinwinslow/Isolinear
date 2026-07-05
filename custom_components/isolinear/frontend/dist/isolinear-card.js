@@ -844,11 +844,13 @@ var Q = class extends U {
 	}
 	renderRenderPathNotice(e) {
 		let t = e.chart?.render_fallback_reason;
-		return t ? M`
+		if (!t) return P;
+		let n = { codegen_context_overflow: "This request was too large for the analysis model's context window, so the chart was drawn by the built-in renderer. To use the advanced renderer for large requests, increase the codegen model's context in Ollama (num_ctx / OLLAMA_CONTEXT_LENGTH), ask for fewer series, or run a model/GPU with a larger context window. (The time range does not affect this — the model is sent a per-series summary, not the individual data points.)" }[t] ?? `Rendered by the built-in chart renderer (advanced renderer unavailable: ${t})`;
+		return M`
       <p class="render-fallback" data-testid="render-fallback-notice" title=${`Reason: ${t}`}>
-        Rendered by the built-in chart renderer (advanced renderer unavailable: ${t})
+        ${n}
       </p>
-    ` : P;
+    `;
 	}
 	renderLegend(e) {
 		let t = e.chart?.legend;

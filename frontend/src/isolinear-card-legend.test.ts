@@ -135,6 +135,20 @@ describe("Isolinear card legend (ADR-0027)", () => {
     expect(notice.textContent).toContain("unsafe_code");
   });
 
+  it("shows actionable guidance (not a raw code) for a context-overflow fallback", async () => {
+    const card = await mount(
+      completeSnapshotWithLegend({
+        render_path: "pillow",
+        render_fallback_reason: "codegen_context_overflow",
+      }),
+    );
+    const notice = card.shadowRoot!.querySelector('[data-testid="render-fallback-notice"]')!;
+    expect(notice.textContent).toContain("context window");
+    expect(notice.textContent).toContain("num_ctx");
+    // The raw code is not shown as the message body.
+    expect(notice.textContent).not.toContain("unavailable: codegen_context_overflow");
+  });
+
   it("shows no fallback notice for a codegen render or an explicit pillow choice", async () => {
     const codegenCard = await mount(completeSnapshotWithLegend({ render_path: "codegen" }));
     expect(codegenCard.shadowRoot!.querySelector('[data-testid="render-fallback-notice"]')).toBeNull();

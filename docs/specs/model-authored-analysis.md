@@ -114,6 +114,41 @@ first row; epoch-ms erases the whole class — gemma 2/16 → 12/16 strict.) The
 Pillow fallback path and the trusted `render_mode: "safe"` worker path are
 unaffected (they consume the existing `ts` shape).
 
+**Prompt view vs. runtime data (context-window discipline).** The generation
+and repair *prompts* MUST carry only a compact **summary** of each series —
+`entity_id`/`kind`/`unit` and other series-level metadata, plus `point_count`,
+`ts_epoch_ms_range`, `value_stats` (numeric series) or `distinct_states`
+(binary/categorical state series, capped — ADR-0022), and a few `sample_points`
+showing the point dict keys — **never the full point list**
+(`_history_series_prompt_view`). The
+model authors code against a schema; the COMPLETE points are delivered to
+`render_chart(data, output_path)` at runtime in the sandbox, so the code
+iterates every point when it executes. Dumping the whole series into the prompt
+overflows the model's context on real windows (thousands of points ≈ tens of
+thousands of tokens vs. the model's small default `num_ctx`), which evicts the
+system prompt/rules and makes the model reply with a prose description instead of
+code — observed live as `syntax_error@L1` plus `missing_fixed_entry_point` /
+leading-zero partial-truncation variants, with repair unable to recover (the
+repair prompt is even larger). The codegen `/api/chat` options also set an
+explicit `num_ctx` as defense-in-depth. Only the prompt view is summarized; the
+dispatched `render_mode: "codegen"` render request still carries the full points
+(that path is the runtime `data`).
+
+**Runtime overflow detection (safety net).** Even with the summary, a
+pathological request (very many series) or a shrunk `num_ctx` / smaller model
+could still overflow. Ollama truncates silently and reports `prompt_eval_count`
+capped at exactly `num_ctx`, so `prompt_eval_count >= num_ctx` is a definitive
+overflow signal (`_context_overflow`). The codegen generate/repair results carry
+a `context_overflow` marker when detected; the orchestration then **short-circuits
+the doomed repair loop** (the model never saw its instructions, and each repair
+prompt is larger) and falls back to Pillow with the distinct
+`codegen_context_overflow` reason instead of a misleading downstream
+`syntax_error`. The card renders actionable guidance for that reason (raise the
+codegen model's `num_ctx` / `OLLAMA_CONTEXT_LENGTH`, request fewer series, or use
+a larger-context model/GPU — the time range is irrelevant since the prompt is a
+per-series summary, not the points) and the fallback WARNING log carries the
+`prompt_eval_count` / `num_ctx` numbers.
+
 ### 4. Output-modality intent (model-decided, deterministically validated)
 
 `planner-result.schema.json` gains an optional additive `output_modality` signal

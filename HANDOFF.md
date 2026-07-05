@@ -2,6 +2,96 @@
 
 ## Current project phase
 
+### 2026-07-05 (14th session) — Fixed the live codegen context-window overflow: the prompt carries a per-series summary, not the recorder points (0.2.17→0.2.18)
+
+Colin retested **0.2.17** and still got `unsafe_code` / `syntax_error` Pillow
+fallbacks — the basement-only chart and the kitchen+basement chart both fell
+back. This session root-caused and fixed the underlying problem, which had been
+masked as a string of different downstream syntax errors across the last few
+sessions. `main` is **0.2.18**; all pushed. Integration + frontend only — **no
+worker rebuild**.
+
+**Diagnosis (done live, myself).** Pulled the worker's own logs over root SSH to
+CT103 (`docker logs isolinear-worker`) and the HA `system_log` WARNINGs (via
+`scripts/ha_logs.py`). Three distinct failure classes across retries —
+`syntax_error@L1`, `missing_fixed_entry_point`+`top_level_statement@L…`, and
+`syntax_error: leading zeros in decimal integer literals` — with repair failing
+all three attempts each time. A clean synthetic reproduction rendered fine, so
+the trigger wasn't the prompt *shape* — it was the prompt *size*.
+
+**Root cause (reproduced exactly offline against live gemma).** The codegen
+**prompt** was carrying the **full recorder point list**. `_history_series_prompt_view`
+stripped only the raw ISO `ts` and kept every point, so a real "last N hours" of
+two sensors is on the order of **tens of thousands of tokens** — far past
+Ollama's small default `num_ctx` (~4K), and `_codegen_payload` set no `num_ctx`.
+Ollama truncates a too-large prompt **from the front**, evicting the system
+prompt and rules; gemma, left with only a tail of raw numbers, replies with a
+**prose analysis of the data** instead of code. `_extract_python_code` finds no
+fence and returns the prose → `syntax_error@L1`. Partial truncation yields the
+`missing_fixed_entry_point` / leading-zero variants. Repair never recovers
+because the repair prompt (previous code + rules + data) is larger still.
+
+**The fix (Colin's steer — the model never needs the points in its prompt).** The
+generated `render_chart(data, output_path)` receives the **complete** data at
+runtime in the sandbox (`codegen_sandbox.py:288` calls
+`render_chart(_PAYLOAD["data"], …)`; `_sandbox_data` hands it the full
+`history_series`), so its code iterates every point when it executes. The prompt
+only needs the **shape** to write correct accessors. `_history_series_prompt_view`
+now emits a per-series **summary** — all series-level metadata (`entity_id` /
+`kind` / `unit` / `label` / overlay fields) plus `point_count`,
+`ts_epoch_ms_range`, `value_stats` (numeric) or `distinct_states`
+(binary/categorical, capped at 50), and 3 `sample_points` that show the point
+dict keys — and **never the full list**. The dispatched `render_mode: "codegen"`
+render request is a separate path and still carries every point (the runtime
+`data`). Prompt dropped from ~50K to ~1.7K tokens and gemma renders clean where
+it failed four times.
+
+**Scaling (measured with Ollama's own tokenizer, `prompt_eval_count`).** The
+per-series summary is **constant regardless of point count** — a year and a day
+produce the same prompt. Fixed rules overhead ≈ **1,418 tokens**; ≈ **242
+tokens/series**; **6 series × 12 months ≈ 2,808 tokens (fits 4096)**. So the
+prompt size is now fully decoupled from data volume. `num_ctx=8192` is set on the
+codegen options as defense-in-depth (a large `num_ctx` alone did **not** save the
+dense-data case in testing — the summary is the real cure).
+
+**Runtime overflow safety net (Colin asked how to catch it).** Even with the
+summary, a pathological request (very many series) or a shrunk `num_ctx` / smaller
+model could still overflow. Measured: Ollama caps `prompt_eval_count` at **exactly
+`num_ctx`** when it truncates, so `prompt_eval_count >= num_ctx` is a definitive
+signal (`_context_overflow`). Codegen generate/repair results carry a
+`context_overflow` marker; the orchestration **short-circuits the doomed repair
+loop** (no wasted worker/repair dispatches) and falls back to Pillow with the
+distinct `codegen_context_overflow` reason instead of a misleading downstream
+`syntax_error`. The card renders **actionable guidance** for that reason — raise
+the codegen model's `num_ctx` / `OLLAMA_CONTEXT_LENGTH`, request **fewer series**,
+or use a larger-context model/GPU — and the WARNING log carries the
+`prompt_eval_count` / `num_ctx` numbers. The guidance explicitly notes the time
+range is irrelevant (the prompt is a per-series summary, not the points) — Colin
+caught that the first draft's "shorter time range" advice contradicted the fix.
+
+**Verification.** Suite **420 passed / 4 skipped** (+5: the prompt-summary and
+state-summary projections, overflow flagged / not-flagged at the provider
+boundary, and the orchestration short-circuit asserting zero worker/repair calls
+with the `codegen_context_overflow` reason); frontend **36 passed** (+1: the card
+shows guidance, not the raw code); evals `codegen_generation_path` and
+`model_authored_analysis` PASS; bundle rebuilt + synced (md5 identical). Spec
+`model-authored-analysis.md` updated (prompt-view-vs-runtime discipline + runtime
+overflow detection). Inline invariant review OK — the data boundary is strictly
+**tightened** (the summary shrinks only the prompt; the worker still receives full
+points and runs the full static check; the runtime `data` is unchanged); no
+schema, service, or ADR change; the overflow path is a surfaced ADR-0030 fallback,
+never silent. A fresh-context architecture-review subagent was not spawned
+(bounded change on the accepted codegen path); available on request.
+
+**Next session.** Colin HACS-redownloads **0.2.18** and retests "basement
+temperature" and "kitchen and basement temperature" — codegen should render on
+the first attempt now (no prose/overflow fallback). Then the standing follow-ups:
+raise the default `max_codegen_repair_attempts` (open-queue (m)) — now
+higher-value, because the small prompt lets `source_line`-assisted repair actually
+converge on a genuine one-line slip; eval-gate the generation-side `°` rule
+(open-queue (o)); registry recompute fidelity (`pearson_r` alignment;
+corpus-requested metrics).
+
 ### 2026-07-05 (13th session) — 🎉 First live codegen chart rendered end to end; three bugs fixed to get there, then polish (0.2.14→0.2.17)
 
 **This is the milestone the whole worker/codegen arc was building toward: a real

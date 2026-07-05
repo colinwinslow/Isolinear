@@ -232,17 +232,61 @@ class TimestampNormalizationTests(unittest.TestCase):
         request = {
             "chart_spec": {"title": "t"},
             "history_series": _history_series_with_epoch_ms(
-                [{"entity_id": "sensor.x", "points": [
+                [{"entity_id": "sensor.x", "unit": "degF", "kind": "numeric", "points": [
                     {"ts": "2026-06-05T08:00:00Z", "value": 71.2},
                 ]}]
             ),
         }
         view = _codegen_request_view(request)
-        point = view["history_series"][0]["points"][0]
+        series = view["history_series"][0]
+        point = series["sample_points"][0]
         # The model never sees a raw ISO timestamp string.
         self.assertNotIn("ts", point)
         self.assertIn("ts_epoch_ms", point)
         self.assertIsInstance(point["ts_epoch_ms"], int)
+
+    def test_prompt_projection_summarizes_rather_than_dumping_points(self):
+        # The full points overflow the model context on real windows; the prompt
+        # carries a bounded summary while the runtime sandbox gets every point.
+        points = [{"ts": "2026-06-05T08:00:00Z", "value": 70.0 + i} for i in range(500)]
+        request = {
+            "chart_spec": {"title": "t"},
+            "history_series": _history_series_with_epoch_ms(
+                [{"entity_id": "sensor.x", "unit": "degF", "kind": "numeric", "points": points}]
+            ),
+        }
+        series = _codegen_request_view(request)["history_series"][0]
+        # No full 'points' list is disclosed to the model.
+        self.assertNotIn("points", series)
+        # Shape + count + range + stats + a few samples are.
+        self.assertEqual(series["point_count"], 500)
+        self.assertLessEqual(len(series["sample_points"]), 3)
+        self.assertEqual(series["unit"], "degF")
+        self.assertIn("first", series["ts_epoch_ms_range"])
+        self.assertIn("last", series["ts_epoch_ms_range"])
+        self.assertEqual(series["value_stats"]["min"], 70.0)
+        self.assertEqual(series["value_stats"]["max"], 569.0)
+
+    def test_prompt_projection_summarizes_state_series_with_distinct_states(self):
+        # Binary/categorical series get distinct_states (not numeric value_stats),
+        # so the model knows every state to handle even if samples miss some.
+        points = (
+            [{"ts": "2026-06-05T08:00:00Z", "raw_state": "idle"}] * 3
+            + [{"ts": "2026-06-05T09:00:00Z", "raw_state": "cooling"}]
+            + [{"ts": "2026-06-05T10:00:00Z", "raw_state": "heating"}]
+        )
+        request = {
+            "chart_spec": {"title": "t"},
+            "history_series": _history_series_with_epoch_ms(
+                [{"entity_id": "climate.x", "kind": "categorical_state", "points": points}]
+            ),
+        }
+        series = _codegen_request_view(request)["history_series"][0]
+        self.assertNotIn("value_stats", series)
+        self.assertEqual(series["distinct_states"], ["idle", "cooling", "heating"])
+        # 'heating' is beyond the 3 sample_points, so distinct_states is what
+        # surfaces it to the model.
+        self.assertNotIn("heating", [p.get("raw_state") for p in series["sample_points"]])
 
     def test_dispatched_codegen_data_carries_epoch_ms(self):
         # Regression guard: the render_request the sandbox executes against carries

@@ -220,8 +220,42 @@ class CodegenModelProviderTests(unittest.TestCase):
             endpoint_url="http://localhost:11434", planner_model="llama3.1"
         )
 
-    def _chat_response(self, content: str) -> bytes:
-        return json.dumps({"message": {"content": content}, "done": True, "model": "llama3.1"}).encode("utf-8")
+    def _chat_response(self, content: str, prompt_eval_count: int | None = None) -> bytes:
+        body: dict[str, Any] = {"message": {"content": content}, "done": True, "model": "llama3.1"}
+        if prompt_eval_count is not None:
+            body["prompt_eval_count"] = prompt_eval_count
+        return json.dumps(body).encode("utf-8")
+
+    def test_generate_flags_context_overflow_when_prompt_truncated(self):
+        # Ollama caps prompt_eval_count at exactly num_ctx when it truncates an
+        # oversized prompt; the result carries an actionable context_overflow.
+        client = self._client()
+        fenced = "```python\n" + safe_generated_python() + "\n```"
+        num_ctx = model_provider._CODEGEN_NUM_CTX
+
+        def fake_urlopen(req, timeout=None):
+            return _FakeUrlopenCtx(io.BytesIO(self._chat_response(fenced, prompt_eval_count=num_ctx)))
+
+        with unittest.mock.patch.object(model_provider.urllib.request, "urlopen", fake_urlopen):
+            result = client.generate_chart_code(sample_codegen_render_request())
+
+        self.assertTrue(result["accepted"], result)
+        self.assertIn("context_overflow", result)
+        self.assertEqual(result["context_overflow"]["prompt_eval_count"], num_ctx)
+        self.assertEqual(result["context_overflow"]["num_ctx"], num_ctx)
+
+    def test_generate_does_not_flag_overflow_when_prompt_fits(self):
+        client = self._client()
+        fenced = "```python\n" + safe_generated_python() + "\n```"
+
+        def fake_urlopen(req, timeout=None):
+            return _FakeUrlopenCtx(io.BytesIO(self._chat_response(fenced, prompt_eval_count=800)))
+
+        with unittest.mock.patch.object(model_provider.urllib.request, "urlopen", fake_urlopen):
+            result = client.generate_chart_code(sample_codegen_render_request())
+
+        self.assertTrue(result["accepted"], result)
+        self.assertNotIn("context_overflow", result)
 
     def test_generate_chart_code_returns_stripped_freeform_code(self):
         client = self._client()
@@ -709,6 +743,40 @@ class CodegenOrchestrationTests(unittest.TestCase):
         chart = snapshot["snapshot"]["chart"]
         self.assertEqual(chart.get("render_path"), "pillow")
         self.assertEqual(chart.get("render_fallback_reason"), "runtime_error")
+
+    def test_context_overflow_short_circuits_to_actionable_fallback(self):
+        # When the generation prompt overflowed the model context, the code is
+        # doomed; skip the futile worker dispatch + repair loop entirely and fall
+        # back to Pillow with the actionable codegen_context_overflow reason.
+        worker = SandboxWorkerRenderer()
+        codegen = FakeCodegenClient(
+            generate_code=safe_generated_python(),
+            generate_result={
+                "accepted": True,
+                "code": "model_provider_chart_code_received",
+                "provider": {"type": "ollama_compatible", "role": "codegen", "model": "llama3.1"},
+                "python_code": safe_generated_python(),
+                "provider_response": {"model": "llama3.1", "done": True, "prompt_eval_count": 8192},
+                "context_overflow": {"prompt_eval_count": 8192, "num_ctx": 8192},
+            },
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            hass, entry = _configured_codegen_hass(
+                codegen_client=codegen,
+                worker=worker,
+                artifact_dir=Path(temp_dir),
+                max_repair_attempts=2,
+            )
+            start = _start_job(hass, entry)
+            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+        self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot)
+        # No worker dispatch and no repair calls — the doomed loop is skipped.
+        self.assertEqual(len(worker.calls), 0)
+        self.assertEqual(len(codegen.repair_calls), 0)
+        chart = snapshot["snapshot"]["chart"]
+        self.assertEqual(chart.get("render_path"), "pillow")
+        self.assertEqual(chart.get("render_fallback_reason"), "codegen_context_overflow")
 
     def test_unsafe_code_is_repaired_to_success(self):
         # Scenario D (ADR-0030): a static-safety rejection is repairable like any

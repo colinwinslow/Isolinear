@@ -2712,6 +2712,16 @@ def _append_codegen_failure_snapshot_from_planning_result(
 
 
 def _codegen_failure_message(stage: Any, final_error_code: Any) -> str:
+    if final_error_code == CODEGEN_CONTEXT_OVERFLOW_CODE:
+        return (
+            "This request was too large for the analysis model's context window, so "
+            "the chart was drawn by the built-in renderer instead. To enable the "
+            "advanced renderer for large requests, increase the codegen model's "
+            "context size in Ollama (raise num_ctx / OLLAMA_CONTEXT_LENGTH), ask for "
+            "fewer series, or run a model/GPU with a larger context window. (The time "
+            "range does not affect this — the model is sent a per-series summary, not "
+            "the individual data points.)"
+        )
     if stage == "generate":
         return "The model could not generate chart code for this request."
     if stage == "repair":
@@ -4601,6 +4611,10 @@ def _record_worker_dispatch(
 
 
 CODEGEN_RENDER_FAILED_CODE = "codegen_render_failed"
+# The codegen prompt was truncated by the model's context window (ADR-0031 D9
+# prompt-summary discipline keeps normal requests well under it; this is the
+# safety net for pathological requests / a shrunk num_ctx / a small model).
+CODEGEN_CONTEXT_OVERFLOW_CODE = "codegen_context_overflow"
 
 
 def _configured_render_path(hass: Any, entry_id: str) -> str:
@@ -4665,6 +4679,11 @@ def _compact_codegen_error_detail(final_error: Any) -> dict[str, Any] | None:
     details = final_error.get("details")
     if not isinstance(details, dict):
         return None
+    if final_error.get("code") == CODEGEN_CONTEXT_OVERFLOW_CODE:
+        prompt_eval_count = details.get("prompt_eval_count")
+        num_ctx = details.get("num_ctx")
+        if isinstance(prompt_eval_count, int) and isinstance(num_ctx, int):
+            return {"context_overflow": {"prompt_eval_count": prompt_eval_count, "num_ctx": num_ctx}}
     violations = details.get("violations")
     if isinstance(violations, list) and violations:
         summary = [
@@ -4772,6 +4791,23 @@ def _record_codegen_worker_dispatch(
             repair_attempts=0,
         )
     current_code = generation["python_code"]
+
+    # Context overflow: the prompt was truncated, so the model never saw the
+    # instructions and its code (and any repair, whose prompt is larger) is
+    # doomed. Fail fast with a distinct, actionable code instead of burning the
+    # repair budget on a misleading downstream syntax_error.
+    generation_overflow = generation.get("context_overflow")
+    if isinstance(generation_overflow, dict):
+        return _codegen_render_failed(
+            worker_summary=worker_summary,
+            final_error_code=CODEGEN_CONTEXT_OVERFLOW_CODE,
+            stage="generate",
+            worker_called=False,
+            chart_rendering_called=False,
+            codegen_attempts=1,
+            repair_attempts=0,
+            final_error={"code": CODEGEN_CONTEXT_OVERFLOW_CODE, "details": generation_overflow},
+        )
 
     render_method = getattr(worker_client, "render_chart", None)
     if not callable(render_method):
@@ -4943,6 +4979,18 @@ def _record_codegen_worker_dispatch(
                 chart_rendering_called=True,
                 codegen_attempts=attempt_number,
                 repair_attempts=repair_attempts_made,
+            )
+        repair_overflow = repair.get("context_overflow")
+        if isinstance(repair_overflow, dict):
+            return _codegen_render_failed(
+                worker_summary=worker_summary,
+                final_error_code=CODEGEN_CONTEXT_OVERFLOW_CODE,
+                stage="repair",
+                worker_called=True,
+                chart_rendering_called=True,
+                codegen_attempts=attempt_number,
+                repair_attempts=repair_attempts_made,
+                final_error={"code": CODEGEN_CONTEXT_OVERFLOW_CODE, "details": repair_overflow},
             )
         current_code = repair["python_code"]
 
