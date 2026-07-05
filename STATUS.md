@@ -372,6 +372,32 @@ _(older sessions — 10th session shipped to `main` + live bring-up: merged the 
   unit-from-data grounding rule tells the model to read `°` from
   `history_series[i]['unit']` (a str variable), so the degree symbol never lands
   as a bare literal in the first place. Strong candidate to drop; eval-gate first.**
+- (p) **End-to-end GUI/pipeline regression test suite (Colin, 15th session).**
+  **Motivation:** several recent sessions hit render regressions that synthetic
+  backend simulations MISS — 0.2.18 empty charts, 0.2.19/0.2.20 wrong/missing
+  units, the overlay `unsafe_code` fallback (14th–15th). The recurring anti-pattern
+  is diagnosing by hand-building a codegen request, which diverges from the real
+  `card submit → job/start → planner → _compose_state_overlays → history retrieval
+  → codegen → worker sandbox → served artifact → card render` path, so failures get
+  mis-attributed to "gemma variance" and real regressions ship. Build a real
+  end-to-end suite that drives a fixed prompt set through the ACTUAL pipeline
+  against a real (or dedicated-test) HA + worker + pinned Ollama (gemma4:e4b) and
+  asserts on observable outcomes that must ALWAYS hold regardless of model
+  nondeterminism: `render_path == codegen` (no Pillow fallback), no
+  `render_fallback_reason`, series actually PLOTTED (non-empty), the axis unit
+  matches the entity's real `unit_of_measurement`, and `answer_verification` state.
+  **Design questions for the spec:** (a) asserting on PNG content — empty-plot /
+  wrong-unit live IN the image, which is what slipped through; options: have
+  `render_chart` return richer structured metadata (`series_plotted` count,
+  `unit_used`, axis ranges) to assert on, and/or image-level checks (non-blank,
+  OCR/pixel heuristics) — overlaps packet 6 visual validator. (b) harness: headless
+  browser driving the Lovelace card vs. driving the WS API (`job/start` + snapshot
+  polling) directly — the latter is lighter and still exercises the real
+  integration + worker + model. (c) environment: dedicated test HA + worker, or a
+  fixed prompt set against Colin's live instance. (d) flakiness budget: assert on
+  structural invariants, not exact pixels. Prompt set must include the cases that
+  regressed: single-series, two-series numeric, numeric+state OVERLAY, long window
+  (statistics tier). Likely its own ADR/spec when picked up.
 
 ## Blockers
 
