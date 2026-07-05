@@ -30,6 +30,11 @@ from .history_retrieval import (
 )
 from .in_process_renderer import (
     IN_PROCESS_RENDERER_NAME,
+    _OVERLAY_COLORS,
+    _binary_on_regions,
+    _categorical_overlay_states,
+    _parse_timestamp,
+    _rgb_to_hex,
     first_real_vertical_slice_enabled,
     render_in_process_chart,
 )
@@ -5547,6 +5552,95 @@ def _build_model_provider_retry_policy(
     }
 
 
+_OVERLAY_BAND_AUTO_PALETTE = ((173, 216, 230), (255, 200, 150), (200, 230, 200), (220, 200, 240))
+
+
+def _history_window_end_dt(history_series: list[dict[str, Any]]) -> datetime:
+    """Latest point timestamp across all series — the end of the last state segment."""
+    latest: datetime | None = None
+    for series in history_series:
+        if not isinstance(series, dict):
+            continue
+        for point in series.get("points", []):
+            if not isinstance(point, dict):
+                continue
+            try:
+                ts = _parse_timestamp(point.get("ts"))
+            except Exception:
+                continue
+            if ts is not None and (latest is None or ts > latest):
+                latest = ts
+    return latest or datetime.now(timezone.utc)
+
+
+def _overlay_band(start: datetime, end: datetime, color: str, label: Any, entity_id: Any) -> dict[str, Any]:
+    return {
+        "start_ms": int(start.timestamp() * 1000),
+        "end_ms": int(end.timestamp() * 1000),
+        "color": color,
+        "label": label,
+        "entity_id": entity_id,
+    }
+
+
+def _compute_overlay_bands(
+    chart_spec: Any, history_series: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Precompute shaded overlay bands so codegen draws them deterministically (ADR-0033).
+
+    The floor model cannot reliably turn a categorical state series into shaded
+    intervals — it plotted the raw state ("cool") as a line on the value axis. So
+    the integration computes the bands here, reusing the trusted Pillow renderer's
+    attribute-aware state-segment/region logic (e.g. ``hvac_action`` for climate),
+    and hands the model ready-to-draw ``{start_ms, end_ms, color, label}`` bands via
+    ``derived_intervals`` — matching the Pillow overlay exactly. The state overlay
+    series is still delivered in ``history_series`` (grounding/answer may use it);
+    the prompt tells the model not to plot non-numeric series as lines.
+    """
+    if not isinstance(chart_spec, dict):
+        return []
+    history_by_entity = {
+        s.get("entity_id"): s for s in history_series if isinstance(s, dict)
+    }
+    window_end = _history_window_end_dt(history_series)
+    bands: list[dict[str, Any]] = []
+    for index, overlay in enumerate(chart_spec.get("overlays") or []):
+        if not isinstance(overlay, dict) or overlay.get("render_as") != "shaded_intervals":
+            continue
+        source = overlay.get("source") if isinstance(overlay.get("source"), dict) else {}
+        entity_id = source.get("entity_id")
+        history = history_by_entity.get(entity_id)
+        if history is None:
+            continue
+        attribute_key = source.get("attribute")
+        overlay_label = overlay.get("label") or entity_id
+        color_map = overlay.get("color_map")
+        active_values = overlay.get("active_values")
+
+        if isinstance(color_map, dict) and color_map:
+            state_colors = list(color_map.items())
+        elif active_values is None:
+            state_colors = [
+                (sv, _rgb_to_hex(_OVERLAY_BAND_AUTO_PALETTE[i % len(_OVERLAY_BAND_AUTO_PALETTE)]))
+                for i, sv in enumerate(_categorical_overlay_states(history))
+            ]
+        else:
+            # Binary: one color across the whole active set.
+            hexc = _rgb_to_hex(_OVERLAY_COLORS[index % len(_OVERLAY_COLORS)])
+            for start, end in _binary_on_regions(
+                history, {str(v) for v in active_values}, window_end=window_end, attribute_key=attribute_key
+            ):
+                bands.append(_overlay_band(start, end, hexc, overlay_label, entity_id))
+            continue
+
+        for state_value, hexc in state_colors:
+            for start, end in _binary_on_regions(
+                history, {state_value}, window_end=window_end, attribute_key=attribute_key
+            ):
+                bands.append(_overlay_band(start, end, hexc, state_value, entity_id))
+    return bands
+
+
 def _build_worker_render_request(
     store: dict[str, Any],
     *,
@@ -5555,16 +5649,18 @@ def _build_worker_render_request(
     render_plan: dict[str, Any],
 ) -> dict[str, Any]:
     dispatch_number = store["next_worker_dispatch_number"]
+    chart_spec = deepcopy(render_plan["chart_spec"])
+    history_series = _history_series_for_render_plan(
+        hass,
+        entry_id=entry_id,
+        render_plan=render_plan,
+    )
     return {
         "request_id": f"{store['entry_id']}-render-request-{dispatch_number:03d}",
         "render_mode": render_plan["render_mode"],
-        "chart_spec": deepcopy(render_plan["chart_spec"]),
-        "history_series": _history_series_for_render_plan(
-            hass,
-            entry_id=entry_id,
-            render_plan=render_plan,
-        ),
-        "derived_intervals": [],
+        "chart_spec": chart_spec,
+        "history_series": history_series,
+        "derived_intervals": _compute_overlay_bands(chart_spec, history_series),
         "output": deepcopy(render_plan["output"]),
         "theme": {},
         "codegen": None,

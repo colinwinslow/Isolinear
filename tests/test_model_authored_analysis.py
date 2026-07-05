@@ -51,6 +51,7 @@ from custom_components.isolinear.history_retrieval import (  # noqa: E402
 )
 from custom_components.isolinear.job_orchestration import (  # noqa: E402
     _apply_catalog_units,
+    _compute_overlay_bands,
     _history_series_with_epoch_ms,
     _timestamp_to_epoch_ms,
 )
@@ -428,6 +429,69 @@ class CatalogUnitBackfillTests(unittest.TestCase):
             "binary_sensor.kitchen_door": _FakeState({})})})()
         resolved = backfill_catalog_units_from_state(hass, items)
         self.assertIsNone(resolved[0]["unit_of_measurement"])
+
+
+class OverlayBandTests(unittest.TestCase):
+    """ADR-0033: the integration precomputes shaded overlay bands so codegen draws
+    them (axvspan) instead of plotting the state as a line."""
+
+    def _climate_point(self, ts, action):
+        return {"ts": ts, "value": "cool", "raw_state": "cool", "quality": "ok",
+                "attrs": {"hvac_action": action}}
+
+    def _spec(self, **overlay):
+        base = {"overlay_id": "overlay-001", "label": "AC running",
+                "render_as": "shaded_intervals",
+                "source": {"type": "entity", "entity_id": "climate.kitchen_ecobee",
+                           "attribute": "hvac_action"}}
+        base.update(overlay)
+        return {"overlays": [base]}
+
+    def test_bands_use_hvac_action_not_the_mode_state(self):
+        # The overlay must shade cooling/heating (hvac_action), NOT the constant
+        # "cool" mode — the exact bug Colin saw (a flat "cool" line).
+        hs = [{"entity_id": "climate.kitchen_ecobee", "kind": "categorical_state", "points": [
+            self._climate_point("2026-07-01T00:00:00+00:00", "idle"),
+            self._climate_point("2026-07-01T01:00:00+00:00", "cooling"),
+            self._climate_point("2026-07-01T02:00:00+00:00", "idle"),
+            self._climate_point("2026-07-01T03:00:00+00:00", "heating"),
+            self._climate_point("2026-07-01T04:00:00+00:00", "idle"),
+        ]}]
+        bands = _compute_overlay_bands(
+            self._spec(color_map={"cooling": "#4C78A8", "heating": "#F58518"}), hs)
+        self.assertEqual([b["label"] for b in bands], ["cooling", "heating"])
+        self.assertEqual(bands[0]["color"], "#4C78A8")
+        self.assertEqual(bands[1]["color"], "#F58518")
+        # Bands carry epoch-ms bounds spanning exactly the active segment.
+        self.assertEqual(bands[0]["end_ms"] - bands[0]["start_ms"], 3600 * 1000)
+        self.assertNotIn("cool", [b["label"] for b in bands])
+
+    def test_binary_overlay_uses_active_values(self):
+        hs = [{"entity_id": "binary_sensor.kitchen_door", "kind": "binary_state", "points": [
+            {"ts": "2026-07-01T00:00:00+00:00", "value": "off", "raw_state": "off", "quality": "ok"},
+            {"ts": "2026-07-01T01:00:00+00:00", "value": "on", "raw_state": "on", "quality": "ok"},
+            {"ts": "2026-07-01T02:00:00+00:00", "value": "off", "raw_state": "off", "quality": "ok"},
+        ]}]
+        spec = {"overlays": [{"overlay_id": "overlay-001", "label": "Door open",
+                              "render_as": "shaded_intervals", "active_values": ["on"],
+                              "source": {"type": "entity", "entity_id": "binary_sensor.kitchen_door"}}]}
+        bands = _compute_overlay_bands(spec, hs)
+        self.assertEqual(len(bands), 1)
+        self.assertEqual(bands[0]["label"], "Door open")
+
+    def test_no_overlays_yields_no_bands(self):
+        self.assertEqual(_compute_overlay_bands({"overlays": []}, []), [])
+        self.assertEqual(_compute_overlay_bands({}, []), [])
+
+
+class OverlayPromptRuleTests(unittest.TestCase):
+    def test_prompt_rules_direct_axvspan_bands_and_numeric_only_lines(self):
+        rules = " ".join(_CODEGEN_PROMPT_RULES).lower()
+        self.assertIn("derived_intervals", rules)
+        self.assertIn("axvspan", rules)
+        # Only numeric series become lines; state series are not plotted as lines.
+        self.assertIn("'kind' is 'numeric'", rules)
+        self.assertIn("do not compute these intervals yourself", rules)
 
 
 class CodegenPromptGroundingTests(unittest.TestCase):

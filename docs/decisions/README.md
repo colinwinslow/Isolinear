@@ -59,6 +59,7 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0030 — `Matplotlib codegen is the primary render path; Pillow becomes the fallback` (supersedes 0004)
 - 0031 — `Model-authored analysis — Isolinear answers questions, not just charts` (accepted)
 - 0032 — `Deployment-configured worker token; retire the ADR-0015/0016 durability machinery` (accepted)
+- 0033 — `Integration-precomputed shaded overlay bands for codegen` (accepted — deterministic overlay bands via derived_intervals, revertible)
 
 ## Archived ADRs (`archive/`)
 

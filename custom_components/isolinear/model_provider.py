@@ -135,11 +135,26 @@ _CODEGEN_PROMPT_RULES = [
     # The 0.2.18 failure mode: with only a summary, the floor model plotted/labeled
     # from the chart_spec (planner-guessed unit, no top-level entity_id) → empty
     # plots, wrong units. history_series is the sole source of truth for data.
-    "Plot EVERY series in data['history_series'] by iterating that list directly "
-    "(one line per series), using each series' own 'label' and 'unit'. The "
-    "chart_spec is intent/metadata only (title, requested series) — NEVER read the "
-    "data to plot, the list of series, or the unit from chart_spec; a chart_spec "
-    "unit may be wrong. When you need a series' identity use data['history_series'][i]['entity_id'].",
+    "Plot each series in data['history_series'] whose 'kind' is 'numeric' as a line, "
+    "iterating that list directly and using each series' own 'label' and 'unit'. Do "
+    "NOT plot a series whose 'kind' is 'binary_state' or 'categorical_state' as a line "
+    "(its value is a state string like 'cool', not a number) — those are state "
+    "overlays, already provided to you as shaded bands (see the derived_intervals "
+    "rule). The chart_spec is intent/metadata only (title, requested series) — NEVER "
+    "read the data to plot, the list of series, or the unit from chart_spec; a "
+    "chart_spec unit may be wrong. Use data['history_series'][i]['entity_id'] for identity.",
+    # State overlays (ADR-0033): the integration precomputes the shaded intervals
+    # (e.g. when the AC was cooling/heating, from hvac_action) — the floor model
+    # cannot reliably derive them, so it must NOT try; it just draws the given bands.
+    "data['derived_intervals'] is a list of precomputed shaded background bands "
+    "marking state overlays (e.g. when the AC was cooling). Each band is "
+    "{'start_ms': epoch_ms int, 'end_ms': epoch_ms int, 'color': hex string, "
+    "'label': state name}. Draw EACH as a background span behind the lines: "
+    "ax.axvspan(pandas.to_datetime(band['start_ms'], unit='ms'), "
+    "pandas.to_datetime(band['end_ms'], unit='ms'), color=band['color'], alpha=0.3, "
+    "zorder=0). Do NOT compute these intervals yourself and do NOT plot the overlay "
+    "as a line. If derived_intervals is empty, draw no bands. Add one legend entry "
+    "per distinct band label/color (e.g. a Patch), not per band.",
     # ADR-0031 D9: the model is handed epoch integers, never raw HA ISO strings —
     # the projection strips 'ts', so 'ts_epoch_ms' is the only timestamp key.
     "Read the series points from data['history_series']; each point has 'ts_epoch_ms' "

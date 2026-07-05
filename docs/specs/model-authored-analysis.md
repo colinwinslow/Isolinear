@@ -162,6 +162,17 @@ it is used, for both the codegen `history_series.unit` the model reads and the
 `_apply_catalog_units` overwrite; a unit the catalog already carries is never
 overridden.
 
+**State overlays are integration-precomputed bands (ADR-0033).** Shading when a
+binary/categorical entity is active (e.g. when the AC was cooling/heating, from
+`climate` `hvac_action`) is NOT left to the model — live it plotted the raw state
+(`"cool"`) as a line on the value axis. The integration precomputes the shaded
+bands (`_compute_overlay_bands`, reusing the Pillow renderer's attribute-aware
+region logic) into the render request's `derived_intervals`
+(`{start_ms, end_ms, color, label}` per band). Prompt rules: plot only
+`kind == "numeric"` series as lines (never `binary_state` / `categorical_state`);
+draw each `derived_intervals` band as `ax.axvspan(...)` behind the lines. The
+overlay series stays in `history_series` (for grounding/answer) but is not plotted.
+
 **Runtime overflow detection (safety net).** Even with the summary, a
 pathological request (very many series) or a shrunk `num_ctx` / smaller model
 could still overflow. Ollama truncates silently and reports `prompt_eval_count`

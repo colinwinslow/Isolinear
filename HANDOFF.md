@@ -107,13 +107,57 @@ rather than "Temperature" (the model's choice; `"Value (°F)"` is informative bu
 `"Temperature (°F)"` is nicer). Optional follow-up: surface `device_class` in the
 prompt so the model names the measured quantity.
 
-**Next session.** Colin HACS-redownloads **0.2.20** and retests "basement
-temperature", "kitchen and basement temps over the weekend", "kitchen temperature
-last 3 days" — expect real data with a correct **°F** axis (no `()`). Then: raise
-the default `max_codegen_repair_attempts` (open-queue (m); now more urgent — his
-live instance is already set to 3); optional axis-word cosmetic; eval-gate the
-generation-side `°` rule (open-queue (o)); registry follow-ups (`pearson_r`
-alignment; corpus-requested metrics).
+**Follow-on the same session (0.2.21, ADR-0033) — codegen overlays render as a
+line, not shaded bands.** On 0.2.20, Colin's "kitchen and basement temps over the
+last five days and when the AC was running" rendered COMPLETE but wrong: the
+`climate.kitchen_ecobee` state series was drawn as a **line on the temperature
+axis** at the constant `"cool"` mode value, instead of shading the intermittent
+cooling/heating spans as background bands (as the Pillow renderer does). Note this
+also confirms 0.2.20 **fixed** the earlier overlay `unsafe_code` fallback — the
+generated code is now *safe*, just *wrong*: an accept-≠-quality failure the static
+safety check can't see (exactly the case open-queue (p)'s Claude-in-the-loop
+harness would catch; my 18-run static-check repro was clean and I could only see
+the problem by looking at the render). The data was already complete — categorical
+points carry `attrs.hvac_action`, and `chart_spec.overlays` carries `color_map`
+(cooling→blue, heating→orange), `source.attribute: hvac_action`, and
+`render_as: shaded_intervals` — but my 0.2.19 rule ("plot every series in
+`history_series` as a line") pushed the model to draw the state series, and turning
+states into correct shaded intervals is beyond the floor model.
+
+**Colin's steer: integration precomputes the bands (Option B), keep room to back
+out.** `_compute_overlay_bands(chart_spec, history_series)` (job_orchestration)
+computes, per `shaded_intervals` overlay, bands `{start_ms, end_ms, color, label,
+entity_id}` — **reusing the trusted Pillow renderer's** attribute-aware
+`_binary_on_regions` / `_categorical_overlay_states` / `_rgb_to_hex` /
+`_OVERLAY_COLORS`, so codegen matches Pillow exactly (correct `hvac_action` spans,
+correct colors). They populate the existing `derived_intervals` field
+(`render-request` schema already an open-object array — no schema change; the
+prompt projection already forwards it). Prompt rules revised: plot **only**
+`kind == "numeric"` series as lines (never `binary_state`/`categorical_state`), and
+draw each `derived_intervals` band as `ax.axvspan(start→dt, end→dt,
+color=band['color'], alpha=0.3, zorder=0)` behind the lines. The overlay series
+stays in `history_series` (grounding/answer may use it) but is not plotted as a
+line. ADR-0033 accepted; deliberately isolated + revertible (remove the population
++ revert the two rules; Pillow fallback unaffected).
+
+**Verification.** Live end to end (real planner-shaped overlay chart_spec + real
+HA history with `attrs.hvac_action`): `_compute_overlay_bands` found the real
+cooling spans, and **5/5 generations executed to 2 numeric lines + the cooling
+bands drawn via `axvspan`, no state line, no error** (instrumented `Axes.plot` /
+`Axes.axvspan`). Suite **434 passed / 4 skipped** (+4: bands use `hvac_action` not
+the mode, binary `active_values`, no-overlays→[], the axvspan/numeric-only prompt
+rule); evals `codegen_generation_path` + `model_authored_analysis` PASS; spec +
+decisions README updated. Version **0.2.21**; integration-only. **Residual
+cosmetic (unchanged):** the axis *word* is still sometimes "Value" not
+"Temperature".
+
+**Next session.** Colin HACS-redownloads **0.2.21** and retests the overlay
+("…and when the AC was running") — expect numeric lines + shaded cooling/heating
+bands (matching Pillow), no state line. Then: raise the default
+`max_codegen_repair_attempts` (open-queue (m); his live instance already at 3);
+the optional axis-word cosmetic; **open-queue (p)** the Claude-in-the-loop e2e
+harness (this session showed twice why it's needed — accept≠quality slips the
+static check); eval-gate the `°` rule (open-queue (o)); registry follow-ups.
 
 ### 2026-07-05 (14th session) — Fixed the live codegen context-window overflow: the prompt carries a per-series summary, not the recorder points (0.2.17→0.2.18)
 
