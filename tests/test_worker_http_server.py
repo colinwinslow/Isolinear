@@ -93,6 +93,11 @@ class WorkerHTTPServerCoreTests(unittest.TestCase):
         self.assertEqual(response.status, HTTPStatus.OK)
         self.assertEqual(render_result["status"], "success", render_result.get("error"))
         self.assertEqual(image_bytes[:8], PNG_SIGNATURE)
+        # HTTP server must embed the PNG as base64 — the integration has no
+        # filesystem access to the worker container.
+        import base64
+        self.assertIn("image_bytes_base64", render_result)
+        self.assertEqual(base64.b64decode(render_result["image_bytes_base64"])[:8], PNG_SIGNATURE)
 
     # Scenario A — matplotlib variant, Agg backend reported (skipUnless-gated).
     @unittest.skipUnless(_SANDBOX_HAS_MATPLOTLIB, _NO_MATPLOTLIB_REASON)

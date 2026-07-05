@@ -19,6 +19,7 @@ No sandbox subprocess is ever spawned for an unauthenticated request.
 
 from __future__ import annotations
 
+import base64
 import hmac
 import json
 import logging
@@ -246,6 +247,15 @@ class WorkerApp:
             work_root=self.work_root(),
         )
         _log_render_outcome(envelope.get("request_id"), render_result)
+        # On success, embed the PNG as base64 so the integration can serve it
+        # without filesystem access to the worker container.
+        if render_result.get("status") == "success":
+            image_path = render_result.get("image_path")
+            if image_path:
+                render_result = dict(render_result)
+                render_result["image_bytes_base64"] = base64.b64encode(
+                    Path(image_path).read_bytes()
+                ).decode("ascii")
         return WorkerResponse(HTTPStatus.OK, {"render_result": render_result})
 
     def handle_health(
