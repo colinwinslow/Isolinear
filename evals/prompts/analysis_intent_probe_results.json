@@ -1,0 +1,1002 @@
+{
+ "meta": {
+  "model": "gemma4:e4b",
+  "ollama": "http://10.0.1.39:11434",
+  "runs": 2,
+  "max_repairs": 2,
+  "intent_task": "Fulfill user_request: write Python matplotlib code that renders a chart answering the user's request from the supplied history_series data, guided by the supplied already-validated Isolinear ChartSpec.",
+  "intent_plot_rule": "By default plot each series in data['history_series'] whose 'kind' is 'numeric' as a line, iterating that list directly and using each series' own 'label' and 'unit'. EXCEPTION: when user_request asks for a computed analysis \u2014 an average or combination across sensors, a difference ('how much warmer'), a correlation, a deviation from average, a smoothed/rolling series, or similar \u2014 COMPUTE that derived series from the numeric history_series points with pandas/numpy/scipy and plot the DERIVED result, labelled for what it is; plot the raw inputs only if they help answer the request. Never plot a series whose 'kind' is 'binary_state' or 'categorical_state' as a line (its value is a state string like 'cool', not a number) \u2014 those are state overlays, already provided to you as shaded bands (see the derived_intervals rule). The chart_spec is intent/metadata only (title, requested series) \u2014 NEVER read the data to plot, the list of series, or the unit from chart_spec; a chart_spec unit may be wrong. Use data['history_series'][i]['entity_id'] for identity.",
+  "intent_answer_rule": "If user_request asks a question (e.g. 'are they correlated?', 'how much\u2026?', 'what was the average\u2026?'), also return an 'answer_text' string in the metadata dict answering it in one plain sentence.",
+  "started": "2026-07-06T13:42:44Z"
+ },
+ "runs": {
+  "q_mean::baseline::run1": {
+   "case": "q_mean",
+   "arm": "baseline",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 29.8,
+     "loc": 116,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "kind": "answer_number",
+    "fired": false,
+    "why": "no number near 71.0 in answer_text=None",
+    "answer_text": null,
+    "n_claims": 0
+   },
+   "lines": [
+    {
+     "n": 336,
+     "mean": 71.0,
+     "std": 2.828067655956389,
+     "min": 67.0,
+     "max": 75.0,
+     "label": "Kitchen Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders an Isolinear chart from the provided data structure.\n    \"\"\"\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n    \n    # --- 1. Plot Background Intervals (State Overlays) ---\n    derived_intervals = data.get('derived_intervals', [])\n    for band in derived_intervals:\n        start_date = pd.to_datetime(band['start_ms'], unit='ms')\n        end_date = pd.to_datetime(band['end_ms'], unit='ms')\n        ax.axvspan(start_date, end_date, color=band['color'], alpha=0.3, zorder=0)\n\n    # --- 2. Plot Numeric Time Series ---\n    plotted_series_info = []\n    series_unit = None\n    \n    for series in data['history_series']:\n        if series.get('kind') == 'numeric':\n            entity_id = series['entity_id']\n            label = series['label']\n            unit = series['unit']\n            points = series['points']\n            \n            if not points:\n                continue\n\n            # Extract data\n            timestamps_ms = [p['ts_epoch_ms'] for p in points]\n            values = [p['value'] for p in points]\n            \n            # Convert timestamps to datetime objects\n            x_data = pd.to_datetime(timestamps_ms, unit='ms')\n            \n            # Plot the line\n            ax.plot(x_data, values, label=label, zorder=5)\n            \n            plotted_series_info.append({\n                'entity_id': entity_id,\n                'label': label,\n                'unit': unit\n            })\n            \n            # Capture the unit from the first plotted series for axis labeling\n            if series_unit is None:\n                series_unit = unit\n\n    # --- 3. Final Chart Styling and Saving ---\n    \n    # Title\n    title = data['chart_spec']['title']\n    ax.set_title(title, fontsize=15)\n    \n    # Y-axis label\n    if series_unit:\n        ax.set_ylabel(f'Value ({series_unit})', fontsize=13)\n    else:\n        ax.set_ylabel('Value', fontsize=13)\n        \n    # X-axis label (optional, but good practice)\n    ax.set_xlabel('Time', fontsize=13)\n    \n    # Legend\n    # We need to handle the legend entries for both lines and bands.\n    # Since ax.plot automatically handles lines, we just need to ensure the bands are represented.\n    \n    # Collect unique band labels for the legend\n    band_labels = set()\n    for band in derived_intervals:\n        band_labels.add(band['label'])\n        \n    # Add a dummy patch for each unique band label to the legend\n    # This ensures the legend shows the state bands correctly.\n    handles = []\n    \n    # Add line handles\n    for info in plotted_series_info:\n        # Re-plot the line just to get the handle, or rely on matplotlib's internal tracking\n        # Since we already plotted, we rely on the labels and let matplotlib handle the legend generation\n        pass \n        \n    # Add patch handles for bands\n    for label in band_labels:\n        handles.append(plt.Rectangle((0, 0), 1, 1, fc=plt.cm.get_cmap('viridis')(0.5), alpha=0.3)) # Placeholder color/size\n        \n    # A simpler approach: let matplotlib handle the line legend, and manually add band labels if needed.\n    # Given the constraints, we will rely on the automatic legend generation for lines, \n    # and if bands exist, we will add a manual legend entry for them if they aren't covered.\n    \n    # For simplicity and robustness, we will just use the automatic legend for lines, \n    # and if bands exist, we will ensure the legend reflects the state labels.\n    \n    # If bands exist, we create a proxy legend entry for them.\n    if derived_intervals:\n        # Create a dummy patch for the legend entry\n        from matplotlib.patches import Patch\n        legend_handles = [Patch(facecolor=band['color'], alpha=0.3, label=band['label']) for band in derived_intervals]\n        ax.legend(handles=legend_handles, title=\"State Overlays\", loc='upper right', fontsize=11)\n    else:\n        ax.legend(fontsize=11)\n\n    # Save the figure\n    fig.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # --- 4. Return Metadata ---\n    metadata = {\n        'title': data['chart_spec']['title'],\n        'series_plotted': [info['label'] for info in plotted_series_info],\n        'warnings': data['history_series'][0].get('warnings', [])\n    }\n    return metadata"
+  },
+  "q_mean::baseline::run2": {
+   "case": "q_mean",
+   "arm": "baseline",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 24.2,
+     "loc": 88,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "kind": "answer_number",
+    "fired": false,
+    "why": "no number near 71.0 in answer_text=None",
+    "answer_text": null,
+    "n_claims": 0
+   },
+   "lines": [
+    {
+     "n": 336,
+     "mean": 71.0,
+     "std": 2.828067655956389,
+     "min": 67.0,
+     "max": 75.0,
+     "label": "Kitchen Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\n\ndef render_chart(data: dict, output_path: str) -> dict:\n    \"\"\"\n    Renders an Isolinear chart from the provided data structure.\n    \"\"\"\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n    \n    plotted_series_metadata = []\n    \n    # 1. Draw derived background intervals (State Overlays)\n    derived_intervals = data.get('derived_intervals', [])\n    for band in derived_intervals:\n        try:\n            start_dt = pd.to_datetime(band['start_ms'], unit='ms')\n            end_dt = pd.to_datetime(band['end_ms'], unit='ms')\n            ax.axvspan(start_dt, end_dt, color=band['color'], alpha=0.3, zorder=0)\n        except KeyError as e:\n            # Skip if required keys are missing\n            pass\n\n    # 2. Plot numeric time series data\n    for series in data['history_series']:\n        if series.get('kind') == 'numeric':\n            entity_id = series['entity_id']\n            unit = series.get('unit', '')\n            \n            # Extract all points\n            points = series['points']\n            \n            if not points:\n                continue\n\n            # Prepare data for plotting\n            timestamps_ms = [p['ts_epoch_ms'] for p in points]\n            values = [p['value'] for p in points]\n            \n            # Convert milliseconds to datetime objects\n            x_data = pd.to_datetime(timestamps_ms, unit='ms')\n            y_data = values\n            \n            # Plot the line\n            ax.plot(x_data, y_data, label=series['label'])\n            \n            plotted_series_metadata.append({\n                'entity_id': entity_id,\n                'label': series['label'],\n                'unit': unit\n            })\n\n    # 3. Set titles and labels\n    title = data['chart_spec']['title']\n    ax.set_title(title, fontsize=15)\n    \n    # Use the unit from the first plotted series, or the first series overall if none are plotted\n    y_unit = ''\n    if plotted_series_metadata:\n        # Assuming all plotted series share the same unit for the primary Y-axis label\n        y_unit = plotted_series_metadata[0]['unit']\n    elif data['history_series']:\n        # Fallback to the unit of the first series if nothing was plotted\n        y_unit = data['history_series'][0].get('unit', '')\n        \n    ax.set_ylabel(f'Value ({y_unit})', fontsize=13)\n    ax.set_xlabel('Time', fontsize=13)\n    \n    # 4. Add legend\n    # We use the labels from the plotted series\n    handles, labels = ax.get_legend_handles_labels()\n    # Filter out potential duplicate labels if multiple series share the same name\n    unique_labels = {}\n    for handle, label in zip(handles, labels):\n        unique_labels[label] = handle\n    \n    ax.legend(unique_labels.values(), unique_labels.keys(), loc='best', fontsize=11)\n\n    # 5. Save the figure\n    plt.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 6. Return metadata\n    return {\n        'title': title,\n        'series_plotted': [meta['label'] for meta in plotted_series_metadata],\n        'warnings': []\n    }"
+  },
+  "q_mean::intent::run1": {
+   "case": "q_mean",
+   "arm": "intent",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 25.6,
+     "loc": 101,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "kind": "answer_number",
+    "fired": true,
+    "why": "answer carries 71.00",
+    "answer_text": "The average kitchen temperature over the observed period was 71.00\u00b0F.",
+    "n_claims": 1
+   },
+   "lines": [
+    {
+     "n": 336,
+     "mean": 71.0,
+     "std": 2.828067655956389,
+     "min": 67.0,
+     "max": 75.0,
+     "label": "Kitchen Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom scipy import stats\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a time series chart showing the average kitchen temperature over the last week.\n    \"\"\"\n    history_series = data['history_series']\n    \n    # 1. Data Preparation\n    df_list = []\n    for series in history_series:\n        if series['kind'] == 'numeric':\n            points = series['points']\n            if points:\n                df_list.append(pd.DataFrame(points))\n    \n    if not df_list:\n        return {\"title\": \"Average kitchen temperature, last week\", \"series_plotted\": [], \"warnings\": [\"No numeric data found.\"]}\n\n    # Assuming the primary series is the one needed for the average calculation\n    # We use the first numeric series found, which matches the chart spec.\n    df = pd.concat(df_list).copy()\n    \n    # Convert epoch milliseconds to datetime objects\n    df['timestamp'] = pd.to_datetime(df['ts_epoch_ms'], unit='ms')\n    \n    # 2. Analysis Calculation (Average)\n    # Calculate the mean temperature\n    mean_temp = df['value'].mean()\n    \n    # 3. Plotting Setup\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n    \n    # 4. Plotting Derived Intervals (State Overlays)\n    if data.get('derived_intervals'):\n        for band in data['derived_intervals']:\n            ax.axvspan(pd.to_datetime(band['start_ms'], unit='ms'), \n                        pd.to_datetime(band['end_ms'], unit='ms'), \n                        color=band['color'], alpha=0.3, zorder=0)\n\n    # 5. Plotting Raw Data (Line Chart)\n    # Plot all numeric series found\n    for series in history_series:\n        if series['kind'] == 'numeric' and series['points']:\n            entity_id = series['entity_id']\n            unit = series['unit']\n            \n            # Filter data for this specific series\n            series_df = pd.DataFrame(series['points'])\n            series_df['timestamp'] = pd.to_datetime(series_df['ts_epoch_ms'], unit='ms')\n            \n            ax.plot(series_df['timestamp'], series_df['value'], label=series['label'], linewidth=1.5)\n\n    # 6. Chart Aesthetics and Labels\n    title = \"Average kitchen temperature, last week\"\n    ax.set_title(title, fontsize=15)\n    \n    # Use the unit from the first series found, or empty string\n    unit = history_series[0].get('unit') if history_series and history_series[0]['kind'] == 'numeric' else ''\n    ax.set_ylabel(f'Temperature ({unit})', fontsize=13)\n    ax.set_xlabel(\"Time\", fontsize=13)\n    \n    # Improve x-axis date formatting\n    plt.xticks(rotation=45, ha='right', fontsize=11)\n    \n    # Add legend\n    handles, labels = ax.get_legend_handles_labels()\n    # Filter out potential duplicate labels if multiple series share the same name\n    unique_labels = {}\n    for handle, label in zip(handles, labels):\n        unique_labels[label] = handle\n    ax.legend(unique_labels.values(), unique_labels.keys(), loc='upper left', fontsize=10)\n\n    # 7. Saving the figure\n    fig.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 8. Generating Metadata and Answer Text\n    \n    # Answer Text Generation\n    answer_text = f\"The average kitchen temperature over the observed period was {mean_temp:.2f}{unit}.\"\n    \n    # Claims Generation\n    claims = [{\n        'metric': 'mean', \n        'inputs': [s['entity_id'] for s in history_series if s['kind'] == 'numeric'], \n        'value': mean_temp, \n        'verdict': 'Yes', # Placeholder, as the verdict is part of the sentence\n        'rule': {'bands': [[None, 'Average']], 'basis': 'value'}\n    }]\n    \n    return {\n        \"title\": title, \n        \"series_plotted\": [s['entity_id'] for s in history_series if s['kind'] == 'numeric'], \n        \"warnings\": [], \n        \"answer_text\": answer_text,\n        \"claims\": claims\n    }"
+  },
+  "q_mean::intent::run2": {
+   "case": "q_mean",
+   "arm": "intent",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 23.6,
+     "loc": 100,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "kind": "answer_number",
+    "fired": true,
+    "why": "answer carries 71.00",
+    "answer_text": "The average kitchen temperature over the recorded period was 71.00 \u00b0F.",
+    "n_claims": 1
+   },
+   "lines": [
+    {
+     "n": 336,
+     "mean": 71.0,
+     "std": 2.828067655956389,
+     "min": 67.0,
+     "max": 75.0,
+     "label": "Kitchen Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom scipy import stats\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a time series chart showing the average kitchen temperature over the last week.\n    \"\"\"\n    \n    # --- 1. Data Preparation ---\n    history_series = data['history_series']\n    \n    # Filter for the relevant numeric series (sensor.kitchen_temperature)\n    numeric_series = [s for s in history_series if s['kind'] == 'numeric']\n    \n    if not numeric_series:\n        return {\"title\": \"Average kitchen temperature, last week\", \"series_plotted\": [], \"warnings\": \"No numeric data found.\"}\n\n    # We are calculating the average of the first (and only) numeric series\n    series_data = numeric_series[0]\n    \n    # Create DataFrame from points\n    points = series_data['points']\n    df = pd.DataFrame(points)\n    df['timestamp'] = pd.to_datetime(df['ts_epoch_ms'], unit='ms')\n    df = df.set_index('timestamp').drop(columns=['ts_epoch_ms'])\n    \n    # --- 2. Analysis Calculation (Average) ---\n    \n    # Calculate the mean temperature\n    mean_temp = df['value'].mean()\n    \n    # --- 3. Answer Text and Claims Generation ---\n    \n    answer_text = f\"The average kitchen temperature over the recorded period was {mean_temp:.2f} {series_data['unit']}.\"\n    \n    claims = [{\n        'metric': 'mean',\n        'inputs': [series_data['entity_id']],\n        'value': mean_temp,\n        'verdict': f'The average temperature was {mean_temp:.2f} {series_data[\"unit\"]}.',\n        'rule': {'bands': [[None, 'Average']], 'basis': 'value'}\n    }]\n\n    # --- 4. Plotting ---\n    \n    # Setup figure for phone-width card\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # Plot background derived intervals (State Overlays)\n    if data.get('derived_intervals'):\n        for band in data['derived_intervals']:\n            ax.axvspan(\n                pd.to_datetime(band['start_ms'], unit='ms'), \n                pd.to_datetime(band['end_ms'], unit='ms'), \n                color=band['color'], \n                alpha=0.3, \n                zorder=0\n            )\n\n    # Plot the primary time series line\n    for series in numeric_series:\n        entity_id = series['entity_id']\n        unit = series['unit']\n        \n        # Plotting the raw data\n        ax.plot(df.index, df['value'], label=series['label'], zorder=2)\n\n    # --- 5. Customization ---\n    \n    # Title and Labels\n    plt.title(data['chart_spec']['title'], fontsize=15)\n    ax.set_ylabel(f'Temperature ({unit})', fontsize=13)\n    ax.set_xlabel('Time', fontsize=13)\n    \n    # Legend\n    # We only want one entry per distinct band label/color (handled by axvspan)\n    # We add a manual legend entry for the average calculation if needed, but standard line plot legend is usually sufficient.\n    \n    # Add a legend entry for the average calculation (optional, but good practice for derived metrics)\n    # Since we are plotting the raw line, we rely on the line label for the series.\n    \n    # Set limits and layout\n    fig.autofmt_xdate()\n    plt.legend(loc='upper left', fontsize=10)\n    plt.grid(True, axis='y', alpha=0.5)\n    \n    # Save the figure\n    plt.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # --- 6. Return Metadata ---\n    return {\n        \"title\": data['chart_spec']['title'],\n        \"series_plotted\": [s['entity_id'] for s in numeric_series],\n        \"warnings\": [],\n        \"answer_text\": answer_text,\n        \"claims\": claims\n    }"
+  },
+  "t_mean::baseline::run1": {
+   "case": "t_mean",
+   "arm": "baseline",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 48.7,
+     "loc": 122,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "kind": "line_mean",
+    "fired": false,
+    "why": "line means [71.0, 64.0] \u2014 none near 67.5",
+    "answer_text": null,
+    "n_claims": 0
+   },
+   "lines": [
+    {
+     "n": 144,
+     "mean": 71.0,
+     "std": 2.8285471830370206,
+     "min": 67.0,
+     "max": 75.0,
+     "label": "Kitchen Temperature"
+    },
+    {
+     "n": 144,
+     "mean": 64.0,
+     "std": 1.4137740075572347,
+     "min": 62.0,
+     "max": 66.0,
+     "label": "Basement Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom matplotlib.patches import Patch\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders an Isolinear time series chart using matplotlib.\n    \"\"\"\n    # 1. Setup Figure\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # 2. Handle Derived Intervals (Background Bands)\n    derived_intervals = data.get('derived_intervals', [])\n    for band in derived_intervals:\n        start_dt = pd.to_datetime(band['start_ms'], unit='ms')\n        end_dt = pd.to_datetime(band['end_ms'], unit='ms')\n        ax.axvspan(start_dt, end_dt, color=band['color'], alpha=0.3, zorder=0)\n\n    # 3. Plot Numeric Series\n    series_plotted_info = []\n    series_warnings = []\n    \n    for series in data['history_series']:\n        if series['kind'] == 'numeric':\n            # Extract data points\n            timestamps = [p['ts_epoch_ms'] for p in series['points']]\n            values = [p['value'] for p in series['points']]\n            \n            # Convert epoch ms to datetime objects\n            x_data = pd.to_datetime(timestamps, unit='ms')\n            y_data = values\n            \n            # Plot the line\n            ax.plot(x_data, y_data, label=series['label'], zorder=2)\n            series_plotted_info.append(series['label'])\n        else:\n            # Skip non-numeric kinds (binary_state, categorical_state)\n            pass\n\n    # 4. Set Labels and Title\n    chart_title = data.get('chart_spec', {}).get('title', 'Time Series Chart')\n    \n    # Determine unit for Y-axis (using the first available numeric series unit, or empty)\n    unit = ''\n    for series in data['history_series']:\n        if series['kind'] == 'numeric' and series.get('unit'):\n            unit = series['unit']\n            break\n            \n    ax.set_title(chart_title, fontsize=15)\n    ax.set_ylabel(f'Value ({unit})', fontsize=13)\n    ax.set_xlabel('Time', fontsize=13)\n\n    # 5. Create Legend\n    handles = []\n    labels = []\n\n    # Add line handles\n    for label in series_plotted_info:\n        # We rely on matplotlib automatically assigning handles to the plotted lines\n        # We must re-plot or retrieve the handles. Since we can't easily retrieve handles \n        # without storing the plot objects, we will rely on the label and assume the \n        # legend function handles it, or manually collect handles if necessary.\n        pass # Let the automatic legend generation handle the lines for simplicity\n\n    # Add patch handles for derived intervals\n    patch_handles = []\n    patch_labels = []\n    \n    # Use a set to track unique labels to avoid duplicate legend entries\n    seen_labels = set()\n    \n    for band in derived_intervals:\n        label = band['label']\n        if label not in seen_labels:\n            patch_handles.append(Patch(facecolor=band['color'], alpha=0.3, label=label))\n            patch_labels.append(label)\n            seen_labels.add(label)\n\n    # Combine handles and labels for the legend\n    # We use the automatic legend for lines, and then add the patches manually\n    \n    # Get handles for lines (this is often tricky, but plt.legend() usually works if labels are set)\n    # We will use a combined list of handles/labels for robustness\n    \n    # Re-create the legend handles/labels list structure\n    all_handles = []\n    all_labels = []\n    \n    # 1. Line handles (re-plotting or using existing handles is complex, let's rely on the labels set)\n    # We will let plt.legend() handle the lines first, and then add patches.\n    \n    # 2. Patch handles\n    for i, band in enumerate(derived_intervals):\n        label = band['label']\n        if label not in seen_labels:\n            all_handles.append(Patch(facecolor=band['color'], alpha=0.3, label=label))\n            all_labels.append(label)\n            seen_labels.add(label)\n\n    # Combine line handles and patch handles for the final legend call\n    # Since we cannot easily extract the line handles without modifying the plotting logic, \n    # we will rely on the default legend behavior for lines, and then add the patches \n    # using a custom legend handler if necessary, but for simplicity, we combine all \n    # unique labels and let the legend function handle the visual representation.\n    \n    # A simpler approach: plot everything, then call legend()\n    ax.legend(handles=all_handles, loc='upper left', title=\"State Overlays\")\n\n\n    # 6. Save Figure\n    fig.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 7. Return Metadata\n    metadata = {\n        \"title\": chart_title,\n        \"series_plotted\": series_plotted_info,\n        \"warnings\": series_warnings\n    }\n    return metadata"
+  },
+  "t_mean::baseline::run2": {
+   "case": "t_mean",
+   "arm": "baseline",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 41.1,
+     "loc": 122,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "kind": "line_mean",
+    "fired": false,
+    "why": "line means [71.0, 64.0] \u2014 none near 67.5",
+    "answer_text": null,
+    "n_claims": 0
+   },
+   "lines": [
+    {
+     "n": 144,
+     "mean": 71.0,
+     "std": 2.8285471830370206,
+     "min": 67.0,
+     "max": 75.0,
+     "label": "Kitchen Temperature"
+    },
+    {
+     "n": 144,
+     "mean": 64.0,
+     "std": 1.4137740075572347,
+     "min": 62.0,
+     "max": 66.0,
+     "label": "Basement Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom matplotlib.patches import Patch\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders an Isolinear time series chart using matplotlib.\n    \"\"\"\n    # 1. Setup Figure\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # 2. Handle Derived Intervals (Background Bands)\n    derived_intervals = data.get('derived_intervals', [])\n    for band in derived_intervals:\n        start_dt = pd.to_datetime(band['start_ms'], unit='ms')\n        end_dt = pd.to_datetime(band['end_ms'], unit='ms')\n        ax.axvspan(start_dt, end_dt, color=band['color'], alpha=0.3, zorder=0)\n\n    # 3. Plot Numeric Series\n    series_plotted_info = []\n    series_warnings = []\n    \n    for series in data['history_series']:\n        if series['kind'] == 'numeric':\n            # Extract data points\n            timestamps = [p['ts_epoch_ms'] for p in series['points']]\n            values = [p['value'] for p in series['points']]\n            \n            # Convert epoch ms to datetime objects\n            x_data = pd.to_datetime(timestamps, unit='ms')\n            y_data = values\n            \n            # Plot the line\n            ax.plot(x_data, y_data, label=series['label'], zorder=2)\n            series_plotted_info.append(series['label'])\n        else:\n            # Skip non-numeric kinds (binary_state, categorical_state)\n            pass\n\n    # 4. Set Labels and Title\n    chart_title = data.get('chart_spec', {}).get('title', 'Time Series Chart')\n    \n    # Determine unit for Y-axis (using the first available numeric series unit, or empty)\n    unit = ''\n    for series in data['history_series']:\n        if series['kind'] == 'numeric' and series.get('unit'):\n            unit = series['unit']\n            break\n            \n    ax.set_title(chart_title, fontsize=15)\n    ax.set_ylabel(f'Value ({unit})', fontsize=13)\n    ax.set_xlabel('Time', fontsize=13)\n\n    # 5. Create Legend\n    handles = []\n    labels = []\n\n    # Add line handles\n    for label in series_plotted_info:\n        # We rely on matplotlib automatically assigning handles to the plotted lines\n        # We must re-plot or retrieve the handles. Since we can't easily retrieve handles \n        # without storing the plot objects, we will rely on the label and assume the \n        # legend function handles it, or manually collect handles if necessary.\n        pass # Let the automatic legend generation handle the lines for simplicity\n\n    # Add patch handles for derived intervals\n    patch_handles = []\n    patch_labels = []\n    \n    # Use a set to track unique labels to avoid duplicate legend entries\n    seen_labels = set()\n    \n    for band in derived_intervals:\n        label = band['label']\n        if label not in seen_labels:\n            patch_handles.append(Patch(facecolor=band['color'], alpha=0.3, label=label))\n            patch_labels.append(label)\n            seen_labels.add(label)\n\n    # Combine handles and labels for the legend\n    # We use the automatic legend for lines, and then add the patches manually\n    \n    # Get handles for lines (this is often tricky, but plt.legend() usually works if labels are set)\n    # We will use a combined list of handles/labels for robustness\n    \n    # Re-create the legend handles/labels list structure\n    all_handles = []\n    all_labels = []\n    \n    # 1. Line handles (re-plotting or using existing handles is complex, let's rely on the labels set)\n    # We will let plt.legend() handle the lines first, and then add patches.\n    \n    # 2. Patch handles\n    for i, band in enumerate(derived_intervals):\n        label = band['label']\n        if label not in seen_labels:\n            all_handles.append(Patch(facecolor=band['color'], alpha=0.3, label=label))\n            all_labels.append(label)\n            seen_labels.add(label)\n\n    # Combine line handles and patch handles for the final legend call\n    # Since we cannot easily extract the line handles without modifying the plotting logic, \n    # we will rely on the default legend behavior for lines, and then add the patches \n    # using a custom legend handler if necessary, but for simplicity, we combine all \n    # unique labels and let the legend function handle the visual representation.\n    \n    # A simpler approach: plot everything, then call legend()\n    ax.legend(handles=all_handles, loc='upper left', title=\"State Overlays\")\n\n\n    # 6. Save Figure\n    fig.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 7. Return Metadata\n    metadata = {\n        \"title\": chart_title,\n        \"series_plotted\": series_plotted_info,\n        \"warnings\": series_warnings\n    }\n    return metadata"
+  },
+  "t_mean::intent::run1": {
+   "case": "t_mean",
+   "arm": "intent",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 40.0,
+     "loc": 105,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "kind": "line_mean",
+    "fired": true,
+    "why": "plotted line mean 67.50 \u2248 67.5",
+    "answer_text": "The average temperature across the kitchen and basement over the last day was 67.50\u00b0F.",
+    "n_claims": 1
+   },
+   "lines": [
+    {
+     "n": 144,
+     "mean": 67.5,
+     "std": 2.121159274233471,
+     "min": 64.5,
+     "max": 70.5,
+     "label": "Average Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a time series chart showing the average of kitchen and basement temperatures.\n    \"\"\"\n    \n    # 1. Data Extraction and Preparation\n    \n    # Extract points for Kitchen\n    kitchen_series = next((s for s in data['history_series'] if s['entity_id'] == 'sensor.kitchen_temperature'), None)\n    if kitchen_series:\n        kitchen_points = kitchen_series['points']\n        df_kitchen = pd.DataFrame(kitchen_points)\n        df_kitchen['timestamp'] = pd.to_datetime(df_kitchen['ts_epoch_ms'], unit='ms')\n        df_kitchen = df_kitchen[['timestamp', 'value']].rename(columns={'value': 'kitchen_temp'})\n    else:\n        df_kitchen = pd.DataFrame(columns=['timestamp', 'kitchen_temp'])\n\n    # Extract points for Basement\n    basement_series = next((s for s in data['history_series'] if s['entity_id'] == 'sensor.basement_temperature'), None)\n    if basement_series:\n        basement_points = basement_series['points']\n        df_basement = pd.DataFrame(basement_points)\n        df_basement['timestamp'] = pd.to_datetime(df_basement['ts_epoch_ms'], unit='ms')\n        df_basement = df_basement[['timestamp', 'value']].rename(columns={'value': 'basement_temp'})\n    else:\n        df_basement = pd.DataFrame(columns=['timestamp', 'basement_temp'])\n\n    # Merge and Compute Derived Series (Average)\n    df_merged = pd.merge(df_kitchen, df_basement, on='timestamp', how='inner')\n    \n    if df_merged.empty:\n        # Handle case where no overlapping data exists\n        avg_series = pd.Series(dtype=float)\n        df_plot = pd.DataFrame({'timestamp': pd.Series(dtype('datetime64[ns]')), 'average_temp': pd.Series(dtype(float))})\n    else:\n        df_merged['average_temp'] = (df_merged['kitchen_temp'] + df_merged['basement_temp']) / 2\n        df_plot = df_merged[['timestamp', 'average_temp']]\n        avg_series = df_plot['average_temp']\n\n    # 2. Plotting Setup\n    \n    # Figure size and DPI for phone-width card\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # 3. Plot Derived Average Line\n    if not avg_series.empty:\n        ax.plot(df_plot['timestamp'], avg_series, label='Average Temperature', color='red', linewidth=2)\n        \n        # Set labels and title\n        unit = data['history_series'][0].get('unit') if data['history_series'] else ''\n        ax.set_ylabel(f'Average Temperature ({unit})')\n        ax.set_xlabel('Time')\n        ax.set_title('Average of Kitchen and Basement Temperatures')\n        ax.legend(loc='upper right')\n    else:\n        ax.set_title('Average of Kitchen and Basement Temperatures')\n        ax.set_ylabel('Average Temperature')\n        ax.set_xlabel('Time')\n\n    # 4. Plot Derived Intervals (State Overlays)\n    if data.get('derived_intervals'):\n        for band in data['derived_intervals']:\n            ax.axvspan(pd.to_datetime(band['start_ms'], unit='ms'), \n                        pd.to_datetime(band['end_ms'], unit='ms'), \n                        color=band['color'], alpha=0.3, zorder=0)\n\n    # 5. Final Touches and Saving\n    plt.grid(True, linestyle='--', alpha=0.6)\n    plt.tight_layout()\n    plt.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 6. Metadata and Answer Text Generation\n    \n    answer_text = \"\"\n    claims = []\n    \n    if not avg_series.empty:\n        mean_avg = avg_series.mean()\n        \n        # Format the answer text\n        answer_text = f'The average temperature across the kitchen and basement over the last day was {mean_avg:.2f}{data[\"history_series\"][0].get(\"unit\", \"\")}.'\n        \n        # Create the claim structure\n        claims = [{\n            'metric': 'mean', \n            'inputs': ['sensor.kitchen_temperature', 'sensor.basement_temperature'], \n            'value': mean_avg, \n            'verdict': 'The average temperature was', \n            'rule': {'bands': [[None, 'N/A']], 'basis': 'value'}\n        }]\n    else:\n        answer_text = \"Could not calculate the average temperature due to missing or misaligned data.\"\n\n    return {\n        'title': 'Average of kitchen and basement temperatures',\n        'series_plotted': ['Average Temperature'],\n        'warnings': [],\n        'answer_text': answer_text,\n        'claims': claims\n    }"
+  },
+  "t_mean::intent::run2": {
+   "case": "t_mean",
+   "arm": "intent",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 28.7,
+     "loc": 105,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "kind": "line_mean",
+    "fired": true,
+    "why": "plotted line mean 67.50 \u2248 67.5",
+    "answer_text": "The average temperature across the kitchen and basement over the last day was 67.50\u00b0F.",
+    "n_claims": 1
+   },
+   "lines": [
+    {
+     "n": 144,
+     "mean": 67.5,
+     "std": 2.121159274233471,
+     "min": 64.5,
+     "max": 70.5,
+     "label": "Average Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a time series chart showing the average of kitchen and basement temperatures.\n    \"\"\"\n    \n    # 1. Data Extraction and Preparation\n    \n    # Extract points for Kitchen\n    kitchen_series = next((s for s in data['history_series'] if s['entity_id'] == 'sensor.kitchen_temperature'), None)\n    if kitchen_series:\n        kitchen_points = kitchen_series['points']\n        df_kitchen = pd.DataFrame(kitchen_points)\n        df_kitchen['timestamp'] = pd.to_datetime(df_kitchen['ts_epoch_ms'], unit='ms')\n        df_kitchen = df_kitchen[['timestamp', 'value']].rename(columns={'value': 'kitchen_temp'})\n    else:\n        df_kitchen = pd.DataFrame(columns=['timestamp', 'kitchen_temp'])\n\n    # Extract points for Basement\n    basement_series = next((s for s in data['history_series'] if s['entity_id'] == 'sensor.basement_temperature'), None)\n    if basement_series:\n        basement_points = basement_series['points']\n        df_basement = pd.DataFrame(basement_points)\n        df_basement['timestamp'] = pd.to_datetime(df_basement['ts_epoch_ms'], unit='ms')\n        df_basement = df_basement[['timestamp', 'value']].rename(columns={'value': 'basement_temp'})\n    else:\n        df_basement = pd.DataFrame(columns=['timestamp', 'basement_temp'])\n\n    # Merge and Compute Derived Series (Average)\n    df_merged = pd.merge(df_kitchen, df_basement, on='timestamp', how='inner')\n    \n    if df_merged.empty:\n        # Handle case where no overlapping data exists\n        avg_series = pd.Series(dtype=float)\n        df_plot = pd.DataFrame({'timestamp': pd.Series(dtype('datetime64[ns]')), 'average_temp': pd.Series(dtype(float))})\n    else:\n        df_merged['average_temp'] = (df_merged['kitchen_temp'] + df_merged['basement_temp']) / 2\n        df_plot = df_merged[['timestamp', 'average_temp']]\n        avg_series = df_plot['average_temp']\n\n    # 2. Plotting Setup\n    \n    # Figure size and DPI for phone-width card\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # 3. Plot Derived Average Line\n    if not avg_series.empty:\n        ax.plot(df_plot['timestamp'], avg_series, label='Average Temperature', color='red', linewidth=2)\n        \n        # Set labels and title\n        unit = data['history_series'][0].get('unit') if data['history_series'] else ''\n        ax.set_ylabel(f'Average Temperature ({unit})')\n        ax.set_xlabel('Time')\n        ax.set_title('Average of Kitchen and Basement Temperatures')\n        ax.legend(loc='upper right')\n    else:\n        ax.set_title('Average of Kitchen and Basement Temperatures')\n        ax.set_ylabel('Average Temperature')\n        ax.set_xlabel('Time')\n\n    # 4. Plot Derived Intervals (State Overlays)\n    if data.get('derived_intervals'):\n        for band in data['derived_intervals']:\n            ax.axvspan(pd.to_datetime(band['start_ms'], unit='ms'), \n                        pd.to_datetime(band['end_ms'], unit='ms'), \n                        color=band['color'], alpha=0.3, zorder=0)\n\n    # 5. Final Touches and Saving\n    plt.grid(True, linestyle='--', alpha=0.6)\n    plt.tight_layout()\n    plt.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 6. Metadata and Answer Text Generation\n    \n    answer_text = \"\"\n    claims = []\n    \n    if not avg_series.empty:\n        mean_avg = avg_series.mean()\n        \n        # Format the answer text\n        answer_text = f'The average temperature across the kitchen and basement over the last day was {mean_avg:.2f}{data[\"history_series\"][0].get(\"unit\", \"\")}.'\n        \n        # Create the claim structure\n        claims = [{\n            'metric': 'mean', \n            'inputs': ['sensor.kitchen_temperature', 'sensor.basement_temperature'], \n            'value': mean_avg, \n            'verdict': 'The average temperature was', \n            'rule': {'bands': [[None, 'N/A']], 'basis': 'value'}\n        }]\n    else:\n        answer_text = \"Could not calculate the average temperature due to missing or misaligned data.\"\n\n    return {\n        'title': 'Average of kitchen and basement temperatures',\n        'series_plotted': ['Average Temperature'],\n        'warnings': [],\n        'answer_text': answer_text,\n        'claims': claims\n    }"
+  },
+  "t_delta::baseline::run1": {
+   "case": "t_delta",
+   "arm": "baseline",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 45.4,
+     "loc": 98,
+     "ok": false,
+     "offlist_imports": [],
+     "error": "ValueError: not enough values to unpack (expected 2, got 0)"
+    },
+    {
+     "n": 1,
+     "gen_s": 42.1,
+     "loc": 94,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "kind": "answer_number",
+    "fired": false,
+    "why": "no number near 7.0 in answer_text=None",
+    "answer_text": null,
+    "n_claims": 0
+   },
+   "lines": [
+    {
+     "n": 288,
+     "mean": 71.0,
+     "std": 2.8285471830370206,
+     "min": 67.0,
+     "max": 75.0,
+     "label": "Kitchen Temperature"
+    },
+    {
+     "n": 288,
+     "mean": 64.0,
+     "std": 1.4137740075572347,
+     "min": 62.0,
+     "max": 66.0,
+     "label": "Basement Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom matplotlib.patches import Patch\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders an Isolinear chart from history_series data and saves it to output_path.\n    \"\"\"\n    # 1. Setup Figure\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # 2. Handle Derived Intervals (Shaded Bands)\n    derived_intervals = data.get('derived_intervals', [])\n    legend_handles = []\n    \n    for band in derived_intervals:\n        start_ms = band['start_ms']\n        end_ms = band['end_ms']\n        color = band['color']\n        label = band['label']\n        \n        # Draw background span\n        ax.axvspan(pd.to_datetime(start_ms, unit='ms'), pd.to_datetime(end_ms, unit='ms'), \n                    color=color, alpha=0.3, zorder=0)\n        \n        # Prepare legend handle for the band label\n        legend_handles.append(Patch(facecolor=color, alpha=0.3, label=label))\n\n    # 3. Plot Numeric Series\n    series_plotted_info = []\n    line_handles = [] # Initialize list to store Line2D handles\n    \n    for series in data['history_series']:\n        if series['kind'] == 'numeric':\n            entity_id = series['entity_id']\n            unit = series['unit']\n            points = series['points']\n            \n            # Extract data\n            timestamps_ms = [p['ts_epoch_ms'] for p in points]\n            values = [p['value'] for p in points]\n            \n            # Convert timestamps to datetime objects\n            x_data = pd.to_datetime(timestamps_ms, unit='ms')\n            y_data = np.array(values)\n            \n            # Plot the line and capture the handle\n            line, = ax.plot(x_data, y_data, label=series['label'], zorder=2)\n            line_handles.append(line)\n            \n            series_plotted_info.append({\n                'entity_id': entity_id,\n                'label': series['label'],\n                'unit': unit\n            })\n\n    # 4. Set Titles and Labels\n    chart_title = data['chart_spec']['title']\n    \n    # Determine the unit for the Y-axis (using the first plotted series' unit if available)\n    y_unit = ''\n    if series_plotted_info:\n        # Use the unit from the first plotted series.\n        y_unit = series_plotted_info[0]['unit']\n    \n    ax.set_title(chart_title, fontsize=15)\n    ax.set_ylabel(f'Value ({y_unit})', fontsize=13)\n    ax.set_xlabel('Time', fontsize=13)\n\n    # 5. Create Legend\n    \n    # Collect all handles (lines + patches)\n    all_handles = line_handles + legend_handles\n    \n    # Collect all labels (line labels + band labels)\n    line_labels = [s['label'] for s in series_plotted_info]\n    band_labels = [b['label'] for b in derived_intervals]\n    all_labels = line_labels + band_labels\n    \n    # Use a combined legend\n    ax.legend(handles=all_handles, labels=all_labels, loc='upper right', fontsize=11)\n\n\n    # 6. Save the figure\n    fig.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 7. Return Metadata\n    return {\n        'title': chart_title,\n        'series_plotted': [s['label'] for s in series_plotted_info],\n        'warnings': data['history_series'][0].get('warnings', [])\n    }"
+  },
+  "t_delta::baseline::run2": {
+   "case": "t_delta",
+   "arm": "baseline",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 41.9,
+     "loc": 98,
+     "ok": false,
+     "offlist_imports": [],
+     "error": "ValueError: not enough values to unpack (expected 2, got 0)"
+    },
+    {
+     "n": 1,
+     "gen_s": 45.3,
+     "loc": 95,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "kind": "answer_number",
+    "fired": false,
+    "why": "no number near 7.0 in answer_text=None",
+    "answer_text": null,
+    "n_claims": 0
+   },
+   "lines": [
+    {
+     "n": 288,
+     "mean": 71.0,
+     "std": 2.8285471830370206,
+     "min": 67.0,
+     "max": 75.0,
+     "label": "Kitchen Temperature"
+    },
+    {
+     "n": 288,
+     "mean": 64.0,
+     "std": 1.4137740075572347,
+     "min": 62.0,
+     "max": 66.0,
+     "label": "Basement Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom matplotlib.patches import Patch\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders an Isolinear chart from history_series data and saves it to output_path.\n    \"\"\"\n    # 1. Setup Figure\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # 2. Handle Derived Intervals (Shaded Bands)\n    derived_intervals = data.get('derived_intervals', [])\n    legend_handles = []\n    \n    for band in derived_intervals:\n        start_ms = band['start_ms']\n        end_ms = band['end_ms']\n        color = band['color']\n        label = band['label']\n        \n        # Draw background span\n        ax.axvspan(pd.to_datetime(start_ms, unit='ms'), pd.to_datetime(end_ms, unit='ms'), \n                    color=color, alpha=0.3, zorder=0)\n        \n        # Prepare legend handle for the band label\n        legend_handles.append(Patch(facecolor=color, alpha=0.3, label=label))\n\n    # 3. Plot Numeric Series\n    series_plotted_info = []\n    line_handles = [] # Initialize list to store line handles\n    \n    for series in data['history_series']:\n        if series['kind'] == 'numeric':\n            entity_id = series['entity_id']\n            unit = series['unit']\n            points = series['points']\n            \n            # Extract data\n            timestamps_ms = [p['ts_epoch_ms'] for p in points]\n            values = [p['value'] for p in points]\n            \n            # Convert timestamps to datetime objects\n            x_data = pd.to_datetime(timestamps_ms, unit='ms')\n            y_data = np.array(values)\n            \n            # Plot the line and capture the handle\n            line, = ax.plot(x_data, y_data, label=series['label'], zorder=2)\n            line_handles.append(line)\n            \n            series_plotted_info.append({\n                'entity_id': entity_id,\n                'label': series['label'],\n                'unit': unit\n            })\n\n    # 4. Set Titles and Labels\n    chart_title = data['chart_spec']['title']\n    \n    # Determine the unit for the Y-axis\n    y_unit = ''\n    if series_plotted_info:\n        # Use the unit from the first plotted series, or handle multiple units if necessary\n        # For simplicity, we use the unit from the first series found.\n        y_unit = series_plotted_info[0]['unit']\n    \n    ax.set_title(chart_title, fontsize=15)\n    ax.set_ylabel(f'Value ({y_unit})', fontsize=13)\n    ax.set_xlabel('Time', fontsize=13)\n\n    # 5. Create Legend\n    \n    # Collect all handles (lines + bands)\n    all_handles = line_handles + legend_handles\n    \n    # Collect all labels (line labels + band labels)\n    line_labels = [s['label'] for s in series_plotted_info]\n    band_labels = [b['label'] for b in derived_intervals]\n    all_labels = line_labels + band_labels\n    \n    # Use a combined legend\n    ax.legend(handles=all_handles, labels=all_labels, loc='upper right', fontsize=11)\n\n\n    # 6. Save the figure\n    fig.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 7. Return Metadata\n    return {\n        'title': chart_title,\n        'series_plotted': [s['label'] for s in series_plotted_info],\n        'warnings': data['history_series'][0].get('warnings', [])\n    }"
+  },
+  "t_delta::intent::run1": {
+   "case": "t_delta",
+   "arm": "intent",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 27.1,
+     "loc": 90,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "kind": "answer_number",
+    "fired": true,
+    "why": "answer carries 7.00",
+    "answer_text": "The average temperature difference between the kitchen and the basement was 7.00\u00b0F. The difference ranged from a low of 5.00\u00b0F to a high of 9.00\u00b0F.",
+    "n_claims": 2
+   },
+   "lines": [
+    {
+     "n": 288,
+     "mean": 7.0,
+     "std": 1.4147810981051292,
+     "min": 5.0,
+     "max": 9.0,
+     "label": "Kitchen - Basement Difference"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom scipy import stats\n\ndef render_chart(data, output_path):\n    # 1. Data Preparation and Merging\n    kitchen_series = next((s for s in data['history_series'] if s['entity_id'] == 'sensor.kitchen_temperature'), None)\n    basement_series = next((s for s in data['history_series'] if s['entity_id'] == 'sensor.basement_temperature'), None)\n\n    if not kitchen_series or not basement_series:\n        return {\"title\": \"Temperature Difference\", \"series_plotted\": [], \"warnings\": \"Missing required sensor data.\"}\n\n    # Convert points to DataFrames\n    kitchen_points = kitchen_series['points']\n    basement_points = basement_series['points']\n\n    df_kitchen = pd.DataFrame(kitchen_points)\n    df_kitchen['timestamp'] = pd.to_datetime(df_kitchen['ts_epoch_ms'], unit='ms')\n    df_kitchen = df_kitchen[['timestamp', 'value']].rename(columns={'value': 'kitchen_temp'})\n\n    df_basement = pd.DataFrame(basement_points)\n    df_basement['timestamp'] = pd.to_datetime(df_basement['ts_epoch_ms'], unit='ms')\n    df_basement = df_basement[['timestamp', 'value']].rename(columns={'value': 'basement_temp'})\n\n    # Merge on timestamp\n    df = pd.merge(df_kitchen, df_basement, on='timestamp', how='inner')\n\n    # 2. Compute Derived Series (Difference)\n    df['temp_difference'] = df['kitchen_temp'] - df['basement_temp']\n\n    # 3. Plotting Setup\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # Plot the derived difference series\n    ax.plot(df['timestamp'], df['temp_difference'], label='Kitchen - Basement Difference', color='red')\n\n    # 4. Background Intervals (State Overlays)\n    for band in data.get('derived_intervals', []):\n        ax.axvspan(pd.to_datetime(band['start_ms'], unit='ms'), pd.to_datetime(band['end_ms'], unit='ms'),\n                    color=band['color'], alpha=0.3, zorder=0)\n\n    # 5. Labels and Title\n    unit = kitchen_series['unit'] if kitchen_series['unit'] else ''\n    ax.set_ylabel(f'Temperature Difference ({unit})')\n    ax.set_title('Kitchen vs Basement Temperature Difference')\n    ax.legend(loc='upper right')\n    ax.grid(True, linestyle='--', alpha=0.6)\n\n    # 6. Saving Figure\n    plt.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 7. Analysis and Metadata Generation\n    \n    # Calculate statistics\n    mean_diff = df['temp_difference'].mean()\n    max_diff = df['temp_difference'].max()\n    min_diff = df['temp_difference'].min()\n    \n    # Answer Text Generation\n    answer_text = f\"The average temperature difference between the kitchen and the basement was {mean_diff:.2f}{unit}. The difference ranged from a low of {min_diff:.2f}{unit} to a high of {max_diff:.2f}{unit}.\"\n\n    # Claims Generation\n    # Claim 1: Mean Difference\n    claims = []\n    claims.append({\n        'metric': 'mean',\n        'inputs': ['sensor.kitchen_temperature', 'sensor.basement_temperature'],\n        'value': mean_diff,\n        'verdict': f'The average difference was {mean_diff:.2f}{unit}.',\n        'rule': {'bands': [[None, 'Average difference was calculated']]}\n    })\n    \n    # Claim 2: Max Difference\n    claims.append({\n        'metric': 'max',\n        'inputs': ['sensor.kitchen_temperature', 'sensor.basement_temperature'],\n        'value': max_diff,\n        'verdict': f'The maximum difference observed was {max_diff:.2f}{unit}.',\n        'rule': {'bands': [[None, 'Maximum difference was calculated']]}\n    })\n\n    return {\n        \"title\": \"Kitchen vs basement temperature difference\",\n        \"series_plotted\": [\"temp_difference\"],\n        \"warnings\": [],\n        \"answer_text\": answer_text,\n        \"claims\": claims\n    }"
+  },
+  "t_delta::intent::run2": {
+   "case": "t_delta",
+   "arm": "intent",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 21.6,
+     "loc": 87,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "kind": "answer_number",
+    "fired": true,
+    "why": "answer carries 7.00",
+    "answer_text": "The average temperature difference between the kitchen and the basement was 7.00 \u00b0F. The temperature was at its warmest difference of 9.00 \u00b0F and its coolest difference of 5.00 \u00b0F.",
+    "n_claims": 1
+   },
+   "lines": [
+    {
+     "n": 288,
+     "mean": 7.0,
+     "std": 1.4147810981051292,
+     "min": 5.0,
+     "max": 9.0,
+     "label": "Kitchen - Basement Difference"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a time series chart showing the temperature difference between the kitchen and basement.\n    \"\"\"\n    \n    # 1. Data Extraction and Alignment\n    kitchen_series = data['history_series'][0]\n    basement_series = data['history_series'][1]\n\n    # Convert points to DataFrames\n    df_kitchen = pd.DataFrame(kitchen_series['points'])\n    df_kitchen['timestamp'] = pd.to_datetime(df_kitchen['ts_epoch_ms'], unit='ms')\n    df_kitchen = df_kitchen[['timestamp', 'value']].set_index('timestamp')\n    df_kitchen.columns = ['kitchen_temp']\n\n    df_basement = pd.DataFrame(basement_series['points'])\n    df_basement['timestamp'] = pd.to_datetime(df_basement['ts_epoch_ms'], unit='ms')\n    df_basement = df_basement[['timestamp', 'value']].set_index('timestamp')\n    df_basement.columns = ['basement_temp']\n\n    # Merge and calculate the difference\n    df = pd.merge(df_kitchen, df_basement, left_index=True, right_index=True, how='inner')\n    df['temp_difference'] = df['kitchen_temp'] - df['basement_temp']\n\n    # 2. Derived Series for Plotting\n    derived_series_name = 'temp_difference'\n    derived_series_data = df[['temp_difference']].reset_index()\n    \n    # 3. Plotting Setup\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # Plot the derived difference series\n    ax.plot(derived_series_data['timestamp'], derived_series_data['temp_difference'], \n            label='Kitchen - Basement Difference', color='red', linewidth=2)\n\n    # 4. Styling and Labels\n    title = \"Kitchen vs basement temperature difference\"\n    ax.set_title(title, fontsize=15)\n    \n    # Use the unit from the original series\n    unit = kitchen_series.get('unit') or basement_series.get('unit')\n    ylabel = f'Temperature Difference ({unit})' if unit else 'Temperature Difference'\n    ax.set_ylabel(ylabel, fontsize=13)\n    ax.set_xlabel(\"Time\", fontsize=13)\n    \n    # Format x-axis ticks for better readability (optional, but good practice)\n    plt.gcf().autofmt_xdate()\n\n    # 5. Saving the figure\n    plt.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 6. Analysis and Metadata Generation\n    \n    # Calculate statistics\n    mean_diff = df['temp_difference'].mean()\n    max_diff = df['temp_difference'].max()\n    min_diff = df['temp_difference'].min()\n    \n    # Formulate answer text\n    answer_text = (f\"The average temperature difference between the kitchen and the basement was {mean_diff:.2f} {unit}. \"\n                    f\"The temperature was at its warmest difference of {max_diff:.2f} {unit} and its coolest difference of {min_diff:.2f} {unit}.\")\n\n    # Claims generation (Focusing on the average difference)\n    claims = []\n    # Metric: mean difference\n    claims.append({\n        'metric': 'mean_difference',\n        'inputs': ['sensor.kitchen_temperature', 'sensor.basement_temperature'],\n        'value': mean_diff,\n        'verdict': f'The average difference was {mean_diff:.2f} {unit}.',\n        'rule': {'bands': [[0.5, 'Significantly Warmer'], [-0.5, 'Significantly Cooler']], 'basis': 'value'}\n    })\n\n    metadata = {\n        'title': title,\n        'series_plotted': ['Temperature Difference (Kitchen - Basement)'],\n        'warnings': [],\n        'answer_text': answer_text,\n        'claims': claims\n    }\n    \n    return metadata"
+  },
+  "corr::baseline::run1": {
+   "case": "corr",
+   "arm": "baseline",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 32.1,
+     "loc": 110,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "kind": "correlation",
+    "fired": false,
+    "why": "no coefficient in answer_text=None or claims",
+    "answer_text": null,
+    "n_claims": 0
+   },
+   "lines": [
+    {
+     "n": 288,
+     "mean": 71.0,
+     "std": 2.8285471830370206,
+     "min": 67.0,
+     "max": 75.0,
+     "label": "Kitchen Temperature"
+    },
+    {
+     "n": 288,
+     "mean": 64.0,
+     "std": 1.4137740075572347,
+     "min": 62.0,
+     "max": 66.0,
+     "label": "Basement Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom matplotlib.patches import Patch\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders an Isolinear chart from history series data and saves it to output_path.\n    \"\"\"\n    # 1. Setup Figure\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # --- 2. Plot Derived Intervals (Shaded Bands) ---\n    derived_intervals = data.get('derived_intervals', [])\n    legend_handles = []\n    \n    for band in derived_intervals:\n        start_ms = band['start_ms']\n        end_ms = band['end_ms']\n        color = band['color']\n        label = band['label']\n        \n        # Draw background span (zorder=0)\n        ax.axvspan(pd.to_datetime(start_ms, unit='ms'), pd.to_datetime(end_ms, unit='ms'), \n                    color=color, alpha=0.3, zorder=0)\n        \n        # Collect unique band labels for the legend\n        # We use a dummy patch to represent the band in the legend\n        if label not in [h.get_label() for h in legend_handles]:\n             legend_handles.append(Patch(facecolor=color, alpha=0.3, label=label))\n\n    # --- 3. Plot Numeric History Series ---\n    series_plotted_info = []\n    \n    for series in data['history_series']:\n        if series['kind'] == 'numeric':\n            entity_id = series['entity_id']\n            label = series['label']\n            unit = series['unit']\n            points = series['points']\n            \n            if not points:\n                continue\n\n            # Extract data\n            timestamps_ms = [p['ts_epoch_ms'] for p in points]\n            values = [p['value'] for p in points]\n            \n            # Convert timestamps to datetime objects\n            x_data = pd.to_datetime(timestamps_ms, unit='ms')\n            \n            # Plot the line\n            line, = ax.plot(x_data, values, label=label, zorder=5)\n            \n            # Store info for metadata and legend\n            series_plotted_info.append({\n                'entity_id': entity_id,\n                'label': label,\n                'unit': unit,\n                'line_handle': line\n            })\n            \n            # Add line handle to legend list\n            legend_handles.append(line)\n\n    # --- 4. Set Titles and Labels ---\n    \n    # Title\n    title = data.get('chart_spec', {}).get('title', 'Time Series Chart')\n    ax.set_title(title, fontsize=15)\n    \n    # Y-Axis Label (Use the unit from the first plotted series, assuming consistency)\n    y_unit = \"\"\n    if series_plotted_info:\n        # Use the unit from the first plotted series as the representative unit\n        y_unit = series_plotted_info[0]['unit']\n        ax.set_ylabel(f'{y_unit} Temperature ({y_unit})' if y_unit else 'Temperature', fontsize=13)\n    else:\n        ax.set_ylabel('Temperature', fontsize=13)\n\n    # X-Axis Label (Time)\n    ax.set_xlabel(\"Time\", fontsize=13)\n    \n    # Tick label size adjustment (matplotlib handles this well, but setting fontsize helps)\n    ax.tick_params(axis='both', which='major', labelsize=11)\n\n    # --- 5. Create Legend ---\n    # Combine line handles and band patches for the legend\n    handles = legend_handles\n    labels = [info['label'] for info in series_plotted_info]\n    \n    # Add band labels to the handles/labels list\n    for handle in legend_handles[len(series_plotted_info):]:\n        # These are the patches created for bands\n        pass # Handled by the initial legend_handles list construction\n\n    # Create a combined legend\n    ax.legend(handles, labels + [h.get_label() for h in legend_handles if h.get_label() not in labels], \n              loc='best', fontsize=10, title=\"Series/State\")\n\n    # --- 6. Save Figure ---\n    fig.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # --- 7. Return Metadata ---\n    return {\n        \"title\": title,\n        \"series_plotted\": [info['label'] for info in series_plotted_info],\n        \"warnings\": []\n    }"
+  },
+  "corr::baseline::run2": {
+   "case": "corr",
+   "arm": "baseline",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 28.3,
+     "loc": 99,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "kind": "correlation",
+    "fired": false,
+    "why": "no coefficient in answer_text=None or claims",
+    "answer_text": null,
+    "n_claims": 0
+   },
+   "lines": [
+    {
+     "n": 288,
+     "mean": 71.0,
+     "std": 2.8285471830370206,
+     "min": 67.0,
+     "max": 75.0,
+     "label": "Kitchen Temperature"
+    },
+    {
+     "n": 288,
+     "mean": 64.0,
+     "std": 1.4137740075572347,
+     "min": 62.0,
+     "max": 66.0,
+     "label": "Basement Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom matplotlib.patches import Patch\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders an Isolinear chart from history_series data and saves it to output_path.\n    \"\"\"\n    # 1. Setup Figure\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # Metadata tracking\n    series_plotted = []\n    warnings_list = []\n    \n    # 2. Process Derived Intervals (Shaded Bands)\n    derived_intervals = data.get('derived_intervals', [])\n    legend_handles = []\n    \n    for band in derived_intervals:\n        start_ms = band['start_ms']\n        end_ms = band['end_ms']\n        color = band['color']\n        label = band['label']\n        \n        # Draw background span (zorder=0)\n        ax.axvspan(pd.to_datetime(start_ms, unit='ms'), pd.to_datetime(end_ms, unit='ms'), \n                    color=color, alpha=0.3, zorder=0)\n        \n        # Prepare legend handle for the band\n        legend_handles.append(Patch(facecolor=color, alpha=0.3, label=label))\n\n    # 3. Process Numeric History Series (Lines)\n    numeric_series_data = []\n    \n    for series_data in data['history_series']:\n        entity_id = series_data['entity_id']\n        kind = series_data['kind']\n        unit = series_data['unit']\n        points = series_data['points']\n        \n        if kind == 'numeric':\n            # Extract timestamps and values\n            ts_epoch_ms = [p['ts_epoch_ms'] for p in points]\n            values = [p['value'] for p in points]\n            \n            # Convert timestamps to datetime objects\n            x_dates = pd.to_datetime(ts_epoch_ms, unit='ms')\n            \n            # Plot the line\n            line, = ax.plot(x_dates, values, label=series_data['label'], zorder=5)\n            \n            # Store metadata for the legend\n            series_plotted.append(series_data['label'])\n            \n            # Store the line handle for the legend\n            legend_handles.append(line)\n        \n        elif kind in ['binary_state', 'categorical_state']:\n            # Skip plotting these as lines\n            pass\n        \n        if series_data.get('warnings'):\n            warnings_list.extend(series_data['warnings'])\n\n    # 4. Set Titles and Labels\n    title = data['chart_spec']['title']\n    \n    # Determine Y-axis unit (using the unit from the first numeric series found, or empty string)\n    y_unit = \"\"\n    if series_plotted:\n        # Use the unit from the first series that was successfully plotted\n        for series_data in data['history_series']:\n            if series_data['kind'] == 'numeric':\n                y_unit = series_data['unit']\n                break\n    \n    ax.set_title(title, fontsize=15)\n    ax.set_ylabel(f'{y_unit} Temperature ({y_unit})' if y_unit else 'Temperature', fontsize=13)\n    ax.set_xlabel(\"Time\", fontsize=13)\n    \n    # 5. Create Legend\n    # Combine all handles (lines and patches)\n    handles = legend_handles\n    labels = [h.get_label() for h in handles]\n    \n    # Place legend outside the plot area for clarity\n    ax.legend(handles, labels, loc='upper left', bbox_to_anchor=(1.05, 1), fontsize=11)\n\n    # 6. Save the figure\n    fig.savefig(output_path, format='png', bbox_inches='tight')\n    \n    # 7. Return metadata\n    return {\n        \"title\": title,\n        \"series_plotted\": series_plotted,\n        \"warnings\": warnings_list\n    }"
+  },
+  "corr::intent::run1": {
+   "case": "corr",
+   "arm": "intent",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 27.8,
+     "loc": 87,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "kind": "correlation",
+    "fired": true,
+    "why": "coefficient 1.00 in answer",
+    "answer_text": "The correlation coefficient between kitchen and basement temperatures is 1.00, suggesting that Yes they are correlated.",
+    "n_claims": 1
+   },
+   "lines": [
+    {
+     "n": 288,
+     "mean": 71.0,
+     "std": 2.8285471830370206,
+     "min": 67.0,
+     "max": 75.0,
+     "label": "Kitchen Temperature"
+    },
+    {
+     "n": 288,
+     "mean": 64.0,
+     "std": 1.4137740075572347,
+     "min": 62.0,
+     "max": 66.0,
+     "label": "Basement Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom scipy.stats import pearsonr\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a time series chart showing the correlation between kitchen and basement temperatures.\n    \"\"\"\n    # 1. Data Preparation\n    df_kitchen = pd.DataFrame(data['history_series'][0]['points'])\n    df_kitchen['timestamp'] = pd.to_datetime(df_kitchen['ts_epoch_ms'], unit='ms')\n    df_kitchen = df_kitchen.set_index('timestamp')[['value']]\n    df_kitchen.columns = ['Kitchen']\n\n    df_basement = pd.DataFrame(data['history_series'][1]['points'])\n    df_basement['timestamp'] = pd.to_datetime(df_basement['ts_epoch_ms'], unit='ms')\n    df_basement = df_basement.set_index('timestamp')[['value']]\n    df_basement.columns = ['Basement']\n\n    # Combine into a single DataFrame\n    df = pd.concat([df_kitchen, df_basement], axis=1)\n\n    # 2. Correlation Calculation\n    # Calculate Pearson correlation coefficient\n    corr_matrix = df.corr(method='pearson')\n    corr = corr_matrix.loc['Kitchen', 'Basement']\n\n    # 3. Answer Text and Claims Generation\n    # Define verdict logic\n    threshold = 0.3\n    abs_corr = abs(corr)\n    verdict = 'Yes' if abs_corr > threshold else 'Not really'\n\n    # Format answer text\n    answer_text = f'The correlation coefficient between kitchen and basement temperatures is {corr:.2f}, suggesting that {verdict} they are correlated.'\n\n    # Construct claims list\n    claims = [{\n        'metric': 'pearson_r',\n        'inputs': ['sensor.kitchen_temperature', 'sensor.basement_temperature'],\n        'value': corr,\n        'verdict': verdict,\n        'rule': {\n            'bands': [[0.3, 'Yes'], [None, 'Not really']],\n            'basis': 'value'\n        }\n    }]\n\n    # 4. Plotting\n    # Setup figure for phone-width card\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # Plot Kitchen Temperature\n    ax.plot(df.index, df['Kitchen'], label='Kitchen Temperature', color='#ff7f0e')\n\n    # Plot Basement Temperature\n    ax.plot(df.index, df['Basement'], label='Basement Temperature', color='#1f77b4')\n\n    # Set titles and labels\n    plt.title('Kitchen and basement temperature correlation', fontsize=15)\n    \n    # Use the unit from the first series found (assuming consistency)\n    unit = data['history_series'][0].get('unit') or data['history_series'][1].get('unit')\n    ylabel_text = f'Temperature ({unit})' if unit else 'Temperature'\n    ax.set_ylabel(ylabel_text, fontsize=13)\n    ax.set_xlabel('Time', fontsize=13)\n\n    # Format x-axis to show readable time format\n    fig.autofmt_xdate()\n\n    # Add legend\n    ax.legend(fontsize=11)\n\n    # Save the figure\n    plt.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 5. Return Metadata\n    metadata = {\n        'title': 'Kitchen and basement temperature correlation',\n        'series_plotted': ['sensor.kitchen_temperature', 'sensor.basement_temperature'],\n        'warnings': [],\n        'answer_text': answer_text,\n        'claims': claims\n    }\n    return metadata"
+  },
+  "corr::intent::run2": {
+   "case": "corr",
+   "arm": "intent",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 25.8,
+     "loc": 98,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "kind": "correlation",
+    "fired": true,
+    "why": "coefficient 1.00 in answer",
+    "answer_text": "The correlation coefficient between kitchen and basement temperatures is 1.00, suggesting a positive relationship.",
+    "n_claims": 1
+   },
+   "lines": [
+    {
+     "n": 288,
+     "mean": 71.0,
+     "std": 2.8285471830370206,
+     "min": 67.0,
+     "max": 75.0,
+     "label": "Kitchen Temperature"
+    },
+    {
+     "n": 288,
+     "mean": 64.0,
+     "std": 1.4137740075572347,
+     "min": 62.0,
+     "max": 66.0,
+     "label": "Basement Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom scipy.stats import pearsonr\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a time series chart showing the correlation between kitchen and basement temperatures.\n    \"\"\"\n    # 1. Data Preparation\n    df_kitchen = pd.DataFrame(data['history_series'][0]['points'])\n    df_kitchen['ts'] = pd.to_datetime(df_kitchen['ts_epoch_ms'], unit='ms')\n    df_kitchen = df_kitchen.set_index('ts')[['value']]\n    df_kitchen.columns = ['Kitchen']\n\n    df_basement = pd.DataFrame(data['history_series'][1]['points'])\n    df_basement['ts'] = pd.to_datetime(df_basement['ts_epoch_ms'], unit='ms')\n    df_basement = df_basement.set_index('ts')[['value']]\n    df_basement.columns = ['Basement']\n\n    df = pd.concat([df_kitchen, df_basement], axis=1)\n\n    # 2. Correlation Calculation\n    # Calculate Pearson correlation coefficient and p-value\n    try:\n        correlation, p_value = pearsonr(df['Kitchen'], df['Basement'])\n    except ValueError:\n        correlation = np.nan\n        p_value = np.nan\n\n    # 3. Answer Text and Claims Generation\n    # Threshold for correlation strength\n    CORR_THRESHOLD = 0.3\n    \n    # Determine verdict\n    if pd.isna(correlation):\n        verdict = \"Could not calculate correlation due to insufficient or missing data.\"\n        answer_text = \"The correlation could not be determined.\"\n        claims = []\n    elif abs(correlation) > CORR_THRESHOLD:\n        verdict = 'Yes' if correlation > 0 else 'No' # Simple directional verdict based on sign\n        answer_text = f'The correlation coefficient between kitchen and basement temperatures is {correlation:.2f}, suggesting a {(\"positive\" if correlation > 0 else \"negative\") if correlation != 0 else \"no\"} relationship.'\n        claims = [{\n            'metric': 'pearson_r', \n            'inputs': ['sensor.kitchen_temperature', 'sensor.basement_temperature'], \n            'value': correlation, \n            'verdict': 'Yes' if abs(correlation) > 0.3 else 'Not really', \n            'rule': {'bands': [[0.3, 'Yes'], [None, 'Not really']], 'basis': 'value'}\n        }]\n    else:\n        verdict = 'Not really'\n        answer_text = f'The correlation coefficient between kitchen and basement temperatures is {correlation:.2f}, which is not strongly correlated.'\n        claims = [{\n            'metric': 'pearson_r', \n            'inputs': ['sensor.kitchen_temperature', 'sensor.basement_temperature'], \n            'value': correlation, \n            'verdict': 'Yes' if abs(correlation) > 0.3 else 'Not really', \n            'rule': {'bands': [[0.3, 'Yes'], [None, 'Not really']], 'basis': 'value'}\n        }]\n\n    # 4. Plotting\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # Plot Kitchen Temperature\n    ax.plot(df.index, df['Kitchen'], label='Kitchen Temperature', color='tab:red')\n    \n    # Plot Basement Temperature\n    ax.plot(df.index, df['Basement'], label='Basement Temperature', color='tab:blue')\n\n    # Formatting\n    title = \"Kitchen and basement temperature correlation\"\n    ax.set_title(title, fontsize=15)\n    \n    # Use the unit from the first series for the Y-axis label\n    unit = data['history_series'][0].get('unit')\n    ylabel = f'Temperature ({unit})' if unit else 'Temperature'\n    ax.set_ylabel(ylabel, fontsize=13)\n    ax.set_xlabel(\"Time\", fontsize=13)\n    \n    # Improve x-axis date formatting\n    plt.gcf().autofmt_xdate()\n\n    # Legend\n    ax.legend(fontsize=11)\n    \n    # 5. Saving\n    plt.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 6. Return Metadata\n    metadata = {\n        'title': title,\n        'series_plotted': ['sensor.kitchen_temperature', 'sensor.basement_temperature'],\n        'warnings': [],\n        'answer_text': answer_text,\n        'claims': claims\n    }\n    return metadata"
+  },
+  "roll::baseline::run1": {
+   "case": "roll",
+   "arm": "baseline",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 32.7,
+     "loc": 106,
+     "ok": false,
+     "offlist_imports": [],
+     "error": "AttributeError: 'tuple' object has no attribute 'get_label'"
+    },
+    {
+     "n": 1,
+     "gen_s": 39.6,
+     "loc": 95,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "kind": "smoothed",
+    "fired": false,
+    "why": "line stds [1.88] vs raw 1.88 \u2014 no smoothing",
+    "answer_text": null,
+    "n_claims": 0
+   },
+   "lines": [
+    {
+     "n": 288,
+     "mean": 70.96,
+     "std": 1.879023830491661,
+     "min": 67.0,
+     "max": 74.88,
+     "label": "Kitchen Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom matplotlib.patches import Patch\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders an Isolinear chart from history_series data and saves it to output_path.\n    \"\"\"\n    # 1. Setup Figure\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # Metadata tracking\n    series_plotted = []\n    line_handles = []\n    patch_handles = []\n    \n    # 2. Plot Derived Intervals (Background Bands)\n    derived_intervals = data.get('derived_intervals', [])\n    for band in derived_intervals:\n        start_ms = band['start_ms']\n        end_ms = band['end_ms']\n        color = band['color']\n        label = band['label']\n        \n        # Convert epoch milliseconds to pandas datetime\n        start_dt = pd.to_datetime(start_ms, unit='ms')\n        end_dt = pd.to_datetime(end_ms, unit='ms')\n        \n        # Draw background span\n        ax.axvspan(start_dt, end_dt, color=color, alpha=0.3, zorder=0)\n        \n        # Prepare legend patch for the band\n        patch_handles.append(Patch(facecolor=color, alpha=0.3, label=label))\n\n    # 3. Plot Numeric History Series\n    for series_data in data['history_series']:\n        entity_id = series_data['entity_id']\n        kind = series_data['kind']\n        unit = series_data.get('unit', '')\n        \n        if kind == 'numeric':\n            points = series_data['points']\n            \n            # Extract timestamps and values\n            ts_epoch_ms = [p['ts_epoch_ms'] for p in points]\n            values = [p['value'] for p in points]\n            \n            # Convert timestamps to datetime objects\n            x_dates = pd.to_datetime(ts_epoch_ms, unit='ms')\n            \n            # Plot the line\n            line, = ax.plot(x_dates, values, label=series_data['label'], zorder=5)\n            \n            # Track metadata and legend handle\n            series_plotted.append(series_data['label'])\n            line_handles.append(line)\n\n    # 4. Set Titles and Labels\n    title = data['chart_spec']['title']\n    ax.set_title(title, fontsize=15)\n    \n    # Determine Y-axis label unit\n    y_unit = ''\n    if series_plotted:\n        # Find the unit associated with the first plotted numeric series\n        for series_data in data['history_series']:\n            if series_data['kind'] == 'numeric':\n                y_unit = series_data.get('unit', '')\n                break\n    \n    y_label = f'Value ({y_unit})' if y_unit else 'Value'\n    ax.set_ylabel(y_label, fontsize=13)\n    \n    # Set X-axis label (optional, but good practice)\n    ax.set_xlabel(\"Time\", fontsize=13)\n\n    # 5. Create Legend\n    # Combine line handles and patch handles for the legend\n    all_handles = line_handles + patch_handles\n    all_labels = [h.get_label() for h in line_handles] + [h.get_label() for h in patch_handles]\n    \n    # Create the legend\n    ax.legend(handles=all_handles, labels=all_labels, loc='upper left', fontsize=11)\n\n    # 6. Save the figure\n    fig.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 7. Return Metadata\n    return {\n        \"title\": data['chart_spec']['title'],\n        \"series_plotted\": series_plotted,\n        \"warnings\": data['history_series'][0].get('warnings', [])\n    }"
+  },
+  "roll::baseline::run2": {
+   "case": "roll",
+   "arm": "baseline",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 32.6,
+     "loc": 106,
+     "ok": false,
+     "offlist_imports": [],
+     "error": "AttributeError: 'tuple' object has no attribute 'get_label'"
+    },
+    {
+     "n": 1,
+     "gen_s": 47.9,
+     "loc": 100,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "kind": "smoothed",
+    "fired": false,
+    "why": "line stds [1.88] vs raw 1.88 \u2014 no smoothing",
+    "answer_text": null,
+    "n_claims": 0
+   },
+   "lines": [
+    {
+     "n": 288,
+     "mean": 70.96,
+     "std": 1.879023830491661,
+     "min": 67.0,
+     "max": 74.88,
+     "label": "Kitchen Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom matplotlib.patches import Patch\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders an Isolinear chart from history_series data and saves it to output_path.\n    \"\"\"\n    # 1. Setup Figure\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # Metadata tracking\n    series_plotted = []\n    line_handles = []\n    patch_handles = []\n    \n    # 2. Plot Derived Intervals (Background Bands)\n    derived_intervals = data.get('derived_intervals', [])\n    for band in derived_intervals:\n        start_ms = band['start_ms']\n        end_ms = band['end_ms']\n        color = band['color']\n        label = band['label']\n        \n        # Convert epoch milliseconds to pandas datetime\n        start_dt = pd.to_datetime(start_ms, unit='ms')\n        end_dt = pd.to_datetime(end_ms, unit='ms')\n        \n        # Draw background span\n        ax.axvspan(start_dt, end_dt, color=color, alpha=0.3, zorder=0)\n        \n        # Prepare legend patch for the band\n        patch_handles.append(Patch(facecolor=color, alpha=0.3, label=label))\n\n    # 3. Plot Numeric History Series\n    for series_data in data['history_series']:\n        entity_id = series_data['entity_id']\n        kind = series_data['kind']\n        unit = series_data.get('unit', '')\n        \n        if kind == 'numeric':\n            points = series_data['points']\n            \n            # Extract timestamps and values\n            ts_epoch_ms = [p['ts_epoch_ms'] for p in points]\n            values = [p['value'] for p in points]\n            \n            # Convert timestamps to datetime objects\n            x_dates = pd.to_datetime(ts_epoch_ms, unit='ms')\n            \n            # Plot the line\n            line, = ax.plot(x_dates, values, label=series_data['label'], zorder=5)\n            \n            # Track metadata and legend handle\n            series_plotted.append(series_data['label'])\n            line_handles.append(line)\n\n    # 4. Set Titles and Labels\n    title = data['chart_spec']['title']\n    ax.set_title(title, fontsize=15)\n    \n    # Determine Y-axis label unit\n    y_unit = ''\n    if series_plotted:\n        # Find the unit associated with the first plotted numeric series\n        for series_data in data['history_series']:\n            if series_data['kind'] == 'numeric':\n                y_unit = series_data.get('unit', '')\n                break\n    \n    y_label = f'Value ({y_unit})' if y_unit else 'Value'\n    ax.set_ylabel(y_label, fontsize=13)\n    \n    # Set X-axis label (optional, but good practice)\n    ax.set_xlabel(\"Time\", fontsize=13)\n\n    # 5. Create Legend\n    \n    # Combine line handles and patch handles\n    all_handles = line_handles + patch_handles\n    \n    # Combine labels\n    line_labels = [h.get_label() for h in line_handles]\n    patch_labels = [h.get_label() for h in patch_handles]\n    all_labels = line_labels + patch_labels\n    \n    # Create the legend\n    ax.legend(handles=all_handles, labels=all_labels, loc='upper left', fontsize=11)\n\n    # 6. Save the figure\n    fig.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 7. Return Metadata\n    return {\n        \"title\": data['chart_spec']['title'],\n        \"series_plotted\": series_plotted,\n        \"warnings\": data['history_series'][0].get('warnings', [])\n    }"
+  },
+  "roll::intent::run1": {
+   "case": "roll",
+   "arm": "intent",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 22.9,
+     "loc": 81,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "kind": "smoothed",
+    "fired": true,
+    "why": "line std 0.79 < 0.75\u00d7raw 1.88",
+    "answer_text": "The rolling average temperature over the observed period was 70.96\u00b0F. The temperature ranged from 67.00\u00b0F to 74.88\u00b0F.",
+    "n_claims": 0
+   },
+   "lines": [
+    {
+     "n": 288,
+     "mean": 70.94684177965168,
+     "std": 0.7919465614379132,
+     "min": 67.0,
+     "max": 72.38916666666667,
+     "label": "Rolling Average"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom scipy import stats\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a time series chart showing the rolling average of kitchen temperature.\n    \"\"\"\n    history_series = data['history_series']\n    \n    # 1. Identify the target series\n    series_id = \"sensor.kitchen_temperature\"\n    series_data = next((s for s in history_series if s['entity_id'] == series_id), None)\n\n    if series_data is None:\n        return {\"title\": \"Chart Error\", \"series_plotted\": [], \"warnings\": [\"Series data not found.\"]}\n\n    # 2. Prepare DataFrame\n    df = pd.DataFrame(history_series[0]['points'])\n    df['timestamp'] = pd.to_datetime(df['ts_epoch_ms'], unit='ms')\n    df['value'] = df['value']\n    df = df.set_index('timestamp').sort_index()\n\n    # 3. Compute Rolling Average (Window size for 2 days)\n    # Assuming the data points are sampled regularly (e.g., every 4 hours).\n    # 2 days = 48 hours. 48 / 4 = 12 points.\n    window_size = 12\n    \n    # Calculate rolling mean\n    rolling_avg = df['value'].rolling(window=window_size, min_periods=1).mean()\n    \n    # The rolling average is the derived series to plot\n    derived_series_name = \"Rolling Average\"\n    \n    # 4. Setup Plotting\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # Plot the derived rolling average\n    ax.plot(df.index, rolling_avg, label=derived_series_name, color='red', linewidth=2)\n    \n    # Optional: Plot raw data points lightly for context (if needed, but focusing on the derived result)\n    # ax.plot(df.index, df['value'], label='Raw Data', alpha=0.3, color='gray', linewidth=1)\n\n    # 5. Styling and Labels\n    unit = series_data['unit']\n    ax.set_title(\"Kitchen temperature, rolling average\", fontsize=15)\n    ax.set_ylabel(f'Temperature ({unit})', fontsize=13)\n    ax.set_xlabel(\"Time\", fontsize=13)\n    ax.legend(fontsize=11)\n    \n    # Improve date formatting on x-axis\n    plt.xticks(rotation=15, ha='right')\n    \n    # 6. Save Figure\n    plt.tight_layout()\n    plt.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    # 7. Generate Metadata and Answer Text\n    \n    # Calculate descriptive statistics for the answer text\n    mean_temp = df['value'].mean()\n    min_temp = df['value'].min()\n    max_temp = df['value'].max()\n    \n    # Answer text generation\n    answer_text = (\n        f\"The rolling average temperature over the observed period was {mean_temp:.2f}{unit}. \"\n        f\"The temperature ranged from {min_temp:.2f}{unit} to {max_temp:.2f}{unit}.\"\n    )\n    \n    metadata = {\n        \"title\": \"Kitchen temperature, rolling average\",\n        \"series_plotted\": [derived_series_name],\n        \"warnings\": [],\n        \"answer_text\": answer_text,\n        \"claims\": []\n    }\n    \n    return metadata"
+  },
+  "roll::intent::run2": {
+   "case": "roll",
+   "arm": "intent",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 22.7,
+     "loc": 70,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "kind": "smoothed",
+    "fired": true,
+    "why": "line std 0.75 < 0.75\u00d7raw 1.88",
+    "answer_text": "The average kitchen temperature over the observed period, smoothed by a rolling average, was 70.93\u00b0F.",
+    "n_claims": 0
+   },
+   "lines": [
+    {
+     "n": 288,
+     "mean": 70.92739924454206,
+     "std": 0.7486044531920065,
+     "min": 67.0,
+     "max": 72.0578125,
+     "label": "Rolling Average"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom scipy.stats import pearsonr\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a time series chart showing the rolling average of kitchen temperature.\n    \"\"\"\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # 1. Data Extraction and Preparation\n    history_series = data['history_series']\n    \n    # Identify the target series\n    target_series = next((s for s in history_series if s['entity_id'] == 'sensor.kitchen_temperature'), None)\n    \n    if not target_series:\n        return {\"title\": \"Kitchen temperature, rolling average\", \"series_plotted\": [], \"warnings\": [\"Target series not found.\"]}\n\n    points = target_series['points']\n    \n    # Create DataFrame\n    df = pd.DataFrame(points)\n    df['ts'] = pd.to_datetime(df['ts_epoch_ms'], unit='ms')\n    df = df.set_index('ts')[['value']].copy()\n    df.columns = ['temperature']\n\n    # 2. Compute Rolling Average\n    # The request asks for a rolling average over 2 days.\n    # The data points are sampled every 1.5 hours (1560000 ms).\n    # 2 days = 48 hours. 48 / 1.5 = 32 points.\n    WINDOW_SIZE = 32\n    \n    # Calculate rolling mean\n    rolling_avg = df['temperature'].rolling(window=WINDOW_SIZE, min_periods=1).mean()\n    \n    # 3. Plotting\n    # Plot the derived rolling average series\n    ax.plot(rolling_avg.index, rolling_avg, label='Rolling Average', color='red')\n    \n    # Optional: Plot raw data points lightly for context (if needed, but focusing on the derived result)\n    # ax.plot(df.index, df['temperature'], label='Raw Data', alpha=0.3, color='gray')\n\n    # 4. Styling and Labels\n    unit = target_series.get('unit', '')\n    ax.set_title(\"Kitchen temperature, rolling average\", fontsize=15)\n    ax.set_ylabel(f'Temperature ({unit})', fontsize=13)\n    ax.set_xlabel(\"Time\", fontsize=13)\n    ax.legend(fontsize=11)\n    \n    # Improve date formatting on x-axis\n    plt.xticks(rotation=45, ha='right')\n    \n    # 5. Saving the figure\n    fig.savefig(output_path, format='png', bbox_inches='tight')\n\n    # 6. Metadata and Answer Text Generation\n    \n    # Calculate the overall mean of the rolling average for the answer text\n    overall_mean = rolling_avg.mean()\n    \n    answer_text = f\"The average kitchen temperature over the observed period, smoothed by a rolling average, was {overall_mean:.2f}{unit}.\"\n    \n    return {\n        \"title\": \"Kitchen temperature, rolling average\",\n        \"series_plotted\": [\"Rolling Average\"],\n        \"warnings\": [],\n        \"answer_text\": answer_text\n    }"
+  },
+  "dev::baseline::run1": {
+   "case": "dev",
+   "arm": "baseline",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 35.5,
+     "loc": 117,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "kind": "line_mean",
+    "fired": false,
+    "why": "line means [71.0, 64.0] \u2014 none near 0.0",
+    "answer_text": null,
+    "n_claims": 0
+   },
+   "lines": [
+    {
+     "n": 144,
+     "mean": 71.0,
+     "std": 2.8285471830370206,
+     "min": 67.0,
+     "max": 75.0,
+     "label": "Kitchen Temperature"
+    },
+    {
+     "n": 144,
+     "mean": 64.0,
+     "std": 1.4137740075572347,
+     "min": 62.0,
+     "max": 66.0,
+     "label": "Basement Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom matplotlib.patches import Patch\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders an Isolinear chart from the provided data structure.\n    \"\"\"\n    # 1. Setup Figure\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # --- 2. Process Derived Intervals (Shaded Bands) ---\n    derived_intervals = data.get('derived_intervals', [])\n    band_patches = {}\n    \n    for band in derived_intervals:\n        start_ms = band['start_ms']\n        end_ms = band['end_ms']\n        color = band['color']\n        label = band['label']\n        \n        # Convert epoch milliseconds to pandas datetime\n        start_dt = pd.to_datetime(start_ms, unit='ms')\n        end_dt = pd.to_datetime(end_ms, unit='ms')\n        \n        # Draw background span (zorder=0)\n        ax.axvspan(start_dt, end_dt, color=color, alpha=0.3, zorder=0)\n        \n        # Collect unique band labels/colors for the legend\n        if label not in band_patches:\n            band_patches[label] = Patch(facecolor=color, alpha=0.3)\n\n    # --- 3. Process History Series (Lines) ---\n    series_plotted_labels = []\n    series_units = []\n    \n    # Use the first numeric series' unit for the primary Y-axis label, \n    # assuming consistency or using the first available unit.\n    primary_unit = \"\"\n    \n    for series_data in data['history_series']:\n        if series_data['kind'] == 'numeric':\n            entity_id = series_data['entity_id']\n            label = series_data['label']\n            unit = series_data['unit']\n            \n            # Check if this is the first numeric series to set the primary unit\n            if not series_units and unit:\n                primary_unit = unit\n            \n            # Extract points\n            points = series_data['points']\n            \n            # Prepare data for plotting\n            timestamps_ms = [p['ts_epoch_ms'] for p in points]\n            values = [p['value'] for p in points]\n            \n            # Convert timestamps to pandas datetime objects\n            x_data = pd.to_datetime(timestamps_ms, unit='ms')\n            \n            # Plot the line\n            ax.plot(x_data, values, label=label, zorder=2)\n            \n            series_plotted_labels.append(label)\n            series_units.append(unit)\n\n    # --- 4. Final Chart Styling and Legend ---\n    \n    # Title\n    chart_title = data['chart_spec']['title']\n    ax.set_title(chart_title, fontsize=15)\n    \n    # Y-axis Label\n    ylabel_text = f\"Value ({primary_unit})\" if primary_unit else \"Value\"\n    ax.set_ylabel(ylabel_text, fontsize=13)\n    \n    # X-axis Label (Optional, but good practice)\n    ax.set_xlabel(\"Time\", fontsize=13)\n\n    # Combine handles and labels for the legend\n    handles = []\n    labels = []\n    \n    # Add line handles\n    for label in series_plotted_labels:\n        # Find the corresponding line handle (matplotlib automatically handles this if we just use the label)\n        # We rely on the fact that ax.plot added the handles.\n        pass \n    \n    # Collect line handles and labels\n    line_handles, line_labels = ax.get_legend_handles_labels()\n    \n    # Add band handles and labels\n    for label, patch in band_patches.items():\n        handles.append(patch)\n        labels.append(label)\n        \n    # Combine all handles and labels\n    all_handles = line_handles + handles\n    all_labels = line_labels + labels\n    \n    # Create the legend\n    ax.legend(all_handles, all_labels, loc='upper right', fontsize=11, title=\"Legend\")\n\n    # Adjust layout and save\n    plt.tight_layout()\n    fig.savefig(output_path, format='png', bbox_inches='tight')\n    \n    # --- 5. Return Metadata ---\n    metadata = {\n        \"title\": chart_title,\n        \"series_plotted\": series_plotted_labels,\n        \"warnings\": []\n    }\n    \n    return metadata"
+  },
+  "dev::baseline::run2": {
+   "case": "dev",
+   "arm": "baseline",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 30.9,
+     "loc": 102,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "kind": "line_mean",
+    "fired": false,
+    "why": "line means [71.0, 64.0] \u2014 none near 0.0",
+    "answer_text": null,
+    "n_claims": 0
+   },
+   "lines": [
+    {
+     "n": 144,
+     "mean": 71.0,
+     "std": 2.8285471830370206,
+     "min": 67.0,
+     "max": 75.0,
+     "label": "Kitchen Temperature"
+    },
+    {
+     "n": 144,
+     "mean": 64.0,
+     "std": 1.4137740075572347,
+     "min": 62.0,
+     "max": 66.0,
+     "label": "Basement Temperature"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom matplotlib.patches import Patch\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders an Isolinear time series chart using matplotlib.\n    \"\"\"\n    # 1. Setup Figure\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # 2. Process Derived Intervals (Shaded Bands)\n    derived_intervals = data.get('derived_intervals', [])\n    legend_handles = []\n    \n    for band in derived_intervals:\n        start_ms = band['start_ms']\n        end_ms = band['end_ms']\n        color = band['color']\n        label = band['label']\n        \n        # Convert epoch milliseconds to pandas datetime\n        start_dt = pd.to_datetime(start_ms, unit='ms')\n        end_dt = pd.to_datetime(end_ms, unit='ms')\n        \n        # Draw background span (zorder=0)\n        ax.axvspan(start_dt, end_dt, color=color, alpha=0.3, zorder=0)\n\n    # 3. Process and Plot Numeric Series\n    series_plotted_names = []\n    \n    for series in data['history_series']:\n        if series['kind'] == 'numeric':\n            entity_id = series['entity_id']\n            label = series['label']\n            unit = series['unit']\n            points = series['points']\n            \n            # Extract data\n            timestamps_ms = [p['ts_epoch_ms'] for p in points]\n            values = [p['value'] for p in points]\n            \n            # Convert timestamps to datetime objects for plotting\n            x_data = pd.to_datetime(timestamps_ms, unit='ms')\n            y_data = values\n            \n            # Plot the line\n            line, = ax.plot(x_data, y_data, label=label, zorder=5)\n            series_plotted_names.append(label)\n\n    # 4. Set Labels and Title\n    chart_title = data['chart_spec']['title']\n    \n    # Determine Y-axis unit\n    # We use the unit from the first plotted series, or an empty string if none are plotted\n    y_unit = \"\"\n    if series_plotted_names:\n        # Find the unit associated with the first plotted series\n        for series in data['history_series']:\n            if series['kind'] == 'numeric':\n                y_unit = series['unit']\n                break\n    \n    ax.set_title(chart_title, fontsize=15)\n    ax.set_ylabel(f'Value ({y_unit})', fontsize=13)\n    ax.set_xlabel(\"Time\", fontsize=13)\n    \n    # 5. Create Legend Handles\n    \n    # Add line handles for plotted series\n    line_handles = [plt.Line2D([0], [0], color=l.get_color(), lw=2, label=l.get_label()) \n                     for l in ax.get_lines()]\n    \n    # Add patch handles for state bands\n    band_labels = set()\n    for band in derived_intervals:\n        band_labels.add(band['label'])\n    \n    # Use a set to ensure unique legend entries for bands\n    unique_band_patches = {}\n    for band in derived_intervals:\n        label = band['label']\n        if label not in unique_band_patches:\n            unique_band_patches[label] = Patch(facecolor=band['color'], alpha=0.3)\n\n    # Combine all handles for the legend\n    all_handles = line_handles + list(unique_band_patches.values())\n    all_labels = [l.get_label() for l in line_handles] + list(unique_band_patches.keys())\n\n    # 6. Finalize Plot and Save\n    ax.legend(handles=all_handles, labels=all_labels, loc='best', fontsize=11)\n    \n    fig.savefig(output_path, format='png', bbox_inches='tight')\n    \n    # 7. Return Metadata\n    metadata = {\n        \"title\": chart_title,\n        \"series_plotted\": series_plotted_names,\n        \"warnings\": []\n    }\n    return metadata"
+  },
+  "dev::intent::run1": {
+   "case": "dev",
+   "arm": "intent",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 33.0,
+     "loc": 139,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "kind": "line_mean",
+    "fired": true,
+    "why": "plotted line mean 0.00 \u2248 0.0",
+    "answer_text": "sensor.kitchen_temperature deviated by an average of 0.00 \u00b0F. sensor.basement_temperature deviated by an average of -0.00 \u00b0F.",
+    "n_claims": 2
+   },
+   "lines": [
+    {
+     "n": 144,
+     "mean": 0.0,
+     "std": 2.8285471830370206,
+     "min": -4.0,
+     "max": 4.0,
+     "label": "sensor.kitchen_temperature Deviation"
+    },
+    {
+     "n": 144,
+     "mean": -4.9343245538895844e-17,
+     "std": 1.4137740075572347,
+     "min": -2.0,
+     "max": 2.0,
+     "label": "sensor.basement_temperature Deviation"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a time series chart showing the deviation of multiple sensors from their respective averages.\n    \"\"\"\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n\n    # --- Data Processing and Deviation Calculation ---\n    \n    history_series = data['history_series']\n    \n    # Store calculated deviations and metadata\n    deviation_data = {}\n    claim_inputs = []\n    \n    # Process each numeric sensor\n    for i, series_data in enumerate(history_series):\n        if series_data['kind'] != 'numeric':\n            continue\n\n        entity_id = series_data['entity_id']\n        unit = series_data['unit']\n        \n        # 1. Extract full data\n        timestamps = [p['ts_epoch_ms'] for p in series_data['points']]\n        values = [p['value'] for p in series_data['points']]\n        \n        df = pd.DataFrame({'timestamp': timestamps, 'value': values})\n        df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')\n        \n        # 2. Calculate Mean\n        mean_value = np.mean(values)\n        \n        # 3. Calculate Deviation Series\n        df['deviation'] = df['value'] - mean_value\n        \n        deviation_data[entity_id] = df\n        \n        # 4. Calculate mean of the deviation (for the claim)\n        mean_deviation = np.mean(df['deviation'])\n        \n        claim_inputs.append({\n            'entity_id': entity_id,\n            'mean_deviation': mean_deviation,\n            'unit': unit\n        })\n\n    # --- Plotting ---\n    \n    # Plot the derived deviation series\n    for entity_id, df in deviation_data.items():\n        ax.plot(df['datetime'], df['deviation'], label=f'{entity_id} Deviation', linewidth=1.5)\n\n    # --- Overlays (Background Bands) ---\n    derived_intervals = data.get('derived_intervals', [])\n    for band in derived_intervals:\n        ax.axvspan(\n            pd.to_datetime(band['start_ms'], unit='ms'), \n            pd.to_datetime(band['end_ms'], unit='ms'), \n            color=band['color'], \n            alpha=0.3, \n            zorder=0\n        )\n\n    # --- Styling and Labels ---\n    \n    # Determine the primary unit for the Y-axis label\n    # Since we are plotting deviations, the unit remains the original unit.\n    y_unit = history_series[0]['unit'] if history_series and history_series[0]['unit'] else ''\n    ax.set_ylabel(f'Deviation from Average ({y_unit})', fontsize=13)\n    ax.set_xlabel('Time', fontsize=13)\n    \n    # Title\n    ax.set_title('Temperature Deviation from Average', fontsize=15)\n    \n    # Legend\n    # We only plot the deviation, so the legend should reflect the sensors.\n    handles, labels = ax.get_legend_handles_labels()\n    # Filter to keep only the deviation lines\n    unique_labels = sorted(list(set(labels)))\n    ax.legend(handles, unique_labels, loc='upper right', fontsize=10)\n\n    # --- Metadata Generation ---\n    \n    # 1. Answer Text Generation\n    answer_parts = []\n    for item in claim_inputs:\n        entity_id = item['entity_id']\n        mean_dev = item['mean_deviation']\n        unit = item['unit']\n        \n        # Format the deviation value for the sentence\n        deviation_str = f'{mean_dev:.2f}'\n        \n        answer_parts.append(f'{entity_id} deviated by an average of {deviation_str} {unit}.')\n    \n    answer_text = \" \".join(answer_parts)\n    \n    # 2. Claims Generation\n    claims = []\n    for item in claim_inputs:\n        entity_id = item['entity_id']\n        mean_dev = item['mean_deviation']\n        \n        # The claim metric is 'mean_deviation'\n        metric = 'mean_deviation'\n        \n        # The verdict is based on whether the mean deviation is close to zero.\n        # We use a threshold of 0.1 for a noticeable deviation.\n        if abs(mean_dev) > 0.1:\n            verdict = 'Yes'\n        else:\n            verdict = 'No'\n            \n        claims.append({\n            'metric': metric,\n            'inputs': [entity_id],\n            'value': mean_dev,\n            'verdict': verdict,\n            'rule': {\n                'bands': [[0.1, 'Yes'], [None, 'No']], \n                'basis': 'value'\n            }\n        })\n\n    # --- Saving Figure ---\n    plt.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    return {\n        'title': 'Temperature deviation from average',\n        'series_plotted': ['sensor.kitchen_temperature', 'sensor.basement_temperature'],\n        'warnings': [],\n        'answer_text': answer_text,\n        'claims': claims\n    }"
+  },
+  "dev::intent::run2": {
+   "case": "dev",
+   "arm": "intent",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 34.8,
+     "loc": 141,
+     "ok": true,
+     "offlist_imports": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "kind": "line_mean",
+    "fired": true,
+    "why": "plotted line mean 0.00 \u2248 0.0",
+    "answer_text": "The temperature deviations were generally The temperatures showed moderate deviation from the average, indicating noticeable fluctuations.",
+    "n_claims": 1
+   },
+   "lines": [
+    {
+     "n": 144,
+     "mean": 0.0,
+     "std": 2.8285471830370206,
+     "min": -4.0,
+     "max": 4.0,
+     "label": "Kitchen Temperature Deviation"
+    },
+    {
+     "n": 144,
+     "mean": -4.9343245538895844e-17,
+     "std": 1.4137740075572347,
+     "min": -2.0,
+     "max": 2.0,
+     "label": "Basement Temperature Deviation"
+    },
+    {
+     "n": 2,
+     "mean": 0.0,
+     "std": 0.0,
+     "min": 0.0,
+     "max": 0.0,
+     "label": "_child2"
+    }
+   ],
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a time series chart showing the deviation of multiple sensors from their average.\n    \"\"\"\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n    \n    # --- Data Preparation and Calculation ---\n    \n    series_data = {}\n    all_timestamps = []\n    \n    # 1. Calculate Mean and Deviation for each sensor\n    for series_info in data['history_series']:\n        entity_id = series_info['entity_id']\n        unit = series_info['unit']\n        points = series_info['points']\n        \n        if not points:\n            continue\n\n        # Extract data into pandas DataFrame\n        timestamps = [p['ts_epoch_ms'] for p in points]\n        values = [p['value'] for p in points]\n        \n        df = pd.DataFrame({'timestamp_ms': timestamps, 'value': values})\n        \n        # Calculate the mean\n        mean_value = df['value'].mean()\n        \n        # Calculate the deviation series\n        df['deviation'] = df['value'] - mean_value\n        \n        series_data[entity_id] = {\n            'df': df,\n            'unit': unit,\n            'label': series_info['label']\n        }\n        \n        all_timestamps.extend(timestamps)\n\n    # 2. Plotting the Derived Series (Deviation)\n    \n    # Determine the primary unit for the Y-axis label\n    y_unit = \"\"\n    if series_data:\n        # Use the unit from the first sensor for the main label, or combine them if different\n        # Since the request implies comparing them, we use the unit from the first one found.\n        y_unit = next(iter(series_data.values()))['unit']\n    \n    for entity_id, data_info in series_data.items():\n        df = data_info['df']\n        label = data_info['label']\n        \n        # Plot the deviation\n        ax.plot(df['timestamp_ms'], df['deviation'], label=f'{label} Deviation', linewidth=1.5)\n\n    # --- Styling and Labels ---\n    \n    ax.set_title(\"Temperature Deviation from Average\", fontsize=15)\n    ax.set_ylabel(f'Deviation ({y_unit})', fontsize=13)\n    ax.set_xlabel(\"Time\", fontsize=13)\n    \n    # Format x-axis ticks to be readable (optional, but good practice)\n    # We rely on pandas/matplotlib default formatting for time series\n    \n    # Add a zero line for reference\n    ax.axhline(0, color='gray', linestyle='--', linewidth=0.8)\n    \n    ax.legend(fontsize=10)\n    \n    # --- Saving the Figure ---\n    fig.savefig(output_path, format='png', bbox_inches='tight')\n\n    # --- Metadata Generation ---\n    \n    # Calculate summary stats for answer text and claims\n    summary_stats = {}\n    for entity_id, data_info in series_data.items():\n        df = data_info['df']\n        mean = df['value'].mean()\n        max_dev = df['deviation'].abs().max()\n        min_dev = df['deviation'].min()\n        max_dev_abs = df['deviation'].abs().max()\n        \n        summary_stats[entity_id] = {\n            'mean': mean,\n            'max_deviation_abs': max_dev_abs,\n            'min_deviation': min_dev,\n            'max_deviation': max_dev\n        }\n\n    # Generate answer text\n    # We will summarize the overall deviation magnitude.\n    \n    # Check if all deviations were small (e.g., within +/- 2 degrees)\n    all_max_devs = [summary_stats[eid]['max_deviation_abs'] for eid in summary_stats]\n    overall_max_deviation = max(all_max_devs) if all_max_devs else 0\n    \n    if overall_max_deviation < 2.0:\n        verdict_text = \"The temperatures remained relatively stable, with deviations generally staying within a narrow range.\"\n    elif overall_max_deviation < 5.0:\n        verdict_text = \"The temperatures showed moderate deviation from the average, indicating noticeable fluctuations.\"\n    else:\n        verdict_text = \"The temperatures experienced significant deviation from the average, suggesting large swings throughout the period.\"\n\n    answer_text = f\"The temperature deviations were generally {verdict_text}\"\n\n    # Generate claims list\n    claims = []\n    \n    # Metric: deviation_from_mean\n    # Inputs: All entity IDs\n    # Value: The average deviation magnitude (or just the overall max deviation for the claim)\n    \n    # We use the overall max deviation as the primary metric value for the claim\n    claims.append({\n        'metric': 'deviation_from_mean',\n        'inputs': list(summary_stats.keys()),\n        'value': overall_max_deviation,\n        'verdict': verdict_text,\n        'rule': {\n            'bands': [\n                [5.0, 'Significant Deviation'], \n                [2.0, 'Moderate Deviation'], \n                [None, 'Small Deviation']\n            ], \n            'basis': 'value'\n        }\n    })\n\n    return {\n        'title': \"Temperature deviation from average\",\n        'series_plotted': list(summary_stats.keys()),\n        'warnings': [],\n        'answer_text': answer_text,\n        'claims': claims\n    }"
+  }
+ },
+ "tally": {
+  "baseline": {
+   "runs": 12,
+   "executed": 12,
+   "fired": 0
+  },
+  "intent": {
+   "runs": 12,
+   "executed": 12,
+   "fired": 12
+  }
+ }
+}
