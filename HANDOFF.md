@@ -2,6 +2,123 @@
 
 ## Current project phase
 
+### 2026-07-06 (16th session) — Open-queue D + E: retired the bare-° rule (eval-gated, 0.2.22) and built the Claude-judged live e2e harness — which proved the model-authored analysis layer doesn't fire live
+
+Colin picked open-queue **(o)** and **(p)**. Both shipped; the harness (E) then
+did exactly what it was designed to do — caught accept≠quality failures that
+synthetic backend checks miss. `main` is **0.2.22**, **commit-only** (not
+pushed). HA still runs 0.2.20; the CT103 `:dev` worker was rebuilt this session
+and carries a worker-side fix live.
+
+**(D) Retired the bare-non-ASCII codegen prompt rule (0.2.22).** The 0.2.13 rule
+("never use `°`/`%` as a bare Python token") was failure-driven; the 0.2.17
+unit-grounding rule (model reads the unit from `history_series[i]['unit']`, a str
+variable) keeps `°` out of bare literals structurally, and 0.2.14 `source_line`
+recovers the class if it recurs. The existing `evals/codegen_reliability.py`
+can't test this — it mirrors stale packet-5 rules and ASCII `degF` units, so the
+`°` class can't even trigger. New `evals/codegen_rule_gate.py` drives the
+**production** codegen path (real `generate_chart_code`/`repair_chart_code`, the
+real `_CODEGEN_PROMPT_RULES` and `_codegen_request_view` projection) with
+production-shaped `°F`/`%`-unit `ts_epoch_ms` data + ADR-0033 `derived_intervals`,
+6 cases × with/without the rule × 3 runs, against live gemma4:e4b + a live worker.
+**36 runs, ZERO bare-non-ASCII incidents in either arm (both 18/18 accepted).**
+The rule gated nothing, so it's dropped; findings + results committed as
+evidence. Integration-only, ships via HACS.
+
+**(E) Built the Claude-in-the-loop live e2e harness `evals/e2e_pipeline_harness.py`.**
+It drives the REAL card path — `isolinear/v1/job/start` + `job/snapshot` polling
+over the HA WebSocket API, the same commands the card sends — for a fixed prompt
+set against live HA + worker + gemma, captures the served PNG (from
+`chart.image_url`) plus structured metadata (`render_path`,
+`render_fallback_reason`, `answer_text`, `answer_verification`, failure codes,
+phase timeline) into gitignored `evals/e2e_runs/<ts>/` with a `REPORT.md`
+scaffold. **No programmatic assertions** (Colin's scope): Claude reads the PNGs +
+manifest and judges each case by looking.
+
+**Two bugs the harness found on its first run (vs live 0.2.20):**
+1. **Worker HTTP 500 on off-contract model metadata (fixed, worker-side).** A
+   generated non-string `render_metadata.warnings` entry made the worker's OWN
+   `validate_contract("render-result", …)` raise, which propagated as an HTTP
+   500 — the integration treats that as an unrepairable transport fault and falls
+   back to Pillow with ZERO repair attempts. The same trap applies to
+   model-stringified claim `value`s (`'3.0°F'`, measured in the 8th-session
+   benchmark). Fix in `worker/isolinear_worker/codegen_sandbox.py`:
+   `_normalize_render_metadata` coerces every model-supplied field to its contract
+   type (`_coerce_string_list`; off-type `title`/`x_min`/`x_max` fall back);
+   `_coerce_claims` sanitizes each claim (plainly-numeric string `value`
+   converted, otherwise the claim is dropped → the answer surfaces with the
+   unverified caveat downstream, never a fabricated value); and a residual leak
+   degrades to a structured, repairable `invalid_render_metadata` failure inside
+   the normal `200` flow instead of raising. Also allowlisted
+   `matplotlib.patches`/`lines`/`ticker`/`colors` (exact-match, same pure-plotting
+   trust tier as `matplotlib.dates`): the ADR-0033 legend hint "e.g. a Patch"
+   steered every gemma generation to `import matplotlib.patches`, burning 1–2
+   repair attempts on `import_not_allowlisted`. This is worker-side — I rebuilt
+   `isolinear-worker:dev` on CT103 and force-recreated the compose service
+   (healthy; `_coerce_claims` + `matplotlib.patches` verified in-container).
+2. **The >2-day state-overlay tiering wall** (open-queue (t), see below).
+
+**Then Colin asked to expand the prompt set** — humidity/`%`, a state timeline, a
+renderable short-window overlay, transforms, correlation, heatmap, histogram,
+smoothing → **18 prompts** — and authorized deploying the worker fix + a full
+live run. **Second run (18 prompts, worker fix live, HA 0.2.20): 8 PASS / 2
+PARTIAL / 8 FAIL, zero Pillow fallbacks** (the worker fix held; e2e-01 flipped
+Pillow→codegen).
+
+**HEADLINE FINDING — the model-authored ANALYSIS layer does not fire on the live
+floor model (open-queue (q)).** Every transform / correlation / question prompt
+collapsed to plotting the RAW input series with an analysis-flavored title and an
+EMPTY `answer_text`/claims: the average of two temps (e2e-11) plotted both raw
+lines; "how much warmer is the kitchen" (e2e-12) plotted two raw lines with no
+delta and no answer; "are they correlated?" (e2e-13) plotted two raw lines titled
+"…Correlation" with no coefficient or scatter; deviation-from-average (e2e-18)
+plotted raw lines, not deviations; rolling average (e2e-17) showed imperceptible
+smoothing; the plain answer question (e2e-06) returned an empty `answer_text`.
+Cross-metric temp/humidity correlation (e2e-14) and the heatmap (e2e-15) failed
+even earlier, at the planner (`model_provider_planner_not_chart_spec_ready`). So
+the ADR-0031 tranche-1 answer + transforms capability — marked "shipped" but
+proven only by hand-fed eval prompts — does NOT happen end-to-end through the
+real planner + gemma4:e4b. This is the gap between Isolinear's "data-analysis
+assistant" identity and its live behavior, and the biggest follow-up.
+
+**WIN — ADR-0033 overlay bands proven live end-to-end at short window (e2e-10).**
+"Show the kitchen temperature and when the AC was running today" rendered a
+kitchen `°F` line + shaded cooling bands drawn as `axvspan`, no state series
+drawn as a line — the exact 0.2.21 fix, on the real card→planner→overlay→codegen
+path. e2e-04 (the same overlay over five days) failed only on the tiering wall,
+not on ADR-0033.
+
+**Secondary render bugs.** Binary/timeline entity renders EMPTY through codegen
+(e2e-09, open-queue (r)): `binary_sensor.kitchen_door` was drawn as an empty
+numeric line with a degenerate multi-year x-axis (2024→2028) — codegen has no
+timeline handling, so a state entity that reaches it produces nothing (invariant
+#9 says these route to a raw-states step track). Histogram misplaces the unit
+(e2e-16, open-queue (s)): "Density (°F)" on the y, "Value" on the x — the `°F`
+belongs on the x-axis.
+
+**Verification.** Suite **437 passed / 4 skipped** (+3 worker coercion tests);
+worker evals `codegen_sandbox` + `worker_http_server` PASS; integration evals
+`codegen_generation_path` + `model_authored_analysis` PASS. Specs updated:
+`worker-http-server` (the 500-hardening — model metadata coerced + degraded, not
+raised), `answer-grounding-check` (the claims-coercion deviation to the "passed
+through unchanged" language), `model-authored-analysis` (the matplotlib-submodule
+allowlist addendum). Reports: `evals/e2e_runs/20260706T035420Z/REPORT.md`
+(judged, 18 cases), `evals/prompts/rule_gate_findings.md`.
+
+**Deploy state.** `main` is 0.2.22 (rule retirement), **commit-only — not
+pushed**. The CT103 `:dev` worker carries the metadata-500 + allowlist fix live
+(worker-side, no version bump — a future HACS integration ship is independent).
+HA still runs 0.2.20 (Colin hasn't redownloaded since 0.2.20). The live e2e
+harness + the rule-gate eval are new standing tools.
+
+**Next session.** open-queue **(q)** is the headline — design how an analysis
+intent flows prompt → planner → codegen so transforms/answers actually fire live
+(then eval against the harness's analysis prompts). Then **(r)** timeline routing,
+**(m)** raise `max_codegen_repair_attempts`, **(t)** the >2-day overlay tiering
+wall, and the deploy of 0.2.22 via HACS. Consider whether the worker metadata fix
+warrants its own version bump + a note that HA and the worker image are now
+slightly out of lockstep.
+
 ### 2026-07-05 (15th session) — Fixed the 0.2.18 empty-chart / wrong-unit regression: a bounded real-points preview grounds the floor model, and the series unit is set deterministically from the catalog (0.2.18→0.2.19)
 
 Colin retested **0.2.18** and got charts that rendered **COMPLETE but empty** —
