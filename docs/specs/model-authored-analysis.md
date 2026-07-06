@@ -275,6 +275,16 @@ thread pins from `2bb2747` apply). Tier-2 libs (`statsmodels`, `scikit-learn`)
 are **not** added here — they wait for a demanding eval prompt family (ADR-0031
 D6).
 
+**Addendum (2026-07-06):** the pure-plotting matplotlib submodules
+`matplotlib.patches`, `matplotlib.lines`, `matplotlib.ticker`, and
+`matplotlib.colors` are allowlisted exact-match alongside `matplotlib.dates` —
+an under-specified-allowlist omission, not a loosening (same trust tier as
+matplotlib itself; no I/O). Live-driven: the ADR-0033 legend rule's "e.g. a
+Patch" hint steered every gemma generation to `import matplotlib.patches`,
+which burned 1–2 repair attempts per render on `import_not_allowlisted` (and
+would one-shot to the Pillow fallback at the default
+`max_codegen_repair_attempts: 1`).
+
 ### 7. Tranche-1 transforms (ADR-0031 D5)
 
 The "model-authored transforms" scope promised by ADR-0030 D4 lands as

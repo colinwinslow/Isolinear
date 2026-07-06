@@ -233,6 +233,16 @@ unverified-caveat by construction.
 - `render-result.schema.json`: `render_metadata.claims` — optional array; claim
   objects nest `window`/`params`/`anchor`. Passed through
   `_normalize_render_metadata` like `answer_text`. Diagnostics, not display data.
+  **Deviation (2026-07-06, live-driven):** the passthrough is no longer fully
+  "unchanged" — `_coerce_claims` sanitizes each claim to the contract shape
+  first (plainly-numeric string `value` converted, otherwise the claim is
+  dropped; off-type optional fields removed; non-dict entries dropped). The
+  schema requires `value: number|null`, and a model-stringified value (measured
+  live in the proof-req-#4 benchmark) made the worker's own response validation
+  raise as an HTTP 500 — an unrepairable transport fault to the integration. A
+  dropped claim degrades to the unverified caveat downstream (inability to
+  check is a caveat, never a fabricated value — the D3/three-state discipline
+  is unchanged).
 - `integration-job-snapshot.schema.json`: optional `chart.answer_verification`
   (`"verified"` | `"unverified"`) — the card's caveat-state hook; a withheld
   answer is simply an absent `answer_text`. Distinct from D8b's

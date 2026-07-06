@@ -319,8 +319,12 @@ def default_codegen_sandbox_policy() -> dict[str, Any]:
             "json",
             "math",
             "matplotlib",
+            "matplotlib.colors",
             "matplotlib.dates",
+            "matplotlib.lines",
+            "matplotlib.patches",
             "matplotlib.pyplot",
+            "matplotlib.ticker",
             "numpy",
             "pandas",
             "scipy",
@@ -676,7 +680,23 @@ def invoke_codegen_sandbox(
         "error": None,
         "render_metadata": metadata,
     }
-    validate_contract("render-result", render_result)
+    # Defense-in-depth: normalization coerces every model-supplied field to its
+    # contract type, so this validation should never fire — but if a shape still
+    # leaks through, degrade to a structured, repairable failure. An unhandled
+    # ContractValidationError here propagates as an HTTP 500, which the
+    # integration treats as an unrepairable transport fault (observed live:
+    # a non-string warnings entry -> 500 -> surfaced Pillow fallback with no
+    # repair attempt).
+    try:
+        validate_contract("render-result", render_result)
+    except ContractValidationError as exc:
+        return _new_codegen_failure(
+            request_id=request_id,
+            code="invalid_render_metadata",
+            message="Generated code returned metadata that violates the render-result contract.",
+            codegen_attempts=attempt_number,
+            details={"contract_violation": str(exc)},
+        )
     return render_result
 
 
@@ -1027,6 +1047,59 @@ def _parse_runner_outcome(completed: subprocess.CompletedProcess[str]) -> dict[s
     }
 
 
+def _coerce_string_list(value: Any) -> list[str]:
+    """Coerce a model-supplied list-ish value to the list-of-strings the
+    render-result contract requires.
+
+    The generated code authors these fields freely (a warning entry has been
+    observed live as a dict), and an off-type element must not be able to fail
+    the worker's own response validation — that surfaces as an HTTP 500 the
+    integration treats as an unrepairable transport fault.
+    """
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [item if isinstance(item, str) else str(item) for item in value]
+
+
+def _coerce_claims(claims: Any) -> list[dict[str, Any]] | None:
+    """Sanitize the model-authored claims ledger to the contract shape.
+
+    Claims are free-authored by the floor model and the schema requires
+    `metric: str`, `inputs: [str]`, `value: number|null`. A malformed claim
+    must degrade softly (dropped -> the answer surfaces with the unverified
+    caveat downstream), never fail the response contract: the 8th-session
+    benchmark measured gemma stringifying values ('3.0degF'), which would
+    otherwise 500 the worker. A plainly numeric string is converted; anything
+    else non-numeric drops the claim (inability to check is a caveat, never a
+    fabricated value — ADR-0031 D8a).
+    """
+    if not isinstance(claims, list):
+        return None
+    sanitized: list[dict[str, Any]] = []
+    for claim in claims:
+        if not isinstance(claim, dict) or not isinstance(claim.get("metric"), str):
+            continue
+        entry = dict(claim)
+        entry["inputs"] = _coerce_string_list(entry.get("inputs"))
+        value = entry.get("value")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            if isinstance(value, str):
+                try:
+                    value = float(value)
+                except ValueError:
+                    continue
+            else:
+                continue
+        entry["value"] = value
+        if "verdict" in entry and not isinstance(entry["verdict"], str):
+            del entry["verdict"]
+        for object_key in ("window", "params", "rule"):
+            if object_key in entry and not isinstance(entry[object_key], dict):
+                del entry[object_key]
+        sanitized.append(entry)
+    return sanitized
+
+
 def _normalize_render_metadata(
     metadata: dict[str, Any],
     *,
@@ -1038,21 +1111,29 @@ def _normalize_render_metadata(
     first_series = history_series[0] if history_series else {"points": []}
     points = first_series.get("points", [])
 
+    # Every model-supplied field is coerced to its contract type here: the
+    # generated code returns this dict freely, and an off-type field must
+    # degrade inside the normal result flow, not fail the worker's response
+    # validation (observed live as an HTTP 500 -> unrepairable Pillow fallback).
+    title = metadata.get("title", chart_spec.get("title"))
+    if title is not None and not isinstance(title, str):
+        title = chart_spec.get("title")
+
     x_min = metadata.get("x_min")
-    if x_min is None and points:
-        x_min = points[0].get("ts")
+    if not isinstance(x_min, str):
+        x_min = points[0].get("ts") if points else None
 
     x_max = metadata.get("x_max")
-    if x_max is None and points:
-        x_max = points[-1].get("ts")
+    if not isinstance(x_max, str):
+        x_max = points[-1].get("ts") if points else None
 
     normalized = {
-        "title": metadata.get("title", chart_spec.get("title")),
-        "series_plotted": list(metadata.get("series_plotted", [])),
-        "overlays_plotted": list(metadata.get("overlays_plotted", [])),
+        "title": title,
+        "series_plotted": _coerce_string_list(metadata.get("series_plotted", [])),
+        "overlays_plotted": _coerce_string_list(metadata.get("overlays_plotted", [])),
         "x_min": x_min,
         "x_max": x_max,
-        "warnings": list(metadata.get("warnings", [])),
+        "warnings": _coerce_string_list(metadata.get("warnings", [])),
         "codegen_attempts": codegen_attempts,
     }
     # ADR-0031 tranche 1: the model-authored analysis answer. Grounded — the
@@ -1064,9 +1145,10 @@ def _normalize_render_metadata(
     if isinstance(answer_text, str) and answer_text.strip():
         normalized["answer_text"] = answer_text.strip()
     # ADR-0031 D8a: claims ledger for the integration-side grounding check.
-    # Passed through unchanged; used ONLY for verification, never for display.
-    claims = metadata.get("claims")
-    if isinstance(claims, list):
+    # Sanitized to the contract shape (see _coerce_claims); used ONLY for
+    # verification, never for display.
+    claims = _coerce_claims(metadata.get("claims"))
+    if claims is not None:
         normalized["claims"] = claims
     return normalized
 

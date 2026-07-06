@@ -28,6 +28,8 @@ sys.path.insert(0, str(WORKER_DIR))
 sys.path.insert(0, str(REPO_ROOT / "tests"))
 
 from isolinear_worker.codegen_sandbox import (  # noqa: E402
+    _coerce_claims,
+    _normalize_render_metadata,
     default_codegen_sandbox_policy,
     invoke_codegen_sandbox,
     invoke_codegen_with_repair,
@@ -85,6 +87,14 @@ class CodegenSandboxModuleTests(unittest.TestCase):
         self.assertIn("scipy.signal", policy["allowed_imports"])
         self.assertIn("scipy.optimize", policy["allowed_imports"])
         self.assertIn("seaborn", policy["allowed_imports"])
+        # Pure-plotting matplotlib submodules, exact-match like matplotlib.dates.
+        # The ADR-0033 legend hint ("e.g. a Patch") steers models to
+        # `import matplotlib.patches`; without these entries every such
+        # generation burned a repair attempt on import_not_allowlisted.
+        self.assertIn("matplotlib.patches", policy["allowed_imports"])
+        self.assertIn("matplotlib.lines", policy["allowed_imports"])
+        self.assertIn("matplotlib.ticker", policy["allowed_imports"])
+        self.assertIn("matplotlib.colors", policy["allowed_imports"])
 
     # Scenario B (sandbox-codegen) — safe code renders a real PNG through the
     # fixed output path, with no matplotlib dependency.
@@ -422,6 +432,98 @@ class CodegenSandboxModuleTests(unittest.TestCase):
         self.assertEqual(payload["leaked"], [])
         self.assertIn(str(WORKER_DIR), payload["validator_file"])
         self.assertIn(str(WORKER_DIR), payload["module_file"])
+
+
+class RenderMetadataCoercionTests(unittest.TestCase):
+    """The generated code authors render_metadata freely; every model-supplied
+    field must be coerced to its contract type so an off-type value degrades
+    inside the normal result flow instead of failing the worker's own response
+    validation (observed live: a dict warnings entry -> unhandled
+    ContractValidationError -> HTTP 500 -> the integration treats it as an
+    unrepairable transport fault and falls back to Pillow with zero repairs)."""
+
+    def _request(self):
+        return sample_codegen_render_request()
+
+    def _success_envelope(self, metadata):
+        return {
+            "request_id": "req-meta",
+            "status": "success",
+            "image_id": "img-1",
+            "image_mime_type": "image/png",
+            "image_path": "/tmp/img.png",
+            "error": None,
+            "render_metadata": metadata,
+        }
+
+    def test_off_type_model_metadata_is_coerced_to_contract(self):
+        request = self._request()
+        chart_title = request["chart_spec"].get("title")
+        first_ts = request["history_series"][0]["points"][0].get("ts")
+        metadata = _normalize_render_metadata(
+            {
+                "title": {"unexpected": "dict"},
+                "series_plotted": "not-a-list",
+                "overlays_plotted": [{"overlay": 1}],
+                "warnings": [{"detail": "non-string entry"}, "plain warning", 7],
+                "x_min": 1751500800000,
+                "x_max": None,
+            },
+            render_request=request,
+            codegen_attempts=1,
+        )
+
+        self.assertEqual(metadata["title"], chart_title)
+        self.assertEqual(metadata["series_plotted"], [])
+        self.assertTrue(all(isinstance(w, str) for w in metadata["warnings"]))
+        self.assertEqual(len(metadata["warnings"]), 3)
+        self.assertTrue(all(isinstance(o, str) for o in metadata["overlays_plotted"]))
+        self.assertEqual(metadata["x_min"], first_ts)
+        # The full success envelope must validate — the exact check whose
+        # unhandled failure was the live 500.
+        validate_contract("render-result", self._success_envelope(metadata))
+
+    def test_malformed_claims_degrade_softly_never_break_the_contract(self):
+        request = self._request()
+        metadata = _normalize_render_metadata(
+            {
+                "warnings": [],
+                "claims": [
+                    {"metric": "mean", "inputs": ["sensor.a"], "value": 71.5,
+                     "verdict": "Yes", "rule": {"bands": [[0.3, "Yes"], [None, "No"]],
+                                                "basis": "value"}},
+                    # Stringified numeric value (measured live, 8th-session
+                    # benchmark): plainly numeric -> converted.
+                    {"metric": "delta", "inputs": ["sensor.a"], "value": "3.5"},
+                    # Unit-bearing string can't be honestly recovered -> dropped.
+                    {"metric": "delta", "inputs": ["sensor.a"], "value": "3.0°F"},
+                    # Structural garbage -> dropped.
+                    "not-a-dict",
+                    {"inputs": ["sensor.a"], "value": 1.0},
+                    # Off-type optional fields are removed, claim kept.
+                    {"metric": "mean", "inputs": "sensor.a", "value": 2,
+                     "verdict": 5, "rule": "not-a-dict"},
+                ],
+            },
+            render_request=request,
+            codegen_attempts=1,
+        )
+
+        claims = metadata["claims"]
+        self.assertEqual(len(claims), 3)
+        self.assertEqual(claims[1]["value"], 3.5)
+        self.assertNotIn("verdict", claims[2])
+        self.assertNotIn("rule", claims[2])
+        self.assertEqual(claims[2]["inputs"], [])
+        validate_contract("render-result", self._success_envelope(metadata))
+
+    def test_coerce_claims_non_list_is_absent(self):
+        self.assertIsNone(_coerce_claims("not-a-list"))
+        self.assertIsNone(_coerce_claims(None))
+        metadata = _normalize_render_metadata(
+            {"claims": {"metric": "mean"}}, render_request=self._request(), codegen_attempts=0
+        )
+        self.assertNotIn("claims", metadata)
 
 
 if __name__ == "__main__":

@@ -184,6 +184,20 @@ inspects `render_result.status` / `render_result.error`, so sandbox rejections
 are reported *inside* a `200`, not as an HTTP error. HTTP non-`200` is reserved
 for transport-layer faults (auth, version, malformed envelope).
 
+**Hardened (2026-07-06, live-driven):** model-authored `render_metadata` is the
+one input that could previously break this contract — a generated `warnings`
+entry that wasn't a string failed the worker's *own* render-result validation
+after a successful render, and the unhandled `ContractValidationError`
+propagated as an HTTP `500`, which the integration treats as an unrepairable
+transport fault (observed live via the e2e harness: one dispatch, no repair,
+surfaced Pillow fallback). Two layers now guarantee the contract:
+`_normalize_render_metadata` coerces every model-supplied field to its contract
+type (string lists coerced element-wise; off-type `title`/`x_min`/`x_max` fall
+back; claims sanitized by `_coerce_claims`), and if a shape still leaks, the
+success-path validation degrades to a structured, repairable
+`invalid_render_metadata` failure inside the normal `200` flow instead of
+raising.
+
 The PNG bytes: `invoke_codegen_sandbox` writes the PNG to `work_root` and
 returns `image_path` / `image_id`. On a **successful** render the HTTP server
 then reads that file and inlines it as `image_bytes_base64` (base64, already in
