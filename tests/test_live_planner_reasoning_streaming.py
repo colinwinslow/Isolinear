@@ -170,6 +170,30 @@ class StreamingPlannerTransportTests(unittest.TestCase):
         self.assertTrue(result["accepted"], result)
         self.assertEqual(result["planner_result"]["status"], "chart_spec_ready")
 
+    def test_planner_rules_declare_analysis_satisfiable(self):
+        """ADR-0034: an analysis prompt (correlation/average/heatmap) is not
+        itself an entity; without this rule the planner reads it as missing data
+        and refuses (live: 'I cannot generate a true heatmap…'). Pin the rule so
+        it cannot silently drift back out of the prompt."""
+        client = self._client()
+        captured = {}
+        final = {
+            "message": {"content": json.dumps({"status": "chart_spec_ready", "chart_spec": {"x": 1}})},
+            "done": True,
+            "model": "gemma",
+        }
+
+        def fake_urlopen(req, timeout=None):
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return _FakeUrlopenCtx(io.BytesIO(json.dumps(final).encode("utf-8")))
+
+        with unittest.mock.patch.object(model_provider.urllib.request, "urlopen", fake_urlopen):
+            client.plan_chart({"approved_entity_ids": []})
+
+        prompt = captured["body"]["messages"][1]["content"]
+        self.assertIn("computed analysis over approved entities", prompt)
+        self.assertIn("IS satisfiable and must return status chart_spec_ready", prompt)
+
     def test_streaming_request_sets_think_true(self):
         """Streaming plan_chart makes two calls: the first (think pass) must
         carry stream:true + think:true; the second (plan pass) carries format."""

@@ -4779,6 +4779,12 @@ def _record_codegen_worker_dispatch(
     config_data = getattr(getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {}).get("entry"), "data", {}) or {}
     codegen_model = configured_codegen_model(config_data)
     max_repair_attempts = _configured_max_codegen_repair_attempts(hass, entry_id)
+    # ADR-0034: the user's original prompt is the analysis-intent conduit — the
+    # codegen model needs it to know whether to compute a derived series / answer
+    # a question rather than plot the raw inputs. It is a generation-time argument
+    # only; it never enters `codegen_request` (the render request that crosses to
+    # the worker sandbox), which is built independently below.
+    user_request = job.get("prompt") if isinstance(job, dict) else None
 
     # 1. Generate the initial code from the validated ChartSpec + render data.
     #    ADR-0031 D9: normalize timestamps to epoch-ms before the data reaches the
@@ -4789,7 +4795,9 @@ def _record_codegen_worker_dispatch(
     codegen_request["history_series"] = _history_series_with_epoch_ms(
         codegen_request["history_series"]
     )
-    generation = codegen_client.generate_chart_code(codegen_request, model=codegen_model)
+    generation = codegen_client.generate_chart_code(
+        codegen_request, model=codegen_model, user_request=user_request
+    )
     if not isinstance(generation, dict) or not generation.get("accepted"):
         return _codegen_render_failed(
             worker_summary=worker_summary,
@@ -4977,7 +4985,11 @@ def _record_codegen_worker_dispatch(
             break
 
         repair = codegen_client.repair_chart_code(
-            current_code, error if isinstance(error, dict) else {}, codegen_request, model=codegen_model
+            current_code,
+            error if isinstance(error, dict) else {},
+            codegen_request,
+            model=codegen_model,
+            user_request=user_request,
         )
         repair_attempts_made += 1
         if not isinstance(repair, dict) or not repair.get("accepted"):

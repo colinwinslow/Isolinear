@@ -478,6 +478,86 @@ class CodegenModelProviderTests(unittest.TestCase):
         self.assertNotIn("codegen-secret-req", raw)
         self.assertNotIn(WORKER_TOKEN, raw)
 
+    # ---- ADR-0034: the analysis-intent conduit -----------------------------
+
+    def _capture_generate_body(self, user_request):
+        client = self._client()
+        captured: dict[str, Any] = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return _FakeUrlopenCtx(io.BytesIO(self._chat_response(safe_generated_python())))
+
+        with unittest.mock.patch.object(model_provider.urllib.request, "urlopen", fake_urlopen):
+            client.generate_chart_code(sample_codegen_render_request(), user_request=user_request)
+        return json.loads(captured["body"]["messages"][1]["content"])
+
+    def test_user_request_is_disclosed_in_the_generate_prompt(self):
+        # The codegen model must see the user's request (the conduit) — without it
+        # the analysis layer never fires (baseline 0/12 in the live probe).
+        body = self._capture_generate_body("Are the kitchen and basement temperatures correlated?")
+        self.assertEqual(
+            body["user_request"], "Are the kitchen and basement temperatures correlated?"
+        )
+        # Task is reframed to fulfilling the request, not just rendering the spec.
+        self.assertIn("Fulfill user_request", body["task"])
+
+    def test_plot_rule_is_default_with_compute_exception(self):
+        body = self._capture_generate_body("What is the average of the two temperatures?")
+        rules = " ".join(body["rules"])
+        # Raw-line plotting stays the default (grounding preserved) …
+        self.assertIn("By default plot each series", rules)
+        # … with the compute-the-derived-series exception keyed on user_request.
+        self.assertIn("EXCEPTION: when user_request asks for a computed analysis", rules)
+
+    def test_answer_rule_keys_on_user_request(self):
+        body = self._capture_generate_body("How much warmer is the kitchen?")
+        rules = " ".join(body["rules"])
+        self.assertIn("If user_request asks a question", rules)
+        # The stale "If the prompt asks a question" phrasing (a prompt the model
+        # never saw) must be gone.
+        self.assertNotIn("If the prompt asks a question", rules)
+
+    def test_user_request_is_bounded(self):
+        long_request = "correlate " * 200  # ~2000 chars, well over the cap
+        body = self._capture_generate_body(long_request)
+        self.assertLessEqual(
+            len(body["user_request"]), model_provider._CODEGEN_MAX_USER_REQUEST_CHARS + 1
+        )
+        self.assertTrue(body["user_request"].endswith("…"))
+
+    def test_absent_user_request_degrades_to_empty_not_error(self):
+        # A caller that passes no user_request must still produce a valid prompt
+        # (empty string → the compute exception is inert → raw-line default).
+        body = self._capture_generate_body(None)
+        self.assertEqual(body["user_request"], "")
+
+    def test_repair_prompt_carries_user_request(self):
+        client = self._client()
+        captured: dict[str, Any] = {}
+        sandbox_error = {"code": "runtime_error", "message": "boom", "details": {"traceback": "x"}}
+
+        def fake_urlopen(req, timeout=None):
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return _FakeUrlopenCtx(io.BytesIO(self._chat_response(safe_generated_python())))
+
+        with unittest.mock.patch.object(model_provider.urllib.request, "urlopen", fake_urlopen):
+            client.repair_chart_code(
+                broken_generated_python("boom"), sandbox_error, sample_codegen_render_request(),
+                user_request="What is the average temperature?",
+            )
+        body = json.loads(captured["body"]["messages"][1]["content"])
+        self.assertEqual(body["user_request"], "What is the average temperature?")
+
+    def test_user_request_does_not_cross_to_the_worker_render_request(self):
+        # Data boundary: user_request is a generation-time argument only. It must
+        # not appear in the render request that crosses to the worker sandbox.
+        request = sample_codegen_render_request()
+        self.assertNotIn("user_request", request)
+        # And the prompt projection never invents it onto the render data.
+        view = model_provider._codegen_request_view(request)
+        self.assertNotIn("user_request", view)
+
 
 # ---------------------------------------------------------------------------
 # In-process worker that runs the REAL sandbox and returns base64 PNG bytes so
@@ -561,8 +641,8 @@ class FakeCodegenClient:
         self.generate_calls: list[dict[str, Any]] = []
         self.repair_calls: list[dict[str, Any]] = []
 
-    def generate_chart_code(self, request, *, model=None):
-        self.generate_calls.append({"request": request, "model": model})
+    def generate_chart_code(self, request, *, model=None, user_request=None):
+        self.generate_calls.append({"request": request, "model": model, "user_request": user_request})
         if self._generate_result is not None:
             return self._generate_result
         return {
@@ -573,9 +653,10 @@ class FakeCodegenClient:
             "provider_response": {"model": model or "llama3.1", "done": True},
         }
 
-    def repair_chart_code(self, previous_code, sandbox_error, request, *, model=None):
+    def repair_chart_code(self, previous_code, sandbox_error, request, *, model=None, user_request=None):
         self.repair_calls.append(
-            {"previous_code": previous_code, "sandbox_error": sandbox_error, "model": model}
+            {"previous_code": previous_code, "sandbox_error": sandbox_error, "model": model,
+             "user_request": user_request}
         )
         if not self._repair_codes:
             return {
@@ -671,6 +752,13 @@ class CodegenOrchestrationTests(unittest.TestCase):
             # Codegen render path: render_mode codegen, code attached.
             self.assertEqual(len(codegen.generate_calls), 1)
             self.assertEqual(codegen.repair_calls, [])
+            # ADR-0034: the job prompt is threaded to generate as the conduit …
+            self.assertEqual(
+                codegen.generate_calls[0]["user_request"],
+                "Show sensor.upstairs_temperature for the last 24 hours",
+            )
+            # … and never leaks into the render request that reaches the worker.
+            self.assertNotIn("user_request", worker.calls[0])
             self.assertEqual(worker.calls[0]["render_mode"], "codegen")
             self.assertEqual(worker.calls[0]["codegen"]["python_code"], safe_generated_python())
             # A real PNG was served through the existing artifact path.
@@ -708,6 +796,11 @@ class CodegenOrchestrationTests(unittest.TestCase):
             self.assertEqual(len(codegen.repair_calls), 1)
             # Repair was fed the retryable sandbox error.
             self.assertEqual(codegen.repair_calls[0]["sandbox_error"]["code"], "runtime_error")
+            # ADR-0034: repair keeps the conduit so a rewrite preserves the intent.
+            self.assertEqual(
+                codegen.repair_calls[0]["user_request"],
+                "Show sensor.upstairs_temperature for the last 24 hours",
+            )
             # Two dispatches: initial + repaired.
             self.assertEqual(len(worker.calls), 2)
             self.assertEqual(worker.calls[1]["codegen"]["python_code"], safe_generated_python())

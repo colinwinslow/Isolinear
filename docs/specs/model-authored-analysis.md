@@ -89,16 +89,40 @@ is **never** a second free-text model pass over raw data. This is enforced by th
 by structural decomposition into number+label metadata fields (ADR-0031 D3
 capability-floor rationale).
 
-### 2. Codegen prompt extension (grounding instruction)
+### 2. Codegen prompt extension (grounding instruction + the analysis-intent conduit, ADR-0034)
 
 `generate_chart_code` / `repair_chart_code` (model_provider.py) gain a grounding
-instruction in the system prompt when the resolved output modality includes an
-answer: emit `answer_text` in the returned metadata dict, assembled from computed
-variables, with **verdicts computed, not asserted** (compute `"Yes"/"No"` from a
-threshold over a computed value; never write the judgment before the computation
-runs). The generation request already carries only the validated ChartSpec + the
-normalized render data (the ADR-0029/0030 data boundary; no token or secret ever
-enters the prompt) — unchanged here.
+instruction: emit `answer_text` in the returned metadata dict, assembled from
+computed variables, with **verdicts computed, not asserted** (compute
+`"Yes"/"No"` from a threshold over a computed value; never write the judgment
+before the computation runs). The generation request already carries only the
+validated ChartSpec + the normalized render data (the ADR-0029/0030 data
+boundary; no token or secret ever enters the prompt).
+
+**The analysis-intent conduit (ADR-0034).** The codegen prompt also carries the
+user's original request as a bounded `user_request` field (a generation-time
+argument to `generate_chart_code`/`repair_chart_code`, distinct from the render
+request — it never enters the worker dispatch), and the codegen task is reframed
+to "fulfill user_request" (guided by the ChartSpec). This is load-bearing:
+without it the codegen model that writes the matplotlib never sees the ask, so
+the answer instruction — previously keyed on "if the prompt asks a question", a
+prompt the model was never shown — was dead code, and every transform /
+correlation / question prompt collapsed to plotting the raw inputs (measured
+live, 16th-session e2e run; and offline on the production path, baseline 0/12
+fired vs 12/12 with the conduit). Two codegen prompt rules become
+request-conditional:
+
+- **Plot rule (default-with-exception).** Raw-line plotting of each numeric
+  series stays the DEFAULT (grounding from §3 preserved); the EXCEPTION is that
+  when `user_request` asks for a computed analysis (cross-sensor average,
+  difference, correlation, deviation, smoothing, distribution), the model
+  computes the derived series from the numeric `history_series` points and plots
+  the derived result. An empty `user_request` leaves the exception inert → the
+  raw-line default, so callers that omit it are unaffected.
+- **Answer rule** keys on `user_request` asking a question. The D3 grounding
+  contract (compute-and-f-string, claims ledger, verdicts derived) is unchanged;
+  the deterministic answer-grounding check (§5a) now actually gates live answers
+  because the answers now fire.
 
 ### 3. Data-boundary timestamp normalization (ADR-0031 D9)
 
@@ -198,6 +222,19 @@ drawn, its family is still deterministically routed from entity kinds (ADR-0022)
 **First-slice constraint (ADR-0031 D2):** every answer ships with a supporting
 chart, so an absent/`answer` signal is normalized to `both`; answer-only (no
 chart) is a later tranche behind its own decision and is out of scope here.
+
+> **STATUS (ADR-0034, 2026-07-06): PARKED as redundant for this slice.** With
+> the user's request disclosed directly to the codegen model (the §2 conduit),
+> the model reads compute-vs-plot and answer-vs-chart from `user_request`
+> itself; a separate planner-emitted modality signal is not needed to make the
+> analysis layer fire. `output_modality` is not implemented. What ADR-0034 DID
+> add on the planner side is a rule that **an analysis prompt over approved
+> entities is satisfiable** — the planner returns `chart_spec_ready` with one
+> series per input entity the analysis needs (generated code does the math),
+> instead of refusing an analysis request as "not representable by an entity"
+> (which live produced `clarification_needed` / `not_chart_spec_ready` for
+> correlation and heatmap prompts). Revisit `output_modality` only if a future
+> answer-only tranche needs the planner to suppress the chart.
 
 ### 5. Two-part quality validation + progressive-verification UX (ADR-0031 D8)
 

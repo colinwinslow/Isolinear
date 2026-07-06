@@ -116,6 +116,26 @@ _CODEGEN_PROMPT_MAX_DISTINCT_STATES = 50
 # regardless of the model's small default num_ctx (the overflow that made the
 # model reply with prose instead of code).
 _CODEGEN_NUM_CTX = 8192
+# ADR-0034: the user's request text is disclosed to the codegen model (the
+# analysis-intent conduit) so it knows whether to compute a derived series /
+# answer a question rather than plot the raw inputs. It is a generation-time
+# input only — it is passed as an explicit argument to the payload builders and
+# never enters the render request that crosses to the worker sandbox. Bounded
+# for token discipline (not security — it is the same user text the planner and
+# entity-selector prompts already carry); a card prompt is a short sentence.
+_CODEGEN_MAX_USER_REQUEST_CHARS = 500
+
+
+def _bounded_user_request(user_request: str | None) -> str:
+    """Trim the user's request to a bounded prompt-safe string (ADR-0034)."""
+    if not isinstance(user_request, str):
+        return ""
+    text = user_request.strip()
+    if len(text) <= _CODEGEN_MAX_USER_REQUEST_CHARS:
+        return text
+    return text[:_CODEGEN_MAX_USER_REQUEST_CHARS].rstrip() + "…"
+
+
 _CODEGEN_SYSTEM_PROMPT = (
     "You are the Isolinear chart-code generator. Always wrap your entire Python "
     "output in a single code fence: ```python\\n<code>\\n```. No prose, no "
@@ -135,14 +155,25 @@ _CODEGEN_PROMPT_RULES = [
     # The 0.2.18 failure mode: with only a summary, the floor model plotted/labeled
     # from the chart_spec (planner-guessed unit, no top-level entity_id) → empty
     # plots, wrong units. history_series is the sole source of truth for data.
-    "Plot each series in data['history_series'] whose 'kind' is 'numeric' as a line, "
-    "iterating that list directly and using each series' own 'label' and 'unit'. Do "
-    "NOT plot a series whose 'kind' is 'binary_state' or 'categorical_state' as a line "
-    "(its value is a state string like 'cool', not a number) — those are state "
-    "overlays, already provided to you as shaded bands (see the derived_intervals "
-    "rule). The chart_spec is intent/metadata only (title, requested series) — NEVER "
-    "read the data to plot, the list of series, or the unit from chart_spec; a "
-    "chart_spec unit may be wrong. Use data['history_series'][i]['entity_id'] for identity.",
+    # ADR-0034: raw-line plotting stays the DEFAULT (grounding preserved), with a
+    # compute-the-derived-series EXCEPTION driven by user_request — the conduit
+    # that makes the model-authored analysis layer actually fire (measured live:
+    # baseline 0/12 vs this arm 12/12 on the production codegen path). When
+    # user_request is empty the exception is trivially inert → raw-line default.
+    "By default plot each series in data['history_series'] whose 'kind' is 'numeric' "
+    "as a line, iterating that list directly and using each series' own 'label' and "
+    "'unit'. EXCEPTION: when user_request asks for a computed analysis — an average "
+    "or combination across sensors, a difference ('how much warmer'), a correlation, "
+    "a deviation from average, a smoothed/rolling series, or similar — COMPUTE that "
+    "derived series from the numeric history_series points with pandas/numpy/scipy and "
+    "plot the DERIVED result, labelled for what it is; plot the raw inputs only if they "
+    "help answer the request. Never plot a series whose 'kind' is 'binary_state' or "
+    "'categorical_state' as a line (its value is a state string like 'cool', not a "
+    "number) — those are state overlays, already provided to you as shaded bands (see "
+    "the derived_intervals rule). The chart_spec is intent/metadata only (title, "
+    "requested series) — NEVER read the data to plot, the list of series, or the unit "
+    "from chart_spec; a chart_spec unit may be wrong. Use "
+    "data['history_series'][i]['entity_id'] for identity.",
     # State overlays (ADR-0033): the integration precomputes the shaded intervals
     # (e.g. when the AC was cooling/heating, from hvac_action) — the floor model
     # cannot reliably derive them, so it must NOT try; it just draws the given bands.
@@ -189,11 +220,12 @@ _CODEGEN_PROMPT_RULES = [
     # ADR-0031 tranche 1: grounded natural-language answer. The number and any
     # verdict MUST be computed inside render_chart and formatted into the string —
     # never asserted at generation time (an honest number must not ride a
-    # contradicting verdict). Packet 5 gates this on the resolved output modality;
-    # for now it is conditional on the prompt posing a question.
-    "If the prompt asks a question (e.g. 'are they correlated?', 'how much…?'), also "
-    "return an 'answer_text' string in the metadata dict answering it in one plain "
-    "sentence.",
+    # contradicting verdict). ADR-0034: keyed on user_request (the conduit), which
+    # the model now sees — previously this referenced a "prompt" the codegen model
+    # was never shown, so the answer channel never fired live.
+    "If user_request asks a question (e.g. 'are they correlated?', 'how much…?', "
+    "'what was the average…?'), also return an 'answer_text' string in the metadata "
+    "dict answering it in one plain sentence.",
     "Compute the answer_text from variables you calculate over the data and format "
     "them in with an f-string — e.g. corr = df['a'].corr(df['b']); "
     "answer_text = f'The correlation coefficient is {corr:.2f}.' Never write the "
@@ -935,6 +967,7 @@ class OllamaCompatiblePlannerClient:
         request: dict[str, Any],
         *,
         model: str | None = None,
+        user_request: str | None = None,
     ) -> dict[str, Any]:
         """Generate freeform matplotlib chart code for a validated ChartSpec.
 
@@ -949,7 +982,7 @@ class OllamaCompatiblePlannerClient:
         model); it defaults to ``planner_model``.
         """
         chat_url = _ollama_chat_url(self.endpoint_url)
-        payload = self._codegen_payload(request, model=model)
+        payload = self._codegen_payload(request, model=model, user_request=user_request)
         _LOGGER.debug(
             "Isolinear -> Ollama generate_chart_code request: model=%s url=%s body=%s",
             payload["model"],
@@ -997,6 +1030,7 @@ class OllamaCompatiblePlannerClient:
         request: dict[str, Any],
         *,
         model: str | None = None,
+        user_request: str | None = None,
     ) -> dict[str, Any]:
         """Ask the model to repair chart code that failed in the sandbox.
 
@@ -1011,7 +1045,7 @@ class OllamaCompatiblePlannerClient:
         """
         chat_url = _ollama_chat_url(self.endpoint_url)
         payload = self._codegen_repair_payload(
-            previous_code, sandbox_error, request, model=model
+            previous_code, sandbox_error, request, model=model, user_request=user_request
         )
         _LOGGER.debug(
             "Isolinear -> Ollama repair_chart_code request: model=%s url=%s body=%s",
@@ -1061,12 +1095,19 @@ class OllamaCompatiblePlannerClient:
             "model": self._codegen_model(model),
         }
 
-    def _codegen_payload(self, request: dict[str, Any], *, model: str | None) -> dict[str, Any]:
+    def _codegen_payload(
+        self, request: dict[str, Any], *, model: str | None, user_request: str | None = None
+    ) -> dict[str, Any]:
+        # ADR-0034: the task is reframed to "fulfill user_request" (guided by the
+        # ChartSpec) and user_request is disclosed alongside it, so the model
+        # knows whether the ask is a plain plot or a computed analysis/answer.
         prompt_payload = {
             "task": (
-                "Write Python matplotlib code that renders the supplied, already-validated "
-                "Isolinear ChartSpec using the supplied history_series data."
+                "Fulfill user_request: write Python matplotlib code that renders a chart "
+                "answering the user's request from the supplied history_series data, guided "
+                "by the supplied, already-validated Isolinear ChartSpec."
             ),
+            "user_request": _bounded_user_request(user_request),
             "rules": _CODEGEN_PROMPT_RULES,
             "codegen_request": _codegen_request_view(request),
         }
@@ -1092,20 +1133,24 @@ class OllamaCompatiblePlannerClient:
         request: dict[str, Any],
         *,
         model: str | None,
+        user_request: str | None = None,
     ) -> dict[str, Any]:
         error_view = _sandbox_error_view(sandbox_error)
+        # ADR-0034: carry user_request into repair too, so a fix that has to
+        # rewrite the analysis keeps the intent (the rules reference user_request).
         prompt_payload = {
             "task": (
                 "The previous render_chart code failed in the sandbox. Return corrected "
-                "Python matplotlib code that fixes the reported error and still implements "
-                "the ChartSpec. If sandbox_error.violations is present, each entry carries "
-                "a violation 'code', a 'line' number, the sandbox 'message', and — when "
-                "available — the exact offending 'source_line' from your previous code. Fix "
-                "each violation on its line: 'unsafe_code' entries name a disallowed import, "
-                "attribute, or call (remove or replace it, using only the allowed libraries "
-                "in the rules; do not reintroduce it); 'syntax_error' entries name a Python "
-                "syntax error to correct on that exact line."
+                "Python matplotlib code that fixes the reported error, still fulfills "
+                "user_request, and still implements the ChartSpec. If sandbox_error.violations "
+                "is present, each entry carries a violation 'code', a 'line' number, the "
+                "sandbox 'message', and — when available — the exact offending 'source_line' "
+                "from your previous code. Fix each violation on its line: 'unsafe_code' "
+                "entries name a disallowed import, attribute, or call (remove or replace it, "
+                "using only the allowed libraries in the rules; do not reintroduce it); "
+                "'syntax_error' entries name a Python syntax error to correct on that exact line."
             ),
+            "user_request": _bounded_user_request(user_request),
             "rules": _CODEGEN_PROMPT_RULES,
             "previous_code": previous_code,
             "sandbox_error": error_view,
@@ -1367,6 +1412,16 @@ class OllamaCompatiblePlannerClient:
                 "entity to stand in for a missing one.",
                 "Only return status chart_spec_ready if every piece of information the user asked for can be represented "
                 "using only the approved_entity_ids provided.",
+                # ADR-0034: without this the planner reads an analysis prompt (a
+                # correlation/average/heatmap is not itself an entity) as missing
+                # data and refuses. Live-verified to flip the heatmap refusal to a
+                # ready plan of the raw input series; generated code does the math.
+                "A prompt asking for a computed analysis over approved entities — a correlation, an average or "
+                "difference between sensors, a distribution or histogram, a deviation, a smoothed/rolling series, "
+                "or a question about the data — IS satisfiable and must return status chart_spec_ready: plan one "
+                "series per approved input entity the analysis needs (the raw inputs); downstream generated code "
+                "computes the analysis from those series. Do not return clarification_needed just because the prompt "
+                "asks for math, a distribution, or a question rather than a plain chart.",
                 "Each series must represent a distinct approved entity. Never create multiple series for the same entity_id.",
                 "The chart_spec must use chart_type, not graph_type.",
                 "Each series must include series_id, label, source, role, render_as, transform, and unit.",
