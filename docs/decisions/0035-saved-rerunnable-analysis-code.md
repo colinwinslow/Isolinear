@@ -1,7 +1,7 @@
 ---
 id: 0035
 title: "v0.3 north star: the product is saved, re-runnable analysis code — plus the demolition plan"
-status: draft
+status: accepted
 date: 2026-07-06
 supersedes: []
 superseded-by: null

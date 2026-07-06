@@ -2,6 +2,85 @@
 
 ## Current project phase
 
+### 2026-07-06 (18th session) — Verified 0.2.24 live (e2e targets flipped), landed the open-queue (u) re-plan anchor, root-caused e2e-14, fixed the harness diagnostic gap (0.2.25)
+
+**Phase.** `0.2.24 VERIFIED LIVE; PLANNER RE-PLAN ANCHOR LANDED (opt-in).` The
+17th session's alignment + planner-satisfiability fixes are confirmed on real HA
+data, the biggest remaining planner-variance tail has a bounded structural fix
+in place (dormant, opt-in), and the one hard live failure (e2e-14) is
+root-caused to entity resolution, not the planner.
+
+**Live e2e verification (0.2.24, 18 prompts, gitignored `evals/e2e_runs/20260706T205049Z/`).**
+Judged **12 PASS / 3 PARTIAL / 3 FAIL** (prior run 8/5/5). The three testable
+0.2.24 targets all flipped: **e2e-12** (Kitchen−Basement delta series + computed
+"1.25 °F"), **e2e-13** (real Pearson 0.13 — on an isolated re-run
+`…220549Z`; the batch run hit a `model_provider_connection_error` transport blip
+→ Pillow), **e2e-18** (per-sensor deviation series; was the duplicate-source
+planner rejection the satisfiability rule fixed). **e2e-11** improved (the
+union-index alignment artifact is gone) but the model draws a horizontal scalar
+average line, not a computed mean series (transform intent unmet → open-queue (z)).
+Other findings: **e2e-15 heatmap emits garbage codegen** (epoch-ns x-axis, 1/2
+y-values — open-queue (w)); **e2e-16 histogram unit is now correct** (open-queue
+(s) likely fixed); **e2e-09 door** renders a real step track but the answer_text
+has zero-duration intervals (open-queue (x)); **e2e-03** lacks a legend
+(open-queue (y)).
+
+**e2e-14 root cause (new `scripts/repro_e2e14.py`).** The cross-metric
+temp-vs-humidity correlation fails at `model_provider_planner_not_chart_spec_ready`
+because entity resolution discloses ONLY the temperature sensor; the planner then
+CORRECTLY returns `clarification_needed` ("sensor.kitchen_ecobee_humidity … is
+required"). Disclosing both sensors makes the planner plan the °F-vs-% correlation
+fine. So this is an **entity-resolution** gap (the prompt's "kitchen humidity" fails
+to resolve to `sensor.kitchen_ecobee_humidity`, friendly name "Kitchen ecobee
+Humidity"; "kitchen" also noise-matches three temp sensors), NOT a planner or
+re-plan bug — recorded as open-queue (v). This directly validated the (u) design
+boundary below.
+
+**Open-queue (u) — bounded re-plan on validation failure (anchor, 0.2.25).**
+Spec + BDD + evidence + implementation. `_record_model_provider_plan` now wraps a
+renamed `_plan_once` in a bounded re-plan loop over `_PLANNER_REPLAN_TRIGGER_CODES`
+= {`invalid_model_provider_chart_spec` (e2e-18's class), `invalid_planner_result`},
+re-invoking the planner with the same request + re-running the existing gates,
+keeping the first plan that validates; the result carries `planner_replan_attempts`.
+**Reader default is 0 (opt-in)** — the landing is purely additive, so the full
+suite stays green and no default behavior ships. It deliberately **excludes**
+`model_provider_planner_not_chart_spec_ready`: after `validate_planner_result_contract`,
+that code always means a legitimate `clarification_needed`/`cannot_resolve`, so
+re-planning it would override the model's correct choice (exactly the e2e-14 case).
+Slice-1 is a plain re-sample; corrective re-plan (feed the error back) is tranche 2.
+**Remaining:** config surface, flip default 0→1 (with (m)), Scenario-E test, live
+e2e-18 recovery proof. ADR-vs-spec is flagged for Colin (treated as spec-level,
+mirroring ADR-0030's repair loop; no new service/store/schema).
+
+**Harness diagnostic fix.** `evals/e2e_pipeline_harness.py` overwrote `snapshot`
+each poll, discarding the streamed selection/planning reasoning (ADR-0025) — the
+only reachable "why" for a planner-stage failure. It now accumulates distinct
+reasoning across polls → `<id>_reasoning.txt` + manifest `reasoning_tail`/
+`reasoning_stages`. (The definitive planner clarification text still lives behind
+the deliberate card-suppression; surfacing it is a small integration-side
+follow-up.)
+
+**Verification.** Suite **451 passed / 4 skipped** (+5 re-plan tests). BDD-evidence
+review (inline) OK — Scenarios A–D carry raw pytest output; Scenario E + the live
+proof are honestly flagged pending in the evidence file. Inline invariant review
+OK: the re-plan loop reuses the existing validation gates and re-sends the
+already-projected planner request (no new data crosses any boundary), touches no
+schema/sandbox/service, and is default-off; a fresh-context architecture-review
+subagent was not spawned (a bounded change on the accepted planning path),
+available on request. **Accepted ADR-0035** (README + `docs/ARCHITECTURE.md`
+synced).
+
+**Deploy state.** `main` will be **0.2.25** once pushed (this closeout). 0.2.25
+ships **no default behavior change** (re-plan default-off; the harness/scripts/docs
+are non-integration), so no HACS redownload is required to stay current — HA is on
+0.2.24 (confirmed in the run manifest). The CT103 `:dev` worker is unchanged.
+
+**Next.** Finish (u) (config surface + default flip with (m) + Scenario-E + live
+proof); (v) the e2e-14 resolution gap (Opus-executable); (w) heatmap and (z)
+e2e-11 mean-intent (both Fable-shaped — see [[isolinear-model-choice-by-packet]]);
+(x) door-answer duration bug; (y) e2e-03 legend; and whenever the ADR-0035
+demolition starts, hand the job_orchestration.py split PLAN to Fable.
+
 ### 2026-07-06 (17th session) — Closed open-queue (q): the analysis layer fires live (ADR-0034 conduit) + fixed the quality bugs it exposed + reset architecture tracking
 
 **Phase.** `THE ANALYSIS LAYER FIRES LIVE.` The 16th session's headline gap —

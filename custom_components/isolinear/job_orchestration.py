@@ -3443,7 +3443,74 @@ def _record_artifact_and_render_plan(
     }
 
 
+# Plan-quality rejections a fresh planner sample can plausibly recover from —
+# the model produced structurally-broken output, never a legitimate terminal.
+# `model_provider_planner_not_chart_spec_ready` is deliberately EXCLUDED: after
+# `validate_planner_result_contract` passes, that code necessarily means the
+# model returned a non-ready but legitimate terminal status — `clarification_needed`
+# or `cannot_resolve` (the planner-result schema enum is {chart_spec_ready,
+# clarification_needed, cannot_resolve}) — so re-planning it would override the
+# model's correct choice. See docs/specs/planner-replan-on-validation-failure.md.
+_PLANNER_REPLAN_TRIGGER_CODES = frozenset(
+    {"invalid_model_provider_chart_spec", "invalid_planner_result"}
+)
+
+
 def _record_model_provider_plan(
+    store: dict[str, Any],
+    *,
+    hass: Any,
+    entry_id: str,
+    job: dict[str, Any],
+    source_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    """Plan a chart, re-planning up to a bounded cap on a recoverable rejection.
+
+    A single planner sample that trips a recoverable quality gate (a variance
+    tail — e.g. a duplicate-source ChartSpec) should not fall straight through to
+    the fallback when the next sample would validate. This wraps the single
+    planning attempt (:func:`_plan_once`) in a bounded, deterministic re-plan
+    loop. On exhaustion the last attempt's failure is returned unchanged, so no
+    failure surface differs from today when re-plan doesn't help. Every result
+    carries ``planner_replan_attempts`` (extra samples taken; 0 = first plan
+    validated). See docs/specs/planner-replan-on-validation-failure.md.
+    """
+    max_replan = _configured_max_planner_replan_attempts(hass, entry_id)
+    replan_attempts = 0
+    while True:
+        result = _plan_once(
+            store,
+            hass=hass,
+            entry_id=entry_id,
+            job=job,
+            source_snapshot=source_snapshot,
+        )
+        recoverable = (
+            not result.get("accepted")
+            and result.get("code") in _PLANNER_REPLAN_TRIGGER_CODES
+        )
+        if recoverable and replan_attempts < max_replan:
+            replan_attempts += 1
+            continue
+        result["planner_replan_attempts"] = replan_attempts
+        if replan_attempts and result.get("accepted"):
+            _LOGGER.info(
+                "Isolinear planner recovered a valid plan after %d re-plan "
+                "attempt(s) (a prior sample failed %s)",
+                replan_attempts,
+                result.get("code"),
+            )
+        elif replan_attempts:
+            _LOGGER.warning(
+                "Isolinear planner exhausted %d re-plan attempt(s); returning "
+                "failure %s",
+                replan_attempts,
+                result.get("code"),
+            )
+        return result
+
+
+def _plan_once(
     store: dict[str, Any],
     *,
     hass: Any,
@@ -4642,6 +4709,24 @@ def _configured_max_codegen_repair_attempts(hass: Any, entry_id: str) -> int:
     value = options.get("max_codegen_repair_attempts") if hasattr(options, "get") else None
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return 1
+    return value
+
+
+def _configured_max_planner_replan_attempts(hass: Any, entry_id: str) -> int:
+    """Extra planner samples allowed when a plan fails a recoverable quality gate.
+
+    Mirrors :func:`_configured_max_codegen_repair_attempts`. ``0`` disables the
+    re-plan loop (today's single-attempt behavior — the clean revert switch and
+    the slice-1 default, so the loop is purely additive/opt-in until the default
+    is deliberately promoted). See
+    ``docs/specs/planner-replan-on-validation-failure.md``.
+    """
+    entry_data = getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {})
+    entry = entry_data.get("entry") if isinstance(entry_data, dict) else None
+    options = getattr(entry, "options", {}) or {}
+    value = options.get("max_planner_replan_attempts") if hasattr(options, "get") else None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return 0
     return value
 
 

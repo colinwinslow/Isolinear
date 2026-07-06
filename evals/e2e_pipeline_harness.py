@@ -116,10 +116,12 @@ def fetch_png(image_url: str, dest: Path) -> int:
 
 
 def manifest_row(pid: str, prompt: dict, snapshot: dict, elapsed: float,
-                 outcome: str, png: str | None, png_bytes: int, phases: list[str]) -> dict:
+                 outcome: str, png: str | None, png_bytes: int, phases: list[str],
+                 reasoning_log: list[dict] | None = None) -> dict:
     chart = snapshot.get("chart") or {}
     failure = snapshot.get("failure") or {}
     clar = snapshot.get("clarification") or {}
+    reasoning_log = reasoning_log or []
     return {
         "id": pid,
         "family": prompt.get("family"),
@@ -139,6 +141,8 @@ def manifest_row(pid: str, prompt: dict, snapshot: dict, elapsed: float,
         "failure_stage": failure.get("failure_stage") or failure.get("stage"),
         "clarification_question": clar.get("question"),
         "clarification_options": [o.get("label") for o in (clar.get("options") or [])],
+        "reasoning_stages": [e.get("stage") for e in reasoning_log],
+        "reasoning_tail": reasoning_log[-1]["reasoning"] if reasoning_log else None,
         "warnings": snapshot.get("warnings") or [],
         "png": png,
         "png_bytes": png_bytes,
@@ -162,6 +166,25 @@ async def run_prompt(client: HaWs, entry_id: str, prompt: dict, out_dir: Path) -
 
     snapshot = reply["result"]
     job_id = snapshot.get("job_id")
+    # Preserve the streamed selection/planning reasoning (ADR-0025) that the
+    # polling loop would otherwise overwrite. A planner-stage failure surfaces a
+    # generic card message (`model_provider_metadata_not_exposed_to_card`), so the
+    # in-progress reasoning is the only reachable diagnostic for WHY the planner
+    # clarified/declined (e.g. e2e-14: "kitchen humidity sensor required").
+    reasoning_log: list[dict] = []
+
+    def _capture_reasoning(snap: dict) -> None:
+        prog = snap.get("progress") or {}
+        reasoning = prog.get("reasoning")
+        if reasoning and (not reasoning_log or reasoning_log[-1]["reasoning"] != reasoning):
+            reasoning_log.append({
+                "status": snap.get("status"),
+                "stage": prog.get("stage"),
+                "message": prog.get("message"),
+                "reasoning": reasoning,
+            })
+
+    _capture_reasoning(snapshot)
     while True:
         status = snapshot.get("status")
         if not phases or phases[-1] != status:
@@ -177,9 +200,17 @@ async def run_prompt(client: HaWs, entry_id: str, prompt: dict, out_dir: Path) -
             "config_entry_id": entry_id, "job_id": job_id})
         if poll.get("success"):
             snapshot = poll["result"]
+            _capture_reasoning(snapshot)
 
     elapsed = time.time() - t0
     (out_dir / f"{pid}_snapshot.json").write_text(json.dumps(snapshot, indent=1))
+    if reasoning_log:
+        (out_dir / f"{pid}_reasoning.txt").write_text(
+            "\n\n".join(
+                f"[{e['status']} / {e['stage']}] {e['message'] or ''}\n{e['reasoning']}"
+                for e in reasoning_log
+            )
+        )
 
     outcome = snapshot.get("status") if phases[-1] != "harness_timeout" else "timeout"
     png_name, png_bytes = None, 0
@@ -191,7 +222,8 @@ async def run_prompt(client: HaWs, entry_id: str, prompt: dict, out_dir: Path) -
         except Exception as exc:
             png_name = None
             outcome = f"{outcome}+png_fetch_failed:{type(exc).__name__}"
-    return manifest_row(pid, prompt, snapshot, elapsed, outcome, png_name, png_bytes, phases)
+    return manifest_row(pid, prompt, snapshot, elapsed, outcome, png_name, png_bytes,
+                        phases, reasoning_log)
 
 
 def write_report(out_dir: Path, meta: dict, rows: list[dict]) -> None:
@@ -224,6 +256,9 @@ def write_report(out_dir: Path, meta: dict, rows: list[dict]) -> None:
             f"- clarification: {r['clarification_question'] or '—'}"
             + (f" (options: {', '.join(o for o in r['clarification_options'] if o)})"
                if r['clarification_options'] else ""),
+            f"- reasoning (streamed, stages {r['reasoning_stages'] or '—'}): "
+            f"{(r['reasoning_tail'] or '—')[:500]}"
+            + (f"  →  full: {r['id']}_reasoning.txt" if r['reasoning_tail'] else ""),
             f"- image: {'![' + r['id'] + '](' + r['png'] + ')' if r['png'] else '(no image)'}",
             "",
             "**Judgment:** _pending_",

@@ -33,6 +33,8 @@ planning — model_provider.py (plan_chart, two-pass streaming)
   │  ChartSpec = intent contract (family/envelope pinned by
   │  entity KIND before planning; model never picks chart_type)  [0022, 0023, 0025]
   │  units overwritten from catalog after planning (never model) [0031/15th]
+  │  bounded re-plan loop on recoverable output-quality gates
+  │  (opt-in, default off; never re-plans a clarify)             [spec:planner-replan/18th]
   ▼
 history retrieval — history_retrieval.py
   │  tiered: recorder raw (≤2d) | long-term statistics; unit

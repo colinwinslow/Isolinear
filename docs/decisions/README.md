@@ -60,7 +60,7 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0032 — `Deployment-configured worker token; retire the ADR-0015/0016 durability machinery` (accepted)
 - 0033 — `Integration-precomputed shaded overlay bands for codegen` (accepted — deterministic overlay bands via derived_intervals, revertible)
 - 0034 — `The user's request reaches the codegen model — the analysis-intent conduit` (accepted)
-- 0035 — `v0.3 north star: the product is saved, re-runnable analysis code — plus the demolition plan` (draft)
+- 0035 — `v0.3 north star: the product is saved, re-runnable analysis code — plus the demolition plan` (accepted)
 
 ## Archived ADRs (`archive/`)
 
