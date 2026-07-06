@@ -232,14 +232,18 @@ _CODEGEN_PROMPT_RULES = [
     "transition your code actually found in the data>}, \"direction\": \"after\" "
     "or \"before\", \"duration_ms\": <window length>}. resolved_at must be the "
     "COMPUTED transition timestamp (a variable), never a guess.",
-    # Bare non-ASCII tokens (e.g. raw ° outside a string) cause syntax_error in
-    # Python's tokenizer. Models that write unit symbols as bare tokens are a
-    # known failure mode; the prompt must steer toward quoted strings explicitly.
-    "Write all text labels, axis titles, captions, and annotations as valid "
-    "Python string literals. Never use non-ASCII characters (such as the degree "
-    "symbol °, percent %, or currency symbols) as bare Python tokens outside a "
-    "quoted string. Correct: ax.set_ylabel('Temperature (°F)'). "
-    "Wrong: ax.set_ylabel(Temperature °F).",
+    # RETIRED 2026-07-06 (open-queue (o), 0.2.22): the bare-non-ASCII rule
+    # (0.2.13, "never use ° / % as a bare Python token") was failure-driven and
+    # is now doubly redundant — the unit-grounding rule above makes the model
+    # read the unit from data['history_series'][i]['unit'] (a str variable), so
+    # the ° symbol never lands as a bare code literal, and the worker's
+    # source_line on every violation (0.2.14) recovers the class if it ever
+    # recurs. Eval-gated for retirement: evals/codegen_rule_gate.py ran the
+    # production codegen path with °F/% units against live gemma4:e4b, with vs
+    # without this rule — 36 runs, ZERO bare-non-ASCII incidents in either arm
+    # (both 18/18 accepted). The rule prevented nothing; small floor models
+    # degrade on long rule lists, so it is dropped. Contract rules stay in the
+    # prompt; failure-driven style hints must earn their accept-rate.
     "Return only the code — no commentary, no example invocation.",
 ]
 

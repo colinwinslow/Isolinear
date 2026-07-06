@@ -539,14 +539,20 @@ class CodegenPromptGroundingTests(unittest.TestCase):
         self.assertIn("resolved_at", rules)
         self.assertIn("occurrence", rules)
 
-    def test_prompt_rules_forbid_bare_non_ascii_tokens(self):
-        # Bare non-ASCII characters (like °) outside string literals cause
-        # syntax_error@LN in the sandbox; the prompt must steer models to always
-        # put them inside quoted strings.
-        rules = " ".join(_CODEGEN_PROMPT_RULES).lower()
-        self.assertIn("bare", rules)
-        self.assertIn("string literal", rules)
-        self.assertIn("°", " ".join(_CODEGEN_PROMPT_RULES))
+    def test_bare_non_ascii_rule_is_retired_grounding_rule_keeps_degree_out_of_literals(self):
+        # open-queue (o), 0.2.22: the failure-driven bare-non-ASCII rule (0.2.13)
+        # was eval-gated (evals/codegen_rule_gate.py: 36 runs, 0 incidents in
+        # either arm) and RETIRED. It must be gone — the prompt no longer tells
+        # the model how to write a bare token — but the ° class stays structurally
+        # prevented by the unit-grounding rule, which makes the model read the
+        # unit from the data (a str variable) rather than typing it as a literal.
+        rules_text = " ".join(_CODEGEN_PROMPT_RULES)
+        self.assertNotIn("bare Python token", rules_text)
+        # The grounding rule still carries ° (as an example unit string) and
+        # instructs reading the unit from the series data.
+        self.assertIn("°", rules_text)
+        self.assertIn("history_series", rules_text)
+        self.assertIn("unit", rules_text.lower())
 
 
 if __name__ == "__main__":

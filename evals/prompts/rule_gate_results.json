@@ -1,0 +1,823 @@
+{
+ "meta": {
+  "model": "gemma4:e4b",
+  "worker": "http://10.0.1.39:8081",
+  "ollama": "http://10.0.1.39:11434",
+  "runs": 3,
+  "max_repairs": 3,
+  "gated_rule": "Write all text labels, axis titles, captions, and annotations as valid Python string literals. Never use non-ASCII characters (such as the degree symbol \u00b0, percent %, or currency symbols) as bare Python tokens outside a quoted string. Correct: ax.set_ylabel('Temperature (\u00b0F)'). Wrong: ax.set_ylabel(Temperature \u00b0F).",
+  "started": "2026-07-06T03:20:10Z"
+ },
+ "runs": {
+  "single_temp_f::with_rule::run1": {
+   "case": "single_temp_f",
+   "variant": "with_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 39.0,
+     "loc": 121,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "single_temp_f::with_rule::run2": {
+   "case": "single_temp_f",
+   "variant": "with_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 37.1,
+     "loc": 127,
+     "status": "failed",
+     "error_code": "runtime_error",
+     "bare_non_ascii": false,
+     "violations": []
+    },
+    {
+     "n": 1,
+     "gen_s": 30.4,
+     "loc": 115,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 1
+  },
+  "single_temp_f::with_rule::run3": {
+   "case": "single_temp_f",
+   "variant": "with_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 39.2,
+     "loc": 121,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "single_temp_f::without_rule::run1": {
+   "case": "single_temp_f",
+   "variant": "without_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 41.0,
+     "loc": 129,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "single_temp_f::without_rule::run2": {
+   "case": "single_temp_f",
+   "variant": "without_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 34.3,
+     "loc": 98,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "single_temp_f::without_rule::run3": {
+   "case": "single_temp_f",
+   "variant": "without_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 33.2,
+     "loc": 98,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "two_temp_f::with_rule::run1": {
+   "case": "two_temp_f",
+   "variant": "with_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 31.1,
+     "loc": 96,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "two_temp_f::with_rule::run2": {
+   "case": "two_temp_f",
+   "variant": "with_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 40.7,
+     "loc": 136,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "two_temp_f::with_rule::run3": {
+   "case": "two_temp_f",
+   "variant": "with_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 31.1,
+     "loc": 92,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "two_temp_f::without_rule::run1": {
+   "case": "two_temp_f",
+   "variant": "without_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 39.3,
+     "loc": 124,
+     "status": "failed",
+     "error_code": "runtime_error",
+     "bare_non_ascii": false,
+     "violations": []
+    },
+    {
+     "n": 1,
+     "gen_s": 43.4,
+     "loc": 101,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 1
+  },
+  "two_temp_f::without_rule::run2": {
+   "case": "two_temp_f",
+   "variant": "without_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 40.5,
+     "loc": 124,
+     "status": "failed",
+     "error_code": "runtime_error",
+     "bare_non_ascii": false,
+     "violations": []
+    },
+    {
+     "n": 1,
+     "gen_s": 37.2,
+     "loc": 97,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 1
+  },
+  "two_temp_f::without_rule::run3": {
+   "case": "two_temp_f",
+   "variant": "without_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 40.6,
+     "loc": 124,
+     "status": "failed",
+     "error_code": "runtime_error",
+     "bare_non_ascii": false,
+     "violations": []
+    },
+    {
+     "n": 1,
+     "gen_s": 37.6,
+     "loc": 106,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 1
+  },
+  "overlay_temp_f::with_rule::run1": {
+   "case": "overlay_temp_f",
+   "variant": "with_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 30.3,
+     "loc": 109,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "overlay_temp_f::with_rule::run2": {
+   "case": "overlay_temp_f",
+   "variant": "with_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 28.9,
+     "loc": 107,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "overlay_temp_f::with_rule::run3": {
+   "case": "overlay_temp_f",
+   "variant": "with_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 30.3,
+     "loc": 107,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "overlay_temp_f::without_rule::run1": {
+   "case": "overlay_temp_f",
+   "variant": "without_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 43.3,
+     "loc": 123,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "overlay_temp_f::without_rule::run2": {
+   "case": "overlay_temp_f",
+   "variant": "without_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 40.7,
+     "loc": 128,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "overlay_temp_f::without_rule::run3": {
+   "case": "overlay_temp_f",
+   "variant": "without_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 35.8,
+     "loc": 107,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "humidity_pct::with_rule::run1": {
+   "case": "humidity_pct",
+   "variant": "with_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 39.1,
+     "loc": 117,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "humidity_pct::with_rule::run2": {
+   "case": "humidity_pct",
+   "variant": "with_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 33.7,
+     "loc": 96,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "humidity_pct::with_rule::run3": {
+   "case": "humidity_pct",
+   "variant": "with_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 34.6,
+     "loc": 96,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "humidity_pct::without_rule::run1": {
+   "case": "humidity_pct",
+   "variant": "without_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 33.6,
+     "loc": 108,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "humidity_pct::without_rule::run2": {
+   "case": "humidity_pct",
+   "variant": "without_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 43.4,
+     "loc": 146,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "humidity_pct::without_rule::run3": {
+   "case": "humidity_pct",
+   "variant": "without_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 36.5,
+     "loc": 106,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "aggregate_temp_f::with_rule::run1": {
+   "case": "aggregate_temp_f",
+   "variant": "with_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 32.2,
+     "loc": 94,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "aggregate_temp_f::with_rule::run2": {
+   "case": "aggregate_temp_f",
+   "variant": "with_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 30.7,
+     "loc": 104,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "aggregate_temp_f::with_rule::run3": {
+   "case": "aggregate_temp_f",
+   "variant": "with_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 32.2,
+     "loc": 104,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "aggregate_temp_f::without_rule::run1": {
+   "case": "aggregate_temp_f",
+   "variant": "without_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 31.1,
+     "loc": 104,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "aggregate_temp_f::without_rule::run2": {
+   "case": "aggregate_temp_f",
+   "variant": "without_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 34.5,
+     "loc": 120,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "aggregate_temp_f::without_rule::run3": {
+   "case": "aggregate_temp_f",
+   "variant": "without_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 34.7,
+     "loc": 120,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "histogram_temp_f::with_rule::run1": {
+   "case": "histogram_temp_f",
+   "variant": "with_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 37.6,
+     "loc": 105,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "histogram_temp_f::with_rule::run2": {
+   "case": "histogram_temp_f",
+   "variant": "with_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 42.1,
+     "loc": 118,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "histogram_temp_f::with_rule::run3": {
+   "case": "histogram_temp_f",
+   "variant": "with_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 38.5,
+     "loc": 118,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "histogram_temp_f::without_rule::run1": {
+   "case": "histogram_temp_f",
+   "variant": "without_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 40.1,
+     "loc": 106,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "histogram_temp_f::without_rule::run2": {
+   "case": "histogram_temp_f",
+   "variant": "without_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 35.5,
+     "loc": 115,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  },
+  "histogram_temp_f::without_rule::run3": {
+   "case": "histogram_temp_f",
+   "variant": "without_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 35.1,
+     "loc": 115,
+     "status": "success",
+     "error_code": null,
+     "bare_non_ascii": false,
+     "violations": []
+    }
+   ],
+   "accepted": true,
+   "bare_incidents": 0,
+   "bare_recovered": false,
+   "done": true,
+   "repairs": 0
+  }
+ },
+ "tally": {
+  "with_rule": {
+   "runs": 18,
+   "accepted": 18,
+   "first_attempt": 17,
+   "bare_incidents": 0,
+   "bare_recovered": 0,
+   "bare_unrecovered": 0
+  },
+  "without_rule": {
+   "runs": 18,
+   "accepted": 18,
+   "first_attempt": 15,
+   "bare_incidents": 0,
+   "bare_recovered": 0,
+   "bare_unrecovered": 0
+  }
+ }
+}
