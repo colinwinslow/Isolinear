@@ -21,7 +21,8 @@ Do not load other docs unless the work requires them. The doc map below tells yo
 | Question | Read |
 |---|---|
 | What's the current state of the project? | `STATUS.md` |
-| What is Isolinear, architecturally? | `HANDOFF.md` + relevant ADRs in `docs/decisions/` |
+| Where does the architecture stand right now? | `docs/ARCHITECTURE.md` (the current-state map; synced at `/closeout`) |
+| What is Isolinear, architecturally? | `docs/ARCHITECTURE.md` first, then `HANDOFF.md` + relevant ADRs in `docs/decisions/` |
 | Why did we decide X? | `docs/decisions/NNNN-*.md` (one ADR per decision) |
 | What does feature Y do? | `docs/specs/<feature>.md` (one spec per shippable feature) |
 | What are the scenarios for feature Y? | `docs/bdd/<feature>/` or `docs/bdd/<feature>.feature` |

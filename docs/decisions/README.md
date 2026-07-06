@@ -32,7 +32,6 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0001 — `Home Assistant integration plus isolated worker`
 - 0002 — `Dashboard card first UI`
 - 0003 — `Entity allowlist, semantic resolution, memory`
-- 0004 — `Chart spec first rendering with codegen option` (superseded by 0030)
 - 0005 — `Schema-driven contracts and history normalization`
 - 0006 — `Validation and repair loop`
 - 0007 — `Local-first Ollama-compatible model provider`
@@ -60,10 +59,14 @@ Keep this list in sync at `/closeout` whenever an ADR's status changes.
 - 0031 — `Model-authored analysis — Isolinear answers questions, not just charts` (accepted)
 - 0032 — `Deployment-configured worker token; retire the ADR-0015/0016 durability machinery` (accepted)
 - 0033 — `Integration-precomputed shaded overlay bands for codegen` (accepted — deterministic overlay bands via derived_intervals, revertible)
-- 0034 — `The user's request reaches the codegen model — the analysis-intent conduit` (draft)
+- 0034 — `The user's request reaches the codegen model — the analysis-intent conduit` (accepted)
+- 0035 — `v0.3 north star: the product is saved, re-runnable analysis code — plus the demolition plan` (draft)
 
 ## Archived ADRs (`archive/`)
 
+- 0004 — `Chart spec first rendering with codegen option` (superseded by 0030 —
+  archived 2026-07-06; the ChartSpec-as-planning-contract half carries forward,
+  the trusted-renderer-default half is inverted)
 - 0015 — `Durable worker health polling` (deprecated 2026-07-02 — designed for
   the pre-reality simulated worker; the real worker (ADR-0029) is a simple HTTP
   service with `GET /v1/health`. The runtime polling machinery was
