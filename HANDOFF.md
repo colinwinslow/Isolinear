@@ -2,6 +2,102 @@
 
 ## Current project phase
 
+### 2026-07-06 (17th session) — Closed open-queue (q): the analysis layer fires live (ADR-0034 conduit) + fixed the quality bugs it exposed + reset architecture tracking
+
+**Phase.** `THE ANALYSIS LAYER FIRES LIVE.` The 16th session's headline gap —
+the model-authored analysis layer collapsing to raw plots with empty answers on
+every transform/correlation/question prompt — is closed. ADR-0034 (accepted,
+pushed) routes the user's request to the codegen model; the live e2e re-run
+(0.2.23) shows answers computing and transforms plotting. Firing then exposed a
+second tier of codegen-quality bugs that the silence had masked (accept≠quality),
+two of which were fixed the same session (0.2.24). The chart-rendering and
+analysis paths are now both live-proven; the remaining work is deployment
+confirmation, planner-variance robustness, and the v0.3 direction (ADR-0035).
+
+**ADR-0034 — the analysis-intent conduit (0.2.23, accepted + pushed).** Diagnosis
+(design-first, Fable) established the gap was STRUCTURAL, not model capability:
+the codegen payload never carried the user's prompt (its task was "render the
+supplied ChartSpec"), the answer rule keyed on "if the prompt asks a question" — a
+prompt the codegen model was never shown (dead code), the 0.2.19 grounding rule
+hard-instructed raw-line plotting, and the planner was told analysis is
+unsatisfiable (reproduced live: gemma refused the heatmap as *"I cannot generate a
+true heatmap … using the available chart types"*). A production-path probe
+(`evals/analysis_intent_probe.py`, execution-truth judging on data with known
+analytics) measured the fix: **baseline 0/12 fired vs the intent arm 12/12.**
+Implementation: `generate_chart_code`/`repair_chart_code` take a bounded
+`user_request` (a generation-time argument that NEVER enters the render request
+crossing to the worker — test-asserted); the codegen task is reframed to "fulfill
+user_request"; the plot rule becomes default-with-a-compute-exception (raw-line
+plotting stays the default, the exception computes a derived series when the
+request asks for analysis); the answer rule keys on `user_request`; a planner rule
+declares analysis prompts satisfiable (plan one series per input entity, generated
+code does the math). Integration-only, no worker/frontend rebuild.
+
+**Live e2e re-run (0.2.23, 18 prompts, `evals/e2e_runs/20260706T172905Z/`): the
+analysis layer FIRES.** Judged 8 PASS / 5 PARTIAL / 5 FAIL (2 FAILs are the
+unchanged known walls e2e-04 tiering, e2e-14 planner). Answers compute: e2e-06
+"The average kitchen temperature over the last week was 70.84°F", e2e-09 door-open
+duration, e2e-08 humidity delta. Transforms plot: e2e-11 a derived cross-sensor
+mean line, e2e-17 a genuinely smooth rolling mean (was imperceptible). e2e-09
+(binary door) went from an empty degenerate-axis line to a correct step track +
+duration answer — the conduit told codegen it was a binary-state duration
+question. e2e-15 heatmap no longer hard-refuses at the planner (satisfiability
+rule) though it degrades to a Pillow histogram.
+
+**Two Fable-shaped follow-ups the run exposed (0.2.24, pushed).**
+1. **Irregular-series alignment (e2e-11/12/13 root).** Cross-series math on
+   disjoint per-entity timestamps produced a union-index mean spiking ABOVE both
+   inputs (impossible for a true mean), an empty "nan °F" delta, and a "no common
+   timestamps" correlation (the 8th-session `pearson_r` exact-intersection gap,
+   live). Root cause: the production rules carried the benchmark's D9 epoch-ms
+   lesson but never its *other* data-loading lesson — "sampling is IRREGULAR per
+   entity; resample/align before combining" — which had only lived in the
+   benchmark's own system prompt. New `evals/alignment_rule_gate.py` (genuinely
+   irregular data, execution-truth judges) reproduced all three offline (0/6). A
+   prose-ordered rule only reached 2/6 — gemma scrambled the order and `.dropna()`'d
+   the raw union frame (disjoint indexes → every row deleted → all-NaN). The shipped
+   rule bakes the order into one literal per-entity idiom
+   (`Series(...).resample('5min').mean().interpolate()`, combine only after): **9/9
+   clean vs 0/6.** This is the ADR-0033 axvspan lesson generalized — a floor model
+   follows a copyable code idiom where it scrambles an equivalent prose ordering.
+2. **e2e-18 `invalid_model_provider_chart_spec`.** A planner variance tail: a
+   sample plans the computed result ("Deviation") as its own series, and constrained
+   decoding — whose `source.entity_id` enum holds only approved ids — forces it onto
+   an already-used entity → the duplicate-series-source contract check rejects it
+   (the 0.1.37 relabel-reuse class through a new door). The satisfiability rule now
+   prohibits planning the computed result as a series; re-check (deviation ×3,
+   heatmap ×2, cross-metric ×2) → 7/7 chart_spec_ready + contract-valid.
+
+**Architecture-tracking reset (Colin: "I can't track 34 ADRs").** Wrote
+`docs/ARCHITECTURE.md` — the current-state map (the spine as one annotated request
+path with module + ADR pointers per stage, the 12 load-bearing decisions, a
+weight-honest component table naming `job_orchestration.py` the 8.2K god module, a
+"not current architecture / demolition targets" section). `CLAUDE.md`'s doc map
+points at it; it syncs at `/closeout`. Archived superseded ADR-0004 (numbers never
+renumber). Drafted **ADR-0035** (v0.3 north star: the product is saved,
+re-runnable analysis code refreshed model-free, plus the sequenced demolition plan
+— split `job_orchestration.py`, retire the `first_real_vertical_slice` gate, shrink
+ChartSpec to the intent contract ADR-0034 already declares, retire the Pillow
+histogram/aggregate families once the harness proves codegen coverage). ADR-0035 is
+DRAFT awaiting Colin — it's the direction decision, his call.
+
+**Verification.** Suite **446 passed / 4 skipped**; evals `codegen_generation_path`
++ `model_authored_analysis` PASS; intent probe 12/12, alignment gate 9/9 vs 0/6,
+planner re-check 7/7. Inline invariant review OK (all changes are prompt text +
+one generation-time argument; `user_request` never crosses to the worker
+[test-asserted]; no schema/service/sandbox/data-boundary change; the
+duplicate-source contract check still gates every spec). Arch subagent not spawned
+(bounded prompt-level changes on the accepted codegen path), available on request.
+
+**Deploy state.** `main` is **0.2.24, PUSHED** (0.2.23 conduit + 0.2.24
+alignment/planner fixes). HA was HACS-updated to **0.2.23** for this session's live
+e2e run; **it needs a 0.2.24 redownload to deploy the alignment + planner-hardening
+fixes.** No worker rebuild (the conduit never crosses the data boundary; the CT103
+`:dev` worker is unchanged from the 16th session). Next: deploy 0.2.24 + a
+confirming harness re-run (expect e2e-11/12/13/18 to flip), then open-queue (u)
+re-plan-on-validation-failure, (m) repair-attempts, (r) timeline routing, (t) the
+tiering wall — and Colin's decision on ADR-0035.
+
 ### 2026-07-06 (16th session) — Open-queue D + E: retired the bare-° rule (eval-gated, 0.2.22) and built the Claude-judged live e2e harness — which proved the model-authored analysis layer doesn't fire live
 
 Colin picked open-queue **(o)** and **(p)**. Both shipped; the harness (E) then
