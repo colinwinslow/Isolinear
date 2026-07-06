@@ -6,6 +6,9 @@ __pycache__/
 .test-output/frontend-server.out
 .test-output/frontend-server.err
 
+# Live e2e harness runs: real home data renders + snapshots stay local (private)
+evals/e2e_runs/
+
 # Analysis benchmark: real HA home data + generated code stay local (private)
 evals/analysis_benchmark/home_data.json
 evals/analysis_benchmark/ha_history_raw.json

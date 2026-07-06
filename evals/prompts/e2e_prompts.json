@@ -1,0 +1,41 @@
+{
+  "description": "Fixed prompt set for the Claude-in-the-loop live e2e harness (evals/e2e_pipeline_harness.py, open-queue (p)). Covers the families that regressed in 0.2.18-0.2.21: single-series, two-series numeric, numeric+state overlay, long-window statistics tier, and the answer channel. Prompts use entities on the live allowlist (kitchen/basement ecobee temps, kitchen AC).",
+  "prompts": [
+    {
+      "id": "e2e-01",
+      "family": "single_numeric_short",
+      "prompt": "Show the kitchen temperature today",
+      "expect": "codegen line chart, real data plotted, y-axis unit °F, no fallback"
+    },
+    {
+      "id": "e2e-02",
+      "family": "single_numeric_multiday",
+      "prompt": "Show the basement temperature for the last 3 days",
+      "expect": "codegen line chart, real data across ~3 days, °F axis (the 0.2.18 empty-chart + 'Value' regression case)"
+    },
+    {
+      "id": "e2e-03",
+      "family": "two_numeric",
+      "prompt": "Show the kitchen and basement temperatures over the weekend",
+      "expect": "two distinct lines with legend, °F axis (the 0.2.19 grounding + °C regression case)"
+    },
+    {
+      "id": "e2e-04",
+      "family": "numeric_state_overlay",
+      "prompt": "Show the kitchen and basement temperatures over the last five days and when the AC was running",
+      "expect": "numeric lines + shaded cooling bands via derived_intervals; NO state series drawn as a line (the 0.2.21 / ADR-0033 case)"
+    },
+    {
+      "id": "e2e-05",
+      "family": "long_window_statistics",
+      "prompt": "Show the kitchen temperature over the last 60 days",
+      "expect": "statistics-tier chart over ~60 days (not empty, not clipped to recorder retention)"
+    },
+    {
+      "id": "e2e-06",
+      "family": "answer_channel",
+      "prompt": "What was the average kitchen temperature over the last week?",
+      "expect": "chart + answer_text with a computed number; answer_verification present (verified or caveat, never a false verified)"
+    }
+  ]
+}
