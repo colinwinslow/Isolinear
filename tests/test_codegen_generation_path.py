@@ -510,6 +510,22 @@ class CodegenModelProviderTests(unittest.TestCase):
         # … with the compute-the-derived-series exception keyed on user_request.
         self.assertIn("EXCEPTION: when user_request asks for a computed analysis", rules)
 
+    def test_analysis_exception_prescribes_irregular_alignment(self):
+        # Live e2e-11/12/13 (0.2.23): cross-series math on irregular per-entity
+        # sampling produced a union-index mean spiking above both inputs, an
+        # empty delta, and a correlation with no common timestamps. The
+        # benchmark's alignment lesson must be IN the production rules
+        # (eval-gated: evals/alignment_rule_gate.py).
+        body = self._capture_generate_body("Are the two sensors correlated?")
+        rules = " ".join(body["rules"])
+        self.assertIn("sampled IRREGULARLY", rules)
+        # The literal per-entity idiom (order baked in: resample each BEFORE
+        # combining) — the floor model scrambled a prose-only ordering into
+        # dropna-on-the-raw-union, which empties disjoint indexes.
+        self.assertIn(".resample('5min').mean().interpolate()", rules)
+        self.assertIn("NEVER join or intersect raw series on exact timestamps", rules)
+        self.assertIn("NEVER call .dropna() on a DataFrame built from two un-resampled series", rules)
+
     def test_answer_rule_keys_on_user_request(self):
         body = self._capture_generate_body("How much warmer is the kitchen?")
         rules = " ".join(body["rules"])

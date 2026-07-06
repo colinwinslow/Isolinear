@@ -193,6 +193,10 @@ class StreamingPlannerTransportTests(unittest.TestCase):
         prompt = captured["body"]["messages"][1]["content"]
         self.assertIn("computed analysis over approved entities", prompt)
         self.assertIn("IS satisfiable and must return status chart_spec_ready", prompt)
+        # Hardened after live e2e-18: a variance sample planned the computed
+        # result as its own series; constrained decoding forced it onto an
+        # already-used approved entity_id -> duplicate-source rejection.
+        self.assertIn("NEVER add an extra series for the computed result", prompt)
 
     def test_streaming_request_sets_think_true(self):
         """Streaming plan_chart makes two calls: the first (think pass) must

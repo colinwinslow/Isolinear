@@ -167,7 +167,17 @@ _CODEGEN_PROMPT_RULES = [
     "a deviation from average, a smoothed/rolling series, or similar — COMPUTE that "
     "derived series from the numeric history_series points with pandas/numpy/scipy and "
     "plot the DERIVED result, labelled for what it is; plot the raw inputs only if they "
-    "help answer the request. Never plot a series whose 'kind' is 'binary_state' or "
+    "help answer the request. Each entity's points are sampled IRREGULARLY at "
+    "different times (two entities share NO timestamps), so before ANY math across "
+    "two series (average, difference, correlation, deviation) align each one FIRST "
+    "with exactly this per-entity idiom: aligned = pandas.Series([p['value'] for p in "
+    "pts], index=pandas.to_datetime([p['ts_epoch_ms'] for p in pts], "
+    "unit='ms')).resample('5min').mean().interpolate() — resample EACH series "
+    "separately BEFORE combining them; only then combine the aligned results (they "
+    "now share a grid) and .dropna(). NEVER join or intersect raw series on exact "
+    "timestamps, and NEVER call .dropna() on a DataFrame built from two "
+    "un-resampled series (their indexes are disjoint, so it deletes every row and "
+    "everything downstream becomes NaN). Never plot a series whose 'kind' is 'binary_state' or "
     "'categorical_state' as a line (its value is a state string like 'cool', not a "
     "number) — those are state overlays, already provided to you as shaded bands (see "
     "the derived_intervals rule). The chart_spec is intent/metadata only (title, "
@@ -1416,11 +1426,19 @@ class OllamaCompatiblePlannerClient:
                 # correlation/average/heatmap is not itself an entity) as missing
                 # data and refuses. Live-verified to flip the heatmap refusal to a
                 # ready plan of the raw input series; generated code does the math.
+                # ADR-0034; hardened after live e2e-18: a variance sample can try to
+                # plan the computed result (an "Average"/"Deviation" series) as its
+                # own series — but the result is not an entity, so constrained
+                # decoding forces it onto an already-used approved entity_id →
+                # duplicate-source rejection (invalid_model_provider_chart_spec),
+                # the 0.1.37 relabel-reuse class through a new door.
                 "A prompt asking for a computed analysis over approved entities — a correlation, an average or "
                 "difference between sensors, a distribution or histogram, a deviation, a smoothed/rolling series, "
                 "or a question about the data — IS satisfiable and must return status chart_spec_ready: plan one "
                 "series per approved input entity the analysis needs (the raw inputs); downstream generated code "
-                "computes the analysis from those series. Do not return clarification_needed just because the prompt "
+                "computes the analysis from those series. NEVER add an extra series for the computed result itself "
+                "(no 'Average', 'Difference', or 'Deviation' series) — the computed result is not an approved "
+                "entity and is derived downstream. Do not return clarification_needed just because the prompt "
                 "asks for math, a distribution, or a question rather than a plain chart.",
                 "Each series must represent a distinct approved entity. Never create multiple series for the same entity_id.",
                 "The chart_spec must use chart_type, not graph_type.",

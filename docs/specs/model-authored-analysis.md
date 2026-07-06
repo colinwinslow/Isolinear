@@ -123,6 +123,21 @@ request-conditional:
   contract (compute-and-f-string, claims ledger, verdicts derived) is unchanged;
   the deterministic answer-grounding check (§5a) now actually gates live answers
   because the answers now fire.
+- **Prescribed irregular-series alignment (0.2.24 follow-up).** The exception
+  clause also prescribes HOW to combine series: each entity's points are sampled
+  irregularly at different times, so cross-series math (average, difference,
+  correlation, deviation) must first align on a common time grid (per-entity
+  pandas Series indexed from `ts_epoch_ms`, resample to a common interval,
+  interpolate, dropna) — never join/intersect on exact timestamps and never
+  combine un-aligned indexes. This is the 4th-session benchmark's data-loading
+  lesson that had only ever lived in the benchmark's own system prompt; the
+  live 0.2.23 e2e run showed its absence as a union-index mean spiking above
+  both inputs (e2e-11), an empty delta (e2e-12), and an "insufficient common
+  timestamps" correlation (e2e-13, the 8th-session `pearson_r`
+  exact-intersection gap live). Eval-gated with `evals/alignment_rule_gate.py`
+  (production codegen path, genuinely irregular per-entity sampling,
+  with/without the sentence, execution-truth judges tuned to the union
+  artifact).
 
 ### 3. Data-boundary timestamp normalization (ADR-0031 D9)
 
