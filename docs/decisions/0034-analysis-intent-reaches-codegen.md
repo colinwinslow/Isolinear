@@ -1,7 +1,7 @@
 ---
 id: 0034
 title: The user's request reaches the codegen model — the analysis-intent conduit
-status: draft
+status: accepted
 date: 2026-07-06
 supersedes: []
 superseded-by: null
