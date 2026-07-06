@@ -1,41 +1,132 @@
 {
-  "description": "Fixed prompt set for the Claude-in-the-loop live e2e harness (evals/e2e_pipeline_harness.py, open-queue (p)). Covers the families that regressed in 0.2.18-0.2.21: single-series, two-series numeric, numeric+state overlay, long-window statistics tier, and the answer channel. Prompts use entities on the live allowlist (kitchen/basement ecobee temps, kitchen AC).",
+  "description": "Fixed prompt set for the Claude-in-the-loop live e2e harness (evals/e2e_pipeline_harness.py, open-queue (p)). Tranche 1 (e2e-01..06) covers the families that regressed in 0.2.18-0.2.21. Tranche 2 (e2e-07..18) adds humidity/% units, state timelines + a renderable short-window overlay, and the model-authored-analysis surfaces (transforms, correlation, heatmap, histogram, smoothing) that exercise pandas/scipy/seaborn and the answer/claims channel (ADR-0031). Entities are grounded in the confirmed-allowlisted ecobee/basement device families (sensor.kitchen_ecobee_temperature, sensor.basement_temperature, climate.kitchen_ecobee) and their humidity/door siblings; a reference that isn't allowlisted surfaces as a captured clarification, not a crash. Windows are chosen deliberately: >2 days routes every series to the long-term-statistics tier (RAW_TIER_MAX_SPAN=2d, ADR-0021 single-source-per-window), which state entities lack, so state-overlay prompts that must render stay inside 2 days.",
   "prompts": [
     {
       "id": "e2e-01",
       "family": "single_numeric_short",
+      "capability": "codegen line",
       "prompt": "Show the kitchen temperature today",
       "expect": "codegen line chart, real data plotted, y-axis unit °F, no fallback"
     },
     {
       "id": "e2e-02",
       "family": "single_numeric_multiday",
+      "capability": "codegen line, statistics tier",
       "prompt": "Show the basement temperature for the last 3 days",
       "expect": "codegen line chart, real data across ~3 days, °F axis (the 0.2.18 empty-chart + 'Value' regression case)"
     },
     {
       "id": "e2e-03",
       "family": "two_numeric",
+      "capability": "codegen multi-line + legend",
       "prompt": "Show the kitchen and basement temperatures over the weekend",
       "expect": "two distinct lines with legend, °F axis (the 0.2.19 grounding + °C regression case)"
     },
     {
       "id": "e2e-04",
       "family": "numeric_state_overlay",
+      "capability": "ADR-0033 shaded bands (long window)",
       "prompt": "Show the kitchen and basement temperatures over the last five days and when the AC was running",
-      "expect": "numeric lines + shaded cooling bands via derived_intervals; NO state series drawn as a line (the 0.2.21 / ADR-0033 case)"
+      "expect": "numeric lines + shaded cooling bands via derived_intervals; NO state series drawn as a line (the 0.2.21 / ADR-0033 case). KNOWN WALL: >2-day window routes the state entity to a statistics tier it lacks → no_long_term_statistics before rendering. Kept as the long-window regression witness; e2e-10 is the renderable short-window twin."
     },
     {
       "id": "e2e-05",
       "family": "long_window_statistics",
+      "capability": "statistics tier, daily",
       "prompt": "Show the kitchen temperature over the last 60 days",
       "expect": "statistics-tier chart over ~60 days (not empty, not clipped to recorder retention)"
     },
     {
       "id": "e2e-06",
       "family": "answer_channel",
+      "capability": "answer_text + grounding",
       "prompt": "What was the average kitchen temperature over the last week?",
       "expect": "chart + answer_text with a computed number; answer_verification present (verified or caveat, never a false verified)"
+    },
+
+    {
+      "id": "e2e-07",
+      "family": "single_numeric_humidity",
+      "capability": "unit grounding (% not °F)",
+      "prompt": "Show the kitchen humidity over the last day",
+      "expect": "codegen line chart, real % data, y-axis unit '%' — exercises the unit-grounding rule on a non-temperature unit (catches any °F assumption)"
+    },
+    {
+      "id": "e2e-08",
+      "family": "two_numeric_humidity",
+      "capability": "multi-line %, two devices",
+      "prompt": "Compare the kitchen and basement humidity over the last 2 days",
+      "expect": "two % lines with legend across a raw-tier window; distinct series, correct '%' axis"
+    },
+    {
+      "id": "e2e-09",
+      "family": "state_timeline",
+      "capability": "timeline family (invariant #9), binary raw-states",
+      "prompt": "When was the kitchen door open today?",
+      "expect": "timeline / step track of the door open/closed state (NOT a numeric line); optionally an answer_text with total open duration. Tests the binary render-family route + state-based rendering"
+    },
+    {
+      "id": "e2e-10",
+      "family": "numeric_state_overlay_short",
+      "capability": "ADR-0033 shaded bands (renderable)",
+      "prompt": "Show the kitchen temperature and when the AC was running today",
+      "expect": "the renderable overlay twin of e2e-04, inside the 2-day raw tier: one numeric °F line + shaded cooling/heating bands via derived_intervals, NO state series drawn as a line"
+    },
+    {
+      "id": "e2e-11",
+      "family": "transform_cross_sensor_mean",
+      "capability": "pandas transform + answer",
+      "prompt": "What is the average of the kitchen and basement temperatures over the last day?",
+      "expect": "a single computed series (cross-sensor mean) plotted, plus answer_text with the overall average; exercises the tranche-1 transforms path (multi-entity disclosure + pandas)"
+    },
+    {
+      "id": "e2e-12",
+      "family": "transform_delta_verdict",
+      "capability": "pairwise delta + verdict + claims",
+      "prompt": "How much warmer is the kitchen than the basement over the last 2 days?",
+      "expect": "delta series and/or answer_text with a computed difference and a Yes/No-style verdict; a claims ledger (metric=delta) so the grounding check can recompute — answer_verification verified or caveat, never a false verified"
+    },
+    {
+      "id": "e2e-13",
+      "family": "correlation",
+      "capability": "scipy.stats pearson_r + grounding check",
+      "prompt": "Are the kitchen and basement temperatures correlated over the last 2 days?",
+      "expect": "scatter or dual-line + answer_text stating the correlation coefficient and a verdict; claims metric=pearson_r. KNOWN RISK (8th-session finding): exact-timestamp intersection can find no common timestamps on real irregular series → unverified caveat. A false 'verified' would be a real bug"
+    },
+    {
+      "id": "e2e-14",
+      "family": "correlation_cross_metric",
+      "capability": "scipy.stats, temp vs humidity",
+      "prompt": "Is the kitchen temperature correlated with the kitchen humidity over the last 2 days?",
+      "expect": "cross-metric correlation on the same room (°F vs %); answer_text with the coefficient + verdict; both axes/units grounded correctly"
+    },
+    {
+      "id": "e2e-15",
+      "family": "heatmap",
+      "capability": "seaborn heatmap + pivot transform",
+      "prompt": "Show a heatmap of the kitchen temperature by hour of day and day over the last week",
+      "expect": "a seaborn heatmap (hour-of-day × day) from hourly-statistics data; a real colour grid (not empty, not a line chart); exercises seaborn + a resample/pivot transform"
+    },
+    {
+      "id": "e2e-16",
+      "family": "histogram",
+      "capability": "histogram family",
+      "prompt": "Show the distribution of the kitchen temperature over the last week",
+      "expect": "a histogram of temperature values (binned bars), °F x-axis; exercises the histogram render family"
+    },
+    {
+      "id": "e2e-17",
+      "family": "transform_rolling_mean",
+      "capability": "smoothing transform",
+      "prompt": "Show the kitchen temperature smoothed with a rolling average over the last 2 days",
+      "expect": "raw + rolling-mean line (or a single smoothed line), °F; exercises the rolling_mean smoothing transform (tranche 1)"
+    },
+    {
+      "id": "e2e-18",
+      "family": "deviation_from_mean",
+      "capability": "multi-sensor transform",
+      "prompt": "Show how far the kitchen and basement temperatures deviate from their average over the last day",
+      "expect": "per-sensor deviation-from-house-mean series; exercises multi-sensor cross math beyond a simple average"
     }
   ]
 }
