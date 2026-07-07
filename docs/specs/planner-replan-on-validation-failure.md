@@ -91,6 +91,20 @@ gates (candidate additions pending harness evidence — see Non-goals).
 - On a trigger-set rejection, re-invoke `planner.plan_chart` with the **same
   request and result schema** (a fresh sample — slice 1 does not feed the
   rejection back into a corrective prompt; see Non-goals) and re-run the gates.
+- **Fresh-sample guarantee (added at default-promotion, 20th session).** The
+  planner's structured pass runs at `temperature: 0` (near-greedy decoding), so
+  an unperturbed retry mostly reproduces the rejected plan token-for-token —
+  probed live against gemma4:e4b: 3/3 byte-identical planner results on a
+  frozen request. A re-plan without a sampling change is therefore a live
+  no-op. Re-plan attempts (attempt ≥ 1) pass
+  `temperature=_PLANNER_REPLAN_TEMPERATURE` (0.7) to `plan_chart`; the frozen
+  request then yields 3/3 distinct plans (live-probed). The first attempt keeps
+  the reproducible temperature-0 default, and constrained decoding still
+  enforces the result schema on every attempt. Threading is additive: planners
+  whose `plan_chart` predates the `temperature` keyword are called without it
+  (`_call_planner_with_optional_reasoning` degrades one optional keyword at a
+  time, preferring to keep `temperature` over the presentational
+  `on_reasoning`).
 - Cap total attempts at `1 + max_planner_replan_attempts`. On exhaustion, return
   the **last** attempt's failure result unchanged (same code, same `validation`),
   so no failure surface changes when re-plan doesn't help.
@@ -116,6 +130,16 @@ New option `max_planner_replan_attempts`, mirroring `max_codegen_repair_attempts
   (options-flow integer field beside the codegen tunables) wire the user-facing
   surface — done as part of the default-promotion step so config validation and
   the effective default move together.
+- **Default promotion DONE (20th session).** Reader default is **1**;
+  `config_schema.py` carries the typed field + default and validates it
+  non-negative; `config_flow.py` exposes the options-flow integer field (with
+  string-digit coercion) beside `max_codegen_repair_attempts`. Bundled
+  open-queue (m): `max_codegen_repair_attempts` default promoted 1 → **3**
+  (reader + `default_options_data`) — repairs do real analysis work under
+  ADR-0034, and 3 matches the proven live configuration. The one existing
+  failure-path call-count assertion
+  (`test_invalid_planner_result_returns_card_facing_failed_snapshot`) now
+  asserts the exhaustion count (2 calls).
 
 ### Observability
 
@@ -164,6 +188,16 @@ sample is recovered by one re-plan, no prompt change.
    still PASS.
 4. Real-artifact proof: the e2e-18-class duplicate-source variance tail recovers
    via re-plan against live gemma (recorded in the evidence file).
+   **Satisfied (20th session, `evals/planner_replan_live_proof.py`) in two
+   parts, honestly recorded:** (a) the fresh-sample property proven live on a
+   frozen production request (temperature-0 default: 3/3 byte-identical
+   planner results, so an unperturbed retry cannot recover; the re-plan
+   override: 3/3 distinct plans); (b) the duplicate-source tail itself did
+   **not** reproduce in 16 live production-path runs with the 0.2.24 hardening
+   clause surgically removed (16/16 first samples validated) — the class is a
+   rare variance region (it fired once in the 17th-session harness), so
+   end-to-end recovery is proven by loop mechanics (unit tests) + the live
+   fresh-sample property, not by a captured live occurrence.
 
 ## Non-goals
 

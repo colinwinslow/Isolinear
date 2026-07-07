@@ -239,21 +239,37 @@ def _call_planner_with_optional_reasoning(
     *,
     result_schema: dict[str, Any] | None,
     on_reasoning: Any | None,
+    temperature: float | None = None,
 ) -> dict[str, Any]:
-    """Call a planner method, passing on_reasoning when the method accepts it.
+    """Call a planner method, passing optional keywords when the method accepts them.
 
     ADR-0025 streaming is additive (D6): planners that predate the callback (and
-    test doubles that don't accept it) are called the original way. We pass the
-    callback only when requested and the method advertises the keyword.
+    test doubles that don't accept it) are called the original way. The same
+    additive rule applies to ``temperature`` (the re-plan fresh-sample override):
+    each optional keyword is passed only when the method advertises it,
+    degrading one keyword at a time.
     """
+    optional_kwargs: dict[str, Any] = {}
     if on_reasoning is not None:
+        optional_kwargs["on_reasoning"] = on_reasoning
+    if temperature is not None:
+        optional_kwargs["temperature"] = temperature
+    # Degradation preference on an older signature: keep the functional
+    # ``temperature`` (fresh-sample re-plan) over the presentational
+    # ``on_reasoning`` (live reasoning display), then a bare call.
+    kwarg_subsets: list[dict[str, Any]] = [optional_kwargs]
+    if len(optional_kwargs) == 2:
+        kwarg_subsets.append({"temperature": temperature})
+        kwarg_subsets.append({"on_reasoning": on_reasoning})
+    if optional_kwargs:
+        kwarg_subsets.append({})
+    last_error: TypeError | None = None
+    for kwargs in kwarg_subsets:
         try:
-            return method(request, result_schema=result_schema, on_reasoning=on_reasoning)
-        except TypeError:
-            # Older planner signature without on_reasoning — fall back (no live
-            # reasoning, plain planning state).
-            pass
-    return method(request, result_schema=result_schema)
+            return method(request, result_schema=result_schema, **kwargs)
+        except TypeError as err:
+            last_error = err
+    raise last_error if last_error is not None else TypeError("planner call failed")
 
 
 def setup_job_orchestration(hass: Any, entry: Any) -> dict[str, Any]:
@@ -3455,6 +3471,15 @@ _PLANNER_REPLAN_TRIGGER_CODES = frozenset(
     {"invalid_model_provider_chart_spec", "invalid_planner_result"}
 )
 
+# A re-plan re-sends the SAME request, but the planner's structured pass runs at
+# temperature 0 (near-greedy decoding), so an unperturbed retry mostly reproduces
+# the rejected plan token-for-token (probed live against gemma4:e4b: identical
+# outputs on a frozen request, modulo GPU-scheduling noise). Re-plan attempts
+# therefore sample at a nonzero temperature so the "fresh sample" the spec
+# intends is real; constrained decoding still enforces the result schema, and
+# the first attempt keeps the reproducible temperature-0 default.
+_PLANNER_REPLAN_TEMPERATURE = 0.7
+
 
 def _record_model_provider_plan(
     store: dict[str, Any],
@@ -3484,6 +3509,7 @@ def _record_model_provider_plan(
             entry_id=entry_id,
             job=job,
             source_snapshot=source_snapshot,
+            replan_attempt=replan_attempts,
         )
         recoverable = (
             not result.get("accepted")
@@ -3517,6 +3543,7 @@ def _plan_once(
     entry_id: str,
     job: dict[str, Any],
     source_snapshot: dict[str, Any],
+    replan_attempt: int = 0,
 ) -> dict[str, Any]:
     planner = get_model_provider_planner(hass, entry_id)
     if planner is None:
@@ -3596,7 +3623,13 @@ def _plan_once(
         store, job["job_id"], stage=PLAN_CHART_PHASE_LABEL
     )
     provider_response = _call_planner_with_optional_reasoning(
-        planner.plan_chart, request, result_schema=result_schema, on_reasoning=plan_on_reasoning
+        planner.plan_chart,
+        request,
+        result_schema=result_schema,
+        on_reasoning=plan_on_reasoning,
+        # Re-plan attempts sample fresh (see _PLANNER_REPLAN_TEMPERATURE); the
+        # first attempt keeps the reproducible temperature-0 default.
+        temperature=_PLANNER_REPLAN_TEMPERATURE if replan_attempt > 0 else None,
     )
     provider_summary = {
         "provider": planner_client_metadata(planner),
@@ -4703,12 +4736,15 @@ def _configured_render_path(hass: Any, entry_id: str) -> str:
 
 
 def _configured_max_codegen_repair_attempts(hass: Any, entry_id: str) -> int:
+    # Default 3 (open-queue (m)): ADR-0034 made repairs do real analysis work,
+    # and ~1/5 generations hit a repairable runtime slip that a single pass
+    # often misses — three passes recover it (the proven live configuration).
     entry_data = getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {})
     entry = entry_data.get("entry") if isinstance(entry_data, dict) else None
     options = getattr(entry, "options", {}) or {}
     value = options.get("max_codegen_repair_attempts") if hasattr(options, "get") else None
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        return 1
+        return 3
     return value
 
 
@@ -4716,9 +4752,9 @@ def _configured_max_planner_replan_attempts(hass: Any, entry_id: str) -> int:
     """Extra planner samples allowed when a plan fails a recoverable quality gate.
 
     Mirrors :func:`_configured_max_codegen_repair_attempts`. ``0`` disables the
-    re-plan loop (today's single-attempt behavior — the clean revert switch and
-    the slice-1 default, so the loop is purely additive/opt-in until the default
-    is deliberately promoted). See
+    re-plan loop (single-attempt behavior — the clean revert switch). Default
+    ``1`` (promoted from the opt-in slice-1 landing): one extra sample recovers
+    the observed variance tails. See
     ``docs/specs/planner-replan-on-validation-failure.md``.
     """
     entry_data = getattr(hass, "data", {}).get(DOMAIN, {}).get(entry_id, {})
@@ -4726,7 +4762,7 @@ def _configured_max_planner_replan_attempts(hass: Any, entry_id: str) -> int:
     options = getattr(entry, "options", {}) or {}
     value = options.get("max_planner_replan_attempts") if hasattr(options, "get") else None
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        return 0
+        return 1
     return value
 
 

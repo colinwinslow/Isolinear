@@ -1,0 +1,363 @@
+{
+ "meta": {
+  "model": "gemma4:e4b",
+  "ollama": "http://10.0.1.39:11434",
+  "prompt": "Show how far the kitchen and basement temperatures deviate from their average over the last day",
+  "entities": [
+   "sensor.basement_temperature",
+   "sensor.kitchen_ecobee_temperature"
+  ],
+  "clause_stripped": "NEVER add an extra series for the computed result",
+  "reader_default_exercised": "max_planner_replan_attempts absent -> default 1",
+  "started": "2026-07-07T03:25:41Z"
+ },
+ "runs": {
+  "run1": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 45.8,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temp Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temp Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run2": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 41.1,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temperature Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temperature Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run3": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 42.3,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temp Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temp Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run4": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 46.8,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temperature Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temperature Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run5": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 35.7,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temperature Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temperature Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run6": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 42.9,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temp Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temp Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run7": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 36.2,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temp Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temp Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run8": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 45.0,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temp Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temp Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run9": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 37.9,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temp Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temp Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run10": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 34.3,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temp Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temp Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run11": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 41.1,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temperature",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temperature",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run12": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 40.5,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temp Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temp Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run13": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 29.6,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temp Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temp Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run14": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 32.1,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temperature Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temperature Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run15": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 45.2,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temp Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temp Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  },
+  "run16": {
+   "done": true,
+   "accepted": true,
+   "code": "accepted",
+   "planner_replan_attempts": 0,
+   "planner_calls": 1,
+   "elapsed_s": 41.8,
+   "replan_log": [],
+   "recovered": false,
+   "series": [
+    {
+     "label": "Basement Temp Deviation",
+     "entity_id": "sensor.basement_temperature"
+    },
+    {
+     "label": "Kitchen Temp Deviation",
+     "entity_id": "sensor.kitchen_ecobee_temperature"
+    }
+   ]
+  }
+ },
+ "tally": {
+  "runs": 16,
+  "accepted": 16,
+  "tail_fired": 0,
+  "recovered_by_replan": 0
+ },
+ "fresh_sample_probe": {
+  "temps": {
+   "temperature_0_default": {
+    "shas": [
+     "76fb896ad9b4",
+     "76fb896ad9b4",
+     "76fb896ad9b4"
+    ],
+    "distinct": 1
+   },
+   "replan_temperature_0.7": {
+    "shas": [
+     "86c89020c06f",
+     "21ee75da5a0b",
+     "b93062bf2153"
+    ],
+    "distinct": 3
+   }
+  },
+  "done": true
+ }
+}

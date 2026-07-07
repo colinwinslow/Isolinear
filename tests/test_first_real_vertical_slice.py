@@ -1323,7 +1323,9 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             self.assertEqual(snapshot["snapshot"]["status"], "failed")
             self.assertEqual(snapshot["snapshot"]["failure"]["stage"], "model_provider_planning")
             self.assertEqual(snapshot["snapshot"]["failure"]["code"], "invalid_model_provider_chart_spec")
-            self.assertEqual(len(planner.calls), 1)
+            # Default max_planner_replan_attempts=1: the recoverable rejection is
+            # re-sampled once before failing (exhaustion count, not one call).
+            self.assertEqual(len(planner.calls), 2)
             self.assertTrue(snapshot["orchestration"]["model_provider_called"])
             self.assertFalse(snapshot["orchestration"]["chart_rendering_called"])
             self.assertFalse(snapshot["orchestration"]["chart_artifact_written"])

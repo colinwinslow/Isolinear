@@ -876,6 +876,7 @@ class OllamaCompatiblePlannerClient:
         *,
         result_schema: dict[str, Any] | None = None,
         on_reasoning: Callable[[str], None] | None = None,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         """Call `/api/chat` with structured output and return a PlannerResult.
 
@@ -886,6 +887,11 @@ class OllamaCompatiblePlannerClient:
         Ollama suppresses thinking when format is set, so they cannot share a
         single call. When ``on_reasoning`` is None a single format-constrained
         call is made (D6 fallback, unchanged behavior).
+
+        ``temperature`` overrides the structured pass's default temperature 0 —
+        used by the bounded re-plan loop so a retry is a genuinely fresh sample
+        rather than a near-greedy repeat of the rejected plan (see
+        docs/specs/planner-replan-on-validation-failure.md).
         """
         schema = result_schema or load_planner_result_schema()
         chat_url = _ollama_chat_url(self.endpoint_url)
@@ -904,7 +910,7 @@ class OllamaCompatiblePlannerClient:
             # reasoning is presentational — planning proceeds regardless.
 
         # Pass 2 (or sole pass when not streaming): format-constrained structured output.
-        plan_payload = self._chat_payload(request, schema, stream=False)
+        plan_payload = self._chat_payload(request, schema, stream=False, temperature=temperature)
         _LOGGER.debug(
             "Isolinear -> Ollama plan_chart request: model=%s url=%s body=%s",
             self.planner_model,
@@ -1396,7 +1402,14 @@ class OllamaCompatiblePlannerClient:
             },
         }
 
-    def _chat_payload(self, request: dict[str, Any], result_schema: dict[str, Any], *, stream: bool = False) -> dict[str, Any]:
+    def _chat_payload(
+        self,
+        request: dict[str, Any],
+        result_schema: dict[str, Any],
+        *,
+        stream: bool = False,
+        temperature: float | None = None,
+    ) -> dict[str, Any]:
         chart_type, render_as = _chart_family_from_schema(result_schema)
         # Detect multi-family envelope (ADR-0023): chart_type enum has >1 value.
         try:
@@ -1528,7 +1541,9 @@ class OllamaCompatiblePlannerClient:
             # Non-streaming calls keep format for strict constrained decoding.
             **({"think": True} if stream else {"format": result_schema}),
             "options": {
-                "temperature": 0,
+                # Default temperature 0 (near-greedy) for reproducible planning;
+                # the re-plan loop overrides it so a retry samples fresh.
+                "temperature": 0 if temperature is None else temperature,
                 # Cap thinking tokens on the think pass so simple queries don't
                 # spend 30-40 s generating 1500+ reasoning tokens. The result
                 # pass (stream=False) is uncapped: it produces the final JSON and

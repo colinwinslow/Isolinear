@@ -97,6 +97,7 @@ CONFIG_FLOW_FIELDS = (
 OPTIONS_FLOW_FIELDS = (
     "default_render_mode",
     "max_codegen_repair_attempts",
+    "max_planner_replan_attempts",
     "render_path",
     "entity_allowlist",
 )
@@ -436,6 +437,10 @@ def build_options_flow_schema(
                 default=defaults["max_codegen_repair_attempts"],
             ): int,
             vol.Required(
+                "max_planner_replan_attempts",
+                default=defaults["max_planner_replan_attempts"],
+            ): int,
+            vol.Required(
                 "render_path",
                 default=defaults["render_path"],
             ): vol.In(SUPPORTED_RENDER_PATHS),
@@ -548,9 +553,10 @@ def normalize_options_user_input(
     if isinstance(render_mode, str):
         options_data["default_render_mode"] = render_mode.strip()
 
-    attempts = options_data.get("max_codegen_repair_attempts")
-    if isinstance(attempts, str) and attempts.strip().isdigit():
-        options_data["max_codegen_repair_attempts"] = int(attempts.strip())
+    for attempts_key in ("max_codegen_repair_attempts", "max_planner_replan_attempts"):
+        attempts = options_data.get(attempts_key)
+        if isinstance(attempts, str) and attempts.strip().isdigit():
+            options_data[attempts_key] = int(attempts.strip())
 
     # ADR-0030: the legacy codegen_enabled boolean is dropped on normalization
     # (both values map to the new render_path default "auto"); an explicit

@@ -59,6 +59,7 @@ class IsolinearOptionsShape:
 
     default_render_mode: str
     max_codegen_repair_attempts: int
+    max_planner_replan_attempts: int
     render_path: str
     entity_allowlist: tuple[str, ...]
 
@@ -79,7 +80,14 @@ def default_options_data() -> dict[str, Any]:
     """Return safe-mode options defaults for the scaffold."""
     return {
         "default_render_mode": RENDER_MODE_SAFE,
-        "max_codegen_repair_attempts": 1,
+        # ADR-0034 made repairs do real analysis work: ~1/5 generations hit a
+        # repairable runtime slip that one pass often misses; three passes
+        # recover it (open-queue (m); matches the proven live configuration).
+        "max_codegen_repair_attempts": 3,
+        # Bounded re-plan on a recoverable planner-quality rejection (variance
+        # tails, e.g. the duplicate-source class). 0 = single-attempt revert
+        # switch. See docs/specs/planner-replan-on-validation-failure.md.
+        "max_planner_replan_attempts": 1,
         # ADR-0030: codegen is the primary render path. "auto" = codegen when a
         # worker + planner are configured, Pillow as the surfaced fallback;
         # "pillow" = explicitly stay on the trusted in-process renderer.
@@ -125,6 +133,7 @@ def validate_config_and_options(
     normalized_options = IsolinearOptionsShape(
         default_render_mode=options_data["default_render_mode"],
         max_codegen_repair_attempts=options_data["max_codegen_repair_attempts"],
+        max_planner_replan_attempts=options_data["max_planner_replan_attempts"],
         render_path=options_data["render_path"],
         entity_allowlist=tuple(options_data["entity_allowlist"]),
     )
@@ -252,6 +261,7 @@ def _validate_options_data(options_data: dict[str, Any]) -> list[dict[str, str]]
     required = {
         "default_render_mode",
         "max_codegen_repair_attempts",
+        "max_planner_replan_attempts",
         "render_path",
         "entity_allowlist",
     }
@@ -267,14 +277,15 @@ def _validate_options_data(options_data: dict[str, Any]) -> list[dict[str, str]]
                 "reason": "unsupported_render_mode",
             }
         )
-    max_attempts = options_data["max_codegen_repair_attempts"]
-    if not isinstance(max_attempts, int) or isinstance(max_attempts, bool) or max_attempts < 0:
-        errors.append(
-            {
-                "path": "$.options_data.max_codegen_repair_attempts",
-                "reason": "must_be_non_negative_integer",
-            }
-        )
+    for attempts_key in ("max_codegen_repair_attempts", "max_planner_replan_attempts"):
+        max_attempts = options_data[attempts_key]
+        if not isinstance(max_attempts, int) or isinstance(max_attempts, bool) or max_attempts < 0:
+            errors.append(
+                {
+                    "path": f"$.options_data.{attempts_key}",
+                    "reason": "must_be_non_negative_integer",
+                }
+            )
     if options_data["render_path"] not in SUPPORTED_RENDER_PATHS:
         errors.append(
             {
