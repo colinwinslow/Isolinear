@@ -16,6 +16,7 @@ from typing import Any
 
 from .in_process_renderer import IN_PROCESS_RENDERER_NAME
 from .job_state import append_validated_job_snapshot
+from .orchestration_contracts import _source_snapshot_entities
 from .semantic_memory import (
     _entity_id_to_alias_id,
     derive_alias_natural_names,
@@ -967,3 +968,28 @@ def _failure_message(history_result: dict[str, Any]) -> str:
         missing = ", ".join(history_result.get("missing_entity_ids", []))
         return f"Approved history is missing for: {missing}."
     return "Approved history retrieval failed before future planning."
+
+
+def _artifact_series(source_snapshot: dict[str, Any]) -> list[dict[str, str]]:
+    result = []
+    for index, entity in enumerate(_source_snapshot_entities(source_snapshot), start=1):
+        result.append(
+            {
+                "series_id": f"series-{index:03d}",
+                "label": entity["label"],
+                "entity_id": entity["entity_id"],
+            }
+        )
+    return result
+
+
+def _artifact_title(job: dict[str, Any], source_snapshot: dict[str, Any]) -> str:
+    entities = source_snapshot.get("entities", [])
+    if isinstance(entities, list) and len(entities) == 1 and isinstance(entities[0], dict):
+        label = entities[0].get("label")
+        if isinstance(label, str) and label.strip():
+            return f"{label} Chart"
+    prompt = job.get("prompt")
+    if isinstance(prompt, str) and prompt.strip():
+        return f"Isolinear Chart: {prompt.strip()}"
+    return "Isolinear Chart"

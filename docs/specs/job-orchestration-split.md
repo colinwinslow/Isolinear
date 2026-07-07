@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 date: 2026-07-07
 depends-on-adrs: [0035]
 ---
@@ -8,8 +8,22 @@ depends-on-adrs: [0035]
 
 ## Status
 
-Draft — the executable split plan (Fable planning session, 2026-07-07, 22nd
-session). ADR-0035 §5 step 1: split the 8,335-line / 202-def orchestration god
+Accepted — planned AND executed 2026-07-07 (22nd session, Fable): all seven
+commits landed on `main`, suite green after every commit, version 0.2.28.
+Execution amendments beyond the ground-truth #3 correction (all recorded in
+the commit messages): the shared ADR-0025 model-call plumbing
+(`_call_planner_with_optional_reasoning` + both phase labels) landed in
+`orchestration_store` rather than `planning_pipeline` (D2 selection is a
+sibling consumer, so it belongs below both); `_artifact_series`/`_artifact_title`
+landed in `snapshot_assembly` (shared by render_dispatch + the facade);
+`_selected_clarification_entity` landed in `entity_resolution` and
+`_reject_clarification_answer` stayed in the facade (dependency-forced,
+flagged in commit 3); `ARTIFACT_SOURCE_PROGRESS_STAGES` +
+`ENTITY_SELECTION_PENDING_STAGE` stayed in the facade (driver constants).
+Final shape: facade 2,671 lines + seven seam modules (render_dispatch 2,117;
+snapshot_assembly 995; entity_resolution 900; orchestration_store 678;
+planning_pipeline 652; orchestration_contracts 603; history_dispatch 284).
+Originally: the executable split plan (Fable planning session, same day). ADR-0035 §5 step 1: split the 8,335-line / 202-def orchestration god
 module into bounded modules along the spine's existing seams, **zero behavior
 change**, the 454-test suite as the net, the live e2e harness as the final
 accept gate. Execution is Opus-shaped once this plan is ratified; each commit

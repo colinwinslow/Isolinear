@@ -51,6 +51,7 @@ import custom_components.isolinear.job_orchestration as job_orchestration  # noq
 # _append_artifact_complete_snapshot moved to snapshot_assembly, so the
 # forced-rejection patch on append_validated_job_snapshot targets that module.
 import custom_components.isolinear.snapshot_assembly as snapshot_assembly  # noqa: E402
+import custom_components.isolinear.render_dispatch as render_dispatch  # noqa: E402
 from custom_components.isolinear.job_state import ensure_job_state_store  # noqa: E402
 from custom_components.isolinear.model_provider import DATA_MODEL_PROVIDER_PLANNER  # noqa: E402
 from custom_components.isolinear.model_provider import DATA_MODEL_PROVIDER_SETUP  # noqa: E402
@@ -1252,7 +1253,7 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
                 return original_validate(artifact)
 
             with patch.object(
-                job_orchestration,
+                render_dispatch,
                 "validate_artifact_metadata_contract",
                 side_effect=reject_rendered_artifact,
             ):
@@ -1368,7 +1369,7 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             hass, entry = configured_real_slice_hass(planner=planner, artifact_dir=artifact_dir)
 
             with patch.object(
-                job_orchestration,
+                render_dispatch,
                 "render_in_process_chart",
                 return_value=renderer_failure,
             ):
@@ -1461,7 +1462,7 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
             hass, entry = configured_real_slice_hass(planner=planner, artifact_dir=artifact_dir)
 
             with patch.object(
-                job_orchestration,
+                render_dispatch,
                 "render_in_process_chart",
                 return_value=renderer_failure,
             ):
