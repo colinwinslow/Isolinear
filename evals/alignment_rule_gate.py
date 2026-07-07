@@ -230,13 +230,21 @@ def judge(case: dict, execution: dict) -> dict:
     v = {"kind": kind, "fired": False, "why": "", "answer_text": answer}
 
     if kind == "derived_mean":
+        # std floor 0.5: a scalar axhline at the combined mean has std ~0 and
+        # would otherwise pass — the live e2e-11 (18th session) failure mode is
+        # exactly that flat "Average Temperature" line (open-queue (z)).
+        std_min = spec.get("min_std", 0.5)
         hits = [ln for ln in lines
-                if abs(ln["mean"] - spec["target"]) <= spec["mean_tol"] and ln["std"] <= spec["max_std"]]
+                if abs(ln["mean"] - spec["target"]) <= spec["mean_tol"]
+                and std_min <= ln["std"] <= spec["max_std"]]
         artifact = [ln for ln in lines
                     if abs(ln["mean"] - spec["target"]) <= spec["mean_tol"] and ln["std"] > spec["max_std"]]
+        scalar = [ln for ln in lines
+                  if abs(ln["mean"] - spec["target"]) <= spec["mean_tol"] and ln["std"] < std_min]
         v["fired"] = bool(hits)
         v["why"] = (f"derived line mean {hits[0]['mean']:.2f} std {hits[0]['std']:.2f} (clean)" if hits
                     else f"UNION ARTIFACT: mean ok but std {artifact[0]['std']:.2f} > {spec['max_std']}" if artifact
+                    else f"SCALAR LINE: flat line at the mean (std {scalar[0]['std']:.2f}) — not a series" if scalar
                     else f"no derived line: {[(round(l['mean'],1), round(l['std'],2)) for l in lines]}")
     elif kind == "answer_number":
         hits = [n for n in nums if abs(n - spec["target"]) <= spec["tol"]]
