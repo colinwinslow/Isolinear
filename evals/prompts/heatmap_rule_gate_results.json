@@ -1,0 +1,258 @@
+{
+ "meta": {
+  "model": "gemma4:e4b",
+  "ollama": "http://10.0.1.39:11434",
+  "runs": 3,
+  "max_repairs": 2,
+  "prompt": "Show a heatmap of the kitchen temperature by hour of day and day over the last week",
+  "started": "2026-07-07T00:20:06Z"
+ },
+ "runs": {
+  "without_degrade::run1": {
+   "arm": "without_degrade",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 37.8,
+     "loc": 96,
+     "ok": true,
+     "axes": [
+      {
+       "xlabel": "Hour of Day",
+       "ylabel": "Temperature (\u00b0F)",
+       "xlim": [
+        -0.5,
+        23.5
+       ],
+       "n_lines": 0,
+       "n_patches": 0,
+       "n_images": 0,
+       "n_collections": 1
+      },
+      {
+       "xlabel": "",
+       "ylabel": "",
+       "xlim": [
+        0.0,
+        1.0
+       ],
+       "n_lines": 0,
+       "n_patches": 0,
+       "n_images": 0,
+       "n_collections": 2
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "fired": false,
+    "why": "2-D grid drawn (collections/images): {'xlabel': 'Hour of Day', 'ylabel': 'Temperature (\u00b0F)', 'xlim': [-0.5, 23.5], 'n_lines': 0, 'n_patches': 0, 'n_images': 0, 'n_collections': 1}"
+   }
+  },
+  "without_degrade::run2": {
+   "arm": "without_degrade",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 41.3,
+     "loc": 113,
+     "ok": true,
+     "axes": [
+      {
+       "xlabel": "Hour of Day",
+       "ylabel": "Day",
+       "xlim": [
+        -0.5,
+        23.5
+       ],
+       "n_lines": 0,
+       "n_patches": 0,
+       "n_images": 0,
+       "n_collections": 1
+      },
+      {
+       "xlabel": "",
+       "ylabel": "Average Temperature (\u00b0F)",
+       "xlim": [
+        0.0,
+        1.0
+       ],
+       "n_lines": 0,
+       "n_patches": 0,
+       "n_images": 0,
+       "n_collections": 2
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "fired": false,
+    "why": "2-D grid drawn (collections/images): {'xlabel': 'Hour of Day', 'ylabel': 'Day', 'xlim': [-0.5, 23.5], 'n_lines': 0, 'n_patches': 0, 'n_images': 0, 'n_collections': 1}"
+   }
+  },
+  "without_degrade::run3": {
+   "arm": "without_degrade",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 37.4,
+     "loc": 104,
+     "ok": true,
+     "axes": [
+      {
+       "xlabel": "Hour of Day",
+       "ylabel": "Day",
+       "xlim": [
+        -0.5,
+        23.5
+       ],
+       "n_lines": 0,
+       "n_patches": 0,
+       "n_images": 0,
+       "n_collections": 1
+      },
+      {
+       "xlabel": "",
+       "ylabel": "Average Temperature (\u00b0F)",
+       "xlim": [
+        0.0,
+        1.0
+       ],
+       "n_lines": 0,
+       "n_patches": 0,
+       "n_images": 0,
+       "n_collections": 2
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "fired": false,
+    "why": "2-D grid drawn (collections/images): {'xlabel': 'Hour of Day', 'ylabel': 'Day', 'xlim': [-0.5, 23.5], 'n_lines': 0, 'n_patches': 0, 'n_images': 0, 'n_collections': 1}"
+   }
+  },
+  "with_degrade::run1": {
+   "arm": "with_degrade",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 22.2,
+     "loc": 45,
+     "ok": true,
+     "axes": [
+      {
+       "xlabel": "Temperature (\u00b0F)",
+       "ylabel": "Frequency",
+       "xlim": [
+        67.551,
+        75.449
+       ],
+       "n_lines": 0,
+       "n_patches": 8,
+       "n_images": 0,
+       "n_collections": 0
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "fired": true,
+    "why": "clean histogram: patches=8 lines=0 coll=0 img=0 x=[67.6, 75.4]"
+   }
+  },
+  "with_degrade::run2": {
+   "arm": "with_degrade",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 22.0,
+     "loc": 46,
+     "ok": true,
+     "axes": [
+      {
+       "xlabel": "Temperature",
+       "ylabel": "Frequency",
+       "xlim": [
+        67.551,
+        75.449
+       ],
+       "n_lines": 0,
+       "n_patches": 8,
+       "n_images": 0,
+       "n_collections": 0
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "fired": true,
+    "why": "clean histogram: patches=8 lines=0 coll=0 img=0 x=[67.6, 75.4]"
+   }
+  },
+  "with_degrade::run3": {
+   "arm": "with_degrade",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 22.9,
+     "loc": 53,
+     "ok": true,
+     "axes": [
+      {
+       "xlabel": "Temperature",
+       "ylabel": "Frequency",
+       "xlim": [
+        67.551,
+        75.449
+       ],
+       "n_lines": 0,
+       "n_patches": 8,
+       "n_images": 0,
+       "n_collections": 0
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "fired": true,
+    "why": "clean histogram: patches=8 lines=0 coll=0 img=0 x=[67.6, 75.4]"
+   }
+  }
+ },
+ "tally": {
+  "without_degrade": {
+   "runs": 3,
+   "executed": 3,
+   "fired": 0
+  },
+  "with_degrade": {
+   "runs": 3,
+   "executed": 3,
+   "fired": 3
+  }
+ }
+}

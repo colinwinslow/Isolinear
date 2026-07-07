@@ -494,6 +494,30 @@ class OverlayPromptRuleTests(unittest.TestCase):
         self.assertIn("do not compute these intervals yourself", rules)
 
 
+class FamilyDegradePromptRuleTests(unittest.TestCase):
+    """open-queue (w), 0.2.26: codegen owns the computation, not the chart
+    FAMILY (invariant #9). A heatmap is a family with no home in the ADR-0023
+    envelope, so a single-sensor 'heatmap by hour and day' request degrades to
+    the histogram the planner already chose — never a 2-D grid (live e2e-15
+    garbage). Eval-gated with evals/heatmap_rule_gate.py."""
+
+    def test_prompt_rules_forbid_2d_heatmap_and_degrade_to_histogram(self):
+        rules = " ".join(_CODEGEN_PROMPT_RULES)
+        lowered = rules.lower()
+        # The three permitted families are named and a heatmap is forbidden.
+        self.assertIn("render only these chart families", lowered)
+        self.assertIn("never draw a 2-d heatmap", lowered)
+        # The specific 2-D drawing calls are named so the model cannot reach for
+        # them (seaborn.heatmap burned the live e2e-15 render; the others are the
+        # obvious matplotlib routes to the same 2-D grid).
+        for call in ("seaborn.heatmap", "pcolormesh", "imshow", "hist2d"):
+            self.assertIn(call, lowered)
+        # A heatmap ask degrades to the value distribution (a histogram), not a grid.
+        self.assertIn("render a histogram", lowered)
+        # The boundary: user_request may change the computation, never the family.
+        self.assertIn("never which of these three chart families", lowered)
+
+
 class CodegenPromptGroundingTests(unittest.TestCase):
     """The codegen prompt instructs COMPUTE-and-format, verdicts derived (ADR-0031 D3)."""
 

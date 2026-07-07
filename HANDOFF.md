@@ -2,6 +2,74 @@
 
 ## Current project phase
 
+### 2026-07-07 (19th session) — Fixed open-queue (w): the e2e-15 heatmap garbage, "ship simple" (0.2.26)
+
+**Phase.** `HEATMAP GARBAGE FIXED (family-degrade rule).` The last hard live
+e2e FAIL that wasn't a known wall — e2e-15's nonsense heatmap render — is
+closed with a single codegen prompt rule, eval-gated 3/3 vs 0/3 against live
+gemma. No new render family, no worker rebuild, no new ADR.
+
+**Root cause (repros `scripts/repro_e2e15{,_planner,_planner_fix}.py`).** The
+single-numeric ADR-0023 envelope has NO heatmap family, so the planner
+deterministically (6/6) routes "Show a heatmap … by hour of day and day" to
+`chart_type: histogram` — emitting the exact title on the live garbage render
+("Kitchen Temperature Distribution Over the Last Week"). The ADR-0034 conduit
+then hands codegen a `user_request` that says "heatmap", and codegen tries to
+honour BOTH the histogram chart_spec AND the heatmap word → the live 1/2-bar,
+epoch-ms nonsense (accept≠quality; sandbox accepted it). The counterfactual arm
+showed gemma CAN render a real calendar heatmap, but 2/3 runs died on a
+repair-proof stray-quote emission (`transform=ax.transAxes')`) that temp-0
+regenerates every repair.
+
+**Decision (Colin, 2026-07-07 — "ship simple").** Two options were on the
+table: (A) render a real temporal heatmap (planner routes heatmap→`time_series`,
+codegen pivots — the routing patch pre-validated 3/3) or (B) degrade the ask to
+the histogram the planner already picks. Colin chose **B**: the temporal
+heatmap is a niche ask, and B keeps the WORD "heatmap" reserved for the future
+spatial/floorplan renderer (open-queue (c)). A temporal calendar heatmap, if
+ever built, becomes its own NAMED family — not an overload of "heatmap".
+
+**The frame that made B one rule, not three.** The bug isn't "wrong viz" — it's
+codegen overriding the planner's chart FAMILY via the `user_request` conduit,
+violating invariant #9 (the model never chooses `chart_type`). Chart family is
+the planner's job; `user_request` drives only the COMPUTATION within it. A
+heatmap is a family, so codegen must not invent one.
+
+**Shipped (0.2.26).** One `_CODEGEN_PROMPT_RULES` sentence: render only
+line/histogram/bar; never draw a 2-D heatmap/matrix/grid (no `seaborn.heatmap`,
+`pcolormesh`, `imshow`, `hist2d`); a single-sensor "heatmap by hour and day"
+degrades to a histogram of that sensor's values; `user_request` may change WHAT
+is computed, never the family. Spec `model-authored-analysis` §2 updated;
+regression test `FamilyDegradePromptRuleTests`.
+
+**Verification.** New gate `evals/heatmap_rule_gate.py` (production codegen
+path, the live histogram chart_spec + heatmap `user_request`, marker-gated
+with/without arms, execution-truth judge = a clean 1-D histogram not a 2-D
+QuadMesh/image): **with-rule 3/3 clean histograms** (8 bins, 67.6–75.4 °F,
+first attempt each), **without-rule 0/3** (all drew the 2-D grid — the live
+e2e-15 failure reproduced). Suite **452 passed / 4 skipped** (+1). Inline
+invariant review OK: prompt text only; reinforces invariant #9; no
+schema/service/sandbox/data-boundary change; `user_request` still never crosses
+to the worker. Arch-review subagent not spawned (bounded prompt-level change on
+the accepted ADR-0034 path), available on request. No BDD scenario added — the
+eval gate is the proof artifact for a prompt-rule change (no user-facing
+contract surface changed).
+
+**Deploy state.** `main` will be **0.2.26** once committed (this closeout).
+Integration-only (prompt text) — ships via HACS, NO worker rebuild (the conduit
+never crosses the data boundary; CT103 `:dev` worker unchanged). HA runs 0.2.24;
+a 0.2.26 HACS redownload deploys this fix (and the dormant 0.2.25 re-plan code).
+
+**Next.** Finish open-queue (u) (config surface + default flip with (m) +
+Scenario-E + live proof); (v) the e2e-14 entity-resolution gap (Opus); (z)
+e2e-11 mean-intent (Fable-shaped); (x) e2e-09 door-answer duration; (y) e2e-03
+legend; confirm (s) histogram-unit before closing. NEW open-queue items from
+this session: (aa) the codegen stray-quote `transAxes'` guard-branch emission
+(latent, could resurface on other prompts); (bb) multi-sensor
+"heatmap-of-correlations" degrades to time-series lines not a histogram
+(coherent, weaker — logged). Whenever ADR-0035 demolition starts, hand the
+job_orchestration.py split PLAN to Fable.
+
 ### 2026-07-06 (18th session) — Verified 0.2.24 live (e2e targets flipped), landed the open-queue (u) re-plan anchor, root-caused e2e-14, fixed the harness diagnostic gap (0.2.25)
 
 **Phase.** `0.2.24 VERIFIED LIVE; PLANNER RE-PLAN ANCHOR LANDED (opt-in).` The

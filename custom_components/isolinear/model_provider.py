@@ -184,6 +184,22 @@ _CODEGEN_PROMPT_RULES = [
     "requested series) — NEVER read the data to plot, the list of series, or the unit "
     "from chart_spec; a chart_spec unit may be wrong. Use "
     "data['history_series'][i]['entity_id'] for identity.",
+    # Family degrade (invariant #9; open-queue (w), 0.2.26): the integration
+    # owns the chart FAMILY (line / histogram / bar); the model owns the
+    # COMPUTATION within it. A heatmap is a family, not a computation, and there
+    # is no heatmap family — so codegen must never invent one, or the
+    # planner-chosen histogram spec and a "heatmap" user_request collide into a
+    # garbage chart (live e2e-15). "heatmap" the word is reserved for a future
+    # spatial/floorplan renderer (open-queue (c)); a temporal calendar heatmap,
+    # if ever built, becomes its own named family. Degrade to the distribution.
+    "Render only these chart families: line charts, histograms, and bar charts. "
+    "NEVER draw a 2-D heatmap, matrix, grid, calendar map, or spatial/floorplan "
+    "map, and never use seaborn.heatmap, ax.pcolormesh, ax.imshow, or ax.hist2d. "
+    "If user_request asks for a 'heatmap' or a '<value> by hour of day and day'-"
+    "style matrix of a sensor, do NOT build a 2-D grid — render a histogram of "
+    "that sensor's values (its distribution, ax.hist over the numeric points) "
+    "instead. user_request may change WHAT you compute (an average, a difference, "
+    "a distribution) but NEVER which of these three chart families you draw.",
     # State overlays (ADR-0033): the integration precomputes the shaded intervals
     # (e.g. when the AC was cooling/heating, from hvac_action) — the floor model
     # cannot reliably derive them, so it must NOT try; it just draws the given bands.

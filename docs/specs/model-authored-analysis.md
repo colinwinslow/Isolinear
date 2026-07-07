@@ -138,6 +138,24 @@ request-conditional:
   (production codegen path, genuinely irregular per-entity sampling,
   with/without the sentence, execution-truth judges tuned to the union
   artifact).
+- **Chart-family degrade (open-queue (w), 0.2.26).** The integration owns the
+  chart FAMILY — line, histogram, bar (invariant #9: the model never chooses
+  `chart_type`); `user_request` owns only the COMPUTATION within it. A heatmap
+  is a family, not a computation, and the ADR-0023 envelope has no heatmap
+  family, so codegen must never draw a 2-D heatmap / matrix / grid (no
+  `seaborn.heatmap`, `pcolormesh`, `imshow`, `hist2d`). A single-sensor
+  "heatmap … by hour of day and day" request degrades to a histogram of that
+  sensor's values (the distribution) — the family the planner already routes it
+  to (`scripts/repro_e2e15_planner.py`, 6/6 → `histogram`). Rationale: the live
+  e2e-15 garbage was the planner-chosen histogram spec colliding with a
+  "heatmap" `user_request` inside codegen; locking the family to the planner's
+  choice resolves the conflict and, per Colin's "ship simple" call
+  (2026-07-07), keeps the word "heatmap" reserved for a future spatial /
+  floorplan renderer (open-queue (c)). A temporal calendar heatmap, if ever
+  built, becomes its own NAMED family, not an overload of "heatmap". Eval-gated
+  with `evals/heatmap_rule_gate.py` (production codegen path, the live
+  histogram chart_spec + the heatmap `user_request`, with/without the sentence,
+  execution-truth judge = a clean 1-D histogram, not a 2-D `QuadMesh`/image).
 
 ### 3. Data-boundary timestamp normalization (ADR-0031 D9)
 
