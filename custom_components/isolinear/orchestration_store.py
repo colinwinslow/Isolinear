@@ -629,3 +629,50 @@ def _worker_progress_events_for_job(store: dict[str, Any], job_id: str) -> list[
         for event_id in event_ids
         if event_id in store.get("worker_progress_events", {})
     ]
+
+
+# ADR-0025 R3: coarse phase labels surfaced via progress.stage / state_label
+# while the model runs, derived from which model call is active.
+SELECT_ENTITY_PHASE_LABEL = "Selecting entities…"
+
+
+PLAN_CHART_PHASE_LABEL = "Planning chart…"
+
+
+def _call_planner_with_optional_reasoning(
+    method: Any,
+    request: dict[str, Any],
+    *,
+    result_schema: dict[str, Any] | None,
+    on_reasoning: Any | None,
+    temperature: float | None = None,
+) -> dict[str, Any]:
+    """Call a planner method, passing optional keywords when the method accepts them.
+
+    ADR-0025 streaming is additive (D6): planners that predate the callback (and
+    test doubles that don't accept it) are called the original way. The same
+    additive rule applies to ``temperature`` (the re-plan fresh-sample override):
+    each optional keyword is passed only when the method advertises it,
+    degrading one keyword at a time.
+    """
+    optional_kwargs: dict[str, Any] = {}
+    if on_reasoning is not None:
+        optional_kwargs["on_reasoning"] = on_reasoning
+    if temperature is not None:
+        optional_kwargs["temperature"] = temperature
+    # Degradation preference on an older signature: keep the functional
+    # ``temperature`` (fresh-sample re-plan) over the presentational
+    # ``on_reasoning`` (live reasoning display), then a bare call.
+    kwarg_subsets: list[dict[str, Any]] = [optional_kwargs]
+    if len(optional_kwargs) == 2:
+        kwarg_subsets.append({"temperature": temperature})
+        kwarg_subsets.append({"on_reasoning": on_reasoning})
+    if optional_kwargs:
+        kwarg_subsets.append({})
+    last_error: TypeError | None = None
+    for kwargs in kwarg_subsets:
+        try:
+            return method(request, result_schema=result_schema, **kwargs)
+        except TypeError as err:
+            last_error = err
+    raise last_error if last_error is not None else TypeError("planner call failed")
