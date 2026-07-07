@@ -2,6 +2,87 @@
 
 ## Current project phase
 
+### 2026-07-07 (20th session, Fable) — Finished open-queue (u)+(m): re-plan default ON with a real fresh-sample guarantee (0.2.27); diagnosed (z) as a variance basin
+
+**Phase.** `STRUCTURAL RETRY ON BY DEFAULT.` The bounded planner re-plan loop
+ships enabled (reader default 1) with its full config surface, the codegen
+repair cap defaults to the proven live value (3), and — the session's key
+finding — the loop now actually works live: re-plan attempts sample at a
+nonzero temperature, because at the planner's default temperature 0 a
+"re-sample" was a byte-identical repeat of the rejected plan.
+
+**(u) finished (0.2.27).** Config surface: `max_planner_replan_attempts` typed
+field + non-negative validation in `config_schema.py`; options-flow integer
+field + string-digit coercion in `config_flow.py` beside the codegen tunables.
+Defaults: re-plan reader 0→1; bundled (m) `max_codegen_repair_attempts` 1→3
+(reader + `default_options_data`). One failure-path call-count assertion
+updated to the exhaustion count.
+
+**The fresh-sample fix (the live proof's finding).** The planner's structured
+pass runs at `temperature: 0` (near-greedy). Probed live on a frozen request:
+3/3 byte-identical planner results — so the 0.2.25 slice-1 loop ("plain
+re-sample", same request) was a live no-op; its unit tests passed because stub
+planners vary where greedy gemma does not. Fix: re-plan attempts (attempt ≥ 1)
+pass `temperature=_PLANNER_REPLAN_TEMPERATURE` (0.7) through `plan_chart`
+(additive kwarg; `_call_planner_with_optional_reasoning` degrades unknown
+keywords one at a time, keeping `temperature` over the presentational
+`on_reasoning`); the same frozen request then yields 3/3 distinct plans.
+Constrained decoding still enforces the schema on every attempt; the first
+attempt keeps the reproducible temp-0 default.
+
+**Live proof (spec Proof req #4, `evals/planner_replan_live_proof.py`, honest
+two-part record).** (1) The fresh-sample property proven live (the PASS gate).
+(2) The e2e-18 duplicate-source tail did NOT reproduce in 16 live
+production-path runs of `_record_model_provider_plan` (exact live prompt +
+entity set, the 0.2.24 hardening clause marker-stripped, reader default
+exercised) — 16/16 first samples validated; recorded as tail-not-reproduced
+(a rare variance region), not spun as recovery. The eval is resumable and will
+headline a live recovery if one ever fires.
+
+**Scenario E deviation (flag for Colin).** `mixed_chart_composition_unsupported`
+is dead code: since `372a437` (2026-06-24, multi-numeric overlays) every
+numeric+state set routes to `time_series_overlay`, so the "mixed" family is
+unreachable through `_resolve_render_family`. The Scenario-E test pins the
+loop's non-trigger discipline at the `_plan_once` seam instead. Decide: delete
+the defensive gate, or keep it documented-unreachable.
+
+**(z) e2e-11 mean-intent DIAGNOSED — not structural.** Repro
+`scripts/repro_e2e11.py` (production codegen path, live gemma, execution-truth):
+14 generations across synthetic + REAL HA 24 h history, the live planner's
+faithfully-reproduced framing (phase-1 sampled: raw-history title + "trends"
+summary), and both the 0.2.24 and current rule sets — ZERO scalar lines. The
+mode is a true computed mean series (real data: 72.48 °F, std 0.38, between the
+raw bands) + grounded answer_text. The live 18th-session scalar render was one
+unlucky temp-0 sample; the plausible mechanism is **repair-chain intent
+erosion** — observed once directly (a two-repair chain kept the mean series but
+dropped answer_text), and the live run's 191 s is repair-consistent (0.2.24
+rules hit repairable first-attempt slips 3/3 on real data). **Recommended next
+packet: a repair-intent-retention rule** (the repair task must preserve every
+computed/derived series and the answer_text emission), eval-gated like 0.2.26.
+Bonus hardening: the alignment-gate `derived_mean` judge now has a std floor (a
+flat axhline at the mean previously PASSED as "clean"). Findings:
+`evals/prompts/e2e11_mean_intent_findings.md`. (z) is likely-fixed in the mode
+on 0.2.26+ — confirm on the next live e2e run.
+
+**Verification.** Suite **454 passed / 4 skipped** (+2); evals
+`codegen_generation_path` + `model_authored_analysis` PASS; BDD-evidence review
+OK (Scenario A's INFO-log Then-clause is code-pinned + captured by the live
+eval's `replan_log` plumbing, not unit-asserted — noted); inline invariant
+review OK (no schema/service/sandbox/data-boundary change; the temperature
+param is a call option on the existing planner client; re-plan re-sends the
+already-projected request; arch subagent not spawned — bounded change on the
+accepted planning path, available on request).
+
+**Deploy state.** `main` is **0.2.27** (pushed). HA runs 0.2.24; one HACS
+redownload deploys 0.2.25+0.2.26+0.2.27 together (re-plan loop live-enabled +
+heatmap family-degrade + promoted defaults). Integration-only; NO worker
+rebuild.
+
+**Next.** HACS 0.2.27 redownload + live e2e re-run (watch for INFO "recovered a
+valid plan" lines and e2e-11's mode); the repair-intent-retention packet; (v)
+e2e-14 resolution gap (Opus); then (r)/(t)/(y)/(x)/(s)-confirm. Whenever
+ADR-0035 demolition starts, hand the job_orchestration.py split PLAN to Fable.
+
 ### 2026-07-07 (19th session) — Fixed open-queue (w): the e2e-15 heatmap garbage, "ship simple" (0.2.26)
 
 **Phase.** `HEATMAP GARBAGE FIXED (family-degrade rule).` The last hard live
