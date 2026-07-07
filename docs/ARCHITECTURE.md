@@ -4,8 +4,12 @@
 > ADR set (`docs/decisions/`) is an append-only *history*; this file is the
 > *current state* — the spine, the decisions that are load-bearing today, and
 > what's fallback or slated for demolition. Update it at `/closeout` whenever
-> an ADR changes the architecture. If this file and an ADR disagree, the newer
-> one wins and the older one has a bug — fix it.
+> an ADR changes the architecture. **This file is a derived view, not a source
+> of decisions:** every claim here must trace to an accepted ADR or to current
+> code (invariant #8 — decisions are made in ADRs, never here). An ADR is the
+> source; if this map contradicts an accepted ADR, the *map* has the bug — fix
+> the map. (Recency only breaks ties between two conflicting ADRs, not between
+> this file and an ADR.)
 >
 > Last synced: **2026-07-07** (through ADR-0035 step 1 — the
 > job_orchestration split, 0.2.28).
@@ -87,12 +91,12 @@ context overflow) falls back to the trusted Pillow renderer
 | Component | Lines | Role |
 |---|---|---|
 | `job_orchestration.py` | 2.7K | **The orchestrator (facade)** — setup/gates, the five WS handlers, deferral + pending-selection, the pipeline drivers, response envelopes, and a labeled compat re-export block (tests/evals import moved names here; trim under ADR-0035 step 2+). ADR-0035 step 1 (0.2.28) split the former 8.3K god module into the seven seam modules below; imports flow strictly downward. |
-| `render_dispatch.py` | 2.1K | How a validated plan becomes a PNG (invariant #6's seam): codegen loop + bounded repair + grounding gate, chart-spec worker dispatch, surfaced Pillow fallback, worker artifact/progress recording, ADR-0033 overlay bands, artifact-metadata builders, transport classification + retry policy |
+| `render_dispatch.py` | 2.1K | How a validated plan becomes a PNG (the codegen-primary/fallback-safe invariant's seam): codegen loop + bounded repair + grounding gate, chart-spec worker dispatch, surfaced Pillow fallback, worker artifact/progress recording, ADR-0033 overlay bands, artifact-metadata builders, transport classification + retry policy |
 | `snapshot_assembly.py` | 1.0K | The validated-snapshot appender family (failure/progress/clarification/complete), failure-message composers, fail-closed failure-code/text sanitizers, artifact presentation glue |
-| `entity_resolution.py` | 0.9K | Invariant #1's seam: alias injection, D1 specificity scoring, D2 selector + ADR-0024 expansion + ADR-0028 composition prune, ADR-0022/0023 family/envelope routing + overlay composition |
+| `entity_resolution.py` | 0.9K | The allowlist invariant's seam: alias injection, D1 specificity scoring, D2 selector + ADR-0024 expansion + ADR-0028 composition prune, ADR-0022/0023 family/envelope routing + overlay composition |
 | `orchestration_store.py` | 0.7K | Validated-record writers/removers/rollback, per-job lookups + snapshot lock, ADR-0025 live-reasoning slots + degrading model-call plumbing, side-effect envelope |
 | `planning_pipeline.py` | 0.7K | `_plan_once` (contract/family/allowlist gates + catalog-unit overwrite) + the bounded re-plan loop (fresh-sample temperature) + planner request/record builders |
-| `orchestration_contracts.py` | 0.6K | The 16 JSON-Schema contract validators + structural entity-reference checks + schema paths (invariants #4/#5) |
+| `orchestration_contracts.py` | 0.6K | The 13 JSON-Schema contract validators + structural entity-reference checks + schema paths (the schema-first + plan-validation invariants) |
 | `history_dispatch.py` | 0.3K | Window resolution, tiered-retrieval wrapper, D9 epoch-ms boundary transforms |
 | `model_provider.py` | 1.6K | Ollama client: planner (two-pass streaming) + entity selector + codegen/repair prompts (the floor-model discipline lives here) |
 | `history_retrieval.py` | 1.3K | Tiered history (recorder/statistics), unit backfill |
@@ -120,7 +124,7 @@ context overflow) falls back to the trusted Pillow renderer
 - **Pillow render families** (histogram/aggregate envelope, ADR-0023) — live
   as fallback + the two-family capability envelope, but the design center has
   moved to codegen-authored presentation; expect demolition under the v0.3
-  direction (ADR-0035, forthcoming).
+  direction (ADR-0035 §5.4, accepted — step 1 done).
 - **`first_real_vertical_slice` gating** (ADR-0017) — a completed milestone
   whose flag still threads the facade + render/history dispatch (~19 refs); demolition target (ADR-0035 step 2).
 - **`output_modality` planner signal** (ADR-0031 packet 5) — parked; redundant
@@ -132,6 +136,7 @@ context overflow) falls back to the trusted Pillow renderer
 
 Binary/timeline entities render empty through codegen (r); >2-day state
 overlays hit the single-source tiering wall (t); histogram axis-unit placement
-(s); `max_codegen_repair_attempts` default still 1 (m). The live e2e harness
-(`evals/e2e_pipeline_harness.py`, Claude-judged) is the standing accept gate
-for pipeline changes.
+(s, likely fixed — confirm); both multi-sensor cross-math transforms
+(delta/deviation) regressed to a codegen runtime fallback on 0.2.27 (cc). The
+live e2e harness (`evals/e2e_pipeline_harness.py`, Claude-judged) is the
+standing accept gate for pipeline changes.
