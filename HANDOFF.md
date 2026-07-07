@@ -2,6 +2,70 @@
 
 ## Current project phase
 
+### 2026-07-07 (22nd session, Fable) — The 0.2.27 e2e verdict recovered + completed ((z) fixed; NEW (cc) regression), and ADR-0035 demolition step 1 executed: the god module is split (0.2.28)
+
+**Phase.** `DEMOLITION STEP 1 DONE.` `job_orchestration.py` (8,335 lines, 44%
+of the integration) is split into seven seam modules behind a green suite —
+seven behavior-preserving commits, each independently landable, the
+2026-07-02 purge playbook applied to the post-purge residue exactly as
+ADR-0035 §5.1 prescribed. Same session: the interrupted 21st session's live
+e2e run against 0.2.27 was recovered from disk, completed, and judged.
+
+**Part 1 — the 0.2.27 live e2e verdict (`evals/e2e_runs/20260707T171258Z/REPORT.md`).**
+The 21st session (whose connection died before reporting) had completed
+e2e-01…11; its artifacts were intact in `…061751Z/`. This session ran
+e2e-12…18 fresh and judged all 18: **11 PASS / 4 PARTIAL / 3 FAIL** (0.2.24
+baseline 12/3/3). **(z) is CONFIRMED FIXED in the mode** — e2e-11 draws a true
+computed mean series. ADR-0033 bands, rolling mean, and a grounded Pearson
+verdict (r=0.08) are clean; the 0.2.26 family-degrade rule held (no 2-D grid).
+**NEW open-queue (cc):** e2e-12 (delta) and e2e-18 (deviation-from-mean) —
+the two multi-sensor cross-math transforms — **reproducibly** fail at codegen
+runtime (re-run confirmed), exhaust the 3 repairs, and fall back to Pillow raw
+lines with empty answers. Both were PASS on 0.2.24 → candidate 0.2.25–0.2.27
+regression. The sandbox traceback is only in the CT103 worker logs; the (cc)
+debugging packet pulls it and decides idiom-gap vs re-plan side effect. This
+is also the strongest live case for the repair-intent-retention packet.
+
+**Part 2 — the split (spec `docs/specs/job-orchestration-split.md`, accepted).**
+Measured ground truth first: the production import surface is 8 symbols in 2
+modules (untouched); tests/evals reference ~51 symbols (compat re-export block
+in the facade); SIX patch sites (two attribute-writes found by grep, four
+multi-line `patch.object` found by the suite failing exactly as designed —
+the correction is recorded in the spec). Seven commits, dependency-ordered,
+suite 454/4 green after each: `orchestration_contracts` (validators + schema
+paths, 603) → `orchestration_store` (record plumbing + lookups + locks +
+ADR-0025 slots, 678) → `snapshot_assembly` (appenders + sanitizers + artifact
+glue, 995) → `history_dispatch` (window math + D9 epoch-ms, 284) →
+`entity_resolution` (D1/D2/aliases/composition + family/envelope routing,
+900) → `planning_pipeline` (plan/replan loop, 652) → `render_dispatch` (codegen
+loop + worker dispatch + Pillow fallback + overlay bands + transport, 2,117).
+The facade keeps setup/gates, the five WS handlers, deferral +
+pending-selection, the drivers, and response envelopes (2,671 lines).
+Downward-only imports, acyclic; def-parity vs base proven (zero defs
+dropped/added). Amendments vs the plan (recorded in the spec): the ADR-0025
+model-call plumbing landed in orchestration_store (D2 selection is a sibling
+consumer); `_artifact_series`/`_artifact_title` landed in snapshot_assembly.
+
+**Verification.** Suite **454 passed / 4 skipped** after every one of the
+seven commits; evals `codegen_generation_path` + `model_authored_analysis`
+PASS on the split code (live gemma + CT103 worker); import-graph + layer-rule
+checks green; def-parity machine-verified. No BDD (no contract change — the
+spec records why). Arch-review subagent not spawned (verbatim moves with
+machine-verified parity/acyclicity; available on request).
+
+**Deploy state.** `main` is **0.2.28 COMMIT-ONLY — 9 commits NOT pushed**
+(plan spec + 7 splits + closeout; ask-before-push norm). HA runs 0.2.27
+(live-verified this session). A 0.2.28 HACS redownload ships the split —
+behavior-identical by construction; the **e2e spot set** (one per family,
+judged against the 0.2.27 baseline report, no verdict may degrade) is the
+final accept gate after deploy. CT103 `:dev` worker unchanged.
+
+**Next.** Colin: push call → HACS 0.2.28 → e2e spot set. Then (cc) worker-
+traceback debugging + the repair-intent-retention rule (eval-gated like
+0.2.26); (v) e2e-14 resolution gap (Opus); then (r)/(t)/(y)/(x)/(s)-confirm/
+(w)-polish. ADR-0035 step 2 (retire first_real_vertical_slice, ~19 refs) is
+now a bounded packet on top of the split.
+
 ### 2026-07-07 (20th session, Fable) — Finished open-queue (u)+(m): re-plan default ON with a real fresh-sample guarantee (0.2.27); diagnosed (z) as a variance basin
 
 **Phase.** `STRUCTURAL RETRY ON BY DEFAULT.` The bounded planner re-plan loop
