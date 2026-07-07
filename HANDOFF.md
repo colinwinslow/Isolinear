@@ -50,15 +50,31 @@ consumer); `_artifact_series`/`_artifact_title` landed in snapshot_assembly.
 seven commits; evals `codegen_generation_path` + `model_authored_analysis`
 PASS on the split code (live gemma + CT103 worker); import-graph + layer-rule
 checks green; def-parity machine-verified. No BDD (no contract change — the
-spec records why). Arch-review subagent not spawned (verbatim moves with
-machine-verified parity/acyclicity; available on request).
+spec records why).
 
-**Deploy state.** `main` is **0.2.28 COMMIT-ONLY — 9 commits NOT pushed**
-(plan spec + 7 splits + closeout; ask-before-push norm). HA runs 0.2.27
-(live-verified this session). A 0.2.28 HACS redownload ships the split —
-behavior-identical by construction; the **e2e spot set** (one per family,
-judged against the 0.2.27 baseline report, no verdict may degrade) is the
-final accept gate after deploy. CT103 `:dev` worker unchanged.
+**Architecture review — RUN this time.** Colin noticed the arch-review
+subagent had been self-skipped as "bounded" for ~4 sessions and asked for it.
+Spawned fresh-context on the split diff: verdict **OK** — it byte-diffed all
+204 moved functions (0 body changes — stronger than the AST def-parity),
+confirmed the secret sanitizers (`_safe_*` + `FORBIDDEN_*` regexes) moved
+together so none is reachable by a path that bypasses sanitization, and found
+no data-boundary weakening and no validator-ordering change. Process lesson
+saved to [[feedback-isolinear-arch-review]]: don't self-exempt this pass.
+Then **audited `docs/ARCHITECTURE.md`** (`df8d6a6`): invariant-#8 clean (every
+claim traces to an accepted ADR or code — no map-only decisions), but 4 claims
+had drifted (repair-default "still 1"→3; "ADR-0035 forthcoming"→accepted; "16
+validators"→13; the "newer wins" tie-break reframed into an explicit
+derived-view contract). **Open for Colin:** CLAUDE.md's 9 enforced invariants
+and ARCHITECTURE.md's 12 "load-bearing decisions" are two separate numbered
+lists with no cross-reference — the real duplication to reconcile (lean:
+make the 12 an explicit superset citing which rows are the enforced 9).
+
+**Deploy state.** `main` is **0.2.28, PUSHED** (`origin/main` at `df8d6a6`;
+the 9 split commits + the ARCHITECTURE.md audit). HA runs 0.2.27 (live-verified
+this session). A 0.2.28 HACS redownload ships the split — behavior-identical by
+construction; the **e2e spot set** (one per family, judged against the 0.2.27
+baseline report, no verdict may degrade) is the final accept gate after deploy.
+CT103 `:dev` worker unchanged.
 
 **Next.** Colin: push call → HACS 0.2.28 → e2e spot set. Then (cc) worker-
 traceback debugging + the repair-intent-retention rule (eval-gated like
