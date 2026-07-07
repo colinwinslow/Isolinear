@@ -47,6 +47,10 @@ from custom_components.isolinear.job_orchestration import (  # noqa: E402
     setup_job_orchestration,
 )
 import custom_components.isolinear.job_orchestration as job_orchestration  # noqa: E402
+# ADR-0035 split: patch targets must live where their CALLERS look them up —
+# _append_artifact_complete_snapshot moved to snapshot_assembly, so the
+# forced-rejection patch on append_validated_job_snapshot targets that module.
+import custom_components.isolinear.snapshot_assembly as snapshot_assembly  # noqa: E402
 from custom_components.isolinear.job_state import ensure_job_state_store  # noqa: E402
 from custom_components.isolinear.model_provider import DATA_MODEL_PROVIDER_PLANNER  # noqa: E402
 from custom_components.isolinear.model_provider import DATA_MODEL_PROVIDER_SETUP  # noqa: E402
@@ -1266,7 +1270,7 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             artifact_dir = Path(temp_dir)
             hass, entry = configured_real_slice_hass(planner=planner, artifact_dir=artifact_dir)
-            original_append = job_orchestration.append_validated_job_snapshot
+            original_append = snapshot_assembly.append_validated_job_snapshot
 
             def reject_complete_snapshot(job: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
                 if kwargs.get("status") == "complete":
@@ -1280,7 +1284,7 @@ class FirstRealVerticalSliceTests(unittest.TestCase):
                 return original_append(job, **kwargs)
 
             with patch.object(
-                job_orchestration,
+                snapshot_assembly,
                 "append_validated_job_snapshot",
                 side_effect=reject_complete_snapshot,
             ):

@@ -44,19 +44,30 @@ executing from a later base:
    attribute access on the module). Handled by an explicit compat re-export
    block in the facade — tests keep importing from `job_orchestration`
    unchanged, except the one patch-site below.
-3. **Exactly two attribute-write patch sites in tests** (the monkeypatch trap
-   for module splits — a patch on `job_orchestration.X` stops reaching callers
-   of `X` the moment those callers move to another module):
+3. **Six patch sites in tests** (the monkeypatch trap for module splits — a
+   patch on `job_orchestration.X` stops reaching callers of `X` the moment
+   those callers move to another module). *Corrected during commit 3: the
+   original measurement caught only the two attribute-write sites; multi-line
+   `patch.object(job_orchestration, "…")` sites escaped the single-line grep —
+   found by the suite failing exactly as designed. The full set:*
    - `tests/test_planner_replan_on_validation_failure.py:252` writes
-     `job_orchestration._plan_once`. Sole caller of `_plan_once` is
-     `_record_model_provider_plan` (line 3506) — both move together in commit 6,
-     so **that commit repoints this test** to the new module (2 lines).
+     `job_orchestration._plan_once`. Sole caller `_record_model_provider_plan`
+     moves with it in commit 6 → **that commit repoints this test**.
    - `tests/test_dashboard_card_long_running_smoke.py:423` writes
-     `job_orchestration_module._artifact_snapshot_lock_for_job`. Its **sole
-     caller** (line 1344, inside `handle_job_orchestration_snapshot_ws_command`)
-     **stays in the facade**, whose bare-name call resolves through facade
-     module globals → the patch keeps intercepting even after the def moves
-     and is re-imported. **No test change needed.**
+     `job_orchestration_module._artifact_snapshot_lock_for_job`. Its sole
+     caller (the snapshot WS handler) stays in the facade, whose bare-name
+     call resolves through facade module globals → patch keeps intercepting.
+     **No change needed** (verified green at commit 2).
+   - `tests/test_first_real_vertical_slice.py:1282` patches
+     `append_validated_job_snapshot`; the relevant caller
+     (`_append_artifact_complete_snapshot`) moved in commit 3 → **repointed to
+     `snapshot_assembly` in commit 3** (caught live by the suite).
+   - `tests/test_first_real_vertical_slice.py:1250` patches
+     `validate_artifact_metadata_contract`; its callers (artifact-metadata
+     recording) stay in the facade until commit 7 → **repoint at commit 7**.
+   - `tests/test_first_real_vertical_slice.py:1366` and `:1459` patch
+     `render_in_process_chart`; caller `_record_in_process_render` moves at
+     commit 7 → **repoint both at commit 7**.
 4. **Appenders are driver-only.** All `_append_*` snapshot calls originate in
    the WS-handler/driver region (557–1860, 3113–4016). The worker/codegen
    region (4017–6383) calls zero appenders (only its own
