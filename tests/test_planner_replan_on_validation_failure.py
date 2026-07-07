@@ -225,7 +225,10 @@ class PlannerReplanOnValidationFailureTests(unittest.TestCase):
     # this pins the loop's non-trigger discipline at that seam: given `_plan_once`
     # returns the deterministic rejection, the loop never retries it.
     def test_non_trigger_rejection_is_not_replanned(self):
-        from custom_components.isolinear import job_orchestration
+        # ADR-0035 split: _plan_once and its sole caller
+        # _record_model_provider_plan both live in planning_pipeline now, so
+        # the patch must target that module for the caller to see it.
+        from custom_components.isolinear import planning_pipeline
 
         hass, entry = configured_real_slice_hass(planner=FakePlanner())
         entry.options["max_planner_replan_attempts"] = 2
@@ -248,10 +251,10 @@ class PlannerReplanOnValidationFailureTests(unittest.TestCase):
                 },
             }
 
-        original_plan_once = job_orchestration._plan_once
-        job_orchestration._plan_once = deterministic_mixed_rejection
+        original_plan_once = planning_pipeline._plan_once
+        planning_pipeline._plan_once = deterministic_mixed_rejection
         try:
-            result = job_orchestration._record_model_provider_plan(
+            result = planning_pipeline._record_model_provider_plan(
                 {},
                 hass=hass,
                 entry_id=entry.entry_id,
@@ -259,7 +262,7 @@ class PlannerReplanOnValidationFailureTests(unittest.TestCase):
                 source_snapshot={"entities": []},
             )
         finally:
-            job_orchestration._plan_once = original_plan_once
+            planning_pipeline._plan_once = original_plan_once
 
         self.assertFalse(result["accepted"])
         self.assertEqual(result["code"], "mixed_chart_composition_unsupported")
