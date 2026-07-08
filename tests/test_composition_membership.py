@@ -53,6 +53,19 @@ FRONT_DOOR = {
     "domain": "binary_sensor",
     "friendly_name": "Front Door",
 }
+KITCHEN_HUMIDITY = {
+    "entity_id": "sensor.kitchen_ecobee_humidity",
+    "domain": "sensor",
+    "friendly_name": "Kitchen ecobee Humidity",
+    "unit_of_measurement": "%",
+    "device_class": "humidity",
+}
+KITCHEN_OCCUPANCY = {
+    "entity_id": "binary_sensor.kitchen_ecobee_occupancy",
+    "domain": "binary_sensor",
+    "friendly_name": "Kitchen ecobee Occupancy",
+    "device_class": "occupancy",
+}
 
 
 class _FakePlanner:
@@ -173,6 +186,60 @@ class CompositionPruneTests(unittest.TestCase):
         )
         self.assertEqual(set(resolved["entity_ids"]), set(selection["entity_ids"]))
         self.assertEqual(resolved["source"], "numeric_with_overlay")
+
+
+class CrossMetricTypeHintTests(unittest.TestCase):
+    """Open-queue (v) — e2e-14: a cross-metric prompt (e.g. "is the kitchen
+    temperature correlated with the kitchen humidity") must not lose the
+    second metric before any model ever sees it.
+
+    Root cause (live-diagnosed): the live kitchen allowlist also carries
+    binary_sensor.kitchen_door / kitchen_ecobee_occupancy, which noise-match
+    the bare word "kitchen" and always compose as an overlay. Before the fix,
+    _filter_numerics_by_type_hint returned on the FIRST firing hint category
+    (temperature), silently dropping every humidity candidate from
+    numeric_matches before the overlay composition — and therefore before the
+    ADR-0028 D6 prune pass — ever ran, so no model call could recover it.
+    """
+
+    def test_cross_metric_prompt_keeps_both_measurement_types_through_prune(self):
+        catalog = [KITCHEN_TEMP, KITCHEN_HUMIDITY, KITCHEN_DOOR, KITCHEN_OCCUPANCY]
+        prompt = "is the kitchen temperature correlated with the kitchen humidity"
+        selection = select_prompt_entity_ids(prompt, catalog)
+        # D1 still over-composes via the noise-matching binary entities...
+        self.assertEqual(selection["source"], "numeric_with_overlay")
+        # ...but humidity now survives the type-hint filter into the candidate set.
+        self.assertIn("sensor.kitchen_ecobee_humidity", selection["entity_ids"])
+        self.assertIn("sensor.kitchen_ecobee_temperature", selection["entity_ids"])
+
+        planner = _FakePlanner(
+            ["sensor.kitchen_ecobee_temperature", "sensor.kitchen_ecobee_humidity"]
+        )
+        resolved = _resolve_entity_selection_with_model(
+            _hass(planner), ENTRY_ID, prompt, catalog, selection
+        )
+        self.assertEqual(
+            set(resolved["entity_ids"]),
+            {"sensor.kitchen_ecobee_temperature", "sensor.kitchen_ecobee_humidity"},
+        )
+        self.assertEqual(resolved["source"], "model_entity_selection")
+
+    def test_single_type_hint_still_narrows_as_before(self):
+        # Regression guard: a single-metric prompt still drops an incompatible
+        # numeric noise match (e.g. a stray power sensor) via the same filter.
+        power_sensor = {
+            "entity_id": "sensor.kitchen_outlets_power",
+            "domain": "sensor",
+            "friendly_name": "Kitchen Outlets Power",
+            "device_class": "power",
+            "unit_of_measurement": "W",
+        }
+        catalog = [KITCHEN_TEMP, power_sensor, KITCHEN_DOOR]
+        prompt = "show the kitchen temperature and when the door was open"
+        selection = select_prompt_entity_ids(prompt, catalog)
+        self.assertEqual(selection["source"], "numeric_with_overlay")
+        self.assertNotIn("sensor.kitchen_outlets_power", selection["entity_ids"])
+        self.assertIn("sensor.kitchen_ecobee_temperature", selection["entity_ids"])
 
 
 class SharedTokenGateTests(unittest.TestCase):

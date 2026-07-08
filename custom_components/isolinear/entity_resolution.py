@@ -807,18 +807,25 @@ def _filter_numerics_by_type_hint(
 
     If the prompt contains measurement-type tokens (e.g. "temperatures") and the
     numeric matches include entities with incompatible device_classes, keep only
-    those whose device_class matches the hinted type.  When no type hint fires or
-    all numerics already match, the list is returned unchanged.
+    those whose device_class matches a hinted type. A prompt may hint several
+    distinct measurement types at once (e.g. "is the temperature correlated with
+    the humidity") — target classes across every firing hint are unioned so a
+    cross-metric prompt keeps every metric it names, not just the first hint
+    category checked. When no type hint fires or all numerics already match, the
+    list is returned unchanged.
     """
-    for hint_tokens, target_classes in _NUMERIC_TYPE_HINTS:
-        if not (hint_tokens & prompt_token_set):
-            continue
-        matching = [
-            item for item in numeric_matches
-            if item.get("device_class") in target_classes
-        ]
-        if matching and len(matching) < len(numeric_matches):
-            return matching
+    target_classes: set[str] = set()
+    for hint_tokens, hint_target_classes in _NUMERIC_TYPE_HINTS:
+        if hint_tokens & prompt_token_set:
+            target_classes |= hint_target_classes
+    if not target_classes:
+        return numeric_matches
+    matching = [
+        item for item in numeric_matches
+        if item.get("device_class") in target_classes
+    ]
+    if matching and len(matching) < len(numeric_matches):
+        return matching
     return numeric_matches
 
 

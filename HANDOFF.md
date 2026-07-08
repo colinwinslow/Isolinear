@@ -2,6 +2,89 @@
 
 ## Current project phase
 
+### 2026-07-08 (23rd session) — Split deployed + spot-gated (0.2.28 live, behavior-preserving); open-queue (v) e2e-14 fixed; (cc) re-framed as a variance basin (0.2.29)
+
+**Phase.** `SPLIT DEPLOYED, SPOT-GATED, AND EXTENDED.` The ADR-0035 step-1
+split is live on HA (0.2.28) and gated behavior-preserving; the one hard
+resolution failure (e2e-14, open-queue (v)) is fixed; and the cross-math e2e
+"regression" is now understood as a variance basin rather than a fixed bug.
+
+**Part 1 — the split is deployed and behavior-preserving.** Colin
+HACS-redownloaded 0.2.28. Ran an 8-prompt e2e spot set (one per family plus the
+cross-math trio) against the live instance → all 8 `complete`, captured to
+`evals/e2e_runs/20260708T002741Z/` and judged by looking. **No non-cross-math
+verdict degraded vs the 0.2.27 baseline** (`…20260707T171258Z/REPORT.md`):
+e2e-01/06/09/10 unchanged, and **e2e-03 improved** — it now renders a legend, so
+open-queue (y) is effectively closed. The accept gate ("no verdict may degrade")
+is met. The split is confirmed a pure refactor at runtime, not just by
+construction.
+
+**Part 2 — the cross-math family is a variance basin, not a fixed regression.**
+Last session's (cc) FAILs **e2e-12 (delta) and e2e-18 (deviation) both now PASS**
+(grounded "1.31 °F" delta answer; a clean per-sensor deviation series), while
+last session's (z) PASS **e2e-11 (mean) flipped to a Pillow `runtime_error`
+fallback**. Pulled the CT103 worker logs (`docker logs isolinear-worker`): the
+first codegen attempt throws `runtime_error` intermittently across ALL of
+transport-004/006/007, each recovered by a repair on some runs and exhausted on
+others. So the multi-sensor cross-math prompts share ONE flaky
+codegen-runtime slip that rotates across whichever member draws the unlucky
+temp-0 sample — exactly the "repair-chain intent erosion" the 20th session
+diagnosed for (z). This is the strongest live motivation yet for the **(B)
+repair-intent-retention** packet, which is now the cross-math family's real fix
+(not a per-member chase). NOT a split defect.
+
+**Part 3 — open-queue (v) e2e-14 fixed (0.2.29).** The cross-metric
+temp-vs-humidity correlation. The 18th-session diagnosis ("kitchen humidity
+fails to resolve to `sensor.kitchen_ecobee_humidity`") was WRONG. The REAL
+approved allowlist — pulled non-destructively via the options-flow init
+(`POST /api/config/config_entries/options/flow`, which returns the
+`entity_allowlist` default) — carries `binary_sensor.kitchen_door` and
+`binary_sensor.kitchen_ecobee_occupancy`. Both noise-match the bare word
+"kitchen", so `select_prompt_entity_ids` always routes this prompt into the
+`numeric_with_overlay` composition path. There, `_filter_numerics_by_type_hint`
+**returned on the FIRST firing hint category**: the prompt hints both
+"temperature" and "humidity", the temperature hint fired first, and every
+humidity candidate was dropped from `numeric_matches` — BEFORE the overlay
+composition assembled and therefore BEFORE the ADR-0028 D6 model-prune pass ran.
+No model call ever saw humidity, so nothing could recover it, and the planner
+correctly clarified that the required humidity sensor was missing.
+
+**The fix (one function in `entity_resolution.py`):** union the target
+device-classes across ALL firing type hints instead of returning on the first,
+so a cross-metric prompt keeps every metric it names. The binary door/occupancy
+noise still enters the composition candidate set, but the existing D6 model
+prune (which fires because the candidates share the "kitchen" token) drops it —
+live-proven 5/5 (D1+D6 against the real catalog → exactly temp+humidity). The
+change is bounded to the deterministic pre-filter; invariants #1 (allowlist)
+and #9 (kind→family routing) are untouched — the fix only widens which approved
+numerics survive to the model, and the D6 prune + allowlist re-validation still
+gate the final set.
+
+**Verification.** Suite **456 passed / 4 skipped** (+2:
+`CrossMetricTypeHintTests` — cross-metric survives the filter through the prune,
+and a regression guard that a single-metric prompt still drops an incompatible
+numeric noise match); `evals/composition_membership_prune.py` PASS against live
+gemma; the e2e-14 resolution repro 5/5 correct. Inline invariant review OK; arch
+subagent not spawned (bounded change on the accepted ADR-0028/0024 path,
+available on request). New diagnostic `scripts/repro_e2e14_resolution.py`.
+Integration-only, ships via HACS, NO worker rebuild, no new ADR.
+
+**Deploy state.** `main` is **0.2.29, PUSHED**. HA runs 0.2.28 (deployed +
+spot-gated this session). A 0.2.29 redownload deploys the e2e-14 cross-metric
+fix — verify through the card that "is the kitchen temperature correlated with
+the kitchen humidity" resolves both sensors instead of clarifying (live-proven
+at the resolution seam; not yet exercised through the deployed pipeline).
+
+**Next.** HACS 0.2.29 redownload + card verify e2e-14. Then the **(B)
+repair-intent-retention** packet (the cross-math variance basin's real fix — the
+repair task must preserve every computed/derived series + the answer_text
+emission from the previous attempt; eval-gate with/without arms like 0.2.26).
+Then (r) binary/timeline routing, (t) the >2-day tiering wall (needs a small
+ADR), (x) e2e-09 zero-duration door intervals, and the housekeeping flagged for
+Colin (mixed_chart dead code; ADR-vs-spec on the re-plan spec; the CLAUDE.md-9
+vs ARCHITECTURE.md-12 two-list reconciliation). ADR-0035 step 2 (retire
+first_real_vertical_slice) remains a bounded packet on the deployed split.
+
 ### 2026-07-07 (22nd session, Fable) — The 0.2.27 e2e verdict recovered + completed ((z) fixed; NEW (cc) regression), and ADR-0035 demolition step 1 executed: the god module is split (0.2.28)
 
 **Phase.** `DEMOLITION STEP 1 DONE.` `job_orchestration.py` (8,335 lines, 44%
