@@ -242,6 +242,58 @@ class CrossMetricTypeHintTests(unittest.TestCase):
         self.assertIn("sensor.kitchen_ecobee_temperature", selection["entity_ids"])
 
 
+class TypeHintGuardTests(unittest.TestCase):
+    """D6 prune safety guard: when type hints signal numeric measurement intent
+    but the model picks only binary/state entities, the prune is a noise pick —
+    fall back to the numeric subset from the original candidate set.
+
+    Live bug (2026-07-08): "are the kitchen and family room temperatures
+    correlated?" composed kitchen_temp + family_room_temp + kitchen_door +
+    kitchen_occupancy via numeric_with_overlay (binaries noise-matched "kitchen").
+    D6 asked gemma to pick from all 4; gemma sometimes picked binary_sensor.kitchen_door
+    → the prune was accepted → the render family routed to a door timeline.
+
+    Regression guard: the type-hint-active binary-only prune must be rejected
+    and the numeric subset returned instead.
+    """
+
+    FAMILY_ROOM_TEMP = {
+        "entity_id": "sensor.family_room_temperature",
+        "domain": "sensor",
+        "friendly_name": "Family Room Temperature",
+        "state_class": "measurement",
+        "device_class": "temperature",
+    }
+
+    def test_binary_only_prune_rejected_when_type_hint_active(self):
+        catalog = [KITCHEN_TEMP, self.FAMILY_ROOM_TEMP, KITCHEN_DOOR, KITCHEN_OCCUPANCY]
+        prompt = "are the kitchen and family room temperatures correlated"
+        # Simulate gemma incorrectly picking the door (the live bug).
+        planner = _FakePlanner(["binary_sensor.kitchen_door"])
+        selection, resolved = _resolve(prompt, catalog, planner)
+
+        # D1 over-composes via binary noise matches on "kitchen".
+        self.assertEqual(selection["source"], "numeric_with_overlay")
+
+        # The type-hint safety guard must reject the binary-only prune and
+        # return the numeric-only subset instead.
+        self.assertEqual(
+            set(resolved["entity_ids"]),
+            {"sensor.kitchen_ecobee_temperature", "sensor.family_room_temperature"},
+        )
+        self.assertEqual(resolved["source"], "model_entity_selection")
+
+    def test_binary_only_prune_accepted_without_type_hint(self):
+        # No type-hint tokens → the guard stays silent; legitimate door-only
+        # picks (e.g. "when was the kitchen door open") are unaffected.
+        catalog = [KITCHEN_TEMP, KITCHEN_DOOR]
+        prompt = "when was the kitchen door open today"
+        planner = _FakePlanner(["binary_sensor.kitchen_door"])
+        _selection, resolved = _resolve(prompt, catalog, planner)
+        self.assertEqual(resolved["entity_ids"], ["binary_sensor.kitchen_door"])
+        self.assertEqual(resolved["source"], "model_entity_selection")
+
+
 class SharedTokenGateTests(unittest.TestCase):
     def test_shared_location_token_detected(self):
         self.assertTrue(

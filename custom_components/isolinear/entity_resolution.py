@@ -108,6 +108,45 @@ def _prune_composition_with_model(
     pruned_ids = pruned["entity_ids"]
     if not pruned_ids or set(pruned_ids) == set(selection["entity_ids"]):
         return selection
+
+    # Safety guard: when type hints in the prompt signal numeric measurement
+    # intent (e.g. "temperatures", "humidity") but the model returned only
+    # state/binary entities, the prune is a noise pick — gemma resolved a
+    # shared location token ("kitchen") to the door instead of the temperature
+    # sensors. Recover by returning only the numeric entities from the original
+    # candidate set (they already passed the type-hint filter) so the render
+    # family routes correctly to time_series rather than a binary timeline.
+    id_map = {item["entity_id"]: item for item in candidate_items}
+    pruned_items = [id_map[eid] for eid in pruned_ids if eid in id_map]
+    original_numerics = [
+        item for item in candidate_items if classify_series_kind(item) == "numeric"
+    ]
+    if (
+        original_numerics
+        and pruned_items
+        and all(
+            classify_series_kind(item) in ("binary_state", "categorical_state")
+            for item in pruned_items
+        )
+    ):
+        prompt_token_set = set(_prompt_tokens(prompt))
+        if any(hint_tokens & prompt_token_set for hint_tokens, _ in _NUMERIC_TYPE_HINTS):
+            numeric_ids = [item["entity_id"] for item in original_numerics]
+            _LOGGER.debug(
+                "Isolinear entity resolution: composition prune discarded all "
+                "numerics (%s -> %s) with type hint active — falling back to "
+                "numeric-only subset %s",
+                selection["entity_ids"],
+                pruned_ids,
+                numeric_ids,
+            )
+            return {
+                "accepted": True,
+                "code": "accepted",
+                "entity_ids": numeric_ids,
+                "source": "model_entity_selection",
+            }
+
     _LOGGER.debug(
         "Isolinear entity resolution: composition prune %s -> %s "
         "(source: model_entity_selection)",
