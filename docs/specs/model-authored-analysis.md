@@ -138,6 +138,27 @@ request-conditional:
   (production codegen path, genuinely irregular per-entity sampling,
   with/without the sentence, execution-truth judges tuned to the union
   artifact).
+  - **Entity-id-keyed combined frame (open-queue (B) real fix, 0.2.31).** The
+    alignment clause also prescribes how to KEY the combined frame, because the
+    step after "resample each series" — building and indexing the combined
+    frame — was the actual driver of the cross-math **variance basin**. The
+    24th session reproduced the live intermittent `runtime_error` (worker logs
+    record only `error=runtime_error`, no traceback) via the production codegen
+    path: `KeyError: 'sensor.kitchen_ecobee_temperature'`. The floor model built
+    a bare-list `pandas.concat([s1, s2], axis=1)` (columns are a POSITIONAL
+    RangeIndex `0,1`) then intermittently indexed it by entity_id
+    (`combined['sensor.…']`). At temperature 0 Ollama still varies run-to-run
+    whether it names the columns / uses positional access, so the failure
+    rotates across members of the family (20th + 23rd sessions). The rule now
+    prescribes `combined = pandas.concat({s['entity_id']: aligned_s ...},
+    axis=1).dropna()` so columns ARE the entity_ids (safe `combined[entity_id]`,
+    `.iloc[:, i]`, and `.mean(axis=1)`), and warns that a bare-list concat gives
+    positional columns. Mechanism proven deterministically (bad pattern →
+    `KeyError`; keyed pattern → all accessors work); directional live gate
+    `evals/crossmath_frame_keying_gate.py` (production generation path, real
+    cross-sensor-mean prompt, with/without the sentence, counts entity-id
+    KeyErrors). This — not the repair-intent-retention hint below, which showed
+    no eval separation — is the variance basin's real fix.
 - **Chart-family degrade (open-queue (w), 0.2.26).** The integration owns the
   chart FAMILY — line, histogram, bar (invariant #9: the model never chooses
   `chart_type`); `user_request` owns only the COMPUTATION within it. A heatmap
@@ -156,6 +177,20 @@ request-conditional:
   with `evals/heatmap_rule_gate.py` (production codegen path, the live
   histogram chart_spec + the heatmap `user_request`, with/without the sentence,
   execution-truth judge = a clean 1-D histogram, not a 2-D `QuadMesh`/image).
+- **Repair-intent retention (open-queue (B) — INVESTIGATED, NOT shipped).** The
+  (B) packet was first framed as a repair-only instruction to preserve the
+  `previous_code`'s derived series + `answer_text` while fixing a runtime error
+  (targeting the rarer erosion the 20th session observed once — a two-repair
+  chain that kept the mean series but dropped `answer_text`). Eval-gated on the
+  production repair path (`evals/repair_intent_retention_gate.py`: a seeded
+  `previous_code` that computes a cross-sensor mean + `answer_text` with a fixable
+  runtime error, with/without the sentence), it showed **no separation — 3/3
+  retained in both arms**: on a clean fixable error gemma minimally fixes it and
+  keeps intent regardless. Per the 0.2.22 "failure-driven hints must earn their
+  accept-rate" principle it was DROPPED. The investigation was still the key to
+  (B): reproducing the live runtime_error showed it is an entity-id `KeyError` (a
+  fix-RATE bug), not intent erosion — so the real fix is the entity-id-keyed
+  frame rule above. The eval file is retained as a documented negative result.
 
 ### 3. Data-boundary timestamp normalization (ADR-0031 D9)
 

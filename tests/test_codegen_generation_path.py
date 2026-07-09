@@ -526,6 +526,19 @@ class CodegenModelProviderTests(unittest.TestCase):
         self.assertIn("NEVER join or intersect raw series on exact timestamps", rules)
         self.assertIn("NEVER call .dropna() on a DataFrame built from two un-resampled series", rules)
 
+    def test_analysis_exception_prescribes_entity_id_keyed_frame(self):
+        # Open-queue (B) real fix (0.2.31): the cross-math variance basin's live
+        # runtime_error was an intermittent KeyError — the floor model built a
+        # bare-list `pandas.concat([s1, s2], axis=1)` (positional columns 0,1)
+        # then indexed it by entity_id (`combined['sensor.…']`) → KeyError,
+        # reproduced live 2026-07-08. The alignment rule now prescribes keying
+        # the combined frame by entity_id so column access is safe.
+        body = self._capture_generate_body("What is the average of the two temperatures?")
+        rules = " ".join(body["rules"])
+        self.assertIn("KEYED BY ENTITY_ID", rules)
+        self.assertIn("pandas.concat({s['entity_id']: aligned_for_s for each series s}, axis=1)", rules)
+        self.assertIn("raises KeyError", rules)
+
     def test_answer_rule_keys_on_user_request(self):
         body = self._capture_generate_body("How much warmer is the kitchen?")
         rules = " ".join(body["rules"])

@@ -141,6 +141,15 @@ _CODEGEN_SYSTEM_PROMPT = (
     "output in a single code fence: ```python\\n<code>\\n```. No prose, no "
     "explanation, nothing outside the fence."
 )
+# Repair-intent retention (open-queue (B) investigation, 0.2.31): a candidate
+# repair-only instruction to preserve the previous_code's derived series +
+# answer_text while fixing a runtime error. NOT SHIPPED — eval-gated with/without
+# arms (evals/repair_intent_retention_gate.py) it showed NO separation (3/3
+# retained in both arms: on a clean fixable error gemma keeps intent regardless),
+# so per the 0.2.22 "failure-driven hints must earn their accept-rate" principle
+# it was dropped. The variance basin's real fix was the entity-id-keyed combined
+# frame rule below (the live runtime_error was an intermittent KeyError from
+# indexing a concat'd frame by entity_id — a fix-rate bug, not intent erosion).
 _CODEGEN_PROMPT_RULES = [
     "Define exactly one top-level function: def render_chart(data, output_path):",
     "Implement the supplied chart_spec using matplotlib and the supplied history_series.",
@@ -174,7 +183,14 @@ _CODEGEN_PROMPT_RULES = [
     "pts], index=pandas.to_datetime([p['ts_epoch_ms'] for p in pts], "
     "unit='ms')).resample('5min').mean().interpolate() — resample EACH series "
     "separately BEFORE combining them; only then combine the aligned results (they "
-    "now share a grid) and .dropna(). NEVER join or intersect raw series on exact "
+    "now share a grid) and .dropna(). Build that combined frame KEYED BY ENTITY_ID: "
+    "combined = pandas.concat({s['entity_id']: aligned_for_s for each series s}, "
+    "axis=1).dropna() — so its columns ARE the entity_id strings. Then reference a "
+    "column by that exact entity_id (combined[s['entity_id']]) or by position "
+    "(combined.iloc[:, i]), and compute a cross-sensor average as combined.mean(axis=1). "
+    "NEVER index a bare-list concat by an entity_id: pandas.concat([s1, s2], axis=1) "
+    "gives POSITIONAL columns 0,1,…, so combined['sensor.…'] raises KeyError (a live "
+    "cross-math failure). NEVER join or intersect raw series on exact "
     "timestamps, and NEVER call .dropna() on a DataFrame built from two "
     "un-resampled series (their indexes are disjoint, so it deletes every row and "
     "everything downstream becomes NaN). Never plot a series whose 'kind' is 'binary_state' or "

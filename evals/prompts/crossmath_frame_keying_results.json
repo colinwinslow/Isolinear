@@ -1,0 +1,745 @@
+{
+ "meta": {
+  "model": "gemma4:e4b",
+  "ollama": "http://10.0.1.39:11434",
+  "runs": 40,
+  "prompt": "What is the average of the kitchen and family room temperatures?",
+  "started": "2026-07-08T17:35:41Z"
+ },
+ "runs": {
+  "without_keying::run1": {
+   "arm": "without_keying",
+   "run": 1,
+   "done": true,
+   "executed": false,
+   "keyerror": true,
+   "loc": 94,
+   "gen_s": 33.8,
+   "error": "KeyError: 'sensor.kitchen_ecobee_temperature'"
+  },
+  "without_keying::run2": {
+   "arm": "without_keying",
+   "run": 2,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 29.9
+  },
+  "without_keying::run3": {
+   "arm": "without_keying",
+   "run": 3,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 30.0
+  },
+  "without_keying::run4": {
+   "arm": "without_keying",
+   "run": 4,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 27.2
+  },
+  "without_keying::run5": {
+   "arm": "without_keying",
+   "run": 5,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run6": {
+   "arm": "without_keying",
+   "run": 6,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run7": {
+   "arm": "without_keying",
+   "run": 7,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.5
+  },
+  "without_keying::run8": {
+   "arm": "without_keying",
+   "run": 8,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.7
+  },
+  "without_keying::run9": {
+   "arm": "without_keying",
+   "run": 9,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.7
+  },
+  "without_keying::run10": {
+   "arm": "without_keying",
+   "run": 10,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run11": {
+   "arm": "without_keying",
+   "run": 11,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run12": {
+   "arm": "without_keying",
+   "run": 12,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "with_keying::run1": {
+   "arm": "with_keying",
+   "run": 1,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 113,
+   "gen_s": 28.1
+  },
+  "with_keying::run2": {
+   "arm": "with_keying",
+   "run": 2,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 118,
+   "gen_s": 32.2
+  },
+  "with_keying::run3": {
+   "arm": "with_keying",
+   "run": 3,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run4": {
+   "arm": "with_keying",
+   "run": 4,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run5": {
+   "arm": "with_keying",
+   "run": 5,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run6": {
+   "arm": "with_keying",
+   "run": 6,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run7": {
+   "arm": "with_keying",
+   "run": 7,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "with_keying::run8": {
+   "arm": "with_keying",
+   "run": 8,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run9": {
+   "arm": "with_keying",
+   "run": 9,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "with_keying::run10": {
+   "arm": "with_keying",
+   "run": 10,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run11": {
+   "arm": "with_keying",
+   "run": 11,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run12": {
+   "arm": "with_keying",
+   "run": 12,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "without_keying::run13": {
+   "arm": "without_keying",
+   "run": 13,
+   "done": true,
+   "executed": false,
+   "keyerror": true,
+   "loc": 94,
+   "gen_s": 34.2,
+   "error": "KeyError: 'sensor.kitchen_ecobee_temperature'"
+  },
+  "without_keying::run14": {
+   "arm": "without_keying",
+   "run": 14,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.5
+  },
+  "without_keying::run15": {
+   "arm": "without_keying",
+   "run": 15,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.5
+  },
+  "without_keying::run16": {
+   "arm": "without_keying",
+   "run": 16,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run17": {
+   "arm": "without_keying",
+   "run": 17,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run18": {
+   "arm": "without_keying",
+   "run": 18,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.5
+  },
+  "without_keying::run19": {
+   "arm": "without_keying",
+   "run": 19,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run20": {
+   "arm": "without_keying",
+   "run": 20,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.5
+  },
+  "without_keying::run21": {
+   "arm": "without_keying",
+   "run": 21,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run22": {
+   "arm": "without_keying",
+   "run": 22,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run23": {
+   "arm": "without_keying",
+   "run": 23,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run24": {
+   "arm": "without_keying",
+   "run": 24,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run25": {
+   "arm": "without_keying",
+   "run": 25,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run26": {
+   "arm": "without_keying",
+   "run": 26,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.5
+  },
+  "without_keying::run27": {
+   "arm": "without_keying",
+   "run": 27,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run28": {
+   "arm": "without_keying",
+   "run": 28,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run29": {
+   "arm": "without_keying",
+   "run": 29,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run30": {
+   "arm": "without_keying",
+   "run": 30,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run31": {
+   "arm": "without_keying",
+   "run": 31,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run32": {
+   "arm": "without_keying",
+   "run": 32,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run33": {
+   "arm": "without_keying",
+   "run": 33,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.5
+  },
+  "without_keying::run34": {
+   "arm": "without_keying",
+   "run": 34,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run35": {
+   "arm": "without_keying",
+   "run": 35,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run36": {
+   "arm": "without_keying",
+   "run": 36,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run37": {
+   "arm": "without_keying",
+   "run": 37,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run38": {
+   "arm": "without_keying",
+   "run": 38,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run39": {
+   "arm": "without_keying",
+   "run": 39,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "without_keying::run40": {
+   "arm": "without_keying",
+   "run": 40,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 101,
+   "gen_s": 26.6
+  },
+  "with_keying::run13": {
+   "arm": "with_keying",
+   "run": 13,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 113,
+   "gen_s": 28.1
+  },
+  "with_keying::run14": {
+   "arm": "with_keying",
+   "run": 14,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 118,
+   "gen_s": 32.2
+  },
+  "with_keying::run15": {
+   "arm": "with_keying",
+   "run": 15,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "with_keying::run16": {
+   "arm": "with_keying",
+   "run": 16,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "with_keying::run17": {
+   "arm": "with_keying",
+   "run": 17,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run18": {
+   "arm": "with_keying",
+   "run": 18,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run19": {
+   "arm": "with_keying",
+   "run": 19,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "with_keying::run20": {
+   "arm": "with_keying",
+   "run": 20,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run21": {
+   "arm": "with_keying",
+   "run": 21,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run22": {
+   "arm": "with_keying",
+   "run": 22,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "with_keying::run23": {
+   "arm": "with_keying",
+   "run": 23,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run24": {
+   "arm": "with_keying",
+   "run": 24,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "with_keying::run25": {
+   "arm": "with_keying",
+   "run": 25,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "with_keying::run26": {
+   "arm": "with_keying",
+   "run": 26,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run27": {
+   "arm": "with_keying",
+   "run": 27,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "with_keying::run28": {
+   "arm": "with_keying",
+   "run": 28,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "with_keying::run29": {
+   "arm": "with_keying",
+   "run": 29,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run30": {
+   "arm": "with_keying",
+   "run": 30,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "with_keying::run31": {
+   "arm": "with_keying",
+   "run": 31,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run32": {
+   "arm": "with_keying",
+   "run": 32,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "with_keying::run33": {
+   "arm": "with_keying",
+   "run": 33,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run34": {
+   "arm": "with_keying",
+   "run": 34,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "with_keying::run35": {
+   "arm": "with_keying",
+   "run": 35,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run36": {
+   "arm": "with_keying",
+   "run": 36,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run37": {
+   "arm": "with_keying",
+   "run": 37,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run38": {
+   "arm": "with_keying",
+   "run": 38,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.5
+  },
+  "with_keying::run39": {
+   "arm": "with_keying",
+   "run": 39,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  },
+  "with_keying::run40": {
+   "arm": "with_keying",
+   "run": 40,
+   "done": true,
+   "executed": true,
+   "keyerror": false,
+   "loc": 110,
+   "gen_s": 30.6
+  }
+ },
+ "tally": {
+  "without_keying": {
+   "runs": 40,
+   "executed": 38,
+   "keyerror": 2
+  },
+  "with_keying": {
+   "runs": 40,
+   "executed": 40,
+   "keyerror": 0
+  }
+ }
+}

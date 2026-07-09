@@ -1,0 +1,242 @@
+{
+ "meta": {
+  "model": "gemma4:e4b",
+  "ollama": "http://10.0.1.39:11434",
+  "runs": 3,
+  "max_repairs": 2,
+  "prompt": "What is the average of the kitchen and family room temperatures?",
+  "started": "2026-07-08T17:05:20Z"
+ },
+ "runs": {
+  "without_retention::run1": {
+   "arm": "without_retention",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 35.0,
+     "loc": 72,
+     "ok": true,
+     "answer_text": "The average temperature across the two sensors is 70.24 \u00b0F.",
+     "axes": [
+      {
+       "ylabel": "Temperature (\u00b0F)",
+       "n_lines": 1,
+       "lines": [
+        {
+         "n": 283,
+         "min": 68.0,
+         "max": 72.5,
+         "mean": 70.2351148409894
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "retained": true,
+   "verdict": {
+    "retained": true,
+    "answer": true,
+    "derived_line": true,
+    "why": "answer=Y derived_line=Y axes=[1] answer_text='The average temperature across the two sensors is 70.24 \u00b0F.'"
+   }
+  },
+  "without_retention::run2": {
+   "arm": "without_retention",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 41.3,
+     "loc": 59,
+     "ok": true,
+     "answer_text": "The average temperature across the two sensors is 70.24 \u00b0F.",
+     "axes": [
+      {
+       "ylabel": "Temperature (\u00b0F)",
+       "n_lines": 1,
+       "lines": [
+        {
+         "n": 283,
+         "min": 68.0,
+         "max": 72.5,
+         "mean": 70.2351148409894
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "retained": true,
+   "verdict": {
+    "retained": true,
+    "answer": true,
+    "derived_line": true,
+    "why": "answer=Y derived_line=Y axes=[1] answer_text='The average temperature across the two sensors is 70.24 \u00b0F.'"
+   }
+  },
+  "without_retention::run3": {
+   "arm": "without_retention",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 42.4,
+     "loc": 59,
+     "ok": true,
+     "answer_text": "The average temperature across the two sensors is 70.24 \u00b0F.",
+     "axes": [
+      {
+       "ylabel": "Temperature (\u00b0F)",
+       "n_lines": 1,
+       "lines": [
+        {
+         "n": 283,
+         "min": 68.0,
+         "max": 72.5,
+         "mean": 70.2351148409894
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "retained": true,
+   "verdict": {
+    "retained": true,
+    "answer": true,
+    "derived_line": true,
+    "why": "answer=Y derived_line=Y axes=[1] answer_text='The average temperature across the two sensors is 70.24 \u00b0F.'"
+   }
+  },
+  "with_retention::run1": {
+   "arm": "with_retention",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 19.8,
+     "loc": 45,
+     "ok": true,
+     "answer_text": "The average temperature across the two sensors is 70.24 \u00b0F.",
+     "axes": [
+      {
+       "ylabel": "Temperature (\u00b0F)",
+       "n_lines": 1,
+       "lines": [
+        {
+         "n": 283,
+         "min": 68.0,
+         "max": 72.5,
+         "mean": 70.2351148409894
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "retained": true,
+   "verdict": {
+    "retained": true,
+    "answer": true,
+    "derived_line": true,
+    "why": "answer=Y derived_line=Y axes=[1] answer_text='The average temperature across the two sensors is 70.24 \u00b0F.'"
+   }
+  },
+  "with_retention::run2": {
+   "arm": "with_retention",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 18.5,
+     "loc": 40,
+     "ok": true,
+     "answer_text": "The average temperature across the two sensors is 70.24 \u00b0F.",
+     "axes": [
+      {
+       "ylabel": "Temperature (\u00b0F)",
+       "n_lines": 1,
+       "lines": [
+        {
+         "n": 283,
+         "min": 68.0,
+         "max": 72.5,
+         "mean": 70.2351148409894
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "retained": true,
+   "verdict": {
+    "retained": true,
+    "answer": true,
+    "derived_line": true,
+    "why": "answer=Y derived_line=Y axes=[1] answer_text='The average temperature across the two sensors is 70.24 \u00b0F.'"
+   }
+  },
+  "with_retention::run3": {
+   "arm": "with_retention",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 18.1,
+     "loc": 40,
+     "ok": true,
+     "answer_text": "The average temperature across the two sensors is 70.24 \u00b0F.",
+     "axes": [
+      {
+       "ylabel": "Temperature (\u00b0F)",
+       "n_lines": 1,
+       "lines": [
+        {
+         "n": 283,
+         "min": 68.0,
+         "max": 72.5,
+         "mean": 70.2351148409894
+        }
+       ]
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "retained": true,
+   "verdict": {
+    "retained": true,
+    "answer": true,
+    "derived_line": true,
+    "why": "answer=Y derived_line=Y axes=[1] answer_text='The average temperature across the two sensors is 70.24 \u00b0F.'"
+   }
+  }
+ },
+ "tally": {
+  "without_retention": {
+   "runs": 3,
+   "executed": 3,
+   "retained": 3,
+   "derived_line": 3
+  },
+  "with_retention": {
+   "runs": 3,
+   "executed": 3,
+   "retained": 3,
+   "derived_line": 3
+  }
+ }
+}
