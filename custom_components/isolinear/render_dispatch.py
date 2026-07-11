@@ -65,6 +65,8 @@ from .orchestration_contracts import (
     validate_worker_transport_request_contract,
 )
 from .orchestration_store import (
+    CHECK_ANSWER_PHASE_LABEL,
+    RENDER_CHART_PHASE_LABEL,
     _store_validated_artifact_metadata,
     _store_validated_model_provider_plan,
     _store_validated_render_plan,
@@ -74,6 +76,8 @@ from .orchestration_store import (
     _subscription_ids_for_job,
     _worker_retry_policy_attempt_number,
     _worker_transport_failure_classification_attempt_number,
+    repair_chart_phase_label,
+    set_render_phase,
 )
 from .snapshot_assembly import (
     _artifact_series,
@@ -1198,6 +1202,7 @@ def _record_codegen_worker_dispatch(
     # only; it never enters `codegen_request` (the render request that crosses to
     # the worker sandbox), which is built independently below.
     user_request = job.get("prompt") if isinstance(job, dict) else None
+    job_id = job.get("job_id") if isinstance(job, dict) else None
 
     # 1. Generate the initial code from the validated ChartSpec + render data.
     #    ADR-0031 D9: normalize timestamps to epoch-ms before the data reaches the
@@ -1208,6 +1213,10 @@ def _record_codegen_worker_dispatch(
     codegen_request["history_series"] = _history_series_with_epoch_ms(
         codegen_request["history_series"]
     )
+    # Surface the render phase on the card's live slot: this + the repair loop
+    # below are the longest non-streaming model stage (user-reported "frozen"
+    # card). Sibling polls inject this via apply_live_reasoning.
+    set_render_phase(store, job_id, RENDER_CHART_PHASE_LABEL)
     generation = codegen_client.generate_chart_code(
         codegen_request, model=codegen_model, user_request=user_request
     )
@@ -1353,6 +1362,7 @@ def _record_codegen_worker_dispatch(
             # repair loop (same budget); on exhaustion the chart is served with
             # the answer withheld (contradicted) or caveated (soft failure).
             render_metadata = render_result.get("render_metadata") or {}
+            set_render_phase(store, job_id, CHECK_ANSWER_PHASE_LABEL)
             grounding = _run_grounding_check(render_metadata, codegen_request["history_series"])
 
             if grounding["outcome"] not in ("repair_contradicted", "repair_soft"):
@@ -1397,6 +1407,7 @@ def _record_codegen_worker_dispatch(
         if attempt_number > max_repair_attempts:
             break
 
+        set_render_phase(store, job_id, repair_chart_phase_label(repair_attempts_made + 1))
         repair = codegen_client.repair_chart_code(
             current_code,
             error if isinstance(error, dict) else {},

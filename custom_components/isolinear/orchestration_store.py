@@ -639,6 +639,33 @@ SELECT_ENTITY_PHASE_LABEL = "Selecting entities…"
 PLAN_CHART_PHASE_LABEL = "Planning chart…"
 
 
+# The codegen render + repair loop is non-streaming (freeform Python is not
+# useful "thinking"), and it is often the LONGEST model phase — several 30-60s
+# calls back to back. Without a phase label the card's live slot holds the stale
+# "Planning chart…" and looks frozen (user-reported). These labels update the
+# slot per render attempt so the card shows the render/repair progress; they
+# carry no reasoning text (text="") — just the coarse stage.
+RENDER_CHART_PHASE_LABEL = "Rendering chart…"
+
+
+CHECK_ANSWER_PHASE_LABEL = "Checking the answer…"
+
+
+def repair_chart_phase_label(attempt: int) -> str:
+    """Coarse phase label for repair attempt ``attempt`` (1-based)."""
+    return f"Repairing chart (attempt {attempt})…"
+
+
+def set_render_phase(store: dict[str, Any], job_id: str | None, stage: str) -> None:
+    """Update the per-job live slot to a coarse render/repair phase label.
+
+    No reasoning text — the codegen calls do not stream — so the card shows just
+    the stage. A no-op when there is no job_id (non-card callers)."""
+    if job_id is None:
+        return
+    _set_live_reasoning(store, job_id, stage=stage, text="")
+
+
 def _call_planner_with_optional_reasoning(
     method: Any,
     request: dict[str, Any],

@@ -419,6 +419,45 @@ class ApplyLiveReasoningTests(unittest.TestCase):
         self.assertEqual(SELECT_ENTITY_PHASE_LABEL, "Selecting entities…")
         self.assertEqual(PLAN_CHART_PHASE_LABEL, "Planning chart…")
 
+    def test_render_phase_labels_are_schema_valid_stages(self):
+        # The codegen render + repair loop surfaces these on the card (the
+        # user-reported "frozen" stage). They must satisfy the snapshot schema's
+        # non-blank string stage/state_label so apply_live_reasoning does not
+        # silently discard them via the D6 graceful fallback.
+        from custom_components.isolinear.orchestration_store import (
+            RENDER_CHART_PHASE_LABEL,
+            CHECK_ANSWER_PHASE_LABEL,
+            repair_chart_phase_label,
+        )
+        for label in (
+            RENDER_CHART_PHASE_LABEL,
+            CHECK_ANSWER_PHASE_LABEL,
+            repair_chart_phase_label(1),
+            repair_chart_phase_label(3),
+        ):
+            snapshot = self._planning_snapshot()
+            out = apply_live_reasoning(snapshot, {"stage": label, "text": ""})
+            self.assertEqual(out["state_label"], label)
+            self.assertEqual(out["progress"]["stage"], label)
+            self.assertNotIn("reasoning", out["progress"])
+            self.assertTrue(validate_job_snapshot_contract(out)["accepted"], out)
+        self.assertEqual(repair_chart_phase_label(2), "Repairing chart (attempt 2)…")
+
+    def test_set_render_phase_updates_slot_and_noops_without_job(self):
+        from custom_components.isolinear.orchestration_store import (
+            set_render_phase,
+            _live_reasoning_slot,
+            RENDER_CHART_PHASE_LABEL,
+        )
+        store: dict = {}
+        set_render_phase(store, "job-1", RENDER_CHART_PHASE_LABEL)
+        self.assertEqual(
+            _live_reasoning_slot(store, "job-1"),
+            {"stage": RENDER_CHART_PHASE_LABEL, "text": ""},
+        )
+        # No job_id → no-op (non-card callers must not raise).
+        set_render_phase(store, None, RENDER_CHART_PHASE_LABEL)
+
     def test_injects_reasoning_and_stage_and_revalidates(self):
         snapshot = self._planning_snapshot()
         slot = {"stage": PLAN_CHART_PHASE_LABEL, "text": "Reading sensor history."}
