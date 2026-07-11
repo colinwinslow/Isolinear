@@ -35,6 +35,21 @@ TWO_TIER_GUARANTEE = (
     "The caveat means ‘not independently reproduced,’ not ‘probably fine.’"
 )
 
+# A computed answer that stringifies a non-finite float — "nan", "inf",
+# "-inf", "infinity" — must never reach the user. The per-claim degeneracy
+# check (step 3) only guards a claim's numeric value, but a plain aggregate
+# ("what's the average…") emits an answer_text with NO verdict claim, so it
+# reaches the "no claims → pass" branch unscanned. This tripwire scans the
+# answer_text string directly (whole-word, case-insensitive) so it fires with
+# or without claims. Live-observed 0.2.32: "…the average … was nan °F" served.
+_DEGENERATE_ANSWER_RE = re.compile(r"(?<![A-Za-z])(nan|[-+]?inf(?:inity)?)(?![A-Za-z])", re.IGNORECASE)
+# An unevaluated f-string / format template that leaked into the sentence (e.g.
+# "the average was {mean_avg:.2f}") is degenerate too. A natural answer sentence
+# never contains braces, so this is near-zero false positive. NOTE: "0.00" is
+# intentionally NOT treated as degenerate — a genuinely zero result (e.g. a delta
+# of 0.00 °F) is a valid answer.
+_UNFILLED_PLACEHOLDER_RE = re.compile(r"\{[^{}]*\}")
+
 # ---------------------------------------------------------------------------
 # Numeric tolerance (absolute) for value ↔ reference comparison
 # ---------------------------------------------------------------------------
@@ -640,6 +655,40 @@ def run_grounding_check(
         for s in history_series
         if isinstance(s, dict) and isinstance(s.get("entity_id"), str)
     }
+
+    # ---- Degenerate-answer tripwire ---------------------------------------
+    # A non-finite value stringified into the answer ("nan"/"inf") must never be
+    # served — even when no claim is emitted (a plain aggregate carries an
+    # answer_text but no verdict claim, so step 3 never runs). Route it through
+    # the repair loop; on exhaustion the repair_contradicted outcome withholds
+    # the answer (chart still served, answer suppressed) rather than showing
+    # "nan °F".
+    if isinstance(answer_text, str) and (
+        _DEGENERATE_ANSWER_RE.search(answer_text)
+        or _UNFILLED_PLACEHOLDER_RE.search(answer_text)
+    ):
+        return {
+            "outcome": "repair_contradicted",
+            "answer_verification": "unverified",
+            "withheld": True,
+            "synthetic_error": {
+                "code": "grounding_nonfinite_answer",
+                "message": (
+                    "answer_text contains a non-finite value (nan/inf) or an unfilled "
+                    "template placeholder: the computed quantity is undefined or was "
+                    "never formatted in. Fix the computation — align each series "
+                    "(resample to a shared grid, interpolate) BEFORE combining, and "
+                    "guard empty/all-NaN results — then re-emit a finite answer with the "
+                    "value formatted in; if the data genuinely cannot support an answer, "
+                    "omit answer_text entirely."
+                ),
+                "details": {"answer_text": answer_text[:120]},
+            },
+            "diagnostics": {
+                "degenerate_answer": True,
+                "guarantee": TWO_TIER_GUARANTEE,
+            },
+        }
 
     # ---- Sentence tripwire ------------------------------------------------
     # answer_text begins with yes/no but no claim carries a verdict.

@@ -481,6 +481,59 @@ class TestScenarioH:
 
 
 # ---------------------------------------------------------------------------
+# Scenario I2 — Degenerate answer tripwire (nan/inf never served)
+# ---------------------------------------------------------------------------
+
+class TestDegenerateAnswerTripwire:
+    """A non-finite value stringified into answer_text ("nan"/"inf") must be
+    routed through the repair loop and withheld on exhaustion — even with NO
+    claim (a plain aggregate emits an answer_text but no verdict claim, so the
+    per-claim degeneracy check never runs). Live-observed 0.2.32: an empty
+    cross-sensor average served "…the average … was nan °F".
+    """
+
+    def test_nan_answer_no_claim_is_contradicted_and_withheld(self):
+        result = run_grounding_check(
+            {"answer_text": "The average temperature across the kitchen and basement was nan °F."},
+            [_series("sensor.temp", [1.0, 2.0])],
+        )
+        assert result["outcome"] == "repair_contradicted"
+        assert result["withheld"] is True
+        assert result["answer_verification"] == "unverified"
+        assert result["synthetic_error"]["code"] == "grounding_nonfinite_answer"
+
+    def test_inf_answer_is_contradicted(self):
+        result = run_grounding_check({"answer_text": "The rate was inf per hour."}, [])
+        assert result["outcome"] == "repair_contradicted"
+        assert result["synthetic_error"]["code"] == "grounding_nonfinite_answer"
+
+    def test_unfilled_template_placeholder_is_contradicted(self):
+        # An f-string that never evaluated ("{mean_avg:.2f}") leaked into the sentence.
+        result = run_grounding_check(
+            {"answer_text": "The average was {mean_avg:.2f} °F."}, []
+        )
+        assert result["outcome"] == "repair_contradicted"
+        assert result["synthetic_error"]["code"] == "grounding_nonfinite_answer"
+
+    def test_zero_result_is_not_degenerate(self):
+        # A genuine zero (delta of 0.00) is a VALID answer, not degenerate.
+        result = run_grounding_check(
+            {"answer_text": "The difference between the two sensors was 0.00 °F."}, []
+        )
+        assert result["outcome"] == "pass"
+        assert result["withheld"] is False
+
+    def test_finite_answer_with_lookalike_word_still_passes(self):
+        # "info"/"important" must not trip the whole-word nan/inf matcher.
+        result = run_grounding_check(
+            {"answer_text": "The info panel shows an important average of 74.44 °F."},
+            [],
+        )
+        assert result["outcome"] == "pass"
+        assert result["withheld"] is False
+
+
+# ---------------------------------------------------------------------------
 # Scenario J — TWO_TIER_GUARANTEE text verbatim in diagnostics
 # ---------------------------------------------------------------------------
 

@@ -309,13 +309,21 @@ chart) is a later tranche behind its own decision and is out of scope here.
 Execution success is not quality. Two complementary checks:
 
 **(a) Deterministic answer-grounding check** (cheap, 100% reliable; gates the
-FIRST display). Before the chart+answer is shown, the integration parses the
-`answer_text` for degenerate markers (`nan` / `inf` / `0.00` / unfilled
-placeholder braces) and verifies the stated number **and** qualitative verdict
-against a reference computation over the same normalized data. A broken *number*
-is caught before anything is shown; on failure the codegen repair loop is invoked
-(reusing the ADR-0030 machinery, the grounding failure as the feedback signal),
-bounded by `max_codegen_repair_attempts`, then fail-soft.
+FIRST display). Before the chart+answer is shown, the integration scans the
+`answer_text` for degenerate markers — a stringified non-finite float (`nan` /
+`inf` / `-inf` / `infinity`, whole-word) or an unfilled template placeholder
+(`{…}`, an f-string that never evaluated) — **and independently of any claim**,
+so a plain aggregate that emits an `answer_text` but no verdict claim (which
+otherwise reaches the "no claims → pass" branch) is still guarded. It then
+verifies the stated number **and** qualitative verdict against a reference
+computation over the same normalized data. A degenerate answer routes through the
+codegen repair loop (reusing the ADR-0030 machinery, the grounding failure as the
+feedback signal), bounded by `max_codegen_repair_attempts`, and is **withheld**
+on exhaustion (the chart still serves; the answer is suppressed rather than
+showing "nan °F"). NOTE: `0.00` is deliberately NOT a degenerate marker — a
+genuinely zero result (a delta of 0.00 °F) is a valid answer. Implemented
+`grounding_nonfinite_answer` tripwire in `run_grounding_check` (0.2.33, after a
+live-observed "…the average … was nan °F" served past the no-claims path).
 
 **(b) Capability-gated visual validator** (catches broken *pictures* — flat/empty
 panels, single-point scatters, mislabeled axes — that no text check sees). Runs
