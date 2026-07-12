@@ -510,34 +510,29 @@ class CodegenModelProviderTests(unittest.TestCase):
         # … with the compute-the-derived-series exception keyed on user_request.
         self.assertIn("EXCEPTION: when user_request asks for a computed analysis", rules)
 
-    def test_analysis_exception_prescribes_irregular_alignment(self):
-        # Live e2e-11/12/13 (0.2.23): cross-series math on irregular per-entity
-        # sampling produced a union-index mean spiking above both inputs, an
-        # empty delta, and a correlation with no common timestamps. The
-        # benchmark's alignment lesson must be IN the production rules
-        # (eval-gated: evals/alignment_rule_gate.py).
+    def test_analysis_exception_prescribes_helper_alignment(self):
+        # ADR-0036 (0.2.34): cross-series plumbing goes through the in-sandbox
+        # helper — the third rung of the idiom-over-prose ladder (prose →
+        # literal idiom → callable). The 0.2.24 resample idiom and the 0.2.31
+        # entity-id-keyed concat idiom are RETIRED from the rules (both
+        # transcription-variance sources: the KeyError class, the nan class,
+        # e2e-18's cascade); the helper implements them. Gated:
+        # evals/analysis_helper_gate.py (deviation 6/6 vs 4/6 with 2 repair
+        # exhaustions; repairs converge in one round; adoption 24/24).
         body = self._capture_generate_body("Are the two sensors correlated?")
         rules = " ".join(body["rules"])
         self.assertIn("sampled IRREGULARLY", rules)
-        # The literal per-entity idiom (order baked in: resample each BEFORE
-        # combining) — the floor model scrambled a prose-only ordering into
-        # dropna-on-the-raw-union, which empties disjoint indexes.
-        self.assertIn(".resample('5min').mean().interpolate()", rules)
-        self.assertIn("NEVER join or intersect raw series on exact timestamps", rules)
-        self.assertIn("NEVER call .dropna() on a DataFrame built from two un-resampled series", rules)
-
-    def test_analysis_exception_prescribes_entity_id_keyed_frame(self):
-        # Open-queue (B) real fix (0.2.31): the cross-math variance basin's live
-        # runtime_error was an intermittent KeyError — the floor model built a
-        # bare-list `pandas.concat([s1, s2], axis=1)` (positional columns 0,1)
-        # then indexed it by entity_id (`combined['sensor.…']`) → KeyError,
-        # reproduced live 2026-07-08. The alignment rule now prescribes keying
-        # the combined frame by entity_id so column access is safe.
-        body = self._capture_generate_body("What is the average of the two temperatures?")
-        rules = " ".join(body["rules"])
-        self.assertIn("KEYED BY ENTITY_ID", rules)
-        self.assertIn("pandas.concat({s['entity_id']: aligned_for_s for each series s}, axis=1)", rules)
-        self.assertIn("raises KeyError", rules)
+        self.assertIn("isolinear_analysis.align(data['history_series'])", rules)
+        self.assertIn("columns ARE the entity_id strings", rules)
+        # The prescribed one-liners for each cross-math family member.
+        self.assertIn("frame.mean(axis=1)", rules)
+        self.assertIn("frame.corr().iloc[0, 1]", rules)
+        self.assertIn("frame.sub(frame.mean(axis=1), axis=0)", rules)
+        self.assertIn("NEVER align, resample, join, or intersect raw series yourself", rules)
+        # The retired idiom text must be GONE (rule-length discipline; the
+        # helper is now the only prescribed path).
+        self.assertNotIn(".resample('5min').mean().interpolate()", rules)
+        self.assertNotIn("KEYED BY ENTITY_ID", rules)
 
     def test_answer_rule_keys_on_user_request(self):
         body = self._capture_generate_body("How much warmer is the kitchen?")

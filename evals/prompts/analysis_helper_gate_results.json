@@ -1,0 +1,1088 @@
+{
+ "meta": {
+  "model": "gemma4:e4b",
+  "ollama": "http://10.0.1.39:11434",
+  "runs": 6,
+  "max_repairs": 2,
+  "started": "2026-07-12T01:46:19Z"
+ },
+ "runs": {
+  "without_helper::mean::run1": {
+   "arm": "without_helper",
+   "member": "mean",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 31.7,
+     "loc": 90,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "derived_line=True answer='The average temperature across the kitchen and basement is 72.99\u00b0F.'"
+  },
+  "without_helper::mean::run2": {
+   "arm": "without_helper",
+   "member": "mean",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 26.8,
+     "loc": 101,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "derived_line=True answer='The average temperature across the kitchen and basement during the recorded period was 72.99\u00b0F.'"
+  },
+  "without_helper::mean::run3": {
+   "arm": "without_helper",
+   "member": "mean",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 26.9,
+     "loc": 103,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "derived_line=True answer='The average temperature across the kitchen and basement during the recorded period was 72.99\u00b0F.'"
+  },
+  "without_helper::mean::run4": {
+   "arm": "without_helper",
+   "member": "mean",
+   "run": 4,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 26.7,
+     "loc": 102,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "derived_line=True answer='The average temperature across the kitchen and basement during the recorded period was 72.99\u00b0F.'"
+  },
+  "without_helper::mean::run5": {
+   "arm": "without_helper",
+   "member": "mean",
+   "run": 5,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 26.7,
+     "loc": 102,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "derived_line=True answer='The average temperature across the kitchen and basement during the recorded period was 72.99\u00b0F.'"
+  },
+  "without_helper::mean::run6": {
+   "arm": "without_helper",
+   "member": "mean",
+   "run": 6,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 26.7,
+     "loc": 102,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "derived_line=True answer='The average temperature across the kitchen and basement during the recorded period was 72.99\u00b0F.'"
+  },
+  "without_helper::delta::run1": {
+   "arm": "without_helper",
+   "member": "delta",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 30.3,
+     "loc": 123,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "delta_line=True answer='The average temperature difference between the kitchen and the basement is 2.02\u00b0F.'"
+  },
+  "without_helper::delta::run2": {
+   "arm": "without_helper",
+   "member": "delta",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 28.5,
+     "loc": 115,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "delta_line=True answer='On average, the kitchen is 2.02 \u00b0F warmer than the basement.'"
+  },
+  "without_helper::delta::run3": {
+   "arm": "without_helper",
+   "member": "delta",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 28.5,
+     "loc": 115,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "delta_line=True answer='On average, the kitchen is 2.02 \u00b0F warmer than the basement.'"
+  },
+  "without_helper::delta::run4": {
+   "arm": "without_helper",
+   "member": "delta",
+   "run": 4,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 28.9,
+     "loc": 115,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "delta_line=True answer='On average, the kitchen is 2.02 \u00b0F warmer than the basement.'"
+  },
+  "without_helper::delta::run5": {
+   "arm": "without_helper",
+   "member": "delta",
+   "run": 5,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 29.8,
+     "loc": 115,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "delta_line=True answer='On average, the kitchen is 2.02 \u00b0F warmer than the basement.'"
+  },
+  "without_helper::delta::run6": {
+   "arm": "without_helper",
+   "member": "delta",
+   "run": 6,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 31.0,
+     "loc": 115,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "delta_line=True answer='On average, the kitchen is 2.02 \u00b0F warmer than the basement.'"
+  },
+  "without_helper::deviation::run1": {
+   "arm": "without_helper",
+   "member": "deviation",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 43.7,
+     "loc": 157,
+     "ok": false,
+     "error": "SyntaxError: closing parenthesis ']' does not match opening parenthesis '{' (<string>, line 143)"
+    },
+    {
+     "n": 1,
+     "gen_s": 46.7,
+     "loc": 87,
+     "ok": false,
+     "error": "UnboundLocalError: cannot access local variable 'processed_data' where it is not associated with a value"
+    },
+    {
+     "n": 2,
+     "gen_s": 43.0,
+     "loc": 151,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": false,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "deviation_lines=2 answer='The Kitchen Ecobee Temperature temperature deviates more significantly from its average than the Basement Temperature temperature.'"
+  },
+  "without_helper::deviation::run2": {
+   "arm": "without_helper",
+   "member": "deviation",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 45.6,
+     "loc": 157,
+     "ok": false,
+     "error": "SyntaxError: closing parenthesis ']' does not match opening parenthesis '{' (<string>, line 143)"
+    },
+    {
+     "n": 1,
+     "gen_s": 44.3,
+     "loc": 157,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": false,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "deviation_lines=2 answer='The average absolute deviation for the monitored temperatures is approximately 0.96 \u00b0F. The kitchen temperature deviates by an average of 1.29 \u00b0F, while the basement deviates by 0.63 \u00b0F.'"
+  },
+  "without_helper::deviation::run3": {
+   "arm": "without_helper",
+   "member": "deviation",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 47.4,
+     "loc": 157,
+     "ok": false,
+     "error": "SyntaxError: closing parenthesis ']' does not match opening parenthesis '{' (<string>, line 143)"
+    },
+    {
+     "n": 1,
+     "gen_s": 49.7,
+     "loc": 177,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": false,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "deviation_lines=2 answer=None"
+  },
+  "without_helper::deviation::run4": {
+   "arm": "without_helper",
+   "member": "deviation",
+   "run": 4,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 48.0,
+     "loc": 157,
+     "ok": false,
+     "error": "SyntaxError: closing parenthesis ']' does not match opening parenthesis '{' (<string>, line 143)"
+    },
+    {
+     "n": 1,
+     "gen_s": 49.7,
+     "loc": 152,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": false,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "deviation_lines=2 answer=None"
+  },
+  "without_helper::deviation::run5": {
+   "arm": "without_helper",
+   "member": "deviation",
+   "run": 5,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 51.1,
+     "loc": 157,
+     "ok": false,
+     "error": "SyntaxError: closing parenthesis ']' does not match opening parenthesis '{' (<string>, line 143)"
+    },
+    {
+     "n": 1,
+     "gen_s": 58.0,
+     "loc": 216,
+     "ok": false,
+     "error": "NameError: name 'kitchen_error' is not defined"
+    },
+    {
+     "n": 2,
+     "gen_s": 49.8,
+     "loc": 143,
+     "ok": false,
+     "error": "KeyError: 'value'"
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": false,
+   "executed": false,
+   "fired": false,
+   "helper_used": false,
+   "why": "exhausted: KeyError: 'value'"
+  },
+  "without_helper::deviation::run6": {
+   "arm": "without_helper",
+   "member": "deviation",
+   "run": 6,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 52.0,
+     "loc": 157,
+     "ok": false,
+     "error": "SyntaxError: closing parenthesis ']' does not match opening parenthesis '{' (<string>, line 143)"
+    },
+    {
+     "n": 1,
+     "gen_s": 64.5,
+     "loc": 167,
+     "ok": false,
+     "error": "NameError: name 'avg_dev_kitchen' is not defined"
+    },
+    {
+     "n": 2,
+     "gen_s": 62.1,
+     "loc": 119,
+     "ok": false,
+     "error": "KeyError: 'history'"
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": false,
+   "executed": false,
+   "fired": false,
+   "helper_used": false,
+   "why": "exhausted: KeyError: 'history'"
+  },
+  "without_helper::correlation::run1": {
+   "arm": "without_helper",
+   "member": "correlation",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 41.1,
+     "loc": 129,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "coefficient=0.63 answer='The correlation coefficient between kitchen and basement temperatures is 0.63.'"
+  },
+  "without_helper::correlation::run2": {
+   "arm": "without_helper",
+   "member": "correlation",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 41.0,
+     "loc": 114,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "coefficient=0.63 answer='The correlation coefficient between kitchen and basement temperatures is 0.63, suggesting that the temperatures are Yes correlated.'"
+  },
+  "without_helper::correlation::run3": {
+   "arm": "without_helper",
+   "member": "correlation",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 41.9,
+     "loc": 116,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "coefficient=0.63 answer='The correlation coefficient between kitchen and basement temperatures is 0.63, suggesting that the temperatures are Yes correlated.'"
+  },
+  "without_helper::correlation::run4": {
+   "arm": "without_helper",
+   "member": "correlation",
+   "run": 4,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 42.9,
+     "loc": 113,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "coefficient=0.63 answer='The correlation coefficient between kitchen and basement temperatures is 0.63, suggesting that the temperatures are Yes correlated.'"
+  },
+  "without_helper::correlation::run5": {
+   "arm": "without_helper",
+   "member": "correlation",
+   "run": 5,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 42.6,
+     "loc": 113,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "coefficient=0.63 answer='The correlation coefficient between kitchen and basement temperatures is 0.63, suggesting that the temperatures are Yes correlated.'"
+  },
+  "without_helper::correlation::run6": {
+   "arm": "without_helper",
+   "member": "correlation",
+   "run": 6,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 42.9,
+     "loc": 113,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": false,
+   "why": "coefficient=0.63 answer='The correlation coefficient between kitchen and basement temperatures is 0.63, suggesting that the temperatures are Yes correlated.'"
+  },
+  "with_helper::mean::run1": {
+   "arm": "with_helper",
+   "member": "mean",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 29.8,
+     "loc": 75,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "derived_line=True answer='The average temperature across the kitchen and basement was 72.99 \u00b0F.'"
+  },
+  "with_helper::mean::run2": {
+   "arm": "with_helper",
+   "member": "mean",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 29.1,
+     "loc": 79,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "derived_line=True answer='The average temperature across the kitchen and basement is 72.99\u00b0F.'"
+  },
+  "with_helper::mean::run3": {
+   "arm": "with_helper",
+   "member": "mean",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 29.4,
+     "loc": 81,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "derived_line=True answer='The average temperature across the kitchen and basement is 72.99\u00b0F.'"
+  },
+  "with_helper::mean::run4": {
+   "arm": "with_helper",
+   "member": "mean",
+   "run": 4,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 29.7,
+     "loc": 79,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "derived_line=True answer='The average temperature across the kitchen and basement is 72.99\u00b0F.'"
+  },
+  "with_helper::mean::run5": {
+   "arm": "with_helper",
+   "member": "mean",
+   "run": 5,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 29.8,
+     "loc": 79,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "derived_line=True answer='The average temperature across the kitchen and basement is 72.99\u00b0F.'"
+  },
+  "with_helper::mean::run6": {
+   "arm": "with_helper",
+   "member": "mean",
+   "run": 6,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 29.6,
+     "loc": 79,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "derived_line=True answer='The average temperature across the kitchen and basement is 72.99\u00b0F.'"
+  },
+  "with_helper::delta::run1": {
+   "arm": "with_helper",
+   "member": "delta",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 36.2,
+     "loc": 94,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "delta_line=True answer='The average difference between the kitchen and basement temperature is 2.02 \u00b0F.'"
+  },
+  "with_helper::delta::run2": {
+   "arm": "with_helper",
+   "member": "delta",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 30.2,
+     "loc": 85,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "delta_line=True answer='On average, the kitchen is 2.02 degrees warmer than the basement.'"
+  },
+  "with_helper::delta::run3": {
+   "arm": "with_helper",
+   "member": "delta",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 29.4,
+     "loc": 85,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "delta_line=True answer='On average, the kitchen is 2.02 degrees warmer than the basement.'"
+  },
+  "with_helper::delta::run4": {
+   "arm": "with_helper",
+   "member": "delta",
+   "run": 4,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 28.5,
+     "loc": 85,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "delta_line=True answer='On average, the kitchen is 2.02 degrees warmer than the basement.'"
+  },
+  "with_helper::delta::run5": {
+   "arm": "with_helper",
+   "member": "delta",
+   "run": 5,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 28.9,
+     "loc": 85,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "delta_line=True answer='On average, the kitchen is 2.02 degrees warmer than the basement.'"
+  },
+  "with_helper::delta::run6": {
+   "arm": "with_helper",
+   "member": "delta",
+   "run": 6,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 30.5,
+     "loc": 85,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "delta_line=True answer='On average, the kitchen is 2.02 degrees warmer than the basement.'"
+  },
+  "with_helper::deviation::run1": {
+   "arm": "with_helper",
+   "member": "deviation",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 36.8,
+     "loc": 123,
+     "ok": false,
+     "error": "SyntaxError: closing parenthesis ']' does not match opening parenthesis '{' (<string>, line 113)"
+    },
+    {
+     "n": 1,
+     "gen_s": 43.8,
+     "loc": 123,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": false,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "deviation_lines=2 answer='The kitchen temperature typically deviates from its average by approximately 1.01 \u00b0F, while the basement temperature typically deviates by approximately 1.01 \u00b0F.'"
+  },
+  "with_helper::deviation::run2": {
+   "arm": "with_helper",
+   "member": "deviation",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 35.6,
+     "loc": 123,
+     "ok": false,
+     "error": "SyntaxError: closing parenthesis ']' does not match opening parenthesis '{' (<string>, line 113)"
+    },
+    {
+     "n": 1,
+     "gen_s": 52.1,
+     "loc": 123,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": false,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "deviation_lines=2 answer='The kitchen temperature typically deviates from its average by approximately 1.01 \u00b0F, while the basement temperature typically deviates by approximately 1.01 \u00b0F.'"
+  },
+  "with_helper::deviation::run3": {
+   "arm": "with_helper",
+   "member": "deviation",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 33.2,
+     "loc": 123,
+     "ok": false,
+     "error": "SyntaxError: closing parenthesis ']' does not match opening parenthesis '{' (<string>, line 113)"
+    },
+    {
+     "n": 1,
+     "gen_s": 47.0,
+     "loc": 123,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": false,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "deviation_lines=2 answer='The kitchen temperature typically deviates from its average by approximately 1.01 \u00b0F, while the basement temperature typically deviates by approximately 1.01 \u00b0F.'"
+  },
+  "with_helper::deviation::run4": {
+   "arm": "with_helper",
+   "member": "deviation",
+   "run": 4,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 35.0,
+     "loc": 123,
+     "ok": false,
+     "error": "SyntaxError: closing parenthesis ']' does not match opening parenthesis '{' (<string>, line 113)"
+    },
+    {
+     "n": 1,
+     "gen_s": 47.8,
+     "loc": 123,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": false,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "deviation_lines=2 answer='The kitchen temperature typically deviates from its average by approximately 1.01 \u00b0F, while the basement temperature typically deviates by approximately 1.01 \u00b0F.'"
+  },
+  "with_helper::deviation::run5": {
+   "arm": "with_helper",
+   "member": "deviation",
+   "run": 5,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 35.8,
+     "loc": 123,
+     "ok": false,
+     "error": "SyntaxError: closing parenthesis ']' does not match opening parenthesis '{' (<string>, line 113)"
+    },
+    {
+     "n": 1,
+     "gen_s": 49.9,
+     "loc": 124,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": false,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "deviation_lines=2 answer='The kitchen temperature typically deviates from its average by approximately 1.01 \u00b0F, while the basement temperature typically deviates by approximately 1.01 \u00b0F.'"
+  },
+  "with_helper::deviation::run6": {
+   "arm": "with_helper",
+   "member": "deviation",
+   "run": 6,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 33.8,
+     "loc": 123,
+     "ok": false,
+     "error": "SyntaxError: closing parenthesis ']' does not match opening parenthesis '{' (<string>, line 113)"
+    },
+    {
+     "n": 1,
+     "gen_s": 45.2,
+     "loc": 123,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": false,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "deviation_lines=2 answer='The kitchen temperature typically deviates from its average by approximately 1.01 \u00b0F, while the basement temperature typically deviates by approximately 1.01 \u00b0F.'"
+  },
+  "with_helper::correlation::run1": {
+   "arm": "with_helper",
+   "member": "correlation",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 43.8,
+     "loc": 120,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "coefficient=0.63 answer='The correlation coefficient between kitchen and basement temperatures is 0.63, suggesting Yes correlation.'"
+  },
+  "with_helper::correlation::run2": {
+   "arm": "with_helper",
+   "member": "correlation",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 33.6,
+     "loc": 90,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "coefficient=0.63 answer='The correlation coefficient between kitchen and basement temperatures is 0.63, suggesting Yes correlation.'"
+  },
+  "with_helper::correlation::run3": {
+   "arm": "with_helper",
+   "member": "correlation",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 33.6,
+     "loc": 90,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "coefficient=0.63 answer='The correlation coefficient between kitchen and basement temperatures is 0.63, suggesting Yes correlation.'"
+  },
+  "with_helper::correlation::run4": {
+   "arm": "with_helper",
+   "member": "correlation",
+   "run": 4,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 33.2,
+     "loc": 90,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "coefficient=0.63 answer='The correlation coefficient between kitchen and basement temperatures is 0.63, suggesting Yes correlation.'"
+  },
+  "with_helper::correlation::run5": {
+   "arm": "with_helper",
+   "member": "correlation",
+   "run": 5,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 33.9,
+     "loc": 90,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "coefficient=0.63 answer='The correlation coefficient between kitchen and basement temperatures is 0.63, suggesting Yes correlation.'"
+  },
+  "with_helper::correlation::run6": {
+   "arm": "with_helper",
+   "member": "correlation",
+   "run": 6,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 32.9,
+     "loc": 90,
+     "ok": true
+    }
+   ],
+   "done": true,
+   "first_attempt_ok": true,
+   "executed": true,
+   "fired": true,
+   "helper_used": true,
+   "why": "coefficient=0.63 answer='The correlation coefficient between kitchen and basement temperatures is 0.63, suggesting Yes correlation.'"
+  }
+ },
+ "tally": {
+  "without_helper::mean": {
+   "runs": 6,
+   "first": 6,
+   "executed": 6,
+   "fired": 6,
+   "helper": 0
+  },
+  "without_helper::delta": {
+   "runs": 6,
+   "first": 6,
+   "executed": 6,
+   "fired": 6,
+   "helper": 0
+  },
+  "without_helper::deviation": {
+   "runs": 6,
+   "first": 0,
+   "executed": 4,
+   "fired": 4,
+   "helper": 0
+  },
+  "without_helper::correlation": {
+   "runs": 6,
+   "first": 6,
+   "executed": 6,
+   "fired": 6,
+   "helper": 0
+  },
+  "with_helper::mean": {
+   "runs": 6,
+   "first": 6,
+   "executed": 6,
+   "fired": 6,
+   "helper": 6
+  },
+  "with_helper::delta": {
+   "runs": 6,
+   "first": 6,
+   "executed": 6,
+   "fired": 6,
+   "helper": 6
+  },
+  "with_helper::deviation": {
+   "runs": 6,
+   "first": 0,
+   "executed": 6,
+   "fired": 6,
+   "helper": 6
+  },
+  "with_helper::correlation": {
+   "runs": 6,
+   "first": 6,
+   "executed": 6,
+   "fired": 6,
+   "helper": 6
+  }
+ }
+}

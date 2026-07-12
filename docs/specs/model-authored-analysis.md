@@ -123,42 +123,42 @@ request-conditional:
   contract (compute-and-f-string, claims ledger, verdicts derived) is unchanged;
   the deterministic answer-grounding check (§5a) now actually gates live answers
   because the answers now fire.
-- **Prescribed irregular-series alignment (0.2.24 follow-up).** The exception
-  clause also prescribes HOW to combine series: each entity's points are sampled
-  irregularly at different times, so cross-series math (average, difference,
-  correlation, deviation) must first align on a common time grid (per-entity
-  pandas Series indexed from `ts_epoch_ms`, resample to a common interval,
-  interpolate, dropna) — never join/intersect on exact timestamps and never
-  combine un-aligned indexes. This is the 4th-session benchmark's data-loading
-  lesson that had only ever lived in the benchmark's own system prompt; the
-  live 0.2.23 e2e run showed its absence as a union-index mean spiking above
-  both inputs (e2e-11), an empty delta (e2e-12), and an "insufficient common
-  timestamps" correlation (e2e-13, the 8th-session `pearson_r`
-  exact-intersection gap live). Eval-gated with `evals/alignment_rule_gate.py`
-  (production codegen path, genuinely irregular per-entity sampling,
-  with/without the sentence, execution-truth judges tuned to the union
-  artifact).
-  - **Entity-id-keyed combined frame (open-queue (B) real fix, 0.2.31).** The
-    alignment clause also prescribes how to KEY the combined frame, because the
-    step after "resample each series" — building and indexing the combined
-    frame — was the actual driver of the cross-math **variance basin**. The
-    24th session reproduced the live intermittent `runtime_error` (worker logs
-    record only `error=runtime_error`, no traceback) via the production codegen
-    path: `KeyError: 'sensor.kitchen_ecobee_temperature'`. The floor model built
-    a bare-list `pandas.concat([s1, s2], axis=1)` (columns are a POSITIONAL
-    RangeIndex `0,1`) then intermittently indexed it by entity_id
-    (`combined['sensor.…']`). At temperature 0 Ollama still varies run-to-run
-    whether it names the columns / uses positional access, so the failure
-    rotates across members of the family (20th + 23rd sessions). The rule now
-    prescribes `combined = pandas.concat({s['entity_id']: aligned_s ...},
-    axis=1).dropna()` so columns ARE the entity_ids (safe `combined[entity_id]`,
-    `.iloc[:, i]`, and `.mean(axis=1)`), and warns that a bare-list concat gives
-    positional columns. Mechanism proven deterministically (bad pattern →
-    `KeyError`; keyed pattern → all accessors work); directional live gate
-    `evals/crossmath_frame_keying_gate.py` (production generation path, real
-    cross-sensor-mean prompt, with/without the sentence, counts entity-id
-    KeyErrors). This — not the repair-intent-retention hint below, which showed
-    no eval separation — is the variance basin's real fix.
+- **Cross-series alignment via the in-sandbox helper (ADR-0036, 0.2.34 —
+  supersedes the 0.2.24 literal idiom and the 0.2.31 frame-keying idiom in the
+  RULES; both idioms now live INSIDE `isolinear_analysis.align`).** The
+  exception clause prescribes: for ANY math across two or more series, call
+  `frame = isolinear_analysis.align(data['history_series'])` — a curated,
+  integration-authored helper installed in the worker image's system
+  site-packages and allowlisted for generated-code import. It aligns every
+  numeric series onto one shared interpolated grid and returns a DataFrame
+  whose **columns ARE the entity_id strings**, raising a specific,
+  repair-actionable `ValueError` on degenerate inputs (no numerics, no finite
+  points, no overlap) instead of ever yielding an empty/all-NaN frame. The
+  rule then gives the per-member one-liners (`frame.mean(axis=1)`, column
+  difference, `frame.corr().iloc[0,1]`, `frame.sub(frame.mean(axis=1),
+  axis=0)`) and forbids hand-rolled alignment outright.
+  - **History.** This is the third rung of the idiom-over-prose ladder: prose
+    (failed live: union-index mean spike e2e-11, empty delta e2e-12, no-common-
+    timestamps correlation e2e-13) → literal idiom in the rules (0.2.24
+    resample idiom gated 9/9 vs 2/6 by `evals/alignment_rule_gate.py`; 0.2.31
+    entity-id-keyed concat gated 0/40 vs 2/40 KeyErrors by
+    `evals/crossmath_frame_keying_gate.py`) → callable (ADR-0036). The idiom
+    rungs eliminated their target classes but left transcription variance:
+    the 0.2.32 "nan °F" empty frame and e2e-18's repair-exhaustion cascade.
+  - **Gate (`evals/analysis_helper_gate.py`,** production codegen path, 4
+    cross-math members × 6 runs × 2 arms, disjoint irregular fixtures with
+    known analytics, execution-truth judges): mean/delta/correlation 6/6
+    first-attempt + fired in BOTH arms (no regression); **deviation — the live
+    e2e-18 residual FAIL — 6/6 fired with the helper vs 4/6 with 2
+    repair-exhaustions on the idiom arm** (the live Pillow-fallback failure
+    reproduced offline); with the helper, repairs converge in ONE round
+    instead of cascading through hand-rolled plumbing errors; helper adoption
+    24/24; the rule text shrinks ~415 chars. Both arms share an unrelated
+    deterministic first-attempt SyntaxError on the deviation prompt (a
+    mis-bracketed literal, likely a series-valued claims attempt) — a separate
+    emission quirk logged for follow-up.
+  - The retired idiom text is preserved in the gate's `LEGACY_IDIOM` constant
+    so the baseline stays re-runnable.
 - **Chart-family degrade (open-queue (w), 0.2.26).** The integration owns the
   chart FAMILY — line, histogram, bar (invariant #9: the model never chooses
   `chart_type`); `user_request` owns only the COMPUTATION within it. A heatmap

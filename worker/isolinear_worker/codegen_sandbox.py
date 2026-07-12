@@ -315,6 +315,11 @@ def default_codegen_sandbox_policy() -> dict[str, Any]:
             "collections",
             "datetime",
             "functools",
+            # ADR-0036 (draft): the curated, integration-authored in-sandbox
+            # analysis helper library (worker/isolinear_analysis, installed into
+            # system site-packages by the Dockerfile). Trusted code in the same
+            # class as the sandbox runner; pure computation, no I/O.
+            "isolinear_analysis",
             "itertools",
             "json",
             "math",

@@ -169,6 +169,17 @@ _CODEGEN_PROMPT_RULES = [
     # that makes the model-authored analysis layer actually fire (measured live:
     # baseline 0/12 vs this arm 12/12 on the production codegen path). When
     # user_request is empty the exception is trivially inert → raw-line default.
+    # ADR-0036 (0.2.34): cross-series plumbing goes through the in-sandbox helper
+    # isolinear_analysis.align() instead of a transcribed resample/keying idiom —
+    # the third rung of the idiom-over-prose ladder (prose → literal idiom →
+    # callable). Every recent live cross-math failure (0.2.31 entity-id KeyError,
+    # the 0.2.32 "nan °F" empty frame, e2e-18 repair exhaustion) died in the
+    # transcription of exactly this step. Gated (evals/analysis_helper_gate.py,
+    # 4 members × 6 runs × 2 arms): deviation eventual-success 6/6 vs 4/6 with
+    # 2 repair-exhaustions (the live e2e-18 failure reproduced), repairs converge
+    # in one round instead of cascading through hand-rolled plumbing errors,
+    # helper adoption 24/24, no regression on mean/delta/correlation, and the
+    # rule text is ~415 chars shorter.
     "By default plot each series in data['history_series'] whose 'kind' is 'numeric' "
     "as a line, iterating that list directly and using each series' own 'label' and "
     "'unit'. EXCEPTION: when user_request asks for a computed analysis — an average "
@@ -177,23 +188,18 @@ _CODEGEN_PROMPT_RULES = [
     "derived series from the numeric history_series points with pandas/numpy/scipy and "
     "plot the DERIVED result, labelled for what it is; plot the raw inputs only if they "
     "help answer the request. Each entity's points are sampled IRREGULARLY at "
-    "different times (two entities share NO timestamps), so before ANY math across "
-    "two series (average, difference, correlation, deviation) align each one FIRST "
-    "with exactly this per-entity idiom: aligned = pandas.Series([p['value'] for p in "
-    "pts], index=pandas.to_datetime([p['ts_epoch_ms'] for p in pts], "
-    "unit='ms')).resample('5min').mean().interpolate() — resample EACH series "
-    "separately BEFORE combining them; only then combine the aligned results (they "
-    "now share a grid) and .dropna(). Build that combined frame KEYED BY ENTITY_ID: "
-    "combined = pandas.concat({s['entity_id']: aligned_for_s for each series s}, "
-    "axis=1).dropna() — so its columns ARE the entity_id strings. Then reference a "
-    "column by that exact entity_id (combined[s['entity_id']]) or by position "
-    "(combined.iloc[:, i]), and compute a cross-sensor average as combined.mean(axis=1). "
-    "NEVER index a bare-list concat by an entity_id: pandas.concat([s1, s2], axis=1) "
-    "gives POSITIONAL columns 0,1,…, so combined['sensor.…'] raises KeyError (a live "
-    "cross-math failure). NEVER join or intersect raw series on exact "
-    "timestamps, and NEVER call .dropna() on a DataFrame built from two "
-    "un-resampled series (their indexes are disjoint, so it deletes every row and "
-    "everything downstream becomes NaN). Never plot a series whose 'kind' is 'binary_state' or "
+    "different times (two entities share NO timestamps), so for ANY math across two "
+    "or more series (average, difference, correlation, deviation) FIRST call: import "
+    "isolinear_analysis; frame = isolinear_analysis.align(data['history_series']) "
+    "— it aligns every numeric series onto one shared time grid and returns a "
+    "pandas DataFrame whose columns ARE the entity_id strings. Then compute with "
+    "one-liners: frame.mean(axis=1) is the cross-sensor average series; "
+    "frame['<entity_id_a>'] - frame['<entity_id_b>'] is the difference series; "
+    "frame.corr().iloc[0, 1] is the correlation coefficient; "
+    "frame.sub(frame.mean(axis=1), axis=0) is the per-sensor deviation from the "
+    "mean. Plot with frame.index as the x-axis. NEVER align, resample, join, or "
+    "intersect raw series yourself — isolinear_analysis.align is the only "
+    "correct way to combine series. Never plot a series whose 'kind' is 'binary_state' or "
     "'categorical_state' as a line (its value is a state string like 'cool', not a "
     "number) — those are state overlays, already provided to you as shaded bands (see "
     "the derived_intervals rule). The chart_spec is intent/metadata only (title, "

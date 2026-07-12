@@ -50,6 +50,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # custom_components/ or src/ by the packet-1/2 import-graph checks).
 COPY isolinear_worker ./isolinear_worker
 
+# --- In-sandbox analysis helper library (ADR-0036, draft) --------------------
+# The curated helper module GENERATED code imports (`import isolinear_analysis`)
+# must be visible to the `-I` sandbox subprocess, which sees ONLY system
+# site-packages (same reason matplotlib is installed there). Copied directly
+# into site-packages — a plain package, no pip machinery needed.
+COPY isolinear_analysis /usr/local/lib/python3.12/site-packages/isolinear_analysis
+
 # --- Pre-warm the matplotlib font cache -------------------------------------
 # Build matplotlib's font list cache once, at image-build time, into a fixed
 # read-only directory. The sandbox points MPLCONFIGDIR here (ISOLINEAR_WORKER_
