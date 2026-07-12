@@ -861,6 +861,36 @@ class CodegenOrchestrationTests(unittest.TestCase):
         self.assertEqual(chart.get("render_path"), "pillow")
         self.assertEqual(chart.get("render_fallback_reason"), "runtime_error")
 
+    def test_each_repair_attempt_logs_a_warning_with_the_traceback_tail(self):
+        # (H) The attempt-by-attempt cascade was previously only reachable at
+        # DEBUG (inside the model-provider request log); it must now escalate
+        # to WARNING so `scripts/ha_logs.py` (system_log is WARNING+ only) can
+        # read attempt 1's trigger, not just the final exhaustion code.
+        worker = SandboxWorkerRenderer()
+        codegen = FakeCodegenClient(
+            generate_code=broken_generated_python("first attempt fails"),
+            repair_codes=[safe_generated_python()],
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            hass, entry = _configured_codegen_hass(
+                codegen_client=codegen,
+                worker=worker,
+                artifact_dir=Path(temp_dir),
+                max_repair_attempts=1,
+            )
+            with self.assertLogs("custom_components.isolinear.render_dispatch", level="WARNING") as logs:
+                start = _start_job(hass, entry)
+                snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+        self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot)
+        # Exactly one attempt failed (the first); the repair then succeeded.
+        self.assertEqual(len(logs.output), 1)
+        message = logs.output[0]
+        self.assertIn("attempt 1/2 failed", message)
+        self.assertIn("code=runtime_error", message)
+        # The exception line itself, not just the failure code.
+        self.assertIn("RuntimeError: first attempt fails", message)
+
     def test_context_overflow_short_circuits_to_actionable_fallback(self):
         # When the generation prompt overflowed the model context, the code is
         # doomed; skip the futile worker dispatch + repair loop entirely and fall

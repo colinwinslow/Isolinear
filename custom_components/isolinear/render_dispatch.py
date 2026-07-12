@@ -1166,6 +1166,38 @@ def _codegen_render_failed(
     }
 
 
+def _codegen_attempt_error_summary(error: Any) -> str:
+    """Compact one-line summary of a codegen attempt's sandbox/grounding error.
+
+    Surfaces the part that actually explains the failure: the last traceback
+    line (the exception itself, not the boilerplate frames above it) for a
+    runtime error, or the offending source line for a static unsafe_code
+    violation. Used to escalate the per-attempt repair cascade to WARNING —
+    this detail previously only existed at DEBUG inside the model-provider
+    request log (the full outbound repair payload), which system_log's
+    WARNING+ floor can't reach (see scripts/ha_logs.py).
+    """
+    if not isinstance(error, dict):
+        return "no error detail"
+    details = error.get("details") if isinstance(error.get("details"), dict) else {}
+    violations = details.get("violations") if isinstance(details, dict) else None
+    if isinstance(violations, list) and violations:
+        parts = []
+        for violation in violations[:3]:
+            if isinstance(violation, dict):
+                parts.append(
+                    f"{violation.get('code')}@L{violation.get('line')}: "
+                    f"{violation.get('source_line')}"
+                )
+        if parts:
+            return "; ".join(parts)
+    traceback_text = details.get("traceback") if isinstance(details, dict) else None
+    if isinstance(traceback_text, str) and traceback_text.strip():
+        return traceback_text.strip().splitlines()[-1]
+    message = error.get("message")
+    return str(message) if message else "no error detail"
+
+
 def _record_codegen_worker_dispatch(
     store: dict[str, Any],
     *,
@@ -1403,6 +1435,19 @@ def _record_codegen_worker_dispatch(
             _last_grounding_outcome = None
             error = render_result.get("error") if isinstance(render_result, dict) else None
             final_error_code = error.get("code") if isinstance(error, dict) else "runtime_error"
+
+        # (H) Escalated to WARNING (was previously only reachable at DEBUG via
+        # the model-provider request log) so the full attempt-by-attempt
+        # cascade — including attempt 1's trigger — is readable from
+        # system_log, whose floor is WARNING+.
+        _LOGGER.warning(
+            "Isolinear codegen attempt %d/%d failed (job=%s): code=%s detail=%s",
+            attempt_number,
+            max_repair_attempts + 1,
+            job_id,
+            final_error_code,
+            _codegen_attempt_error_summary(error),
+        )
 
         if attempt_number > max_repair_attempts:
             break
