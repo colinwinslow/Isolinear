@@ -28,9 +28,10 @@ DATA_MODEL_PROVIDER_CODEGEN_SETUP = "model_provider_codegen_setup"
 
 PLANNER_RESULT_SCHEMA_PATH = schema_path("planner-result.schema.json")
 # A local gemma planner call observed ~30s for a simple chart; the prior 30s
-# cap timed out on anything heavier (mixed/overlay prompts). Give the local
-# model real headroom (ADR-0024 also adds a model entity-selection round-trip).
-DEFAULT_OLLAMA_TIMEOUT_SECONDS = 90
+# cap timed out on anything heavier (mixed/overlay prompts). Codegen for
+# complex charts regularly runs 60-90 s; 180 s matches the configurable default
+# (ADR-0024 also adds a model entity-selection round-trip).
+DEFAULT_OLLAMA_TIMEOUT_SECONDS = 180
 MODEL_PROVIDER_HEALTH_PATH = "/api/tags"
 
 # ADR-0025 R1: the live reasoning trace surfaced to the card is capped to this
@@ -494,9 +495,11 @@ def setup_model_provider_codegen(hass: Any, entry: Any) -> dict[str, Any]:
 
     if configured_render_path(options_data) != RENDER_PATH_PILLOW and _has_ollama_planner_config(config_data):
         codegen_model = _configured_codegen_model(config_data)
+        timeout = options_data.get("ollama_timeout_seconds", DEFAULT_OLLAMA_TIMEOUT_SECONDS)
         client = OllamaCompatiblePlannerClient(
             endpoint_url=config_data["model_endpoint_url"],
             planner_model=config_data["planner_model"],
+            timeout_seconds=int(timeout) if isinstance(timeout, (int, float)) else DEFAULT_OLLAMA_TIMEOUT_SECONDS,
         )
         entry_data[DATA_MODEL_PROVIDER_CODEGEN] = client
         setup = {
@@ -581,12 +584,15 @@ def setup_model_provider_planner(hass: Any, entry: Any) -> dict[str, Any]:
     entry_id = getattr(entry, "entry_id", "scaffold-entry")
     entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})
     config_data = getattr(entry, "data", {}) or {}
+    options_data = getattr(entry, "options", {}) or {}
     setup = _setup_disabled(entry_id, "model_provider_config_missing")
 
     if _has_ollama_planner_config(config_data):
+        timeout = options_data.get("ollama_timeout_seconds", DEFAULT_OLLAMA_TIMEOUT_SECONDS)
         client = OllamaCompatiblePlannerClient(
             endpoint_url=config_data["model_endpoint_url"],
             planner_model=config_data["planner_model"],
+            timeout_seconds=int(timeout) if isinstance(timeout, (int, float)) else DEFAULT_OLLAMA_TIMEOUT_SECONDS,
         )
         entry_data[DATA_MODEL_PROVIDER_PLANNER] = client
         setup = {

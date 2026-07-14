@@ -98,6 +98,7 @@ OPTIONS_FLOW_FIELDS = (
     "default_render_mode",
     "max_codegen_repair_attempts",
     "max_planner_replan_attempts",
+    "ollama_timeout_seconds",
     "render_path",
     "entity_allowlist",
 )
@@ -441,6 +442,10 @@ def build_options_flow_schema(
                 default=defaults["max_planner_replan_attempts"],
             ): int,
             vol.Required(
+                "ollama_timeout_seconds",
+                default=defaults["ollama_timeout_seconds"],
+            ): int,
+            vol.Required(
                 "render_path",
                 default=defaults["render_path"],
             ): vol.In(SUPPORTED_RENDER_PATHS),
@@ -557,6 +562,10 @@ def normalize_options_user_input(
         attempts = options_data.get(attempts_key)
         if isinstance(attempts, str) and attempts.strip().isdigit():
             options_data[attempts_key] = int(attempts.strip())
+
+    timeout = options_data.get("ollama_timeout_seconds")
+    if isinstance(timeout, str) and timeout.strip().isdigit():
+        options_data["ollama_timeout_seconds"] = int(timeout.strip())
 
     # ADR-0030: the legacy codegen_enabled boolean is dropped on normalization
     # (both values map to the new render_path default "auto"); an explicit
