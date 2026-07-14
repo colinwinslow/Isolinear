@@ -214,6 +214,22 @@ reference computation. Initial membership = the tranche-1 transform set (§6);
 growth is demand-driven, and each addition must satisfy §1a-grade reproducibility
 before admission. An unknown metric is `unverified-caveat`, never an error.
 
+**Multi-input `mean` (cross-sensor, 2026-07-14, live-driven — e2e-11 root cause):**
+a claim may declare more than one input (`"the average of the kitchen and basement
+temperatures"` → `inputs=[kitchen, basement]`). The `mean` recompute for `len(inputs)
+> 1` averages **across** the inputs on a shared time grid — resample each input to
+5-minute buckets with interior interpolation and keep only buckets present in every
+input (`dropna`), then average across inputs per bucket and mean over the grid. This
+faithfully mirrors ADR-0036 `isolinear_analysis.align(...).mean(axis=1).mean()` (the
+aligned frame the model plots), reproduced in pure Python — grounding stays a
+drift-detector, independent of the sandbox helper, verified to 6 decimals against
+`align()` on live and synthetic data. Rationale: the prior recompute averaged only
+`inputs[0]`, so a correct two-sensor answer could never match the single-sensor
+reference within tolerance and the answer was withheld (chart served, `answer_text`
+empty). Disjoint coverage (no common bucket) → no reference → `unverified-caveat`,
+never a false contradiction. `delta`/`daily_max`/`daily_min` remain single-input
+(`inputs[0]`); a multi-input need there is a future demand-driven extension.
+
 ### 6. Tranche-1 scope (conscious restriction, not a silent gap)
 
 First-slice answer-bearing verification covers **reproducible, registry-covered,

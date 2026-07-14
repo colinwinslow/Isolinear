@@ -132,9 +132,69 @@ def _window_within_span(window: dict, history_series: list[dict]) -> bool:
 # Metric registry — recompute implementations (pure Python, no external libs)
 # ---------------------------------------------------------------------------
 
+# Shared time-grid resolution for multi-input recompute. Mirrors the ADR-0036
+# `isolinear_analysis.align()` default (`freq="5min"`) so the grounding reference
+# reproduces the SAME cross-sensor aggregate the model's aligned frame produced.
+# Kept independent (pure Python, no pandas) — grounding is a drift-detector, not
+# a shared code path with the sandbox helper.
+_ALIGN_FREQ_MS = 300_000
+
+
+def _resample_interpolate(pts: list[dict]) -> dict[int, float]:
+    """Reproduce `Series.resample("5min").mean().interpolate()` in pure Python.
+
+    Returns a bucket-index → value map over a CONTIGUOUS 5-minute grid from the
+    first to the last populated bucket, with interior gaps linearly filled.
+    Duplicate raw timestamps collapse to their mean first (matching align()'s
+    `groupby(level=0).mean()`), so a timestamp with several samples still counts
+    once, not once per sample.
+    """
+    by_ts: dict[int, list[float]] = {}
+    for p in pts:
+        ts = p.get("ts_epoch_ms")
+        v = p.get("value")
+        if isinstance(ts, (int, float)) and not isinstance(ts, bool) and isinstance(v, (int, float)) and math.isfinite(float(v)):
+            by_ts.setdefault(int(ts), []).append(float(v))
+    if not by_ts:
+        return {}
+    buckets: dict[int, list[float]] = {}
+    for ts, vals in by_ts.items():
+        buckets.setdefault(ts // _ALIGN_FREQ_MS, []).append(sum(vals) / len(vals))
+    grid = {b: sum(vs) / len(vs) for b, vs in buckets.items()}
+    known = sorted(grid)
+    filled: dict[int, float] = {}
+    for b in range(known[0], known[-1] + 1):
+        if b in grid:
+            filled[b] = grid[b]
+            continue
+        left = max(k for k in known if k < b)
+        right = min(k for k in known if k > b)
+        filled[b] = grid[left] + (grid[right] - grid[left]) * (b - left) / (right - left)
+    return filled
+
+
 def _compute_mean(inputs: list[str], window: dict | None, params: dict, hs: list[dict]) -> float | None:
-    vals = _numeric_vals(_in_window(_find_series(inputs[0] if inputs else "", hs), window))
-    return (sum(vals) / len(vals)) if vals else None
+    # Single input: plain mean of the in-window samples.
+    if len(inputs) <= 1:
+        vals = _numeric_vals(_in_window(_find_series(inputs[0] if inputs else "", hs), window))
+        return (sum(vals) / len(vals)) if vals else None
+    # Multi input (e.g. "the average of the kitchen and basement temperatures"):
+    # the model plots a single cross-sensor mean series built from the aligned
+    # frame (ADR-0036 align()), so the reference must average ACROSS entities on
+    # the shared grid — not just inputs[0], which can never match a two-sensor
+    # mean within tolerance (the e2e-11 empty-answer root cause). Resample each
+    # input like align(), keep only buckets present in ALL inputs (align()'s
+    # dropna), average across inputs per bucket, then mean over the grid.
+    grids = [_resample_interpolate(_in_window(_find_series(eid, hs), window)) for eid in inputs]
+    if any(not g for g in grids):
+        return None
+    common = set(grids[0])
+    for g in grids[1:]:
+        common &= set(g)
+    if not common:
+        return None
+    row_means = [sum(g[b] for g in grids) / len(grids) for b in common]
+    return sum(row_means) / len(row_means)
 
 
 def _compute_delta(inputs: list[str], window: dict | None, params: dict, hs: list[dict]) -> float | None:

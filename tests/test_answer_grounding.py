@@ -771,3 +771,64 @@ class TestRecipeCompleteness:
         )
         assert result["outcome"] == "repair_soft"
         assert result["synthetic_error"]["code"] == "grounding_claim_malformed"
+
+
+# ---------------------------------------------------------------------------
+# Multi-input cross-sensor mean (e2e-11 root cause): the reference must average
+# ACROSS all inputs on the shared time grid, mirroring ADR-0036 align(), not
+# just inputs[0] — a single-sensor reference can never match a correct two-
+# sensor mean within tolerance, which withheld the answer for "the average of
+# the kitchen and basement temperatures".
+# ---------------------------------------------------------------------------
+
+class TestCrossSensorMean:
+    # 5-min spacing (= align()'s default bucket), identical timestamps so no
+    # interpolation is needed: per-bucket means are (15, 25, 35) → overall 25.0.
+    SERIES = [
+        _series("sensor.a", [10.0, 20.0, 30.0], step_ms=300_000),  # mean 20
+        _series("sensor.b", [20.0, 30.0, 40.0], step_ms=300_000),  # mean 30
+    ]
+
+    def test_reference_is_cross_sensor_not_first_input(self):
+        from custom_components.isolinear.answer_grounding import _compute_mean
+        ref = _compute_mean(["sensor.a", "sensor.b"], None, {}, self.SERIES)
+        assert ref == pytest.approx(25.0)          # cross-sensor mean
+        assert ref != pytest.approx(20.0)          # NOT inputs[0]-only (the old bug)
+
+    def test_single_input_unchanged(self):
+        from custom_components.isolinear.answer_grounding import _compute_mean
+        assert _compute_mean(["sensor.a"], None, {}, self.SERIES) == pytest.approx(20.0)
+
+    def test_correct_two_sensor_value_verifies(self):
+        result = run_grounding_check(
+            {
+                "answer_text": "The average is 25.0 °.",
+                "claims": [{"metric": "mean", "inputs": ["sensor.a", "sensor.b"], "value": 25.0}],
+            },
+            self.SERIES,
+        )
+        # No verdict/rule → passes the recompute (reference matches) and is not withheld.
+        assert result["outcome"] not in ("repair_contradicted", "repair_soft")
+        assert result["withheld"] is False
+
+    def test_single_sensor_value_now_contradicts(self):
+        """The old inputs[0]-only answer (20.0) is now correctly flagged."""
+        result = run_grounding_check(
+            {
+                "answer_text": "The average is 20.0 °.",
+                "claims": [{"metric": "mean", "inputs": ["sensor.a", "sensor.b"], "value": 20.0}],
+            },
+            self.SERIES,
+        )
+        assert result["outcome"] == "repair_contradicted"
+        assert result["synthetic_error"]["code"] == "grounding_value_mismatch"
+
+    def test_no_grid_overlap_yields_no_reference(self):
+        """Disjoint time coverage → no common bucket → None reference → caveat,
+        never a false contradiction."""
+        from custom_components.isolinear.answer_grounding import _compute_mean
+        disjoint = [
+            _series("sensor.a", [10.0, 20.0], start_ms=0, step_ms=300_000),
+            _series("sensor.b", [20.0, 30.0], start_ms=10_000_000, step_ms=300_000),
+        ]
+        assert _compute_mean(["sensor.a", "sensor.b"], None, {}, disjoint) is None
