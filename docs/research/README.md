@@ -20,3 +20,4 @@ are **not load-bearing** — they may or may not promote to a spec or ADR.
 ## Current research notes
 
 - `answer-verdict-grounding-check.md` — deterministic verdict verification via a claims ledger; the design rationale behind `docs/specs/answer-grounding-check.md` (promoted-to-spec, 2026-07-03)
+- `codegen-card-level-legend.md` — the ADR-0027 card-level legend wiring is intact and renderer-agnostic; the codegen path just never populates `artifact["legend"]` — three additive pieces needed (open, 2026-07-14)

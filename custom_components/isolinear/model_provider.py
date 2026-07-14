@@ -30,7 +30,9 @@ PLANNER_RESULT_SCHEMA_PATH = schema_path("planner-result.schema.json")
 # A local gemma planner call observed ~30s for a simple chart; the prior 30s
 # cap timed out on anything heavier (mixed/overlay prompts). Codegen for
 # complex charts regularly runs 60-90 s; 180 s matches the configurable default
-# (ADR-0024 also adds a model entity-selection round-trip).
+# (ADR-0024 also adds a model entity-selection round-trip). Keep this in sync
+# with config_schema.default_options_data()["ollama_timeout_seconds"] — this is
+# the fallback used when an entry has no configured value.
 DEFAULT_OLLAMA_TIMEOUT_SECONDS = 180
 MODEL_PROVIDER_HEALTH_PATH = "/api/tags"
 
