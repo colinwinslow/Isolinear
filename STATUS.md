@@ -572,6 +572,23 @@ _(older sessions — 19th session fixed open-queue (w): the live e2e-15 heatmap 
   overlay to the raw-retention sub-window. Needs a small ADR (touches the
   single-source-per-window invariant from ADR-0021).
 
+- (dd) **LiteLLM / OpenAI-compatible provider option (25th session).** Colin is
+  moving the homelab so LLM calls go through a LiteLLM proxy (OpenAI-compatible
+  API; can forward to POE-hosted cloud models for easy A/B). Add a second
+  `SUPPORTED_MODEL_PROVIDER_TYPES` member that posts to `/v1/chat/completions`
+  with `response_format` json_schema instead of Ollama's `/api/chat` + `format`.
+  **Thinking-stream finding:** the ADR-0025 live thinking trace is Ollama-specific
+  (request `think:true`; response reads `message.thinking` from NDJSON), BUT
+  recoverable through LiteLLM, which normalizes reasoning to
+  `choices[0].delta.reasoning_content` on the SSE delta — needs a second
+  streaming parser (the `on_reasoning` callback + card plumbing are already
+  provider-agnostic), is model-dependent (non-reasoning models emit none → the
+  existing D6 graceful fallback), and POE-forwarded models are uncertain (probe
+  the live proxy first). Likely collapses the two-pass Ollama workaround into one
+  streaming call. New secret surface (proxy API key) must follow the ADR-0032
+  write-only posture. ADR-worthy when built (invariant #8). See
+  `docs/research/litellm-openai-provider.md`.
+
 ## Blockers
 
 - None.
