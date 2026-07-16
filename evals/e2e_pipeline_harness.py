@@ -71,8 +71,12 @@ class HaWs:
 
     Reconnects and retries once on a dropped socket: a long provider stall
     (GPU contention → a 280s+ snapshot poll) can make HA close the idle WS
-    mid-run; the job/snapshot poll is an idempotent read, so re-sending it on a
-    fresh connection is safe and keeps the 20-prompt run from dying on a blip.
+    mid-run. The calls that actually get retried in practice are idempotent
+    job/snapshot reads, so re-sending them on a fresh connection is safe. The
+    generic wrapper also carries the (non-idempotent) job/start; a re-sent start
+    would at worst launch one extra harmless read-only job — the harness uses
+    whichever job_id comes back, and Isolinear never mutates HA (invariant #2) —
+    so a reconnect never corrupts state. Keeps the 20-prompt run alive on a blip.
     """
 
     def __init__(self, ws):
