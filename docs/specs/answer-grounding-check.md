@@ -230,6 +230,20 @@ empty). Disjoint coverage (no common bucket) → no reference → `unverified-ca
 never a false contradiction. `delta`/`daily_max`/`daily_min` remain single-input
 (`inputs[0]`); a multi-input need there is a future demand-driven extension.
 
+**`pearson_r` on the shared grid (2026-07-16, live-driven — open-queue (ff)):**
+the same alignment reasoning applies to correlation. Two sensors read by separate
+integrations share **no** raw timestamps, so the prior recompute — which paired
+values on the exact-timestamp intersection (`set(map_a) & set(map_b)`) — found an
+empty intersection on real recorder data and returned no reference. A correctly
+computed correlation (the model does `isolinear_analysis.align(...).corr()`) could
+therefore only ever be served as an `unverified-caveat`, never verified — the
+correlation analog of the multi-input `mean` bug. The `pearson_r` recompute now
+resamples each input onto the same 5-minute grid (interior interpolation), pairs
+the values on buckets present in **both**, and computes Pearson r over those pairs,
+mirroring `align().corr().iloc[0, 1]` in pure Python (verified to ~12 decimals
+against the model's aligned value on synthetic data). Fewer than 3 shared buckets →
+no reference → `unverified-caveat`, never a false contradiction.
+
 ### 6. Tranche-1 scope (conscious restriction, not a silent gap)
 
 First-slice answer-bearing verification covers **reproducible, registry-covered,

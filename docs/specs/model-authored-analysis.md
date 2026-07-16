@@ -203,6 +203,30 @@ request-conditional:
   execution-truth judge = the real `run_grounding_check` SERVES the answer,
   `withheld=False`): **with-rule 3/3 served vs without-rule 0/3** (all three
   without-arm runs reproduced the live withhold via `grounding_verdict_absent`).
+- **Correlation-answer emission + grounding (open-queue (ff), 0.2.41 — a
+  TWO-PART fix).** Correlation prompts rendered the two input series but the
+  analysis-answer layer under-fired: mean/delta/deviation/distribution/rolling
+  all serve grounded answers, correlation did not (live 28th-session e2e-13/14/20;
+  `scripts/repro_correlation_answer.py`). _Prompt half:_ unlike a mean/delta —
+  which produces a derived SERIES the model plots (and plotting it reminds the
+  model it did the analysis) — a correlation is a single SCALAR with nothing new
+  to plot, so the floor model plots the two raw sensors, treats the chart as the
+  deliverable, and returns WITHOUT an `answer_text`. A `_CODEGEN_PROMPT_RULES`
+  sentence makes the coefficient the mandatory deliverable of a correlation
+  question: plotting the raw sensors is explicitly not enough; the model MUST also
+  compute `frame.corr().iloc[0, 1]` and report it in `answer_text`. _Grounding
+  half (§5a, `answer_grounding.py`):_ even when the model emitted a correct
+  coefficient, `_compute_pearson_r` recomputed on the exact-timestamp intersection
+  of two sensors that share NO raw timestamps → empty → no reference → the answer
+  could only ever be an `unverified-caveat`, never verified (the correlation
+  analog of the 0.2.37 multi-input `mean` bug). The recompute now resamples each
+  input onto the shared 5-min `align()` grid and correlates the paired buckets,
+  matching the model's value to ~12 decimals. Eval-gated with
+  `evals/correlation_answer_gate.py` (production codegen path, a correlation
+  prompt over two genuinely-correlated sensors, with/without the sentence,
+  execution-truth judge = the real `run_grounding_check` SERVES the answer):
+  **with-rule 4/4 served and all 4 verified vs without-rule 0/4** (2 withheld
+  `grounding_verdict_absent`, 2 runtime-exhausted).
 - **Repair-intent retention (open-queue (B) — INVESTIGATED, NOT shipped).** The
   (B) packet was first framed as a repair-only instruction to preserve the
   `previous_code`'s derived series + `answer_text` while fixing a runtime error

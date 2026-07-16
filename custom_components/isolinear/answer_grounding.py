@@ -206,23 +206,21 @@ def _compute_pearson_r(inputs: list[str], window: dict | None, params: dict, hs:
     if len(inputs) < 2:
         return None
 
-    def ts_map(eid: str) -> dict[int, float]:
-        pts = _in_window(_find_series(eid, hs), window)
-        return {
-            int(p["ts_epoch_ms"]): float(p["value"])
-            for p in pts
-            if isinstance(p.get("ts_epoch_ms"), (int, float))
-            and isinstance(p.get("value"), (int, float))
-            and math.isfinite(float(p["value"]))
-        }
-
-    map_a = ts_map(inputs[0])
-    map_b = ts_map(inputs[1])
-    common = sorted(set(map_a) & set(map_b))
+    # Mirror the model's `align().corr().iloc[0, 1]` (ADR-0036): resample each
+    # input onto the shared 5-min grid (like _compute_mean), pair the values on
+    # buckets present in BOTH, then Pearson r. The old exact-timestamp
+    # intersection returned None for real recorder data — two sensors sampled by
+    # separate integrations share NO raw timestamps, so `set(map_a) & set(map_b)`
+    # was empty and a correctly-computed correlation could never be verified
+    # (open-queue (ff); the same class as the 0.2.37 multi-input _compute_mean
+    # fix). Grounding stays an independent pure-Python drift-detector — no pandas.
+    grid_a = _resample_interpolate(_in_window(_find_series(inputs[0], hs), window))
+    grid_b = _resample_interpolate(_in_window(_find_series(inputs[1], hs), window))
+    common = sorted(set(grid_a) & set(grid_b))
     if len(common) < 3:
         return None
-    xs = [map_a[t] for t in common]
-    ys = [map_b[t] for t in common]
+    xs = [grid_a[b] for b in common]
+    ys = [grid_b[b] for b in common]
     n = len(xs)
     sx, sy = sum(xs), sum(ys)
     sxy = sum(x * y for x, y in zip(xs, ys))

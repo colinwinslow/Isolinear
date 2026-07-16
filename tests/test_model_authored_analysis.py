@@ -631,6 +631,28 @@ class VerdictOmissionPromptRuleTests(unittest.TestCase):
         self.assertEqual(synthetic.get("code"), "grounding_value_mismatch", result)
 
 
+class CorrelationEmissionPromptRuleTests(unittest.TestCase):
+    """open-queue (ff): a correlation is a scalar with nothing new to plot, so
+    the floor model plots the two raw sensors and returns WITHOUT an answer_text
+    (live: 3/5 plot-only). The rule makes the coefficient the mandatory
+    deliverable of a correlation question. Eval-gated with
+    evals/correlation_answer_gate.py (with-rule 4/4 served + verified vs
+    without-rule 0/4)."""
+
+    def test_prompt_rules_make_correlation_answer_mandatory(self):
+        rules = " ".join(_CODEGEN_PROMPT_RULES)
+        lowered = rules.lower()
+        # The distinctive marker the gate strips for its without-arm.
+        self.assertIn("important for correlation questions", lowered)
+        # Plotting the raw sensors is explicitly NOT sufficient on its own.
+        self.assertIn("not enough on its own", lowered)
+        # The coefficient MUST be computed and reported in answer_text.
+        self.assertIn("must also compute the coefficient", lowered)
+        self.assertIn("report it in answer_text", lowered)
+        # It names the align()-based idiom, consistent with ADR-0036.
+        self.assertIn("frame.corr().iloc[0, 1]", rules)
+
+
 class CodegenPromptGroundingTests(unittest.TestCase):
     """The codegen prompt instructs COMPUTE-and-format, verdicts derived (ADR-0031 D3)."""
 

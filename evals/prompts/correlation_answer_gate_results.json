@@ -1,0 +1,372 @@
+{
+ "meta": {
+  "model": "gemma4:e4b",
+  "ollama": "http://10.0.1.39:11434",
+  "runs": 4,
+  "max_repairs": 1,
+  "prompt": "Are the kitchen and basement temperatures correlated?",
+  "started": "2026-07-16T23:20:04Z"
+ },
+ "runs": {
+  "without_rule::run1": {
+   "arm": "without_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 35.1,
+     "loc": 113,
+     "ok": true,
+     "answer_text": "The correlation coefficient between kitchen and basement temperatures is 1.00, suggesting they are correlated.",
+     "claims": [
+      {
+       "metric": "pearson_r",
+       "inputs": [
+        "sensor.kitchen_ecobee_temperature",
+        "sensor.basement_temperature"
+       ],
+       "value": 0.996913297538306,
+       "verdict": "Yes",
+       "rule": {
+        "bands": [
+         [
+          0.3,
+          "Yes"
+         ],
+         [
+          null,
+          "Not really"
+         ]
+        ],
+        "basis": "value"
+       }
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "fired": false,
+    "why": "answer WITHHELD (grounding_verdict_absent)",
+    "outcome": "repair_contradicted",
+    "withheld": true,
+    "synthetic_code": "grounding_verdict_absent",
+    "answer_text": "The correlation coefficient between kitchen and basement temperatures is 1.00, suggesting they are correlated.",
+    "verified": false,
+    "corr_value": 0.996913297538306
+   }
+  },
+  "without_rule::run2": {
+   "arm": "without_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 39.0,
+     "loc": 102,
+     "ok": false,
+     "error": "ValueError: x and y must have same first dimension, but have shapes (1,) and (288,)"
+    },
+    {
+     "n": 1,
+     "gen_s": 42.1,
+     "loc": 103,
+     "ok": false,
+     "error": "SyntaxError: unexpected character after line continuation character (<string>, line 44)"
+    }
+   ],
+   "done": true,
+   "executed": false,
+   "fired": false
+  },
+  "without_rule::run3": {
+   "arm": "without_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 35.4,
+     "loc": 113,
+     "ok": true,
+     "answer_text": "The correlation coefficient between kitchen and basement temperatures is 1.00, suggesting they are correlated.",
+     "claims": [
+      {
+       "metric": "pearson_r",
+       "inputs": [
+        "sensor.kitchen_ecobee_temperature",
+        "sensor.basement_temperature"
+       ],
+       "value": 0.996913297538306,
+       "verdict": "Yes",
+       "rule": {
+        "bands": [
+         [
+          0.3,
+          "Yes"
+         ],
+         [
+          null,
+          "Not really"
+         ]
+        ],
+        "basis": "value"
+       }
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "fired": false,
+    "why": "answer WITHHELD (grounding_verdict_absent)",
+    "outcome": "repair_contradicted",
+    "withheld": true,
+    "synthetic_code": "grounding_verdict_absent",
+    "answer_text": "The correlation coefficient between kitchen and basement temperatures is 1.00, suggesting they are correlated.",
+    "verified": false,
+    "corr_value": 0.996913297538306
+   }
+  },
+  "without_rule::run4": {
+   "arm": "without_rule",
+   "run": 4,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 38.9,
+     "loc": 102,
+     "ok": false,
+     "error": "ValueError: x and y must have same first dimension, but have shapes (1,) and (288,)"
+    },
+    {
+     "n": 1,
+     "gen_s": 43.0,
+     "loc": 105,
+     "ok": false,
+     "error": "SyntaxError: unexpected character after line continuation character (<string>, line 45)"
+    }
+   ],
+   "done": true,
+   "executed": false,
+   "fired": false
+  },
+  "with_rule::run1": {
+   "arm": "with_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 31.1,
+     "loc": 97,
+     "ok": true,
+     "answer_text": "The correlation coefficient between kitchen and basement temperatures is 1.00, suggesting Yes correlation.",
+     "claims": [
+      {
+       "metric": "pearson_r",
+       "inputs": [
+        "sensor.kitchen_ecobee_temperature",
+        "sensor.basement_temperature"
+       ],
+       "value": 0.996913297538306,
+       "verdict": "Yes",
+       "rule": {
+        "bands": [
+         [
+          0.3,
+          "Yes"
+         ],
+         [
+          null,
+          "Not really"
+         ]
+        ],
+        "basis": "value"
+       }
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "fired": true,
+    "why": "served: outcome=verified, corr=0.996913297538306",
+    "outcome": "verified",
+    "withheld": false,
+    "synthetic_code": null,
+    "answer_text": "The correlation coefficient between kitchen and basement temperatures is 1.00, suggesting Yes correlation.",
+    "verified": true,
+    "corr_value": 0.996913297538306
+   }
+  },
+  "with_rule::run2": {
+   "arm": "with_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 30.7,
+     "loc": 98,
+     "ok": true,
+     "answer_text": "The correlation coefficient between kitchen and basement temperatures is 1.00, suggesting Yes correlation.",
+     "claims": [
+      {
+       "metric": "pearson_r",
+       "inputs": [
+        "sensor.kitchen_ecobee_temperature",
+        "sensor.basement_temperature"
+       ],
+       "value": 0.996913297538306,
+       "verdict": "Yes",
+       "rule": {
+        "bands": [
+         [
+          0.3,
+          "Yes"
+         ],
+         [
+          null,
+          "Not really"
+         ]
+        ],
+        "basis": "value"
+       }
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "fired": true,
+    "why": "served: outcome=verified, corr=0.996913297538306",
+    "outcome": "verified",
+    "withheld": false,
+    "synthetic_code": null,
+    "answer_text": "The correlation coefficient between kitchen and basement temperatures is 1.00, suggesting Yes correlation.",
+    "verified": true,
+    "corr_value": 0.996913297538306
+   }
+  },
+  "with_rule::run3": {
+   "arm": "with_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 30.3,
+     "loc": 98,
+     "ok": true,
+     "answer_text": "The correlation coefficient between kitchen and basement temperatures is 1.00, suggesting Yes correlation.",
+     "claims": [
+      {
+       "metric": "pearson_r",
+       "inputs": [
+        "sensor.kitchen_ecobee_temperature",
+        "sensor.basement_temperature"
+       ],
+       "value": 0.996913297538306,
+       "verdict": "Yes",
+       "rule": {
+        "bands": [
+         [
+          0.3,
+          "Yes"
+         ],
+         [
+          null,
+          "Not really"
+         ]
+        ],
+        "basis": "value"
+       }
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "fired": true,
+    "why": "served: outcome=verified, corr=0.996913297538306",
+    "outcome": "verified",
+    "withheld": false,
+    "synthetic_code": null,
+    "answer_text": "The correlation coefficient between kitchen and basement temperatures is 1.00, suggesting Yes correlation.",
+    "verified": true,
+    "corr_value": 0.996913297538306
+   }
+  },
+  "with_rule::run4": {
+   "arm": "with_rule",
+   "run": 4,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 30.7,
+     "loc": 94,
+     "ok": true,
+     "answer_text": "The correlation coefficient between kitchen and basement temperatures is 1.00, suggesting Yes correlation.",
+     "claims": [
+      {
+       "metric": "pearson_r",
+       "inputs": [
+        "sensor.kitchen_ecobee_temperature",
+        "sensor.basement_temperature"
+       ],
+       "value": 0.996913297538306,
+       "verdict": "Yes",
+       "rule": {
+        "bands": [
+         [
+          0.3,
+          "Yes"
+         ],
+         [
+          null,
+          "Not really"
+         ]
+        ],
+        "basis": "value"
+       }
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "fired": true,
+    "why": "served: outcome=verified, corr=0.996913297538306",
+    "outcome": "verified",
+    "withheld": false,
+    "synthetic_code": null,
+    "answer_text": "The correlation coefficient between kitchen and basement temperatures is 1.00, suggesting Yes correlation.",
+    "verified": true,
+    "corr_value": 0.996913297538306
+   }
+  }
+ },
+ "tally": {
+  "without_rule": {
+   "runs": 4,
+   "executed": 2,
+   "served": 0,
+   "verified": 0
+  },
+  "with_rule": {
+   "runs": 4,
+   "executed": 4,
+   "served": 4,
+   "verified": 4
+  }
+ }
+}

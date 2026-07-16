@@ -832,3 +832,93 @@ class TestCrossSensorMean:
             _series("sensor.b", [20.0, 30.0], start_ms=10_000_000, step_ms=300_000),
         ]
         assert _compute_mean(["sensor.a", "sensor.b"], None, {}, disjoint) is None
+
+
+# ---------------------------------------------------------------------------
+# Multi-input Pearson r (open-queue (ff)): two sensors read by separate
+# integrations share NO raw timestamps, so the old exact-timestamp intersection
+# (`set(map_a) & set(map_b)`) was empty → None reference → a correctly-computed
+# correlation could only ever be served as an unverified caveat, never verified.
+# The reference now resamples each input onto the shared 5-min grid, mirroring
+# the model's `align().corr()` (ADR-0036) — the same treatment the 0.2.37
+# _compute_mean fix applied to cross-sensor mean.
+# ---------------------------------------------------------------------------
+
+
+class TestCrossSensorPearsonR:
+    # Positively correlated (b = a + 5), offset by 37s so the two series NEVER
+    # share a raw timestamp but DO land in the same 5-min buckets (bucket =
+    # ts // 300_000): exactly the real-recorder shape.
+    SERIES = [
+        _series("sensor.a", [10.0, 20.0, 30.0, 40.0, 50.0], start_ms=0, step_ms=300_000),
+        _series("sensor.b", [15.0, 25.0, 35.0, 45.0, 55.0], start_ms=37_000, step_ms=300_000),
+    ]
+
+    def test_reference_computed_on_shared_grid_not_raw_intersection(self):
+        """The (ff) core: disjoint raw timestamps still yield a real coefficient
+        (perfect positive here), where the old exact-intersection returned None."""
+        from custom_components.isolinear.answer_grounding import _compute_pearson_r
+        ref = _compute_pearson_r(["sensor.a", "sensor.b"], None, {}, self.SERIES)
+        assert ref == pytest.approx(1.0)
+
+        # Prove the old exact-timestamp intersection would have found nothing.
+        raw_a = {int(p["ts_epoch_ms"]) for p in self.SERIES[0]["points"]}
+        raw_b = {int(p["ts_epoch_ms"]) for p in self.SERIES[1]["points"]}
+        assert not (raw_a & raw_b)
+
+    def test_negative_correlation_recovered(self):
+        from custom_components.isolinear.answer_grounding import _compute_pearson_r
+        neg = [
+            _series("sensor.a", [10.0, 20.0, 30.0, 40.0, 50.0], start_ms=0, step_ms=300_000),
+            _series("sensor.b", [50.0, 40.0, 30.0, 20.0, 10.0], start_ms=37_000, step_ms=300_000),
+        ]
+        assert _compute_pearson_r(["sensor.a", "sensor.b"], None, {}, neg) == pytest.approx(-1.0)
+
+    def test_correct_correlation_verifies_end_to_end(self):
+        """A pearson_r claim with the right value + verdict is now VERIFIED, not
+        the unverified_caveat the empty intersection used to force."""
+        result = run_grounding_check(
+            {
+                "answer_text": "The correlation coefficient is 1.00, suggesting Yes correlation.",
+                "claims": [{
+                    "metric": "pearson_r",
+                    "inputs": ["sensor.a", "sensor.b"],
+                    "value": 1.0,
+                    "verdict": "Yes",
+                    "rule": _corr_rule(),
+                }],
+            },
+            self.SERIES,
+        )
+        assert result["outcome"] == "verified"
+        assert result["withheld"] is False
+
+    def test_wrong_correlation_value_now_contradicts(self):
+        """The recompute is load-bearing: a fabricated coefficient that disagrees
+        with the aligned reference is caught (it used to ride as an unverified
+        caveat because there was no reference at all)."""
+        result = run_grounding_check(
+            {
+                "answer_text": "The correlation coefficient is 0.10, suggesting Not really correlation.",
+                "claims": [{
+                    "metric": "pearson_r",
+                    "inputs": ["sensor.a", "sensor.b"],
+                    "value": 0.10,
+                    "verdict": "Not really",
+                    "rule": _corr_rule(),
+                }],
+            },
+            self.SERIES,
+        )
+        assert result["outcome"] == "repair_contradicted"
+        assert result["synthetic_error"]["code"] == "grounding_value_mismatch"
+
+    def test_insufficient_overlap_yields_no_reference(self):
+        """Fewer than 3 shared buckets → None reference → caveat, never a false
+        contradiction."""
+        from custom_components.isolinear.answer_grounding import _compute_pearson_r
+        few = [
+            _series("sensor.a", [10.0, 20.0], start_ms=0, step_ms=300_000),
+            _series("sensor.b", [15.0, 25.0], start_ms=37_000, step_ms=300_000),
+        ]
+        assert _compute_pearson_r(["sensor.a", "sensor.b"], None, {}, few) is None

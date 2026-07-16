@@ -295,10 +295,25 @@ _CODEGEN_PROMPT_RULES = [
     "'what was the average…?'), also return an 'answer_text' string in the metadata "
     "dict answering it in one plain sentence.",
     "Compute the answer_text from variables you calculate over the data and format "
-    "them in with an f-string — e.g. corr = df['a'].corr(df['b']); "
+    "them in with an f-string — e.g. corr = frame.corr().iloc[0, 1]; "
     "answer_text = f'The correlation coefficient is {corr:.2f}.' Never write the "
     "number or a Yes/No verdict as a literal; derive the verdict too "
     "(verdict = 'Yes' if abs(corr) > 0.3 else 'Not really').",
+    # (ff), open-queue: correlation UNDER-EMITS the answer. Unlike a mean/delta/
+    # deviation — which produce a derived SERIES the model plots (and plotting it
+    # reminds the model it did the analysis) — a correlation is a single SCALAR
+    # with nothing new to plot, so the floor model plots the two raw sensors,
+    # treats the chart as the deliverable, and returns WITHOUT an answer_text
+    # (live: 3/5 runs plot-only). The analysis IS the coefficient, so make its
+    # emission mandatory and salient. Eval-gated evals/correlation_answer_gate.py.
+    "IMPORTANT for correlation questions ('are they correlated?', 'do they move "
+    "together?', 'how are they related?'): the correlation coefficient is a single "
+    "number, NOT a plotted series — so drawing the two raw sensor lines is NOT the "
+    "analysis and is NOT enough on its own. You MUST also compute the coefficient "
+    "(frame = isolinear_analysis.align(data['history_series']); "
+    "corr = frame.corr().iloc[0, 1]) and report it in answer_text. Never plot the "
+    "inputs and return without an answer_text when user_request asks whether or how "
+    "two sensors are correlated.",
     # ADR-0031 D8a: claims ledger for the integration-side grounding check.
     # The model emits a machine-readable recipe so the integration can independently
     # recompute the stated value and confirm the verdict follows the declared rule.
