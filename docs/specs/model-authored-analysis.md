@@ -177,6 +177,32 @@ request-conditional:
   with `evals/heatmap_rule_gate.py` (production codegen path, the live
   histogram chart_spec + the heatmap `user_request`, with/without the sentence,
   execution-truth judge = a clean 1-D histogram, not a 2-D `QuadMesh`/image).
+- **Verdict/rule only for band judgments (open-queue (cc), 0.2.40 — a TWO-PART
+  fix the gate surfaced).** _Prompt half:_ a claim carries `verdict`+`rule` ONLY
+  when `user_request` asks a Yes/No or categorical judgment ("are they
+  correlated?", "was it above 70?", "high or low?"). For a plain descriptive
+  value answer ("what was the average / delta / total?"), the model emits a
+  value-only claim (`metric`+`inputs`+`value`) and OMITS `verdict`+`rule`.
+  Rationale: the grounding step-5 verdict containment (§5a, `answer_grounding.py`)
+  requires the claimed `verdict` to appear verbatim as a band label in
+  `answer_text`; a descriptive sentence like "the average was 72.9 °F" has no
+  Yes/No label, so a spurious `verdict`+`rule` fails containment
+  (`grounding_verdict_absent`/`_ambiguous`) and — because every re-generation
+  recomputes the same correct number — burns the entire repair budget on a
+  non-bug (live 25th-session e2e-11 log; masked until the 0.2.37 value-mismatch
+  fix stopped withholding earlier at step 4). _Grounding half (which the gate
+  proved necessary):_ under the prompt rule gemma nulls the `verdict` but often
+  leaves a vestigial empty `rule: {"bands": []}` stub, which step-1 structure
+  validation rejected as `grounding_claim_malformed`. But a rule is inert
+  without a verdict (steps 5 and 6 both gate on `verdict is not None and rule is
+  not None`), so `_check_claim` now skips rule-structure validation when
+  `verdict is None` — treating a verdict-less claim as value-only. Together the
+  descriptive mean is value-verified at step 4 and never blocked by an unusable
+  verdict/rule. Eval-gated with `evals/verdict_omission_gate.py` (production
+  codegen path, a descriptive two-sensor mean prompt, with/without the sentence,
+  execution-truth judge = the real `run_grounding_check` SERVES the answer,
+  `withheld=False`): **with-rule 3/3 served vs without-rule 0/3** (all three
+  without-arm runs reproduced the live withhold via `grounding_verdict_absent`).
 - **Repair-intent retention (open-queue (B) — INVESTIGATED, NOT shipped).** The
   (B) packet was first framed as a repair-only instruction to preserve the
   `previous_code`'s derived series + `answer_text` while fixing a runtime error
@@ -324,6 +350,16 @@ showing "nan °F"). NOTE: `0.00` is deliberately NOT a degenerate marker — a
 genuinely zero result (a delta of 0.00 °F) is a valid answer. Implemented
 `grounding_nonfinite_answer` tripwire in `run_grounding_check` (0.2.33, after a
 live-observed "…the average … was nan °F" served past the no-claims path).
+**Inert-rule tolerance (0.2.40, (cc)):** a claim's `rule` is only meaningful in
+service of a `verdict` — steps 5 (containment) and 6 (consistency) both gate on
+`verdict is not None and rule is not None`. So `_check_claim` skips the step-1
+`rule`-structure validation when `verdict is None`, treating a verdict-less
+claim as value-only. This makes the check robust to the common shape where a
+small model omits the verdict on a descriptive answer but leaves a vestigial
+empty `rule: {"bands": []}` stub (which otherwise tripped
+`grounding_claim_malformed`); the stated number is still recomputed and verified
+at step 4. Pairs with the §2 prompt rule that scopes `verdict`+`rule` to band
+judgments.
 
 **(b) Capability-gated visual validator** (catches broken *pictures* — flat/empty
 panels, single-point scatters, mislabeled axes — that no text check sees). Runs

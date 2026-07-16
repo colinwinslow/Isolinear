@@ -1,0 +1,265 @@
+{
+ "meta": {
+  "model": "gemma4:e4b",
+  "ollama": "http://10.0.1.39:11434",
+  "runs": 3,
+  "max_repairs": 2,
+  "prompt": "What was the average of the kitchen and basement temperatures over the last day?",
+  "started": "2026-07-16T18:23:12Z"
+ },
+ "runs": {
+  "without_rule::run1": {
+   "arm": "without_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 23.4,
+     "loc": 88,
+     "ok": true,
+     "answer_text": "The average temperature of the kitchen and basement over the recorded period was 72.76\u00b0F.",
+     "claims": [
+      {
+       "metric": "mean",
+       "inputs": [
+        "sensor.kitchen_ecobee_temperature",
+        "sensor.basement_temperature"
+       ],
+       "value": 72.7551388888889,
+       "verdict": "The average was calculated.",
+       "rule": {
+        "bands": [
+         [
+          null,
+          "Overall Average"
+         ]
+        ],
+        "basis": "value"
+       }
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "fired": false,
+    "why": "answer WITHHELD (grounding_verdict_absent)",
+    "outcome": "repair_contradicted",
+    "withheld": true,
+    "synthetic_code": "grounding_verdict_absent",
+    "n_claims": 1,
+    "non_null_verdict": 1
+   }
+  },
+  "without_rule::run2": {
+   "arm": "without_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 26.6,
+     "loc": 73,
+     "ok": true,
+     "answer_text": "The average temperature of the kitchen and basement over the last day was 72.76\u00b0F.",
+     "claims": [
+      {
+       "metric": "mean",
+       "inputs": [
+        "sensor.kitchen_ecobee_temperature",
+        "sensor.basement_temperature"
+       ],
+       "value": 72.7551388888889,
+       "verdict": "The average was calculated.",
+       "rule": {
+        "bands": [
+         [
+          null,
+          "N/A"
+         ]
+        ],
+        "basis": "value"
+       }
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "fired": false,
+    "why": "answer WITHHELD (grounding_verdict_absent)",
+    "outcome": "repair_contradicted",
+    "withheld": true,
+    "synthetic_code": "grounding_verdict_absent",
+    "n_claims": 1,
+    "non_null_verdict": 1
+   }
+  },
+  "without_rule::run3": {
+   "arm": "without_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 26.3,
+     "loc": 73,
+     "ok": true,
+     "answer_text": "The average temperature of the kitchen and basement over the last day was 72.76\u00b0F.",
+     "claims": [
+      {
+       "metric": "mean",
+       "inputs": [
+        "sensor.kitchen_ecobee_temperature",
+        "sensor.basement_temperature"
+       ],
+       "value": 72.7551388888889,
+       "verdict": "The average was calculated.",
+       "rule": {
+        "bands": [
+         [
+          null,
+          "N/A"
+         ]
+        ],
+        "basis": "value"
+       }
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "fired": false,
+    "why": "answer WITHHELD (grounding_verdict_absent)",
+    "outcome": "repair_contradicted",
+    "withheld": true,
+    "synthetic_code": "grounding_verdict_absent",
+    "n_claims": 1,
+    "non_null_verdict": 1
+   }
+  },
+  "with_rule::run1": {
+   "arm": "with_rule",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 21.2,
+     "loc": 78,
+     "ok": true,
+     "answer_text": "The average of the kitchen and basement temperatures over the last day was 72.76\u00b0F.",
+     "claims": []
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "fired": true,
+    "why": "served: outcome=pass, non-null verdicts=0",
+    "outcome": "pass",
+    "withheld": false,
+    "synthetic_code": null,
+    "n_claims": 0,
+    "non_null_verdict": 0
+   }
+  },
+  "with_rule::run2": {
+   "arm": "with_rule",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 23.6,
+     "loc": 80,
+     "ok": true,
+     "answer_text": "The average temperature of the kitchen and basement over the last day was 72.76\u00b0F.",
+     "claims": [
+      {
+       "metric": "mean",
+       "inputs": [
+        "sensor.kitchen_ecobee_temperature",
+        "sensor.basement_temperature"
+       ],
+       "value": 72.7551388888889,
+       "verdict": null,
+       "rule": {
+        "bands": [],
+        "basis": "value"
+       }
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "fired": true,
+    "why": "served: outcome=verified, non-null verdicts=0",
+    "outcome": "verified",
+    "withheld": false,
+    "synthetic_code": null,
+    "n_claims": 1,
+    "non_null_verdict": 0
+   }
+  },
+  "with_rule::run3": {
+   "arm": "with_rule",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 24.1,
+     "loc": 80,
+     "ok": true,
+     "answer_text": "The average temperature of the kitchen and basement over the last day was 72.76\u00b0F.",
+     "claims": [
+      {
+       "metric": "mean",
+       "inputs": [
+        "sensor.kitchen_ecobee_temperature",
+        "sensor.basement_temperature"
+       ],
+       "value": 72.7551388888889,
+       "verdict": null,
+       "rule": {
+        "bands": [],
+        "basis": "value"
+       }
+      }
+     ]
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "fired": true,
+    "why": "served: outcome=verified, non-null verdicts=0",
+    "outcome": "verified",
+    "withheld": false,
+    "synthetic_code": null,
+    "n_claims": 1,
+    "non_null_verdict": 0
+   }
+  }
+ },
+ "tally": {
+  "without_rule": {
+   "runs": 3,
+   "executed": 3,
+   "fired": 0
+  },
+  "with_rule": {
+   "runs": 3,
+   "executed": 3,
+   "fired": 3
+  }
+ }
+}

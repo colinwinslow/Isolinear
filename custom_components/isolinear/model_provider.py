@@ -319,6 +319,21 @@ _CODEGEN_PROMPT_RULES = [
     "Example: claims = [{'metric': 'pearson_r', 'inputs': ['sensor.a', 'sensor.b'], "
     "'value': corr, 'verdict': verdict, "
     "'rule': {'bands': [[0.3, 'Yes'], [None, 'Not really']], 'basis': 'value'}}].",
+    # (cc), 0.2.40: verdict/rule ONLY for band judgments. The grounding check's
+    # step-5 verdict containment (answer_grounding.py) requires the claimed verdict
+    # to appear verbatim as a band label in answer_text; a plain descriptive mean
+    # ("the average was 72.9 °F") has no Yes/No label, so a spurious verdict+rule
+    # fails containment (grounding_verdict_ambiguous) and burns the whole repair
+    # budget re-deriving the same correct number. A value-only claim skips step 5
+    # entirely and is still value-verified (step 4 recompute). Eval-gated
+    # evals/verdict_omission_gate.py.
+    "Attach 'verdict' and 'rule' to a claim ONLY when user_request asks a Yes/No "
+    "or categorical judgment (e.g. 'are they correlated?', 'was it above 70?', "
+    "'is it high or low?'). For a plain descriptive value answer ('what was the "
+    "average / delta / total…?'), emit the claim with 'metric', 'inputs' and "
+    "'value' ONLY and OMIT 'verdict' and 'rule' — a descriptive sentence has no "
+    "Yes/No verdict to contain, so forcing one makes the grounding check reject a "
+    "correct answer.",
     # Spec §1 anchored window (event-scoped answers, e.g. "after the AC started
     # cooling"): the claim window may carry an anchor record instead of absolute
     # bounds; the integration re-detects the transition to verify the same event.

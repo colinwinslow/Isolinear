@@ -46,6 +46,9 @@ from custom_components.isolinear.model_provider import (  # noqa: E402
     _codegen_request_view,
     _downsample_preview,
 )
+from custom_components.isolinear.answer_grounding import (  # noqa: E402
+    run_grounding_check,
+)
 from custom_components.isolinear.history_retrieval import (  # noqa: E402
     backfill_catalog_units_from_state,
 )
@@ -516,6 +519,116 @@ class FamilyDegradePromptRuleTests(unittest.TestCase):
         self.assertIn("render a histogram", lowered)
         # The boundary: user_request may change the computation, never the family.
         self.assertIn("never which of these three chart families", lowered)
+
+
+class VerdictOmissionPromptRuleTests(unittest.TestCase):
+    """open-queue (cc), 0.2.40: value/descriptive claims (mean/delta answering
+    'what was X?') omit verdict+rule so the grounding step-5 containment check
+    never runs on a sentence that has no Yes/No band label. The live e2e-11
+    symptom was `grounding_verdict_ambiguous` burning the whole repair budget on
+    a correct descriptive mean. Eval-gated with evals/verdict_omission_gate.py."""
+
+    def test_prompt_rules_scope_verdict_and_rule_to_band_judgments(self):
+        rules = " ".join(_CODEGEN_PROMPT_RULES)
+        lowered = rules.lower()
+        # verdict+rule are attached ONLY for a Yes/No or categorical judgment.
+        self.assertIn("attach 'verdict' and 'rule' to a claim only when", lowered)
+        # A plain descriptive value answer emits a value-only claim.
+        self.assertIn("omit 'verdict' and 'rule'", lowered)
+        # The three descriptive metrics that motivated the rule are named.
+        for word in ("average", "delta", "total"):
+            self.assertIn(word, lowered)
+
+    def _two_sensor_history(self):
+        return [
+            {
+                "entity_id": "sensor.kitchen_ecobee_temperature",
+                "kind": "numeric",
+                "unit": "°F",
+                "points": [
+                    {"ts_epoch_ms": 1782000000000 + i * 300000, "value": 73.0}
+                    for i in range(12)
+                ],
+            },
+            {
+                "entity_id": "sensor.basement_temperature",
+                "kind": "numeric",
+                "unit": "°F",
+                "points": [
+                    {"ts_epoch_ms": 1782000000000 + i * 300000, "value": 72.0}
+                    for i in range(12)
+                ],
+            },
+        ]
+
+    def test_descriptive_mean_claim_without_verdict_is_served(self):
+        # A value-only mean claim (no verdict/rule) must NOT be withheld — it's
+        # value-verified by the step-4 recompute instead. This pins the
+        # grounding contract the prompt rule targets.
+        render_metadata = {
+            "answer_text": "The average of the kitchen and basement was 72.50 °F.",
+            "claims": [
+                {
+                    "metric": "mean",
+                    "inputs": [
+                        "sensor.kitchen_ecobee_temperature",
+                        "sensor.basement_temperature",
+                    ],
+                    "value": 72.5,
+                }
+            ],
+        }
+        result = run_grounding_check(render_metadata, self._two_sensor_history())
+        self.assertFalse(result.get("withheld"), f"value-only claim withheld: {result}")
+
+    def test_null_verdict_with_vestigial_empty_rule_is_tolerated(self):
+        # The shape gemma actually emits under the (cc) rule: verdict=None but a
+        # leftover empty-bands rule stub. A rule is inert without a verdict
+        # (steps 5/6 both require verdict is not None), so grounding must NOT
+        # reject the stub as malformed — the mean is still value-verified.
+        render_metadata = {
+            "answer_text": "The average of the kitchen and basement was 72.50 °F.",
+            "claims": [
+                {
+                    "metric": "mean",
+                    "inputs": [
+                        "sensor.kitchen_ecobee_temperature",
+                        "sensor.basement_temperature",
+                    ],
+                    "value": 72.5,
+                    "verdict": None,
+                    "rule": {"bands": [], "basis": "value"},
+                }
+            ],
+        }
+        result = run_grounding_check(render_metadata, self._two_sensor_history())
+        self.assertFalse(result.get("withheld"), f"null-verdict claim withheld: {result}")
+        synthetic = result.get("synthetic_error") or {}
+        self.assertNotEqual(synthetic.get("code"), "grounding_claim_malformed")
+
+    def test_wrong_value_on_verdict_less_claim_still_caught(self):
+        # The inert-rule tolerance must NOT weaken step-4 value verification: a
+        # verdict-less mean claim with a WRONG value (real mean is 72.5) still
+        # trips grounding_value_mismatch and is withheld. Pins that skipping rule
+        # validation did not open a path for an unverified number.
+        render_metadata = {
+            "answer_text": "The average of the kitchen and basement was 99.90 °F.",
+            "claims": [
+                {
+                    "metric": "mean",
+                    "inputs": [
+                        "sensor.kitchen_ecobee_temperature",
+                        "sensor.basement_temperature",
+                    ],
+                    "value": 99.9,
+                    "verdict": None,
+                    "rule": {"bands": [], "basis": "value"},
+                }
+            ],
+        }
+        result = run_grounding_check(render_metadata, self._two_sensor_history())
+        synthetic = result.get("synthetic_error") or {}
+        self.assertEqual(synthetic.get("code"), "grounding_value_mismatch", result)
 
 
 class CodegenPromptGroundingTests(unittest.TestCase):

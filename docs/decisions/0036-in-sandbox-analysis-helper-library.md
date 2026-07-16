@@ -1,7 +1,7 @@
 ---
 id: 0036
 title: In-sandbox analysis helper library — ship the idiom as a callable
-status: draft
+status: accepted
 date: 2026-07-12
 supersedes: []
 superseded-by: null

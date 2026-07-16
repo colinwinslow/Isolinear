@@ -524,7 +524,15 @@ def _check_claim(
             f"claim.inputs reference entities not in the delivered series: {undelivered}",
             {"undelivered_inputs": undelivered},
         )
-    if rule is not None:
+    # A rule is only meaningful in service of a verdict — steps 5 (containment)
+    # and 6 (consistency) both gate on `verdict is not None and rule is not None`.
+    # So a rule with no verdict verifies nothing; validating it is pointlessly
+    # strict and rejects the common (cc) shape where a small model omits the
+    # verdict on a descriptive claim but leaves a vestigial `rule: {"bands": []}`
+    # stub. Treat a verdict-less claim as value-only: skip rule validation, and
+    # steps 5/6 are skipped anyway (verdict is None). The value is still
+    # recomputed and verified at step 4.
+    if rule is not None and verdict is not None:
         rule_err = _validate_rule_structure(rule)
         if rule_err:
             return _soft("grounding_claim_malformed", f"rule invalid: {rule_err}", {"rule_error": rule_err})

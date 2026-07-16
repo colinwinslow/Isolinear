@@ -1,7 +1,7 @@
 ---
 id: 0037
 title: Second model provider — OpenAI-compatible (LiteLLM proxy)
-status: draft
+status: accepted
 date: 2026-07-14
 supersedes: []
 superseded-by: null
