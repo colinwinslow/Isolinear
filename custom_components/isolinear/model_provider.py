@@ -12,7 +12,13 @@ from copy import deepcopy
 from typing import Any
 
 from ._paths import load_schema_document, schema_path
-from .const import DOMAIN, MODEL_PROVIDER_OLLAMA_COMPATIBLE, RENDER_PATH_AUTO, RENDER_PATH_PILLOW
+from .const import (
+    DOMAIN,
+    MODEL_PROVIDER_OLLAMA_COMPATIBLE,
+    MODEL_PROVIDER_OPENAI_COMPATIBLE,
+    RENDER_PATH_AUTO,
+    RENDER_PATH_PILLOW,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,6 +41,12 @@ PLANNER_RESULT_SCHEMA_PATH = schema_path("planner-result.schema.json")
 # the fallback used when an entry has no configured value.
 DEFAULT_OLLAMA_TIMEOUT_SECONDS = 180
 MODEL_PROVIDER_HEALTH_PATH = "/api/tags"
+
+# ADR-0037: reasoning effort requested from the OpenAI-compatible provider on the
+# streaming (reasoning) pass. Only sent when a reasoning trace is wanted (an
+# `on_reasoning` callback is provided); the value is a hint — models that ignore
+# it or emit no reasoning degrade to the ADR-0025 D6 "nothing shown" fallback.
+DEFAULT_OPENAI_REASONING_EFFORT = "low"
 
 # ADR-0025 R1: the live reasoning trace surfaced to the card is capped to this
 # many characters. The cap bounds snapshot size against a runaway model trace
@@ -477,6 +489,34 @@ def _sandbox_error_view(sandbox_error: Any) -> dict[str, Any]:
     return view
 
 
+def _build_planner_client(config_data: Mapping[str, Any], options_data: Mapping[str, Any]) -> Any:
+    """Construct the model-provider client for the configured provider type.
+
+    ADR-0037: ``openai_compatible`` (a LiteLLM proxy) posts OpenAI-shaped
+    requests and gets its bearer key from the write-only model-provider key
+    store (absent while auth is disabled); ``ollama_compatible`` keeps the
+    native client. Both share the timeout option.
+    """
+    raw_timeout = options_data.get("ollama_timeout_seconds", DEFAULT_OLLAMA_TIMEOUT_SECONDS)
+    timeout = int(raw_timeout) if isinstance(raw_timeout, (int, float)) else DEFAULT_OLLAMA_TIMEOUT_SECONDS
+    if config_data.get("model_provider_type") == MODEL_PROVIDER_OPENAI_COMPATIBLE:
+        # The bearer key is optional (proxy auth may be disabled, as it is during
+        # initial dev). Per ADR-0037/ADR-0032 the key is a write-only secret that
+        # will live in a model-provider key Store — that write-only config-flow
+        # field is a deferred follow-up; until then no key is sent (no auth).
+        return OpenAICompatiblePlannerClient(
+            endpoint_url=config_data["model_endpoint_url"],
+            planner_model=config_data["planner_model"],
+            api_key=None,
+            timeout_seconds=timeout,
+        )
+    return OllamaCompatiblePlannerClient(
+        endpoint_url=config_data["model_endpoint_url"],
+        planner_model=config_data["planner_model"],
+        timeout_seconds=timeout,
+    )
+
+
 def setup_model_provider_codegen(hass: Any, entry: Any) -> dict[str, Any]:
     """Install a codegen client unless render_path is explicitly "pillow".
 
@@ -486,7 +526,7 @@ def setup_model_provider_codegen(hass: Any, entry: Any) -> dict[str, Any]:
     codegen client shares the Ollama transport with the planner but uses the
     configured ``codegen_model`` when set, defaulting to the planner model when
     unset. Config-entry data may be a ``mappingproxy`` (the recurring repo
-    gotcha); ``_has_ollama_planner_config`` accepts any ``Mapping`` and options
+    gotcha); ``_has_planner_config`` accepts any ``Mapping`` and options
     are read the same tolerant way.
     """
     entry_id = getattr(entry, "entry_id", "scaffold-entry")
@@ -495,14 +535,9 @@ def setup_model_provider_codegen(hass: Any, entry: Any) -> dict[str, Any]:
     options_data = getattr(entry, "options", {}) or {}
     setup = _codegen_setup_disabled(entry_id, "model_provider_codegen_disabled")
 
-    if configured_render_path(options_data) != RENDER_PATH_PILLOW and _has_ollama_planner_config(config_data):
+    if configured_render_path(options_data) != RENDER_PATH_PILLOW and _has_planner_config(config_data):
         codegen_model = _configured_codegen_model(config_data)
-        timeout = options_data.get("ollama_timeout_seconds", DEFAULT_OLLAMA_TIMEOUT_SECONDS)
-        client = OllamaCompatiblePlannerClient(
-            endpoint_url=config_data["model_endpoint_url"],
-            planner_model=config_data["planner_model"],
-            timeout_seconds=int(timeout) if isinstance(timeout, (int, float)) else DEFAULT_OLLAMA_TIMEOUT_SECONDS,
-        )
+        client = _build_planner_client(config_data, options_data)
         entry_data[DATA_MODEL_PROVIDER_CODEGEN] = client
         setup = {
             "accepted": True,
@@ -589,13 +624,8 @@ def setup_model_provider_planner(hass: Any, entry: Any) -> dict[str, Any]:
     options_data = getattr(entry, "options", {}) or {}
     setup = _setup_disabled(entry_id, "model_provider_config_missing")
 
-    if _has_ollama_planner_config(config_data):
-        timeout = options_data.get("ollama_timeout_seconds", DEFAULT_OLLAMA_TIMEOUT_SECONDS)
-        client = OllamaCompatiblePlannerClient(
-            endpoint_url=config_data["model_endpoint_url"],
-            planner_model=config_data["planner_model"],
-            timeout_seconds=int(timeout) if isinstance(timeout, (int, float)) else DEFAULT_OLLAMA_TIMEOUT_SECONDS,
-        )
+    if _has_planner_config(config_data):
+        client = _build_planner_client(config_data, options_data)
         entry_data[DATA_MODEL_PROVIDER_PLANNER] = client
         setup = {
             "accepted": True,
@@ -1583,6 +1613,333 @@ class OllamaCompatiblePlannerClient:
         }
 
 
+class OpenAICompatiblePlannerClient(OllamaCompatiblePlannerClient):
+    """OpenAI-compatible model client (a LiteLLM proxy). ADR-0037.
+
+    Reuses the Ollama client's prompt/schema construction — every payload
+    builder's ``messages`` array is identical across providers — and overrides
+    only the transport: POST ``{base}/chat/completions`` (base includes ``/v1``),
+    optional ``Authorization: Bearer`` auth, ``response_format`` json_schema for
+    structured output (where Ollama used ``format``), and an SSE stream.
+
+    The ADR-0025 thinking trace is preserved and *simplified*: on this path a
+    single streaming call carries BOTH ``delta.reasoning_content`` (streamed to
+    the card via ``on_reasoning``, sanitized exactly as before) and
+    ``delta.content`` (the structured/free output), so Ollama's two-pass
+    think-then-format workaround is unnecessary. Requesting reasoning uses the
+    ``reasoning_effort`` param; a model that returns no ``reasoning_content``
+    degrades to the ADR-0025 D6 "nothing shown" fallback, unchanged.
+    """
+
+    provider_type = MODEL_PROVIDER_OPENAI_COMPATIBLE
+
+    def __init__(
+        self,
+        *,
+        endpoint_url: str,
+        planner_model: str,
+        api_key: str | None = None,
+        reasoning_effort: str = DEFAULT_OPENAI_REASONING_EFFORT,
+        timeout_seconds: int = DEFAULT_OLLAMA_TIMEOUT_SECONDS,
+    ) -> None:
+        super().__init__(
+            endpoint_url=endpoint_url,
+            planner_model=planner_model,
+            timeout_seconds=timeout_seconds,
+        )
+        self.api_key = api_key or None
+        self.reasoning_effort = reasoning_effort
+
+    # ---- transport ---------------------------------------------------------
+
+    def _chat_completions_url(self) -> str:
+        base = self.endpoint_url.rstrip("/")
+        return base if base.endswith("/chat/completions") else f"{base}/chat/completions"
+
+    def _structured_body(
+        self,
+        messages: list[dict[str, Any]],
+        result_schema: dict[str, Any],
+        *,
+        stream: bool,
+        temperature: float | None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "model": self.planner_model,
+            "messages": messages,
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {"name": "isolinear_result", "schema": result_schema, "strict": True},
+            },
+            "stream": stream,
+            "temperature": 0 if temperature is None else temperature,
+        }
+        if stream:
+            body["reasoning_effort"] = self.reasoning_effort
+        return body
+
+    def _read_openai_chat(
+        self,
+        body: dict[str, Any],
+        *,
+        label: str,
+        on_reasoning: Callable[[str], None] | None,
+    ) -> tuple[str | None, dict[str, Any] | None, dict[str, Any] | None]:
+        """POST one /chat/completions request; return (content, response, failure).
+
+        Streaming requests (``body['stream']``) are read as SSE, accumulating
+        ``delta.reasoning_content`` → ``on_reasoning`` and ``delta.content`` →
+        the assembled message. Non-streaming requests read a single JSON body.
+        Transport errors return the same failure shapes as the Ollama path.
+        """
+        encoded = json.dumps(body, separators=(",", ":")).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        http_request = urllib.request.Request(
+            self._chat_completions_url(), data=encoded, headers=headers, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(http_request, timeout=self.timeout_seconds) as response:
+                if body.get("stream"):
+                    content, response_payload = self._consume_sse(response, on_reasoning)
+                    _LOGGER.debug("Isolinear <- LiteLLM %s streamed response summary: %s", label, response_payload)
+                    return content, response_payload, None
+                response_payload = json.loads(response.read().decode("utf-8"))
+                _LOGGER.debug("Isolinear <- LiteLLM %s response: %s", label, json.dumps(response_payload, separators=(",", ":")))
+                return _openai_message_content(response_payload), response_payload, None
+        except urllib.error.HTTPError as exc:
+            _LOGGER.debug("Isolinear <- LiteLLM %s HTTP error: %s", label, exc)
+            return None, None, _provider_failure("model_provider_http_error", str(exc), retry_safe=True)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            _LOGGER.debug("Isolinear <- LiteLLM %s connection error: %s", label, exc)
+            return None, None, _provider_failure("model_provider_connection_error", str(exc), retry_safe=True)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            _LOGGER.debug("Isolinear <- LiteLLM %s response error: %s", label, exc)
+            return None, None, _provider_failure("model_provider_response_error", str(exc), retry_safe=False)
+
+    def _consume_sse(
+        self,
+        response: Any,
+        on_reasoning: Callable[[str], None] | None,
+    ) -> tuple[str, dict[str, Any]]:
+        """Read an OpenAI SSE chat stream, accumulating reasoning + content.
+
+        Mirrors the Ollama NDJSON consumer's D6 posture: ``on_reasoning`` fires
+        only after a delta that carries ``reasoning_content`` (models with no
+        reasoning produce no callbacks). Returns the assembled ``delta.content``
+        and the last chunk as the response summary source.
+        """
+        reasoning_parts: list[str] = []
+        content_parts: list[str] = []
+        last_chunk: dict[str, Any] = {}
+        for raw_line in response:
+            line = raw_line.decode("utf-8").strip() if isinstance(raw_line, (bytes, bytearray)) else str(raw_line).strip()
+            if not line or not line.startswith("data:"):
+                continue
+            data = line[len("data:"):].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(chunk, dict):
+                continue
+            last_chunk = chunk
+            delta = _openai_delta(chunk)
+            if delta is None:
+                continue
+            reasoning_delta = delta.get("reasoning_content")
+            content_delta = delta.get("content")
+            saw_reasoning = isinstance(reasoning_delta, str) and reasoning_delta != ""
+            if saw_reasoning:
+                reasoning_parts.append(reasoning_delta)
+            if isinstance(content_delta, str) and content_delta != "":
+                content_parts.append(content_delta)
+            if saw_reasoning and on_reasoning is not None:
+                on_reasoning(sanitize_reasoning("".join(reasoning_parts)))
+        return "".join(content_parts), last_chunk
+
+    # ---- structured calls (planner / entity selection) ---------------------
+
+    def plan_chart(
+        self,
+        request: dict[str, Any],
+        *,
+        result_schema: dict[str, Any] | None = None,
+        on_reasoning: Callable[[str], None] | None = None,
+        temperature: float | None = None,
+    ) -> dict[str, Any]:
+        schema = result_schema or load_planner_result_schema()
+        messages = self._chat_payload(request, schema, stream=False)["messages"]
+        body = self._structured_body(messages, schema, stream=on_reasoning is not None, temperature=temperature)
+        content, response_payload, failure = self._read_openai_chat(body, label="plan_chart", on_reasoning=on_reasoning)
+        if failure is not None:
+            return failure
+        if not isinstance(content, str) or not content.strip():
+            return _provider_failure("model_provider_empty_response", "Planner response content was empty.", retry_safe=True)
+        try:
+            planner_result = json.loads(_strip_markdown_json(content))
+        except json.JSONDecodeError as exc:
+            return _provider_failure("model_provider_non_json_response", str(exc), retry_safe=False)
+        return {
+            "accepted": True,
+            "code": "model_provider_planner_result_received",
+            "provider": self.provider_metadata(),
+            "planner_result": planner_result,
+            "provider_response": _provider_response_summary(response_payload or {}),
+        }
+
+    def select_entity(
+        self,
+        request: dict[str, Any],
+        *,
+        result_schema: dict[str, Any] | None = None,
+        on_reasoning: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
+        schema = result_schema or load_entity_selector_schema(request.get("candidate_entity_ids", []))
+        messages = self._entity_selector_payload(request, schema, stream=False)["messages"]
+        body = self._structured_body(messages, schema, stream=on_reasoning is not None, temperature=None)
+        content, response_payload, failure = self._read_openai_chat(body, label="select_entity", on_reasoning=on_reasoning)
+        if failure is not None:
+            return failure
+        if not isinstance(content, str) or not content.strip():
+            return _provider_failure("model_provider_empty_response", "Entity selector response content was empty.", retry_safe=True)
+        try:
+            selection_result = json.loads(_strip_markdown_json(content))
+        except json.JSONDecodeError as exc:
+            return _provider_failure("model_provider_non_json_response", str(exc), retry_safe=False)
+        return {
+            "accepted": True,
+            "code": "model_provider_entity_selection_received",
+            "provider": self.provider_metadata(),
+            "selection_result": selection_result,
+            "provider_response": _provider_response_summary(response_payload or {}),
+        }
+
+    # ---- freeform calls (codegen generate / repair) ------------------------
+
+    def _run_codegen(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        model: str | None,
+        label: str,
+        code: str,
+    ) -> dict[str, Any]:
+        body = {"model": self._codegen_model(model), "messages": messages, "stream": False, "temperature": 0}
+        content, response_payload, failure = self._read_openai_chat(body, label=label, on_reasoning=None)
+        if failure is not None:
+            return failure
+        if not isinstance(content, str) or not content.strip():
+            return _provider_failure("model_provider_empty_response", f"{label} response content was empty.", retry_safe=True)
+        python_code = _extract_python_code(content)
+        if not python_code.strip():
+            return _provider_failure("model_provider_empty_response", f"{label} produced no code after fence stripping.", retry_safe=True)
+        return {
+            "accepted": True,
+            "code": code,
+            "provider": self._codegen_provider_metadata(model),
+            "python_code": python_code,
+            "provider_response": _provider_response_summary(response_payload or {}),
+        }
+
+    def generate_chart_code(
+        self,
+        request: dict[str, Any],
+        *,
+        model: str | None = None,
+        user_request: str | None = None,
+    ) -> dict[str, Any]:
+        messages = self._codegen_payload(request, model=model, user_request=user_request)["messages"]
+        return self._run_codegen(messages, model=model, label="generate_chart_code", code="model_provider_chart_code_received")
+
+    def repair_chart_code(
+        self,
+        previous_code: str,
+        sandbox_error: dict[str, Any],
+        request: dict[str, Any],
+        *,
+        model: str | None = None,
+        user_request: str | None = None,
+    ) -> dict[str, Any]:
+        messages = self._codegen_repair_payload(
+            previous_code, sandbox_error, request, model=model, user_request=user_request
+        )["messages"]
+        return self._run_codegen(messages, model=model, label="repair_chart_code", code="model_provider_chart_code_repaired")
+
+    # ---- health ------------------------------------------------------------
+
+    def check_health(self, request: dict[str, Any]) -> dict[str, Any]:
+        """GET /models and confirm the configured planner model is listed."""
+        base = self.endpoint_url.rstrip("/")
+        models_url = base if base.endswith("/models") else f"{base}/models"
+        headers = {"Accept": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        http_request = urllib.request.Request(models_url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(http_request, timeout=self.timeout_seconds) as response:
+                response_payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            return _provider_failure("model_provider_health_http_error", str(exc), retry_safe=True)
+        except (urllib.error.URLError, TimeoutError) as exc:
+            return _provider_failure("model_provider_health_connection_error", str(exc), retry_safe=True)
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            return _provider_failure("model_provider_health_response_error", str(exc), retry_safe=False)
+
+        model_names = _openai_model_names(response_payload)
+        model_ready = self.planner_model in model_names
+        status = "ready" if model_ready else "not_ready"
+        return {
+            "accepted": True,
+            "code": "model_provider_health_result_received",
+            "provider": self.provider_metadata(),
+            "health_result": {
+                "version": 1,
+                "status": status,
+                "code": f"model_provider_health_{status}",
+                "message": (
+                    "Configured planner model is available."
+                    if model_ready
+                    else "Configured planner model was not listed by the provider."
+                ),
+                "checks": [
+                    {"name": "openai_models_endpoint", "status": "pass"},
+                    {"name": "planner_model", "status": "pass" if model_ready else "not_ready"},
+                ],
+                "capabilities": {"planning": model_ready, "structured_output": model_ready},
+            },
+            "provider_response": {"model_count": len(model_names)},
+        }
+
+
+def _openai_delta(chunk: dict[str, Any]) -> dict[str, Any] | None:
+    choices = chunk.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        delta = choices[0].get("delta")
+        if isinstance(delta, dict):
+            return delta
+    return None
+
+
+def _openai_message_content(response_payload: Any) -> str | None:
+    choices = response_payload.get("choices") if isinstance(response_payload, dict) else None
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        message = choices[0].get("message")
+        if isinstance(message, dict) and isinstance(message.get("content"), str):
+            return message["content"]
+    return None
+
+
+def _openai_model_names(response_payload: Any) -> list[str]:
+    data = response_payload.get("data") if isinstance(response_payload, dict) else None
+    if not isinstance(data, list):
+        return []
+    return [item["id"] for item in data if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"].strip()]
+
+
 def _chart_family_from_schema(result_schema: Any) -> tuple[str, str]:
     """Derive (chart_type, render_as) from a family-specific planner schema."""
     chart_type = "time_series"
@@ -1608,10 +1965,16 @@ def _setup_disabled(entry_id: str, code: str) -> dict[str, Any]:
     }
 
 
-def _has_ollama_planner_config(config_data: Any) -> bool:
+def _has_planner_config(config_data: Any) -> bool:
+    # ADR-0037: accept either supported provider type (ollama_compatible or the
+    # OpenAI-compatible LiteLLM proxy). The endpoint + planner_model shape is
+    # identical; only the transport differs.
     return (
         isinstance(config_data, Mapping)
-        and config_data.get("model_provider_type") == MODEL_PROVIDER_OLLAMA_COMPATIBLE
+        and config_data.get("model_provider_type") in (
+            MODEL_PROVIDER_OLLAMA_COMPATIBLE,
+            MODEL_PROVIDER_OPENAI_COMPATIBLE,
+        )
         and isinstance(config_data.get("model_endpoint_url"), str)
         and config_data["model_endpoint_url"].strip().startswith(("http://", "https://"))
         and isinstance(config_data.get("planner_model"), str)

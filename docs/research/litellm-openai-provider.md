@@ -1,6 +1,6 @@
 ---
 title: LiteLLM / OpenAI-compatible provider option (and the fate of thinking streaming)
-status: open
+status: promoted-to-adr
 date: 2026-07-14
 ---
 
@@ -102,5 +102,9 @@ the structured `content`.
 
 ## Resolution
 
-Open. Blocked on a quick live probe of the proxy's `reasoning_content` behavior
-before an ADR is worth writing. Logged in `STATUS.md` open queue as (dd).
+**Promoted to ADR-0037 (2026-07-14).** The live probe answered every critical
+unknown against `http://10.0.1.39:4000/v1`: `response_format` json_schema works
+through the `ollama_chat` route; reasoning streams as `delta.reasoning_content`
+via `reasoning_effort`; and — the decisive finding — reasoning + structured JSON
+coexist in ONE streaming call, so the Ollama two-pass workaround collapses. See
+`docs/decisions/0037-openai-compatible-litellm-provider.md`.

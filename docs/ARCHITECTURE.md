@@ -98,7 +98,7 @@ context overflow) falls back to the trusted Pillow renderer
 | `planning_pipeline.py` | 0.7K | `_plan_once` (contract/family/allowlist gates + catalog-unit overwrite) + the bounded re-plan loop (fresh-sample temperature) + planner request/record builders |
 | `orchestration_contracts.py` | 0.6K | The 13 JSON-Schema contract validators + structural entity-reference checks + schema paths (the schema-first + plan-validation invariants) |
 | `history_dispatch.py` | 0.3K | Window resolution, tiered-retrieval wrapper, D9 epoch-ms boundary transforms |
-| `model_provider.py` | 1.6K | Ollama client: planner (two-pass streaming) + entity selector + codegen/repair prompts (the floor-model discipline lives here) |
+| `model_provider.py` | 1.6K | Model-provider clients (ADR-0037): Ollama native (`/api/chat`, two-pass streaming) + OpenAI-compatible/LiteLLM (`/v1/chat/completions`, single streaming call via `reasoning_content`) — planner + entity selector + codegen/repair prompts (the floor-model discipline lives here) |
 | `history_retrieval.py` | 1.3K | Tiered history (recorder/statistics), unit backfill |
 | `in_process_renderer.py` | 1.3K | Pillow fallback renderer (time_series/timeline/histogram/aggregate + overlay regions) |
 | `websocket_api.py` | 0.9K | The card's WS command surface |
@@ -112,7 +112,7 @@ context overflow) falls back to the trusted Pillow renderer
 ## Deployment topology
 
 - **HA box (10.0.1.200):** the integration, via HACS (repo → Redownload → restart; HACS tracks commit SHA). Card bundle ships inside the integration.
-- **CT103 (10.0.1.39):** Ollama (`:11434`, gemma4:e4b) + `isolinear-worker:dev` compose service (`:8080`, bearer-token; homelab repo owns the compose/IaC). Worker image rebuilds are independent of HACS ships.
+- **CT103 (10.0.1.39):** Ollama (`:11434`, gemma4:e4b) + a **LiteLLM proxy** (`:4000/v1`, OpenAI-compatible, forwards `ollama/gemma`→gemma4:e4b and `ollama/qwen-coder`→qwen2.5-coder:7b; the ADR-0037 default provider, optional bearer key) + `isolinear-worker:dev` compose service (`:8080`, bearer-token; homelab repo owns the compose/IaC). Worker image rebuilds are independent of HACS ships.
 - Endpoints + token configured in the integration's options flow (ADR-0032).
 
 ## Not current architecture (don't build on these)

@@ -9,7 +9,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .const import (
-    MODEL_PROVIDER_OLLAMA_COMPATIBLE,
+    MODEL_PROVIDER_OPENAI_COMPATIBLE,
     RENDER_MODE_SAFE,
     RENDER_PATH_AUTO,
     SUPPORTED_MODEL_PROVIDER_TYPES,
@@ -66,11 +66,16 @@ class IsolinearOptionsShape:
 
 
 def default_config_data() -> dict[str, Any]:
-    """Return local-first config-entry defaults for the scaffold."""
+    """Return local-first config-entry defaults for the scaffold.
+
+    ADR-0037: the default provider is the OpenAI-compatible LiteLLM proxy (the
+    homelab dev/testing default). Model ids are LiteLLM route names; codegen
+    defaults to the planner model (gemma), preserving prior codegen behavior.
+    """
     return {
-        "model_provider_type": MODEL_PROVIDER_OLLAMA_COMPATIBLE,
-        "model_endpoint_url": "http://localhost:11434",
-        "planner_model": "llama3.1",
+        "model_provider_type": MODEL_PROVIDER_OPENAI_COMPATIBLE,
+        "model_endpoint_url": "http://10.0.1.39:4000/v1",
+        "planner_model": "ollama/gemma",
         "codegen_model": None,
         "visual_validator_model": None,
         "worker_endpoint_url": "http://localhost:8765",

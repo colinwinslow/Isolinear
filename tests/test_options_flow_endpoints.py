@@ -182,5 +182,60 @@ class OptionsFlowEndToEndTests(unittest.TestCase):
         self.assertEqual(result["errors"].get("worker_endpoint_url"), "endpoint_userinfo_forbidden")
 
 
+class ProviderSwitchInPlaceTests(unittest.TestCase):
+    """ADR-0037: an existing Ollama install can switch to the LiteLLM proxy via
+    the options form (keeping its entity allowlist) — the provider fields route
+    into config-entry data and the model-provider client is rebuilt live."""
+
+    def _ollama_entry_hass(self):
+        from custom_components.isolinear.const import MODEL_PROVIDER_OLLAMA_COMPATIBLE
+
+        hass = FakeHass()
+        get_worker_token_storage(hass).save_token("e1", VALID_TOKEN)
+        ollama_config = {
+            **default_config_data(),
+            "model_provider_type": MODEL_PROVIDER_OLLAMA_COMPATIBLE,
+            "model_endpoint_url": "http://10.0.1.39:11434",
+            "planner_model": "llama3.1",
+        }
+        # A non-empty allowlist we must NOT lose across the switch.
+        options = {**default_options_data(), "entity_allowlist": ["sensor.upstairs_temperature"]}
+        entry = FakeEntry("e1", data=ollama_config, options=options)
+        return entry, hass
+
+    def test_switch_to_litellm_persists_to_data_and_rebuilds_openai_client(self) -> None:
+        from custom_components.isolinear.const import (
+            DOMAIN,
+            MODEL_PROVIDER_OPENAI_COMPATIBLE,
+        )
+        from custom_components.isolinear.model_provider import (
+            OpenAICompatiblePlannerClient,
+            get_model_provider_planner,
+        )
+
+        entry, hass = self._ollama_entry_hass()
+        result = asyncio.run(
+            _flow(entry, hass).async_step_init(
+                _options_input(
+                    model_provider_type=MODEL_PROVIDER_OPENAI_COMPATIBLE,
+                    model_endpoint_url="http://10.0.1.39:4000/v1",
+                    planner_model="ollama/gemma",
+                )
+            )
+        )
+        self.assertEqual(result["type"], "create_entry")
+        # provider + endpoint landed in config-entry data
+        self.assertEqual(entry.data["model_provider_type"], MODEL_PROVIDER_OPENAI_COMPATIBLE)
+        self.assertEqual(entry.data["model_endpoint_url"], "http://10.0.1.39:4000/v1")
+        self.assertEqual(entry.data["planner_model"], "ollama/gemma")
+        # the allowlist is preserved (the whole reason for switching in place)
+        self.assertEqual(result["data"]["entity_allowlist"], ["sensor.upstairs_temperature"])
+        # the live planner client was rebuilt as the OpenAI-compatible client
+        planner = get_model_provider_planner(hass, "e1")
+        self.assertIsInstance(planner, OpenAICompatiblePlannerClient)
+        self.assertEqual(planner.endpoint_url, "http://10.0.1.39:4000/v1")
+        self.assertEqual(planner.planner_model, "ollama/gemma")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 DOMAIN = "isolinear"
 NAME = "Isolinear"
-INTEGRATION_VERSION = "0.2.37"
+INTEGRATION_VERSION = "0.2.38"
 CONFIG_ENTRY_AUTO = "auto"
 
 INTEGRATION_WS_VERSION = 1
@@ -25,7 +25,13 @@ INTEGRATION_COMMAND_TYPES = {
 }
 
 MODEL_PROVIDER_OLLAMA_COMPATIBLE = "ollama_compatible"
-SUPPORTED_MODEL_PROVIDER_TYPES = (MODEL_PROVIDER_OLLAMA_COMPATIBLE,)
+# ADR-0037: OpenAI-compatible provider (a LiteLLM proxy) — /v1/chat/completions,
+# response_format json_schema, single streaming call carrying reasoning_content.
+MODEL_PROVIDER_OPENAI_COMPATIBLE = "openai_compatible"
+SUPPORTED_MODEL_PROVIDER_TYPES = (
+    MODEL_PROVIDER_OPENAI_COMPATIBLE,
+    MODEL_PROVIDER_OLLAMA_COMPATIBLE,
+)
 
 RENDER_MODE_SAFE = "safe"
 RENDER_MODE_CODEGEN = "codegen"

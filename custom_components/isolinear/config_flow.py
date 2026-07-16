@@ -221,6 +221,34 @@ def extract_endpoint_edits(user_input: Any) -> tuple[dict[str, Any], dict[str, A
     return edits, remaining
 
 
+# ADR-0037: the model provider (type + models) also lives in config-entry DATA,
+# but is surfaced in the options form so an existing install can switch providers
+# (e.g. Ollama → the LiteLLM proxy) in place without deleting the integration and
+# re-entering the entity allowlist. Extracted alongside the endpoints and routed
+# to config data.
+PROVIDER_OPTIONS_FIELDS = ("model_provider_type", "planner_model", "codegen_model")
+
+
+def extract_provider_edits(user_input: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split editable model-provider fields out of options user input.
+
+    Returns ``(edits, remaining_input)``. ``edits`` holds any of
+    ``model_provider_type`` / ``planner_model`` / ``codegen_model`` present
+    (stripped), merged into config-entry data and validated there. Normalization
+    (empty ``codegen_model`` → None, etc.) is handled downstream by
+    ``normalize_existing_config_entry_data``.
+    """
+    if not isinstance(user_input, dict):
+        return {}, user_input if isinstance(user_input, dict) else {}
+    remaining = dict(user_input)
+    edits: dict[str, Any] = {}
+    for key in PROVIDER_OPTIONS_FIELDS:
+        if key in remaining:
+            value = remaining.pop(key)
+            edits[key] = value.strip() if isinstance(value, str) else value
+    return edits, remaining
+
+
 class IsolinearOptionsFlow(config_entries.OptionsFlow):
     """Update safe Isolinear options for an existing config entry."""
 
@@ -236,10 +264,12 @@ class IsolinearOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             token_action, remaining_input = extract_worker_token_action(user_input)
-            endpoint_edits, options_input = extract_endpoint_edits(remaining_input)
+            endpoint_edits, remaining_input = extract_endpoint_edits(remaining_input)
+            provider_edits, options_input = extract_provider_edits(remaining_input)
             updated_config = {
                 **normalize_existing_config_entry_data(getattr(config_entry, "data", {})),
                 **endpoint_edits,
+                **provider_edits,
             }
             if token_action["kind"] == "too_short":
                 errors = {WORKER_TOKEN_OPTIONS_FIELD: "worker_token_too_short"}
@@ -334,6 +364,7 @@ def config_flow_field_metadata() -> dict[str, Any]:
         "config_fields": list(CONFIG_FLOW_FIELDS),
         "options_fields": list(OPTIONS_FLOW_FIELDS),
         "options_endpoint_fields": list(ENDPOINT_OPTIONS_FIELDS),
+        "options_provider_fields": list(PROVIDER_OPTIONS_FIELDS),
         "config_defaults": default_config_data(),
         "options_defaults": options_to_form_data(default_options_data()),
         "options_selectors": {
@@ -394,11 +425,13 @@ def build_options_flow_schema(
             "step": OPTIONS_FLOW_STEP,
             "fields": [
                 *ENDPOINT_OPTIONS_FIELDS,
+                *PROVIDER_OPTIONS_FIELDS,
                 *OPTIONS_FLOW_FIELDS,
                 WORKER_TOKEN_OPTIONS_FIELD,
             ],
             "defaults": {
                 **{key: config_defaults.get(key) for key in ENDPOINT_OPTIONS_FIELDS},
+                **{key: config_defaults.get(key) for key in PROVIDER_OPTIONS_FIELDS},
                 **{key: defaults.get(key) for key in OPTIONS_FLOW_FIELDS},
             },
             "selectors": {
@@ -428,6 +461,21 @@ def build_options_flow_schema(
             vol.Required(
                 "worker_endpoint_url",
                 default=config_defaults["worker_endpoint_url"],
+            ): str,
+            # ADR-0037: model provider is config-entry data, surfaced here so an
+            # existing install can switch providers/models in place (keeping its
+            # allowlist). Persisted to config data alongside the endpoints.
+            vol.Required(
+                "model_provider_type",
+                default=config_defaults["model_provider_type"],
+            ): vol.In(SUPPORTED_MODEL_PROVIDER_TYPES),
+            vol.Required(
+                "planner_model",
+                default=config_defaults["planner_model"],
+            ): str,
+            vol.Optional(
+                "codegen_model",
+                default=config_defaults.get("codegen_model") or "",
             ): str,
             vol.Required(
                 "default_render_mode",

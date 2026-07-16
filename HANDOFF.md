@@ -2,6 +2,31 @@
 
 ## Current project phase
 
+### 2026-07-16 (26th session) — Second model provider: OpenAI-compatible / LiteLLM proxy, now the default; the ADR-0025 thinking stream survives + simplifies (0.2.38, ADR-0037)
+
+**Phase.** `Model access can now route through a LiteLLM proxy (OpenAI-compatible), which is the default for local dev/testing — model A/B (local vs POE cloud) is a config change, not a code change.` Colin is moving the homelab behind a LiteLLM proxy. The open question — does the ADR-0025 live "thinking" stream survive the move off Ollama's native `/api/chat`? — was answered by probing the REAL proxy before designing ([[feedback-e2e-over-synthetic]]).
+
+**Probe findings (live, `http://10.0.1.39:4000/v1`, `ollama/gemma`).** (1) `/v1/models` exposes `ollama/gemma` + `ollama/qwen-coder`; (2) `response_format` json_schema returns clean schema-valid JSON through the `ollama_chat` route — the planner's structured-output contract holds; (3) reasoning streams as `choices[0].delta.reasoning_content` via `reasoning_effort`; (4) **the decisive one — reasoning + structured JSON coexist in ONE streaming call**, so Ollama's two-pass think-then-format workaround (needed because Ollama suppresses thinking under `format`) is unnecessary here.
+
+**What shipped (0.2.38, ADR-0037 draft).**
+- **`OpenAICompatiblePlannerClient`** (`model_provider.py`) — a subclass of the Ollama client that REUSES every payload builder's `messages` array (all the prompt/rules/schema construction, provider-agnostic) and overrides only transport: POST `{base}/chat/completions`, `response_format` json_schema (where Ollama used `format`), an SSE consumer mapping `delta.reasoning_content` → the existing `on_reasoning` callback (sanitized, unchanged) and `delta.content` → the message, optional `Authorization: Bearer`, and a `/models` health check. Single streaming call replaces the two-pass; a model with no reasoning degrades to the ADR-0025 D6 "nothing shown" fallback.
+- **Default flipped to LiteLLM** — `default_config_data()` → `openai_compatible`, `http://10.0.1.39:4000/v1`, planner `ollama/gemma`; codegen defaults to the planner (gemma), preserving prior codegen behavior. Ollama retained as a selectable type.
+- **In-place provider switch** — `model_provider_type`/`planner_model`/`codegen_model` are now editable in the OPTIONS form (routed into config-entry data like the endpoints), so an existing install switches Ollama→LiteLLM without deleting the integration and re-entering its allowlist. The client rebuilds live on submit.
+- `_build_planner_client` factory selects the client by provider type; the config gate `_has_planner_config` (renamed from `_has_ollama_planner_config`) accepts both types.
+
+**Verification.** Full suite **511 passed / 4 skipped** (+23: 22 client transport/factory/health + 1 in-place-switch-keeps-allowlist). **Live-proven against the real proxy:** health `ready`; `plan_chart` returned `chart_spec_ready` (structured) with **674 streamed reasoning callbacks**; `generate_chart_code` returned a valid `render_chart`. **Arch-review subagent RUN — OK** (no invariant violation; #1 allowlist preserved through the switch; #3 sandbox untouched; #4 strengthened — `response_format` `strict:true`; secret handling clean — `api_key` is always None today, never in data/options, no key in debug logs; subclass reuse sound, drift bounded by the shared `messages` contract; ADR-0037 the sufficient record). No BDD (additive transport, not a new user-facing surface; unit tests + live probe are the proof).
+
+**Deploy / usage.** `main` will be **0.2.38, PUSHED**, integration-only (no worker rebuild). Auth is currently DISABLED on the proxy (Colin's temporary dev setting), so no key is sent. To switch his existing install: Configure → set provider `openai_compatible`, model endpoint `http://10.0.1.39:4000/v1`, planner `ollama/gemma` → submit (allowlist kept). **Caveat:** if proxy auth is re-enabled before the key field lands, `/v1/models` health returns 401 → provider shows unhealthy; keep auth off until then.
+
+**Deferred (ADR-0037 §4).** The write-only bearer-key config-flow field + key Store (mirroring the ADR-0032 worker token) — not needed while auth is off. When it lands, add a `config_schema` regression asserting no provider key ever appears in data/options (arch-review rec).
+
+**Next.**
+1. **Write-only LiteLLM key field** when Colin enables proxy auth (deferred here).
+2. **(cc) grounding_verdict_ambiguous** prompt rule (from the 25th session — the model attaches a spurious verdict+rule to a plain descriptive mean).
+3. **(y) card-level legend for codegen** (needs a `kind:computed` decision; `docs/research/codegen-card-level-legend.md`).
+4. **(I) promote ADR-0036** draft→accepted; **ADR-0037** draft→accepted once live-exercised through the card.
+5. Then (r) binary/timeline routing, (t) the >2-day tiering wall, (F) cosmetics.
+
 ### 2026-07-14 (25th session) — Packet (H) closed: e2e-11's empty answer root-caused live to a grounding-reference bug and fixed (0.2.37); Ollama timeout made configurable (0.2.36); card-level legend re-scoped
 
 **Phase.** `e2e-11's persistent empty-answer symptom is ROOT-CAUSED and FIXED — live-confirmed on Colin's own card.` The [[isolinear-e2e11-sandbox-cascade]] theory (a sandbox-execution repair cascade) was **superseded**: ADR-0036's `align()` (0.2.34) had already resolved the sandbox `KeyError`/`PermissionError` class, and the current dominant failure is a grounding-reference bug. Diagnosis was done against the REAL deployed pipeline + system_log ([[feedback-e2e-over-synthetic]]), not offline sims.
