@@ -52,7 +52,7 @@
       "additionalProperties": false,
       "properties": {
         "type": {
-          "const": "ollama_compatible"
+          "enum": ["ollama_compatible", "openai_compatible"]
         },
         "role": {
           "const": "planner"
@@ -66,7 +66,7 @@
           "pattern": "\\S"
         },
         "health_path": {
-          "const": "/api/tags"
+          "enum": ["/api/tags", "/models"]
         }
       }
     },

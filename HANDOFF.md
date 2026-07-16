@@ -2,6 +2,31 @@
 
 ## Current project phase
 
+### 2026-07-16 (27th session) — Write-only LiteLLM key field (ADR-0037 §4, deferred item now landed) + a live-discovered schema bug fix (0.2.39)
+
+**Phase.** `The (ee) deferred item from the 26th session — the write-only provider-key field — is landed. While closing it, Colin re-enabled proxy auth and hit a live failure that traced to a real bug in the 26th session's ADR-0037 landing: three JSON Schemas still hardcoded provider.type to the pre-ADR-0037 Ollama-only const, rejecting every schema-validated record the new default provider produces the moment a call fails. Fixed alongside the key field.`
+
+**What shipped.**
+- **`ModelProviderKeyStorageHelper`** (new `model_provider_key_storage.py`) — an integration-owned HA Store, structurally identical to the ADR-0032 `WorkerTokenStorageHelper` (per-entry keys, presence-only `summary()`, no key value ever surfaced). No minimum length (API keys vary, unlike the 24-char worker-token floor).
+- **Write-only `model_provider_api_key` options-flow field** (`config_flow.py`): `extract_provider_key_action()` splits keep/save/clear out of the form input *before* options validation — same ordering as `extract_worker_token_action`. `_apply_provider_key_action()` saves/clears and rebuilds both the planner and codegen clients immediately (a key-only re-paste leaves options unchanged, so the options-update listener never fires — same reasoning as the ADR-0032 token rebuild).
+- **`config_schema.py`** — `model_provider_api_key` added to `FORBIDDEN_CONFIG_KEYS` as defense-in-depth (it must never land in config data/options even by accident).
+- **`_build_planner_client`** now accepts `api_key`; `setup_model_provider_planner`/`setup_model_provider_codegen` read the stored key via `stored_model_provider_key(hass, entry_id)` and thread it into `OpenAICompatiblePlannerClient`, which sends `Authorization: Bearer <key>`.
+- **Live bug found + fixed:** Colin re-enabled LiteLLM proxy auth (no key configured yet) and got a card failure — `SNAPSHOT_POLL_FAILED` / `invalid_integration_model_provider_retry_policy`. Root cause: `integration-model-provider-plan`, `integration-model-provider-health`, and `integration-model-provider-retry-policy` schemas all hardcoded `provider.type` to `"const": "ollama_compatible"`, a leftover from before ADR-0037 added the second provider. The 26th session's "live-proven" verification called the client directly and never routed a *failure* through the full orchestration + schema-validation path, so this never surfaced until a real 401 hit it live. Fixed: `provider.type` → `"enum": ["ollama_compatible", "openai_compatible"]` in all three schemas, both the `docs/schemas/` source copies and the bundled `custom_components/isolinear/schemas/` runtime copies (kept byte-identical, verified). Also fixed a paired correctness bug: the health record's `provider.health_path` was hardcoded to Ollama's `/api/tags` regardless of provider; `_provider_health_metadata()` now picks `/api/tags` or the new `MODEL_PROVIDER_OPENAI_HEALTH_PATH = "/models"` based on the actual provider type.
+
+**Verification.** Suite **545 passed / 4 skipped** (+34: 28 key-storage tests + 6 schema-regression tests). 4 of the 6 new schema-regression tests were confirmed to genuinely fail against the pre-fix schemas (git-stashed the schema files, re-ran, saw the exact live error message `"$.provider.type must equal 'ollama_compatible'."`, restored) — not vacuous. **Architecture-review subagent run (general-purpose, fresh context) — OK**: no invariant violations; secret handling verified clean (key never reaches config data/options/logs/card, extraction ordering matches ADR-0032); grepped the whole repo for the stale const pattern — no other schema missed; both schema copies confirmed byte-identical. No new ADR needed — the key field is ADR-0037 §4 landed verbatim, and the schema fix is a pure bug fix on an already-decided default. No BDD (mirrors how the 26th session treated the provider transport itself — additive/bug-fix on an existing contract, not a new user-facing surface).
+
+**Deploy state.** Commit-only as of this write-up; **PUSHED per Colin's explicit request this session**. Integration-only, no worker rebuild. Version **0.2.39**.
+
+**Still open / not yet verified live.** Colin has not yet generated a LiteLLM virtual/master key or pasted it into Isolinear's Configure form — the proxy's auth is on but Isolinear is still sending unauthenticated requests until he does. Once he does: (1) confirm the query now succeeds end-to-end (the schema fix should mean any transient failure now surfaces cleanly instead of `invalid_integration_model_provider_retry_policy`); (2) confirm the health entity reports `ready` (exercises the `health_path` fix live). ADR-0037 stays `draft` — the architecture review noted its full decision surface is now landed and suggested flipping it to `accepted`, but that's pending Colin's OK per this repo's ADR-immutability convention, and ideally after the live key-based retest above.
+
+**Next.**
+1. **Colin: generate a LiteLLM virtual key, paste it into Configure, redownload/restart, and confirm the query + health entity work end to end.**
+2. **(I) Promote ADR-0037 draft → accepted** once the above live retest is clean (per the architecture review's recommendation).
+3. **(cc) grounding_verdict_ambiguous** prompt rule (carried over from the 25th session).
+4. **(y) card-level legend for codegen** (needs a `kind:computed` decision).
+5. **(I) promote ADR-0036** draft→accepted (carried over).
+6. Then (r) binary/timeline routing, (t) the >2-day tiering wall, (F) cosmetics.
+
 ### 2026-07-16 (26th session) — Second model provider: OpenAI-compatible / LiteLLM proxy, now the default; the ADR-0025 thinking stream survives + simplifies (0.2.38, ADR-0037)
 
 **Phase.** `Model access can now route through a LiteLLM proxy (OpenAI-compatible), which is the default for local dev/testing — model A/B (local vs POE cloud) is a config change, not a code change.` Colin is moving the homelab behind a LiteLLM proxy. The open question — does the ADR-0025 live "thinking" stream survive the move off Ollama's native `/api/chat`? — was answered by probing the REAL proxy before designing ([[feedback-e2e-over-synthetic]]).

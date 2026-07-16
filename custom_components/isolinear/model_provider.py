@@ -19,6 +19,7 @@ from .const import (
     RENDER_PATH_AUTO,
     RENDER_PATH_PILLOW,
 )
+from .model_provider_key_storage import stored_model_provider_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,6 +42,10 @@ PLANNER_RESULT_SCHEMA_PATH = schema_path("planner-result.schema.json")
 # the fallback used when an entry has no configured value.
 DEFAULT_OLLAMA_TIMEOUT_SECONDS = 180
 MODEL_PROVIDER_HEALTH_PATH = "/api/tags"
+# ADR-0037: the OpenAI-compatible (LiteLLM) provider's health check hits
+# GET /models, not the Ollama-native /api/tags. Recorded metadata must reflect
+# the actual endpoint checked for the configured provider.
+MODEL_PROVIDER_OPENAI_HEALTH_PATH = "/models"
 
 # ADR-0037: reasoning effort requested from the OpenAI-compatible provider on the
 # streaming (reasoning) pass. Only sent when a reasoning trace is wanted (an
@@ -489,25 +494,26 @@ def _sandbox_error_view(sandbox_error: Any) -> dict[str, Any]:
     return view
 
 
-def _build_planner_client(config_data: Mapping[str, Any], options_data: Mapping[str, Any]) -> Any:
+def _build_planner_client(
+    config_data: Mapping[str, Any],
+    options_data: Mapping[str, Any],
+    *,
+    api_key: str | None = None,
+) -> Any:
     """Construct the model-provider client for the configured provider type.
 
     ADR-0037: ``openai_compatible`` (a LiteLLM proxy) posts OpenAI-shaped
-    requests and gets its bearer key from the write-only model-provider key
-    store (absent while auth is disabled); ``ollama_compatible`` keeps the
-    native client. Both share the timeout option.
+    requests; the optional bearer key comes from the write-only model-provider
+    key store (``api_key=None`` while auth is disabled).
+    ``ollama_compatible`` keeps the native client. Both share the timeout option.
     """
     raw_timeout = options_data.get("ollama_timeout_seconds", DEFAULT_OLLAMA_TIMEOUT_SECONDS)
     timeout = int(raw_timeout) if isinstance(raw_timeout, (int, float)) else DEFAULT_OLLAMA_TIMEOUT_SECONDS
     if config_data.get("model_provider_type") == MODEL_PROVIDER_OPENAI_COMPATIBLE:
-        # The bearer key is optional (proxy auth may be disabled, as it is during
-        # initial dev). Per ADR-0037/ADR-0032 the key is a write-only secret that
-        # will live in a model-provider key Store — that write-only config-flow
-        # field is a deferred follow-up; until then no key is sent (no auth).
         return OpenAICompatiblePlannerClient(
             endpoint_url=config_data["model_endpoint_url"],
             planner_model=config_data["planner_model"],
-            api_key=None,
+            api_key=api_key,
             timeout_seconds=timeout,
         )
     return OllamaCompatiblePlannerClient(
@@ -537,7 +543,8 @@ def setup_model_provider_codegen(hass: Any, entry: Any) -> dict[str, Any]:
 
     if configured_render_path(options_data) != RENDER_PATH_PILLOW and _has_planner_config(config_data):
         codegen_model = _configured_codegen_model(config_data)
-        client = _build_planner_client(config_data, options_data)
+        api_key = stored_model_provider_key(hass, entry_id)
+        client = _build_planner_client(config_data, options_data, api_key=api_key)
         entry_data[DATA_MODEL_PROVIDER_CODEGEN] = client
         setup = {
             "accepted": True,
@@ -625,7 +632,8 @@ def setup_model_provider_planner(hass: Any, entry: Any) -> dict[str, Any]:
     setup = _setup_disabled(entry_id, "model_provider_config_missing")
 
     if _has_planner_config(config_data):
-        client = _build_planner_client(config_data, options_data)
+        api_key = stored_model_provider_key(hass, entry_id)
+        client = _build_planner_client(config_data, options_data, api_key=api_key)
         entry_data[DATA_MODEL_PROVIDER_PLANNER] = client
         setup = {
             "accepted": True,

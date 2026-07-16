@@ -267,5 +267,233 @@ class FactoryAndConfigTests(unittest.TestCase):
         self.assertIn(MODEL_PROVIDER_OLLAMA_COMPATIBLE, SUPPORTED_MODEL_PROVIDER_TYPES)
 
 
+class ProviderTypeSchemaRegressionTests(unittest.TestCase):
+    """Live bug (2026-07-16): the plan/health/retry-policy JSON Schemas hardcoded
+    ``provider.type`` to the const ``"ollama_compatible"``, a leftover from before
+    ADR-0037 added a second provider. Since 0.2.38 made ``openai_compatible`` the
+    DEFAULT, every schema-validated provider record produced by the new client was
+    rejected — surfaced live as ``invalid_integration_model_provider_retry_policy``
+    the first time a request failed (proxy auth re-enabled, no key configured yet).
+    These pin the fix: both provider types validate; the health_path metadata
+    correctly reflects each provider's real health endpoint.
+    """
+
+    def test_plan_schema_accepts_openai_compatible_provider_type(self):
+        """Targets the exact defect: the bundled schema's `provider.type` const,
+        checked directly (bypassing the nested PlannerResult/ChartSpec cascade in
+        ``validate_model_provider_plan_contract``, which is unrelated to this bug).
+        """
+        from custom_components.isolinear._paths import load_schema_document
+        from custom_components.isolinear.job_state import _validate_json_schema
+        from custom_components.isolinear.orchestration_contracts import (
+            MODEL_PROVIDER_PLAN_SCHEMA_PATH,
+        )
+
+        plan = {
+            "provider_plan_id": "entry-provider-plan-001",
+            "config_entry_id": "entry",
+            "job_id": "entry-job-001",
+            "source_snapshot_id": "entry-snapshot-001",
+            "provider": {
+                "type": MODEL_PROVIDER_OPENAI_COMPATIBLE,
+                "role": "planner",
+                "endpoint_url": "http://10.0.1.39:4000/v1",
+                "model": "ollama/gemma",
+            },
+            "request": {
+                "prompt": "kitchen temperature",
+                "approved_entity_ids": ["sensor.kitchen_temperature"],
+                "history_entity_ids": ["sensor.kitchen_temperature"],
+                "now": "2026-07-16T00:00:00+00:00",
+                "time_zone": "UTC",
+                "output_schema": "PlannerResult",
+            },
+            "status": "chart_spec_ready",
+            "planner_result": {"status": "chart_spec_ready"},
+            "chart_spec": {},
+            "validation": {
+                "status": "pass",
+                "summary": "ok",
+                "checks": [],
+            },
+            "warnings": [],
+        }
+        schema = load_schema_document(MODEL_PROVIDER_PLAN_SCHEMA_PATH)
+        # No exception raised == the top-level schema (incl. provider.type) accepts it.
+        _validate_json_schema(plan, schema, root_schema=schema, path="$")
+
+    def test_retry_policy_contract_accepts_openai_compatible_provider(self):
+        from custom_components.isolinear.orchestration_contracts import (
+            validate_model_provider_retry_policy_contract,
+        )
+
+        policy = {
+            "policy_id": "entry-model-provider-retry-policy-001",
+            "type": "isolinear_model_provider_retry_policy",
+            "config_entry_id": "entry",
+            "job_id": "entry-job-001",
+            "source_snapshot_id": "entry-snapshot-001",
+            "provider": {
+                "type": MODEL_PROVIDER_OPENAI_COMPATIBLE,
+                "role": "planner",
+                "endpoint_url": "http://10.0.1.39:4000/v1",
+                "model": "ollama/gemma",
+            },
+            "request": {
+                "prompt": "kitchen temperature",
+                "approved_entity_ids": ["sensor.kitchen_temperature"],
+                "history_entity_ids": ["sensor.kitchen_temperature"],
+                "now": "2026-07-16T00:00:00+00:00",
+                "time_zone": "UTC",
+                "output_schema": "PlannerResult",
+            },
+            "failure": {
+                "stage": "model_provider_planning",
+                "code": "model_provider_http_error",
+                "message": "HTTP Error 401: Unauthorized",
+                "retry_safe": True,
+            },
+            "decision": {
+                "eligible": True,
+                "reason": "model_provider_failure_retry_safe",
+                "manual_retry_allowed": True,
+                "automatic_retry_scheduled": False,
+            },
+            "backoff": {
+                "strategy": "bounded_exponential_scaffold",
+                "attempt_number": 1,
+                "delay_seconds": 5,
+                "max_delay_seconds": 60,
+                "jitter_applied": False,
+            },
+            "validation": {
+                "status": "pass",
+                "summary": "ok",
+                "checks": [],
+            },
+            "warnings": [],
+        }
+        result = validate_model_provider_retry_policy_contract(policy)
+        self.assertTrue(result["accepted"], result)
+
+    def test_health_contract_accepts_openai_compatible_provider_and_models_path(self):
+        from custom_components.isolinear.model_provider_health import (
+            validate_model_provider_health_contract,
+        )
+
+        health = {
+            "health_id": "entry-model-provider-health-001",
+            "type": "isolinear_model_provider_health",
+            "config_entry_id": "entry",
+            "status": "ready",
+            "code": "model_provider_health_ready",
+            "provider": {
+                "type": MODEL_PROVIDER_OPENAI_COMPATIBLE,
+                "role": "planner",
+                "endpoint_url": "http://10.0.1.39:4000/v1",
+                "model": "ollama/gemma",
+                "health_path": "/models",
+            },
+            "request": {
+                "protocol_version": 1,
+                "method": "GET",
+                "path": "/api/tags",
+                "headers": {"accept": "application/json"},
+            },
+            "response": {
+                "accepted": True,
+                "status": "ready",
+                "code": "model_provider_health_ready",
+                "message": "Configured planner model is available.",
+                "checks": [],
+                "capabilities": {"planning": True, "structured_output": True},
+            },
+            "validation": {
+                "status": "pass",
+                "summary": "ok",
+                "checks": [],
+            },
+            "warnings": [],
+            "orchestration": {
+                "model_provider_health_check_called": True,
+                "model_provider_health_bookkeeping_written": True,
+                "model_provider_health_request_validated": True,
+                "model_provider_health_response_validated": True,
+                "model_provider_planning_called": False,
+                "model_provider_retry_policy_written": False,
+                "worker_called": False,
+                "worker_health_check_called": False,
+                "home_assistant_history_read": False,
+                "semantic_memory_called": False,
+                "home_assistant_service_or_state_mutation_called": False,
+                "token_generated": False,
+                "token_rotation_called": False,
+                "chart_rendering_called": False,
+                "chart_artifact_written": False,
+                "durable_storage_written": False,
+                "durable_retry_storage_written": False,
+                "retry_behavior_called": False,
+                "scheduler_called": False,
+                "automatic_retry_called": False,
+                "automatic_progress_task_called": False,
+                "new_provider_transport_added": False,
+                "provider_details_leaked_to_card": False,
+            },
+        }
+        result = validate_model_provider_health_contract(health)
+        self.assertTrue(result["accepted"], result)
+
+    def test_provider_health_metadata_openai_uses_models_path(self):
+        from custom_components.isolinear.model_provider_health import (
+            _provider_health_metadata,
+        )
+
+        client = _client()
+        metadata = _provider_health_metadata(client)
+        self.assertEqual(metadata["type"], MODEL_PROVIDER_OPENAI_COMPATIBLE)
+        self.assertEqual(metadata["health_path"], "/models")
+
+    def test_provider_health_metadata_ollama_uses_tags_path(self):
+        from custom_components.isolinear.model_provider_health import (
+            _provider_health_metadata,
+        )
+
+        client = OllamaCompatiblePlannerClient(
+            endpoint_url="http://10.0.1.39:11434", planner_model="llama3.1"
+        )
+        metadata = _provider_health_metadata(client)
+        self.assertEqual(metadata["type"], MODEL_PROVIDER_OLLAMA_COMPATIBLE)
+        self.assertEqual(metadata["health_path"], "/api/tags")
+
+    def test_check_model_provider_health_end_to_end_openai_compatible(self):
+        """Full check_model_provider_health() flow with a real OpenAI-compatible
+        client — the exact path Colin's live health probe runs, proving the
+        schema fix closes the gap all the way through, not just at the unit
+        level."""
+        from custom_components.isolinear.const import DOMAIN
+        from custom_components.isolinear.model_provider_health import (
+            check_model_provider_health,
+        )
+
+        class FakeHass:
+            def __init__(self):
+                self.data = {DOMAIN: {"entry": {"entry": object()}}}
+
+        hass = FakeHass()
+        client = _client()
+        hass.data[DOMAIN]["entry"]["model_provider_planner"] = client
+
+        payload = {"data": [{"id": "ollama/gemma"}]}
+        with unittest.mock.patch.object(
+            model_provider.urllib.request, "urlopen", return_value=_Ctx(_json_body(payload))
+        ):
+            result = check_model_provider_health(hass, "entry")
+
+        self.assertTrue(result["accepted"], result)
+        self.assertEqual(result["status"], "ready")
+        self.assertEqual(result["health"]["provider"]["type"], MODEL_PROVIDER_OPENAI_COMPATIBLE)
+        self.assertEqual(result["health"]["provider"]["health_path"], "/models")
+
+
 if __name__ == "__main__":
     unittest.main()

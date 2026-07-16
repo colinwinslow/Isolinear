@@ -45,7 +45,7 @@
       "additionalProperties": false,
       "properties": {
         "type": {
-          "const": "ollama_compatible"
+          "enum": ["ollama_compatible", "openai_compatible"]
         },
         "role": {
           "const": "planner"

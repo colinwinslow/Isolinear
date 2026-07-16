@@ -22,6 +22,9 @@ from .const import (
     SUPPORTED_RENDER_MODES,
     SUPPORTED_RENDER_PATHS,
 )
+from .model_provider_key_storage import (
+    get_model_provider_key_storage,
+)
 from .worker_token_storage import (
     get_worker_token_storage,
     is_valid_deployment_worker_token,
@@ -113,6 +116,14 @@ WORKER_TOKEN_SELECTOR_METADATA = {
     "type": "text",
     "input_type": "password",
     "storage": "worker_token_storage",
+    "write_only": True,
+}
+# ADR-0037: write-only password field for the LiteLLM bearer key; lands in
+# model_provider_key_storage, never in persisted options.
+MODEL_PROVIDER_KEY_SELECTOR_METADATA = {
+    "type": "text",
+    "input_type": "password",
+    "storage": "model_provider_key_storage",
     "write_only": True,
 }
 
@@ -221,6 +232,32 @@ def extract_endpoint_edits(user_input: Any) -> tuple[dict[str, Any], dict[str, A
     return edits, remaining
 
 
+# ADR-0037: write-only options field carrying the LiteLLM bearer key.
+# Same pattern as ADR-0032: extracted BEFORE options validation/persistence.
+MODEL_PROVIDER_KEY_OPTIONS_FIELD = "model_provider_api_key"
+MODEL_PROVIDER_KEY_CLEAR_SENTINEL = "clear"
+
+
+def extract_provider_key_action(user_input: Any) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split the write-only provider-key field out of options user input.
+
+    Returns ``(action, remaining_input)`` where action is one of
+    ``{"kind": "keep"}`` (field absent/empty — stored key unchanged),
+    ``{"kind": "clear"}`` (the literal ``clear``), or
+    ``{"kind": "save", "key": <key>}`` (any non-empty value).
+    """
+    if not isinstance(user_input, dict):
+        return {"kind": "keep"}, user_input if isinstance(user_input, dict) else {}
+    remaining = dict(user_input)
+    raw = remaining.pop(MODEL_PROVIDER_KEY_OPTIONS_FIELD, None)
+    value = raw.strip() if isinstance(raw, str) else ""
+    if not value:
+        return {"kind": "keep"}, remaining
+    if value.lower() == MODEL_PROVIDER_KEY_CLEAR_SENTINEL:
+        return {"kind": "clear"}, remaining
+    return {"kind": "save", "key": value}, remaining
+
+
 # ADR-0037: the model provider (type + models) also lives in config-entry DATA,
 # but is surfaced in the options form so an existing install can switch providers
 # (e.g. Ollama → the LiteLLM proxy) in place without deleting the integration and
@@ -264,6 +301,7 @@ class IsolinearOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             token_action, remaining_input = extract_worker_token_action(user_input)
+            key_action, remaining_input = extract_provider_key_action(remaining_input)
             endpoint_edits, remaining_input = extract_endpoint_edits(remaining_input)
             provider_edits, options_input = extract_provider_edits(remaining_input)
             updated_config = {
@@ -281,6 +319,7 @@ class IsolinearOptionsFlow(config_entries.OptionsFlow):
                 )
                 if result["accepted"]:
                     self._apply_worker_token_action(config_entry, token_action)
+                    self._apply_provider_key_action(config_entry, key_action)
                     self._apply_endpoint_edits(config_entry, updated_config)
                     return self.async_create_entry(title="", data=result["options_data"])
                 errors = result["field_errors"]
@@ -319,6 +358,32 @@ class IsolinearOptionsFlow(config_entries.OptionsFlow):
         entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})
         entry_data.pop(DATA_WORKER_RENDER_CLIENT, None)
         entry_data["worker_renderer_setup"] = setup_worker_renderer(hass, config_entry)
+
+    def _apply_provider_key_action(self, config_entry: Any, action: dict[str, Any]) -> None:
+        """Persist a save/clear provider-key action and rebuild the planner client.
+
+        Like the worker token, a key-only re-paste leaves options identical so
+        the options-update listener never fires — rebuild explicitly here.
+        """
+        if action["kind"] not in ("save", "clear"):
+            return
+        hass = getattr(self, "hass", None)
+        entry_id = getattr(config_entry, "entry_id", None)
+        if hass is None or not isinstance(entry_id, str):
+            return
+        storage = get_model_provider_key_storage(hass)
+        if action["kind"] == "save":
+            storage.save_key(entry_id, action["key"])
+        else:
+            storage.clear_key(entry_id)
+
+        from .model_provider import setup_model_provider_codegen, setup_model_provider_planner
+
+        entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry_id, {})
+        entry_data["model_provider_setup"] = setup_model_provider_planner(hass, config_entry)
+        entry_data["model_provider_codegen_setup"] = setup_model_provider_codegen(
+            hass, config_entry
+        )
 
     def _apply_endpoint_edits(self, config_entry: Any, updated_config: dict[str, Any]) -> None:
         """Persist edited connection endpoints to config-entry data and rebuild
@@ -428,6 +493,7 @@ def build_options_flow_schema(
                 *PROVIDER_OPTIONS_FIELDS,
                 *OPTIONS_FLOW_FIELDS,
                 WORKER_TOKEN_OPTIONS_FIELD,
+                MODEL_PROVIDER_KEY_OPTIONS_FIELD,
             ],
             "defaults": {
                 **{key: config_defaults.get(key) for key in ENDPOINT_OPTIONS_FIELDS},
@@ -437,6 +503,7 @@ def build_options_flow_schema(
             "selectors": {
                 "entity_allowlist": dict(ENTITY_ALLOWLIST_SELECTOR_METADATA),
                 WORKER_TOKEN_OPTIONS_FIELD: dict(WORKER_TOKEN_SELECTOR_METADATA),
+                MODEL_PROVIDER_KEY_OPTIONS_FIELD: dict(MODEL_PROVIDER_KEY_SELECTOR_METADATA),
             },
         }
 
@@ -445,7 +512,7 @@ def build_options_flow_schema(
         if EntitySelector is not None and EntitySelectorConfig is not None
         else list
     )
-    worker_token_selector = (
+    password_selector = (
         TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
         if TextSelector is not None and TextSelectorConfig is not None
         else str
@@ -501,13 +568,18 @@ def build_options_flow_schema(
                 "entity_allowlist",
                 default=defaults["entity_allowlist"],
             ): entity_allowlist_selector,
-            # ADR-0032: write-only deployment worker token. Never pre-filled
-            # (default stays empty regardless of what is stored); extracted
-            # before options validation so it never persists into options.
+            # ADR-0032: write-only deployment worker token. Never pre-filled;
+            # extracted before options validation so it never persists.
             vol.Optional(
                 WORKER_TOKEN_OPTIONS_FIELD,
                 default="",
-            ): worker_token_selector,
+            ): password_selector,
+            # ADR-0037: write-only LiteLLM bearer key. Never pre-filled;
+            # extracted before options validation so it never persists.
+            vol.Optional(
+                MODEL_PROVIDER_KEY_OPTIONS_FIELD,
+                default="",
+            ): password_selector,
         }
     )
 

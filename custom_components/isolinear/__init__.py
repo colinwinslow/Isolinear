@@ -14,6 +14,7 @@ from .job_orchestration import setup_job_orchestration
 from .job_state import ensure_job_state_store
 from .model_provider import setup_model_provider_codegen, setup_model_provider_planner
 from .model_provider_health import setup_model_provider_health
+from .model_provider_key_storage import async_setup_model_provider_key_storage
 from .semantic_memory import async_setup_semantic_memory
 from .worker_renderer import DATA_WORKER_RENDER_CLIENT, setup_worker_renderer
 from .worker_token_storage import async_setup_worker_token_storage
@@ -41,6 +42,9 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
     entry_data["entity_catalog_setup"] = setup_entity_catalog(hass, entry)
     entry_data["history_retrieval_setup"] = setup_history_retrieval(hass, entry)
     entry_data["job_state"] = ensure_job_state_store(hass, entry_id)
+    # ADR-0037: load the stored bearer key BEFORE the planner client is built so
+    # setup_model_provider_planner can read it from storage.
+    entry_data["model_provider_key_storage_setup"] = await async_setup_model_provider_key_storage(hass, entry)
     entry_data["model_provider_setup"] = setup_model_provider_planner(hass, entry)
     entry_data["model_provider_codegen_setup"] = setup_model_provider_codegen(hass, entry)
     entry_data["model_provider_health_setup"] = setup_model_provider_health(hass, entry)

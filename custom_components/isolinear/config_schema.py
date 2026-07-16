@@ -30,6 +30,7 @@ FORBIDDEN_CONFIG_KEYS = {
     "ha_token",
     "home_assistant_token",
     "long_lived_access_token",
+    "model_provider_api_key",
     "model_provider_token",
     "ollama_api_key",
     "password",

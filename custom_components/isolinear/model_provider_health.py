@@ -8,10 +8,11 @@ from copy import deepcopy
 from typing import Any
 
 from ._paths import load_schema_document, schema_path
-from .const import DOMAIN
+from .const import DOMAIN, MODEL_PROVIDER_OPENAI_COMPATIBLE
 from .job_state import JobStateSnapshotValidationError, _validate_json_schema
 from .model_provider import (
     MODEL_PROVIDER_HEALTH_PATH,
+    MODEL_PROVIDER_OPENAI_HEALTH_PATH,
     get_model_provider_planner,
     planner_client_metadata,
 )
@@ -310,12 +311,17 @@ def _normalized_health_response(provider_response: dict[str, Any]) -> dict[str, 
 
 def _provider_health_metadata(planner: Any) -> dict[str, Any]:
     metadata = planner_client_metadata(planner)
+    health_path = (
+        MODEL_PROVIDER_OPENAI_HEALTH_PATH
+        if metadata["type"] == MODEL_PROVIDER_OPENAI_COMPATIBLE
+        else MODEL_PROVIDER_HEALTH_PATH
+    )
     return {
         "type": metadata["type"],
         "role": metadata["role"],
         "endpoint_url": metadata["endpoint_url"],
         "model": metadata["model"],
-        "health_path": MODEL_PROVIDER_HEALTH_PATH,
+        "health_path": health_path,
     }
 
 
