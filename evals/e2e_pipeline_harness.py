@@ -56,31 +56,54 @@ WS_VERSION = 1
 TERMINAL = {"complete", "failed"}
 
 
-class HaWs:
-    """Minimal authenticated HA WebSocket client with incrementing ids."""
-
-    def __init__(self, ws):
-        self.ws = ws
-        self._id = 0
-
-    async def call(self, message: dict) -> dict:
-        self._id += 1
-        message = {"id": self._id, **message}
-        await self.ws.send(json.dumps(message))
-        while True:
-            reply = json.loads(await self.ws.recv())
-            if reply.get("id") == self._id and reply.get("type") == "result":
-                return reply
-
-
-async def connect() -> HaWs:
+async def _open_authed_ws():
     ws = await websockets.connect(HA_WS_URL, max_size=None)
     await ws.recv()  # auth_required
     await ws.send(json.dumps({"type": "auth", "access_token": HA_TOKEN}))
     auth = json.loads(await ws.recv())
     if auth.get("type") != "auth_ok":
         raise SystemExit(f"HA auth failed: {auth.get('type')}")
-    return HaWs(ws)
+    return ws
+
+
+class HaWs:
+    """Minimal authenticated HA WebSocket client with incrementing ids.
+
+    Reconnects and retries once on a dropped socket: a long provider stall
+    (GPU contention → a 280s+ snapshot poll) can make HA close the idle WS
+    mid-run; the job/snapshot poll is an idempotent read, so re-sending it on a
+    fresh connection is safe and keeps the 20-prompt run from dying on a blip.
+    """
+
+    def __init__(self, ws):
+        self.ws = ws
+        self._id = 0
+
+    async def _reconnect(self) -> None:
+        try:
+            await self.ws.close()
+        except Exception:
+            pass
+        self.ws = await _open_authed_ws()
+
+    async def call(self, message: dict) -> dict:
+        self._id += 1
+        message = {"id": self._id, **message}
+        for attempt in (0, 1):
+            try:
+                await self.ws.send(json.dumps(message))
+                while True:
+                    reply = json.loads(await self.ws.recv())
+                    if reply.get("id") == self._id and reply.get("type") == "result":
+                        return reply
+            except websockets.exceptions.ConnectionClosed:
+                if attempt == 1:
+                    raise
+                await self._reconnect()
+
+
+async def connect() -> HaWs:
+    return HaWs(await _open_authed_ws())
 
 
 async def isolinear_entry_id(client: HaWs) -> str:
