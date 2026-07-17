@@ -6,7 +6,8 @@ Drives the REAL pipeline the card drives — `isolinear/v1/job/start` +
 against the live HA instance, worker, and Ollama, for the fixed prompt set in
 ``evals/prompts/e2e_prompts.json``. No synthetic requests anywhere: the
 planner plans, history is fetched through the allowlist path, codegen runs in
-the CT103 sandbox, and the served artifact is what the card would display.
+the CT106 sandbox (the worker's home since the homelab ct-workload-tier-split;
+CT103 is GPU-only now), and the served artifact is what the card would display.
 
 For each prompt it captures the REAL output into a timestamped run directory:
 the served PNG (fetched from ``chart.image_url``) plus the structured
