@@ -4,34 +4,36 @@ Paired with [docs/specs/card-level-legend-codegen.md](../../docs/specs/card-leve
 and [card-level-legend-codegen-bdd.md](card-level-legend-codegen-bdd.md). Raw
 outputs, captured 2026-07-17 at version 0.2.42.
 
-Status: the Python/schema/frontend scenarios (B, C, D) are proven here on the real
-sandbox + orchestration + frontend. **Scenario A's live card eyes-on is pending a
-worker rebuild + HACS 0.2.42 redownload** — the legend passthrough is a WORKER-side
-change (`_normalize_render_metadata`), so it does not go live until the worker
-image is rebuilt on CT103.
+Status: all four scenarios proven. B, C, D on the real sandbox + orchestration +
+frontend; **Scenario A CONFIRMED LIVE 2026-07-17** after the CT106 worker rebuild +
+Colin's HACS 0.2.42 redownload (the legend passthrough is a WORKER-side change in
+`_normalize_render_metadata` — it went live once the worker was rebuilt on CT106,
+not CT103, which is GPU-only now).
 
-## Scenario A (partial) — the sandbox preserves the self-reported legend manifest
+## Scenario A — a computed-average chart shows a three-row legend with a computed row (LIVE)
 
-`invoke_codegen_sandbox` on a `render_chart` that returns a two-row legend (a solid
-raw sensor + a dashed computed average), executed for real:
+**Confirmed on the real card + the live e2e harness (run `20260717T060726Z`, prompt
+e2e-11 "What is the average of the kitchen and basement temperatures over the last
+day?"), live-version 0.2.42.** `render_path: codegen`, no fallback. The served
+snapshot's `chart.legend` carried three entries — two solid `series` sensors + one
+dashed `computed` average:
 
 ```json
-{
-  "status": "success",
-  "legend": [
-    { "label": "Kitchen", "entity_id": "sensor.a", "color": "#1f77b4", "kind": "series" },
-    { "label": "Average", "entity_id": "sensor.a", "color": "#2ca02c", "kind": "computed" }
-  ],
-  "summary": "Kitchen and basement with their average."
-}
+[
+  { "kind": "series",   "label": "Basement Temperature", "color": "#1f77b4" },
+  { "kind": "series",   "label": "Kitchen Temperature",  "color": "#ff7f0e" },
+  { "kind": "computed", "label": "Average Temperature",  "color": "#d62728" }
+]
 ```
 
-Before this packet, `_normalize_render_metadata` rebuilt the metadata from a fixed
-key set and dropped both `legend` and `summary`. The render-result contract
-validates with the additive `computed` kind (`validate_contract("render-result")`
-passes in `CodegenLegendSandboxTests`). The remaining half of Scenario A — the
-dashed line in the PNG and the `computed` row on the live card — is the deploy-time
-eyes-on.
+The served PNG (`e2e-11.png`, eyes-on) shows two solid sensor lines (blue Basement,
+orange Kitchen) and a **red dashed** computed Average between them, with **no
+in-image `ax.legend()`**. Colin's card screenshot independently confirmed the
+`COMPUTED`-tagged legend row and the grounded answer ("…was 72.94 °F"). The
+underlying sandbox passthrough is also unit-proven — `invoke_codegen_sandbox` on a
+`render_chart` returning `legend: [{…kind:"series"…},{…kind:"computed"…}]` preserves
+it (previously `_normalize_render_metadata` dropped it), `validate_contract(
+"render-result")` passes (`CodegenLegendSandboxTests`).
 
 ## Scenario B — legend + summary thread to the complete snapshot and artifact
 
