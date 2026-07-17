@@ -321,13 +321,17 @@ _CODEGEN_PROMPT_RULES = [
     "answer_text = f'The correlation coefficient is {corr:.2f}.' Never write the "
     "number or a Yes/No verdict as a literal; derive the verdict too "
     "(verdict = 'Yes' if abs(corr) > 0.3 else 'Not really').",
-    # (ff), open-queue: correlation UNDER-EMITS the answer. Unlike a mean/delta/
-    # deviation — which produce a derived SERIES the model plots (and plotting it
-    # reminds the model it did the analysis) — a correlation is a single SCALAR
-    # with nothing new to plot, so the floor model plots the two raw sensors,
-    # treats the chart as the deliverable, and returns WITHOUT an answer_text
-    # (live: 3/5 runs plot-only). The analysis IS the coefficient, so make its
-    # emission mandatory and salient. Eval-gated evals/correlation_answer_gate.py.
+    # (ff): two coupled correlation failures. (1) EMISSION — a correlation is a
+    # single SCALAR with nothing new to plot, so the floor model can plot the two
+    # raw sensors and stop; this rule makes emitting the coefficient mandatory
+    # (eval-gated evals/correlation_answer_gate.py). (2) VERDICT-BASIS (the live
+    # e2e-13/e2e-20 "no answer" — reproduced 6/6 on REAL kitchen/basement data,
+    # scripts/repro_correlation_emission_realdata.py): the model DID emit a correct
+    # coefficient but grounding WITHHELD it (grounding_verdict_contradicted) because
+    # the rule's 'basis' didn't match the abs(corr) verdict — see the basis:'abs'
+    # rule below. A withheld answer is suppressed on the card, so it looked like a
+    # plain plot-only miss. Fixing the basis is what actually serves negative
+    # correlations.
     "IMPORTANT for correlation questions ('are they correlated?', 'do they move "
     "together?', 'how are they related?'): the correlation coefficient is a single "
     "number, NOT a plotted series — so drawing the two raw sensor lines is NOT the "
@@ -349,13 +353,20 @@ _CODEGEN_PROMPT_RULES = [
     "a raw JSON number — 'value': corr, NEVER a pre-formatted string like "
     "f'{corr:.2f}' or '3.0°F'; units belong in the sentence, not the claim), "
     "'verdict' (the same verdict variable formatted into the sentence), "
-    "'rule' ({\"bands\": [[threshold_or_null, label], ...], \"basis\": \"value\"}; "
-    "bands in descending threshold order; last entry has null threshold as catch-all; "
-    "labels must not be substrings of one another), and optionally "
+    "'rule' ({\"bands\": [[threshold_or_null, label], ...], \"basis\": \"value\" or "
+    "\"abs\"}; bands in descending threshold order; last entry has null threshold as "
+    "catch-all; labels must not be substrings of one another). CRITICAL: 'basis' MUST "
+    "match how you derived the verdict — if the verdict comes from a MAGNITUDE "
+    "(e.g. correlation strength: verdict from abs(corr) > 0.3) use 'basis': 'abs', "
+    "otherwise 'basis': 'value'. A mismatch makes the integration re-derive a "
+    "different verdict from your rule and REJECT a correct answer (a negative "
+    "correlation like -0.40 has abs 0.40 > 0.3 = 'Yes', but under 'value' the rule "
+    "reads -0.40 < 0.3 = 'Not really' → contradiction). Optionally add "
     "'window' ({\"start\": epoch_ms, \"end\": epoch_ms}) and 'params' (flat dict). "
-    "Example: claims = [{'metric': 'pearson_r', 'inputs': ['sensor.a', 'sensor.b'], "
+    "Example (correlation — abs basis, since the verdict used abs(corr)): claims = "
+    "[{'metric': 'pearson_r', 'inputs': ['sensor.a', 'sensor.b'], "
     "'value': corr, 'verdict': verdict, "
-    "'rule': {'bands': [[0.3, 'Yes'], [None, 'Not really']], 'basis': 'value'}}].",
+    "'rule': {'bands': [[0.3, 'Yes'], [None, 'Not really']], 'basis': 'abs'}}].",
     # (cc), 0.2.40: verdict/rule ONLY for band judgments. The grounding check's
     # step-5 verdict containment (answer_grounding.py) requires the claimed verdict
     # to appear verbatim as a band label in answer_text; a plain descriptive mean

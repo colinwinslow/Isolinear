@@ -2,6 +2,23 @@
 
 ## Current project phase
 
+### 2026-07-17 — (ff) part-3: the correlation "no answer" is a verdict-basis contradiction, not an emission miss (0.2.44)
+
+**Phase.** `The last (ff) correlation gap is closed. The live 0.2.42 e2e showed temp-vs-temp correlations (e2e-13/e2e-20) still not serving; a faithful real-data repro proved it was NOT emission — the model emits a correct coefficient but grounding withholds it on a verdict/rule basis mismatch. Prompt-only fix.`
+
+**Why the earlier diagnosis was wrong (the e2e-over-synthetic lesson, again).** The 0.2.41 (ff) fix framed the residual as an EMISSION miss ("the model plots and stops"). Two probes disproved that: (1) the SYNTHETIC `repro_correlation_answer.py` reproduced a *different* failure — the model guessed wrong entity_ids against synthetic data and hit an early-return "could not find sensor data" guard; (2) a new faithful `scripts/repro_correlation_emission_realdata.py` (REAL kitchen/basement recorder history + the exact e2e-13 prompt) reproduced the LIVE behavior **6/6**: the model EMITTED a correct `r ≈ -0.40` (the grounding recompute matched to 13 decimals — the 0.2.41 grounding fix is solid) but the answer was **WITHHELD** as `grounding_verdict_contradicted`. A withheld answer is suppressed on the card, so it looked exactly like a plot-only emission miss in the snapshot.
+
+**Root cause.** The model derives its correlation verdict from **magnitude** (`verdict = 'Yes' if abs(corr) > 0.3 else 'Not really'`) but the prompt's `pearson_r` claim example declared the rule with **`basis: 'value'`**. For a negative correlation strong enough that `|r| > 0.3` but `r < 0.3` (−0.40), grounding's step-6 consistency check re-derives 'Not really' from the declared rule while the model claims 'Yes' → contradiction → withhold. Positive correlations (and e2e-14's −0.31, which the model happened to call 'Not really') stayed internally consistent, which is why e2e-14 served and the same-metric negatives didn't.
+
+**Fix (0.2.44, prompt-only — no code/grounding change; `_apply_rule` already supported `basis: 'abs'`).** The `pearson_r` claim example now declares `basis: 'abs'` (correlation strength is magnitude, matching the `abs(corr)` verdict), plus a CRITICAL `_CODEGEN_PROMPT_RULES` instruction: `basis` MUST match how the verdict was derived (magnitude → 'abs', else 'value'), with the concrete −0.40 failure spelled out.
+
+**Verification.** **Real-data gate flipped: 6/6 WITHHELD → 6/6 SERVED+VERIFIED at MAX_REPAIRS=3 (production repair budget); at MR=1, 3/3 clean-execution runs verified and the other 3 were generic codegen runtime errors (NameError `isolinear` unimported, undefined `series`, brace mismatch — unrelated to the basis fix, repair-recoverable, which the MR=3 run confirmed).** Suite **568 passed** (+3: `TestCrossSensorPearsonR.test_negative_correlation_value_basis_contradicts` [value → contradicted + withheld] and `_abs_basis_verifies` [abs → verified], + a prompt-rule pin). Spec `model-authored-analysis` §2 gained the basis part. No BDD (prompt-rule fix on an accepted contract; the real-data gate + unit tests are the proof). Integration-only, ships via HACS, no worker rebuild. Version **0.2.44**.
+
+**Next.**
+1. **(r) binary/timeline routing** — codegen renders binary/categorical entities empty (invariant #9 gap, e2e-09).
+2. Cross-sensor **delta/rolling** grounding = the documented next align-grid extension (e2e-08/17 verify as caveats today).
+3. **(t)** the >2-day tiering wall (small ADR), **(F)** cosmetics (legend color-fidelity, mixed-unit axis, x-axis date formatting, door zero-duration).
+
 ### 2026-07-17 (30th session) — (y) card-level legend for the codegen render path, + a new `computed` legend kind (0.2.42)
 
 **Phase.** `The ADR-0027 D1 card-level legend now populates on the codegen path (ADR-0030), with a third legend kind — computed — so a model-authored derived series (mean/delta/deviation) reads distinctly from a raw sensor (solid) and a state-overlay band (shaded). Landed integration+frontend+worker; goes live after a worker rebuild.`

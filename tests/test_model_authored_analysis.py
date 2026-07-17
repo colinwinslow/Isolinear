@@ -652,6 +652,19 @@ class CorrelationEmissionPromptRuleTests(unittest.TestCase):
         # It names the align()-based idiom, consistent with ADR-0036.
         self.assertIn("frame.corr().iloc[0, 1]", rules)
 
+    def test_prompt_rules_scope_correlation_verdict_to_abs_basis(self):
+        # (ff) live root cause: the model derives the verdict from abs(corr) but
+        # declared basis 'value', so a negative correlation (-0.40) was withheld
+        # as grounding_verdict_contradicted. The rule must tell the model to match
+        # 'basis' to the verdict derivation ('abs' for correlation strength) and
+        # the pearson_r example must use 'abs'.
+        rules = " ".join(_CODEGEN_PROMPT_RULES)
+        lowered = rules.lower()
+        self.assertIn("'basis' must match how you derived the verdict", lowered)
+        self.assertIn("'basis': 'abs'", rules)
+        # The pearson_r example carries abs basis, not value.
+        self.assertIn("'rule': {'bands': [[0.3, 'yes'], [none, 'not really']], 'basis': 'abs'}", lowered)
+
 
 class CodegenPromptGroundingTests(unittest.TestCase):
     """The codegen prompt instructs COMPUTE-and-format, verdicts derived (ADR-0031 D3)."""

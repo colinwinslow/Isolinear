@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""Faithful repro for the (ff) correlation-EMISSION gap (live e2e-13/e2e-20).
+
+The synthetic `scripts/repro_correlation_answer.py` reproduced a DIFFERENT
+failure (the model guessed wrong entity_ids against synthetic data and hit an
+early-return "could not find sensor data" guard). Live e2e-13/e2e-20 instead
+rendered a CLEAN two-line comparison chart with NO answer_text — the model found
+the data, plotted it, and stopped. To reproduce THAT, use the REAL entity_ids +
+REAL recorder history, so data-access succeeds and the true emission behavior
+shows.
+
+Drives the production codegen path (real generate_chart_code + _CODEGEN_PROMPT_
+RULES) against live gemma with:
+  * REAL kitchen + basement temperature history pulled from HA;
+  * the exact e2e-13 prompt as user_request;
+  * a comparison-style chart_spec (as the planner produces).
+
+Captures the generated code for EVERY run so the plot-only ones can be read.
+
+Env: HA_URL, HA_TOKEN (required), OLLAMA_URL, MODEL, EXEC_PY, RUNS (default 6),
+MAX_REPAIRS (default 1), RESULTS_JSON.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.parse
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parent
+sys.path.insert(0, str(REPO))
+
+from custom_components.isolinear import model_provider as mp  # noqa: E402
+from custom_components.isolinear.answer_grounding import run_grounding_check  # noqa: E402
+
+HA_URL = os.environ.get("HA_URL", "http://10.0.1.200:8123").rstrip("/")
+HA_TOKEN = os.environ.get("HA_TOKEN", "")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://10.0.1.39:11434").rstrip("/")
+MODEL = os.environ.get("MODEL", "gemma4:e4b")
+EXEC_PY = os.environ.get("EXEC_PY", "/home/claude/.expenv/bin/python")
+RUNS = int(os.environ.get("RUNS", "6"))
+MAX_REPAIRS = int(os.environ.get("MAX_REPAIRS", "1"))
+RESULTS_JSON = Path(os.environ.get("RESULTS_JSON", REPO / "evals" / "prompts" / "repro_correlation_emission_realdata_results.json"))
+
+PROMPT = "Are the kitchen and basement temperatures correlated over the last 2 days?"
+KITCHEN = "sensor.kitchen_ecobee_temperature"
+BASEMENT = "sensor.basement_temperature"
+
+
+def _fetch_series(entity_id: str, label: str) -> dict:
+    start = (datetime.now(timezone.utc) - timedelta(days=2)).replace(microsecond=0).isoformat()
+    url = f"{HA_URL}/api/history/period/{start}?filter_entity_id={urllib.parse.quote(entity_id)}&minimal_response"
+    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + HA_TOKEN})
+    raw = json.load(urllib.request.urlopen(req, timeout=40))
+    states = raw[0] if raw else []
+    points = []
+    unit = "°F"
+    for s in states:
+        st = s.get("state")
+        if st in (None, "unknown", "unavailable") or not re.match(r"^-?\d+(\.\d+)?$", str(st)):
+            continue
+        ts = s.get("last_changed") or s.get("last_updated")
+        if not ts:
+            continue
+        ms = int(datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000)
+        points.append({"ts": ts, "ts_epoch_ms": ms, "value": round(float(st), 2),
+                       "raw_state": st, "quality": "ok"})
+        u = s.get("attributes", {}).get("unit_of_measurement")
+        if u:
+            unit = u
+    return {"series_id": f"series-{entity_id}", "entity_id": entity_id, "label": label,
+            "kind": "numeric", "unit": unit, "points": points, "source": "recorder",
+            "resolution": "raw", "source_entity_ids": [entity_id], "warnings": []}
+
+
+def _history() -> list[dict]:
+    return [_fetch_series(KITCHEN, "Kitchen Temperature"), _fetch_series(BASEMENT, "Basement Temperature")]
+
+
+def _request(history: list[dict]) -> dict:
+    return {
+        "chart_spec": {
+            "chart_id": "kitchen_basement_corr", "chart_type": "time_series",
+            # Mirror the planner's live framing for e2e-13 (a comparison title).
+            "title": "Comparison of Kitchen and Basement Temperatures",
+            "time_range": {"type": "relative", "duration": "2d"},
+            "series": [
+                {"series_id": "kitchen", "label": "Kitchen Temperature", "role": "primary",
+                 "render_as": "line", "transform": {"operation": "none", "window": None},
+                 "unit": "°F", "source": {"type": "entity", "entity_id": KITCHEN, "attribute": None}},
+                {"series_id": "basement", "label": "Basement Temperature", "role": "primary",
+                 "render_as": "line", "transform": {"operation": "none", "window": None},
+                 "unit": "°F", "source": {"type": "entity", "entity_id": BASEMENT, "attribute": None}},
+            ],
+            "overlays": [], "x_axis": {"type": "time"}, "y_axis": {},
+        },
+        "history_series": history, "derived_intervals": [],
+        "output": {"format": "png", "width": 800, "height": 480},
+    }
+
+
+_HARNESS = r'''
+import json, sys, traceback, warnings
+warnings.simplefilter("ignore")
+sys.path.insert(0, sys.argv[4])
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+plt.close = lambda *a, **k: None
+code_file, data_file, out_png = sys.argv[1], sys.argv[2], sys.argv[3]
+data = json.load(open(data_file))
+def _san(o):
+    try: return float(o)
+    except Exception: return str(o)
+try:
+    ns = {}
+    exec(open(code_file).read(), ns)
+    meta = ns["render_chart"](data, out_png)
+    import os
+    meta = meta if isinstance(meta, dict) else {}
+    print("__R__" + json.dumps({"ok": True, "answer_text": meta.get("answer_text"),
+        "claims": meta.get("claims"), "meta_keys": list(meta.keys()),
+        "png": os.path.getsize(out_png) if os.path.exists(out_png) else 0}, default=_san))
+except Exception as exc:
+    print("__R__" + json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}",
+                                "traceback": traceback.format_exc()[-1200:]}))
+'''
+
+
+def execute(code: str, request: dict) -> dict:
+    data = {"chart_spec": request["chart_spec"], "history_series": request["history_series"],
+            "derived_intervals": request["derived_intervals"], "output": request["output"], "theme": {}}
+    with tempfile.TemporaryDirectory() as td:
+        tdp = Path(td)
+        (tdp / "code.py").write_text(code)
+        (tdp / "data.json").write_text(json.dumps(data))
+        (tdp / "harness.py").write_text(_HARNESS)
+        proc = subprocess.run(
+            [EXEC_PY, str(tdp / "harness.py"), str(tdp / "code.py"),
+             str(tdp / "data.json"), str(tdp / "out.png"), str(REPO / "worker")],
+            capture_output=True, text=True, timeout=120)
+    for stream in (proc.stdout, proc.stderr):
+        for ln in stream.splitlines():
+            if ln.startswith("__R__"):
+                return json.loads(ln[len("__R__"):])
+    return {"ok": False, "error": f"harness no result rc={proc.returncode}",
+            "traceback": (proc.stderr or proc.stdout)[-800:]}
+
+
+def classify(execution: dict, request: dict) -> dict:
+    answer_text = execution.get("answer_text")
+    claims = execution.get("claims") if isinstance(execution.get("claims"), list) else []
+    png = execution.get("png") or 0
+    if not answer_text:
+        return {"bucket": "PLOT_ONLY" if png > 1000 else "EMPTY",
+                "why": f"no answer_text (png={png}, meta_keys={execution.get('meta_keys')})"}
+    grounding = run_grounding_check({"answer_text": answer_text, "claims": claims}, request["history_series"])
+    outcome = grounding.get("outcome")
+    corr = next((c.get("value") for c in claims if isinstance(c, dict) and c.get("metric") == "pearson_r"), None)
+    if grounding.get("withheld"):
+        return {"bucket": "WITHHELD", "why": outcome, "answer_text": answer_text}
+    if str(outcome).startswith("unverified"):
+        return {"bucket": "SERVED_UNVERIFIED", "why": outcome, "answer_text": answer_text, "corr": corr}
+    return {"bucket": "SERVED_VERIFIED", "why": outcome, "answer_text": answer_text, "corr": corr}
+
+
+def run_one(client, run_n, request, results) -> None:
+    rec = {"run": run_n, "attempts": []}
+    code, sandbox_error = None, None
+    for attempt in range(MAX_REPAIRS + 1):
+        t0 = time.time()
+        gen = (client.generate_chart_code(request, user_request=PROMPT) if code is None
+               else client.repair_chart_code(code, sandbox_error, request, user_request=PROMPT))
+        gen_s = round(time.time() - t0, 1)
+        if not gen.get("accepted"):
+            rec.update({"bucket": "PROVIDER_REJECT", "why": gen.get("code")})
+            break
+        code = gen["python_code"]
+        execution = execute(code, request)
+        if execution.get("ok"):
+            rec.update(classify(execution, request))
+            rec["final_code"] = code
+            break
+        rec["attempts"].append({"n": attempt, "error": execution.get("error")})
+        if attempt == MAX_REPAIRS:
+            rec.update({"bucket": "RUNTIME_EXHAUSTED", "why": execution.get("error"), "final_code": code})
+            break
+        sandbox_error = {"code": "runtime_error", "message": execution.get("error") or "failed",
+                         "details": {"traceback": execution.get("traceback") or ""}}
+    results["runs"][f"run{run_n}"] = rec
+    RESULTS_JSON.write_text(json.dumps(results, indent=1))
+    print(f"[run{run_n}] {rec.get('bucket')} — {rec.get('why')}"
+          f"{'  corr=' + str(rec.get('corr')) if rec.get('corr') is not None else ''}", flush=True)
+
+
+def main() -> int:
+    if not HA_TOKEN:
+        raise SystemExit("HA_TOKEN required")
+    history = _history()
+    print(f"real history: kitchen={len(history[0]['points'])} pts, basement={len(history[1]['points'])} pts", flush=True)
+    request = _request(history)
+    client = mp.OllamaCompatiblePlannerClient(endpoint_url=OLLAMA_URL, planner_model=MODEL)
+    results = {"meta": {"model": MODEL, "prompt": PROMPT, "runs": RUNS,
+                        "kitchen_pts": len(history[0]["points"]), "basement_pts": len(history[1]["points"]),
+                        "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}, "runs": {}}
+    for run_n in range(1, RUNS + 1):
+        run_one(client, run_n, request, results)
+    buckets: dict[str, int] = {}
+    for rec in results["runs"].values():
+        buckets[rec.get("bucket", "?")] = buckets.get(rec.get("bucket", "?"), 0) + 1
+    print("\n=== buckets ===")
+    for b, n in sorted(buckets.items()):
+        print(f"  {b}: {n}")
+    results["buckets"] = buckets
+    RESULTS_JSON.write_text(json.dumps(results, indent=1))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

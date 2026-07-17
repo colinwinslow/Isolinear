@@ -227,6 +227,26 @@ request-conditional:
   execution-truth judge = the real `run_grounding_check` SERVES the answer):
   **with-rule 4/4 served and all 4 verified vs without-rule 0/4** (2 withheld
   `grounding_verdict_absent`, 2 runtime-exhausted).
+- **Correlation verdict basis — the live-surfaced third part (open-queue (ff),
+  0.2.44).** The 30th-session full live e2e (0.2.42) showed correlation STILL not
+  serving on the same-metric temp-temp prompts (e2e-13, e2e-20). A faithful real-
+  data repro (`scripts/repro_correlation_emission_realdata.py` — REAL kitchen/
+  basement history, exact prompt) reproduced it **6/6** and revealed it was NOT an
+  emission miss: the model emitted a CORRECT coefficient (`r ≈ -0.40`, grounding
+  recompute matched to 13 decimals) but the answer was WITHHELD as
+  `grounding_verdict_contradicted`. Root cause: the model derives its verdict from
+  **magnitude** (`verdict = 'Yes' if abs(corr) > 0.3 else 'Not really'`) but the
+  prompt's `pearson_r` example declared the rule with **`basis: 'value'`**. For a
+  negative correlation strong enough that `|r| > 0.3` but `r < 0.3` (−0.40), the
+  declared rule re-derives 'Not really' while the model claims 'Yes' → contradiction
+  → withheld (and a withheld answer is suppressed on the card, so it looked exactly
+  like a plot-only emission miss). Fix: the correlation claim's rule uses
+  **`basis: 'abs'`** (correlation strength is magnitude), matching the `abs(corr)`
+  verdict, plus an explicit CRITICAL rule that `basis` must match how the verdict
+  was derived. `_apply_rule` already supported `basis: 'abs'`; the fix is purely
+  the prompt. Grounding contract pinned by
+  `TestCrossSensorPearsonR.test_negative_correlation_{value,abs}_basis_*`
+  (value → contradicted+withheld, abs → verified).
 - **Repair-intent retention (open-queue (B) — INVESTIGATED, NOT shipped).** The
   (B) packet was first framed as a repair-only instruction to preserve the
   `previous_code`'s derived series + `answer_text` while fixing a runtime error

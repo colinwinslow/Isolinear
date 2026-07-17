@@ -922,3 +922,48 @@ class TestCrossSensorPearsonR:
             _series("sensor.b", [15.0, 25.0], start_ms=37_000, step_ms=300_000),
         ]
         assert _compute_pearson_r(["sensor.a", "sensor.b"], None, {}, few) is None
+
+    # A strongly NEGATIVE correlation (b decreases as a increases → r = -1.0). The
+    # model derives its verdict from abs(corr) ("|r| > 0.3 → Yes, correlated"), so
+    # the declared rule MUST use basis 'abs' to match. This is the live e2e-13/
+    # e2e-20 "no answer" root cause (open-queue (ff)): the model emitted a correct
+    # r ≈ -0.40 but declared basis 'value', so grounding re-derived 'Not really'
+    # from the rule and WITHHELD (contradicted) the correct 'Yes'.
+    NEG = [
+        _series("sensor.a", [10.0, 20.0, 30.0, 40.0, 50.0], start_ms=0, step_ms=300_000),
+        _series("sensor.b", [50.0, 40.0, 30.0, 20.0, 10.0], start_ms=37_000, step_ms=300_000),
+    ]
+
+    def test_negative_correlation_value_basis_contradicts(self):
+        """The bug: verdict from abs(corr) but rule basis 'value' → contradiction."""
+        result = run_grounding_check(
+            {
+                "answer_text": "The correlation coefficient is -1.00. Yes, they are correlated.",
+                "claims": [{
+                    "metric": "pearson_r", "inputs": ["sensor.a", "sensor.b"],
+                    "value": -1.0, "verdict": "Yes",
+                    "rule": {"bands": [[0.3, "Yes"], [None, "Not really"]], "basis": "value"},
+                }],
+            },
+            self.NEG,
+        )
+        assert result["outcome"] == "repair_contradicted"
+        assert result["synthetic_error"]["code"] == "grounding_verdict_contradicted"
+        assert result["withheld"] is True
+
+    def test_negative_correlation_abs_basis_verifies(self):
+        """The fix: basis 'abs' matches the abs(corr) verdict → strong negative
+        correlation is SERVED and verified."""
+        result = run_grounding_check(
+            {
+                "answer_text": "The correlation coefficient is -1.00. Yes, they are correlated.",
+                "claims": [{
+                    "metric": "pearson_r", "inputs": ["sensor.a", "sensor.b"],
+                    "value": -1.0, "verdict": "Yes",
+                    "rule": {"bands": [[0.3, "Yes"], [None, "Not really"]], "basis": "abs"},
+                }],
+            },
+            self.NEG,
+        )
+        assert result["outcome"] == "verified"
+        assert result["withheld"] is False
