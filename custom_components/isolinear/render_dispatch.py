@@ -1763,6 +1763,17 @@ def _build_worker_artifact_metadata(
             rendered["answer_text"] = answer_text.strip()
     if answer_verification is not None:
         rendered["answer_verification"] = answer_verification
+    # ADR-0027 D1 on the codegen path (spec card-level-legend-codegen): carry the
+    # model summary and self-reported color manifest onto the artifact so the
+    # complete snapshot can surface them as the caption and card legend — the same
+    # copy the Pillow builder does. This parity gap silently dropped both fields
+    # when codegen became the primary renderer (ADR-0030).
+    summary = render_metadata.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        rendered["summary"] = summary.strip()
+    legend = render_metadata.get("legend")
+    if isinstance(legend, list) and legend:
+        rendered["legend"] = legend
     rendered["render_metadata"] = {
         "renderer": WORKER_RENDERER_NAME,
         "render_attempted": True,

@@ -714,5 +714,134 @@ class CodegenPromptGroundingTests(unittest.TestCase):
         self.assertIn("unit", rules_text.lower())
 
 
+def _legend_generated_python(computed_color: str = "#2ca02c") -> str:
+    """render_chart that writes a fixed PNG and self-reports a two-row legend:
+    a solid raw-sensor series and a dashed computed average (spec
+    card-level-legend-codegen C1). computed_color is parameterized so a test can
+    feed an invalid color and prove the cosmetic drop."""
+    return (
+        "def render_chart(data, output_path):\n"
+        f'    png_bytes = bytes.fromhex("{SAFE_SAMPLE_PNG_HEX}")\n'
+        '    with open(output_path, "wb") as image_file:\n'
+        "        image_file.write(png_bytes)\n"
+        '    return {"title": "t", "series_plotted": ["sensor.a", "sensor.b"],\n'
+        '            "overlays_plotted": [], "x_min": None, "x_max": None, "warnings": [],\n'
+        '            "summary": "Kitchen and basement with their average.",\n'
+        '            "legend": [\n'
+        '                {"label": "Kitchen", "entity_id": "sensor.a", "color": "#1f77b4", "kind": "series"},\n'
+        f'                {{"label": "Average", "entity_id": "sensor.a", "color": "{computed_color}", "kind": "computed"}}\n'
+        "            ]}\n"
+    )
+
+
+class CodegenLegendSandboxTests(unittest.TestCase):
+    """spec card-level-legend-codegen C1/C6: the sandbox preserves the
+    self-reported legend (previously dropped by _normalize_render_metadata),
+    sanitizes it, and never fails the response on a malformed row."""
+
+    def _run_dir(self):
+        (REPO_ROOT / ".test-output").mkdir(exist_ok=True)
+        return tempfile.TemporaryDirectory(dir=REPO_ROOT / ".test-output")
+
+    def test_legend_manifest_passes_through_with_computed_kind(self):
+        with self._run_dir() as run_directory:
+            result = invoke_codegen_sandbox(
+                sample_codegen_render_request(python_code=_legend_generated_python()),
+                work_root=Path(run_directory),
+            )
+        self.assertEqual(result["status"], "success", result.get("error"))
+        legend = result["render_metadata"]["legend"]
+        self.assertEqual([row["kind"] for row in legend], ["series", "computed"])
+        self.assertEqual(legend[1]["color"], "#2ca02c")
+        self.assertEqual(result["render_metadata"]["summary"], "Kitchen and basement with their average.")
+        # Render-result stays schema-valid with the additive computed kind.
+        validate_contract("render-result", result)
+
+    def test_malformed_color_row_is_dropped_not_failed(self):
+        # A computed row with a non-hex color cannot render a swatch; it is
+        # dropped (cosmetic, C6) — the render still succeeds and stays valid.
+        with self._run_dir() as run_directory:
+            result = invoke_codegen_sandbox(
+                sample_codegen_render_request(python_code=_legend_generated_python(computed_color="tab:green")),
+                work_root=Path(run_directory),
+            )
+        self.assertEqual(result["status"], "success", result.get("error"))
+        legend = result["render_metadata"]["legend"]
+        self.assertEqual([row["kind"] for row in legend], ["series"])  # the bad computed row dropped
+        validate_contract("render-result", result)
+
+    def test_chart_only_render_carries_no_legend(self):
+        with self._run_dir() as run_directory:
+            result = invoke_codegen_sandbox(
+                sample_codegen_render_request(python_code=safe_generated_python()),
+                work_root=Path(run_directory),
+            )
+        self.assertEqual(result["status"], "success", result.get("error"))
+        self.assertNotIn("legend", result["render_metadata"])
+
+
+class CodegenLegendEndToEndTests(unittest.TestCase):
+    """spec card-level-legend-codegen C4: the legend + summary thread from the
+    codegen render onto the served artifact and the complete snapshot — the
+    _build_worker_artifact_metadata parity gap the ADR-0030 cutover left open."""
+
+    def test_legend_reaches_the_complete_snapshot_and_artifact(self):
+        worker = SandboxWorkerRenderer()
+        codegen = FakeCodegenClient(generate_code=_legend_generated_python())
+        with tempfile.TemporaryDirectory() as temp_dir:
+            hass, entry = _configured_codegen_hass(
+                codegen_client=codegen, worker=worker, artifact_dir=Path(temp_dir)
+            )
+            start = _start_job(hass, entry)
+            snapshot = _snapshot_job(hass, entry, start["snapshot"]["job_id"])
+
+            self.assertEqual(snapshot["snapshot"]["status"], "complete", snapshot)
+            chart = snapshot["snapshot"]["chart"]
+            self.assertEqual(chart.get("render_path"), "codegen")
+            legend = chart.get("legend")
+            self.assertIsNotNone(legend, "codegen legend dropped before the snapshot")
+            self.assertEqual([row["kind"] for row in legend], ["series", "computed"])
+            self.assertEqual(chart.get("summary"), "Kitchen and basement with their average.")
+            # Threads consistently onto the served artifact too.
+            artifact = _orchestration_store(hass, entry)["latest_artifact"]
+            self.assertEqual(artifact.get("legend"), legend)
+
+
+class CodegenLegendPromptRuleTests(unittest.TestCase):
+    """spec card-level-legend-codegen C1/C2: the codegen return contract requires
+    the legend manifest, solid/dashed line styling, and no in-image ax.legend()."""
+
+    def test_prompt_rules_require_the_legend_manifest(self):
+        rules = " ".join(_CODEGEN_PROMPT_RULES)
+        lowered = rules.lower()
+        # The return-contract dict names legend.
+        self.assertIn("title, series_plotted, warnings, legend", lowered)
+        # A self-reported hex color manifest with the three kinds.
+        self.assertIn("return a 'legend' list", lowered)
+        for kind in ("'series'", "'computed'", "'overlay'"):
+            self.assertIn(kind, lowered)
+        # Colin's convention: solid raw sensors, dashed computed series.
+        self.assertIn("solid", lowered)
+        self.assertIn("dashed", lowered)
+        self.assertIn("linestyle='--'", rules)
+        # No redundant in-image legend.
+        self.assertIn("do not call ax.legend()", lowered)
+
+
+class CodegenLegendSchemaTests(unittest.TestCase):
+    """The computed kind is additive on both legend schema copies."""
+
+    def _schema(self, name: str) -> dict:
+        return json.loads((DOCS_SCHEMAS / name).read_text())
+
+    def test_computed_kind_in_render_result_and_snapshot_schemas(self):
+        render_kind = self._schema("render-result.schema.json")[
+            "properties"]["render_metadata"]["properties"]["legend"]["items"]["properties"]["kind"]["enum"]
+        self.assertEqual(render_kind, ["series", "overlay", "computed"])
+        snapshot_kind = self._schema("integration-job-snapshot.schema.json")[
+            "$defs"]["legendItem"]["properties"]["kind"]["enum"]
+        self.assertEqual(snapshot_kind, ["series", "overlay", "computed"])
+
+
 if __name__ == "__main__":
     unittest.main()

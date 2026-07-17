@@ -869,12 +869,10 @@ var Q = class extends U {
       <li class="legend-row">
         <details>
           <summary>
-            <span
-              class="swatch"
-              style=${i ? this.splitSwatchStyle(r) : `background:${t.color}`}
-            ></span>
+            <span class="swatch" style=${i ? this.splitSwatchStyle(r) : t.kind === "computed" ? `background:transparent;border:2px dashed ${t.color}` : `background:${t.color}`}></span>
             <span class="legend-label">${n}</span>
             ${t.kind === "overlay" ? M`<span class="legend-tag">overlay</span>` : P}
+            ${t.kind === "computed" ? M`<span class="legend-tag legend-tag-computed">computed</span>` : P}
           </summary>
           <div class="legend-detail">
             <span class="legend-entity">${t.entity_id}</span>
@@ -1234,6 +1232,11 @@ var Q = class extends U {
       font-size: 0.7rem;
       padding: 1px 6px;
       text-transform: uppercase;
+    }
+
+    .legend-tag-computed {
+      background: transparent;
+      border: 1px dashed var(--secondary-text-color, #596579);
     }
 
     .legend-detail {

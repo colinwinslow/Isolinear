@@ -2,6 +2,30 @@
 
 ## Current project phase
 
+### 2026-07-17 (30th session) — (y) card-level legend for the codegen render path, + a new `computed` legend kind (0.2.42)
+
+**Phase.** `The ADR-0027 D1 card-level legend now populates on the codegen path (ADR-0030), with a third legend kind — computed — so a model-authored derived series (mean/delta/deviation) reads distinctly from a raw sensor (solid) and a state-overlay band (shaded). Landed integration+frontend+worker; goes live after a worker rebuild.`
+
+**The gap (traced end-to-end).** The card-level legend — a rich disclosure OUTSIDE the plot, one row per series/overlay with swatch/entity/alias/state breakdown — was wired for the Pillow renderer but never fed by codegen since ADR-0030 made it primary. Three links were dead: (1) the codegen return-contract (`_CODEGEN_PROMPT_RULES`) only asked for `{title, series_plotted, warnings}` — no legend; (2) the WORKER `_normalize_render_metadata` rebuilt the metadata from a fixed key set and silently DROPPED any returned `legend`/`summary`; (3) `render_dispatch._build_worker_artifact_metadata` copied only `answer_text` while its Pillow twin copies legend+summary. The frontend disclosure UI and `snapshot_assembly` copy were already renderer-agnostic and intact — just never fed.
+
+**The decision (confirmed with Colin via AskUserQuestion).** Colin's liked convention: real sensors solid, a computed series dashed. Because the frontend keys `kind === "overlay"` to a state-band tag + a per-state `states` breakdown, a computed *line* cannot reuse `overlay` without inheriting band UI. Decision: **a third `kind: "computed"`** (real=`series`/solid, computed=`computed`/dashed, state band=`overlay`/shaded), and **drop the in-image `ax.legend()`** — the card-level legend supersedes it; line style carries the in-plot distinction. Both product calls, so both were confirmed before writing the contract.
+
+**What shipped (0.2.42).** Spec `docs/specs/card-level-legend-codegen.md` (DRAFT, extends the accepted `card-legend-and-summary.md`) + BDD `bdd/dashboard-card/card-level-legend-codegen-bdd.md` + evidence file.
+- **Schema** — `computed` added to the legend `kind` enum in every copy: `render-result` (×3: docs, custom_components, worker), `integration-artifact-metadata` (×2), `integration-job-snapshot` (×2). Byte-identical per group; purely additive (existing `series`/`overlay` validate unchanged). The `legend` and `summary` fields were ALREADY in the render-result `render_metadata` schema — only the enum needed extending.
+- **Worker** (`codegen_sandbox.py`) — `_normalize_render_metadata` now preserves a sanitized legend via new `_coerce_legend` (drops non-dict rows, rows with an unknown kind, and rows without a `#rrggbb` hex color — a swatch can't be recovered otherwise; keeps `states` only for `overlay`) + a `summary` passthrough. Cosmetic (spec C6): a malformed/missing legend is dropped, never fails the worker response (which would 500 → unrepairable Pillow fallback).
+- **`render_dispatch.py`** — `_build_worker_artifact_metadata` copies `legend`+`summary` onto the artifact, matching the Pillow builder (parity gap closed).
+- **Prompt** (`model_provider.py`) — the return-contract dict names `legend`; a new rule requires `legend[]` (self-reported lower-case hex colors + `kind`), solid raw sensors / dashed computed (`linestyle='--'`), and NO `ax.legend()`.
+- **Frontend** (`isolinear-card.ts`, `types.ts`) — a `computed` tag (distinct from `overlay`) + a hollow dashed-outline swatch; `kind` type widened. Bundle rebuilt (`npm run build`, type-check clean) and synced to `custom_components/isolinear/frontend/dist/`.
+
+**Verification.** Suite **565 passed** (+6: `CodegenLegendSandboxTests` — passthrough, malformed-color drop, chart-only-no-legend; `CodegenLegendEndToEndTests` — legend+summary thread to `snapshot.chart` + artifact on the real codegen path; `CodegenLegendPromptRuleTests`; `CodegenLegendSchemaTests`). Frontend **37 passed** + build type-checks. BDD evidence captured for Scenarios B/C/D on the real pipeline; **Scenario A (live card eyes-on — the dashed computed line + `computed` row on the actual card) is deploy-time-pending.** **Arch-review subagent (fresh context): OK** — no invariant violations; `_coerce_legend` runs in the TRUSTED worker parent AFTER the subprocess returns (no sandbox capability/import/IO — invariant #3 intact); legend is display-only (grep-confirmed it never enters grounding/repair/plan validation); schema change additive (#4); `summary` parity justified (same pre-existing drop), not scope creep; no new ADR (an enum extension of the accepted ADR-0027 D1 `kind` field, which D2 already framed as follow-up work).
+
+**⚠️ NOT integration-only — worker rebuild required.** The `_normalize_render_metadata` change is worker-side. Deploy order: rebuild the worker image + `docker compose up -d --force-recreate isolinear-worker` on CT103, THEN HACS-redownload 0.2.42, THEN eyes-on the card. Until the worker rebuilds, the legend stays dropped even on 0.2.42. Prior worker rebuild was 0.2.34.
+
+**Next.**
+1. **(y) deploy + eyes-on** — worker rebuild, then confirm a computed-average chart shows the 3-row legend with a dashed `computed` row and no in-image legend (Scenario A). Then promote the spec draft→accepted.
+2. **(r) binary/timeline routing** — codegen renders binary/categorical entities empty (invariant #9 gap, e2e-09).
+3. **(t)** the >2-day tiering wall (small ADR), **(F)** cosmetics.
+
 ### 2026-07-16 (29th session) — (ff) correlation-answer gap closed, a two-part fix reproduced live before designing (0.2.41)
 
 **Phase.** `The analysis-answer layer now fires for correlation too. Correlation prompts used to render the two input series but never serve a computed Pearson r + verdict; a live production-path probe split that into a grounding bug (the coefficient could never be independently verified) and an emission bug (the model plots and stops). Both fixed and eval-gated. The answer channel now covers mean / delta / deviation / distribution / rolling / correlation.`

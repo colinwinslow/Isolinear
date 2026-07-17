@@ -337,7 +337,8 @@
         "kind": {
           "enum": [
             "series",
-            "overlay"
+            "overlay",
+            "computed"
           ]
         },
         "states": {

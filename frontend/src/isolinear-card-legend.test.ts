@@ -105,6 +105,36 @@ describe("Isolinear card legend (ADR-0027)", () => {
     expect(overlayRow.textContent).toContain("heating");
   });
 
+  it("gives a computed row a dashed swatch and a computed tag, no state children", async () => {
+    // spec card-level-legend-codegen C5: a computed series (mean/delta/deviation)
+    // reads distinctly from a solid raw-sensor row and a shaded overlay row.
+    const card = await mount(
+      completeSnapshotWithLegend({
+        legend: [
+          { label: "Kitchen Temperature", entity_id: "sensor.kitchen_temperature", color: "#1f77b4", kind: "series" },
+          { label: "Basement Temperature", entity_id: "sensor.basement_temperature", color: "#ff7f0e", kind: "series" },
+          { label: "Average", entity_id: "sensor.kitchen_temperature", color: "#2ca02c", kind: "computed" },
+        ],
+      }),
+    );
+    const rows = card.shadowRoot!.querySelectorAll(".legend-row");
+    expect(rows.length).toBe(3);
+    const computedRow = rows[2]!;
+    // A "computed" tag (not "overlay").
+    const tag = computedRow.querySelector(".legend-tag-computed")!;
+    expect(tag).not.toBeNull();
+    expect(tag.textContent!.toLowerCase()).toContain("computed");
+    expect(computedRow.textContent!.toLowerCase()).not.toContain("overlay");
+    // A hollow, dashed-outline swatch echoing the dashed line.
+    const swatchStyle = computedRow.querySelector<HTMLElement>(".swatch")!.getAttribute("style")!;
+    expect(swatchStyle).toContain("dashed");
+    expect(swatchStyle).toContain("#2ca02c");
+    // A computed series is a line, not a band — no per-state children.
+    expect(computedRow.querySelectorAll(".legend-states li").length).toBe(0);
+    // The plain series rows carry no tag.
+    expect(rows[0]!.querySelector(".legend-tag")).toBeNull();
+  });
+
   it("shows a matched alias inside its row's disclosure", async () => {
     const card = await mount(
       completeSnapshotWithLegend({}, {

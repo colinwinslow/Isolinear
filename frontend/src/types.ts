@@ -25,7 +25,7 @@ export interface IsolinearLegendItem {
   label: string;
   entity_id: string;
   color: string;
-  kind: "series" | "overlay";
+  kind: "series" | "overlay" | "computed";
   states?: IsolinearLegendState[];
 }
 

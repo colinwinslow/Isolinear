@@ -1066,6 +1066,57 @@ def _coerce_string_list(value: Any) -> list[str]:
     return [item if isinstance(item, str) else str(item) for item in value]
 
 
+_LEGEND_KINDS = {"series", "overlay", "computed"}
+_LEGEND_HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _coerce_legend(legend: Any) -> list[dict[str, Any]] | None:
+    """Sanitize the model-authored legend color manifest (spec
+    card-level-legend-codegen C1) to the render-result contract shape.
+
+    The legend is cosmetic (spec C6): a malformed entry is dropped, never
+    allowed to fail the worker's response validation (which would surface as an
+    HTTP 500 the integration treats as an unrepairable transport fault). Only
+    contract keys survive (the item schema is additionalProperties:false), and
+    `color` must be a `#rrggbb` hex — a swatch cannot be recovered from an
+    arbitrary color name, so an entry without one is dropped rather than served
+    with a broken swatch. `states` is kept only for an `overlay` row.
+    """
+    if not isinstance(legend, list):
+        return None
+    sanitized: list[dict[str, Any]] = []
+    for item in legend:
+        if not isinstance(item, dict):
+            continue
+        kind = item.get("kind")
+        if kind not in _LEGEND_KINDS:
+            continue
+        color = item.get("color")
+        if not isinstance(color, str) or not _LEGEND_HEX_RE.match(color):
+            continue
+        label = item.get("label")
+        entity_id = item.get("entity_id")
+        entry: dict[str, Any] = {
+            "label": label if isinstance(label, str) else str(label if label is not None else ""),
+            "entity_id": entity_id if isinstance(entity_id, str) else str(entity_id if entity_id is not None else ""),
+            "color": color.lower(),
+            "kind": kind,
+        }
+        if kind == "overlay" and isinstance(item.get("states"), list):
+            clean_states = []
+            for state in item["states"]:
+                if not isinstance(state, dict):
+                    continue
+                state_color = state.get("color")
+                state_label = state.get("label")
+                if isinstance(state_color, str) and _LEGEND_HEX_RE.match(state_color) and state_label is not None:
+                    clean_states.append({"label": str(state_label), "color": state_color.lower()})
+            if clean_states:
+                entry["states"] = clean_states
+        sanitized.append(entry)
+    return sanitized
+
+
 def _coerce_claims(claims: Any) -> list[dict[str, Any]] | None:
     """Sanitize the model-authored claims ledger to the contract shape.
 
@@ -1155,6 +1206,16 @@ def _normalize_render_metadata(
     claims = _coerce_claims(metadata.get("claims"))
     if claims is not None:
         normalized["claims"] = claims
+    # ADR-0027 D1 on the codegen path (spec card-level-legend-codegen): the
+    # self-reported color manifest + model summary. Coerced/sanitized (cosmetic —
+    # a malformed legend is dropped, never fails the response contract) and
+    # passed through only when non-empty, so a chart with no legend carries none.
+    legend = _coerce_legend(metadata.get("legend"))
+    if legend:
+        normalized["legend"] = legend
+    summary = metadata.get("summary")
+    if isinstance(summary, str) and summary.strip():
+        normalized["summary"] = summary.strip()
     return normalized
 
 

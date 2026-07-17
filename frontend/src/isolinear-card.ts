@@ -408,16 +408,22 @@ export class IsolinearCard extends LitElement {
     const isSplit = states.length > 1;
     const alias = (snapshot.aliases ?? []).find((entry) => entry.entity_id === item.entity_id);
     const childStates = states.length > 1 ? states : [];
+    // A computed series (mean/delta/deviation) is drawn as a dashed line, not a
+    // shaded band — echo that with a hollow, dashed-outline swatch so it reads
+    // distinctly from a solid raw-sensor swatch and an overlay's split swatch.
+    const swatchStyle = isSplit
+      ? this.splitSwatchStyle(states)
+      : item.kind === "computed"
+        ? `background:transparent;border:2px dashed ${item.color}`
+        : `background:${item.color}`;
     return html`
       <li class="legend-row">
         <details>
           <summary>
-            <span
-              class="swatch"
-              style=${isSplit ? this.splitSwatchStyle(states) : `background:${item.color}`}
-            ></span>
+            <span class="swatch" style=${swatchStyle}></span>
             <span class="legend-label">${label}</span>
             ${item.kind === "overlay" ? html`<span class="legend-tag">overlay</span>` : nothing}
+            ${item.kind === "computed" ? html`<span class="legend-tag legend-tag-computed">computed</span>` : nothing}
           </summary>
           <div class="legend-detail">
             <span class="legend-entity">${item.entity_id}</span>
@@ -901,6 +907,11 @@ export class IsolinearCard extends LitElement {
       font-size: 0.7rem;
       padding: 1px 6px;
       text-transform: uppercase;
+    }
+
+    .legend-tag-computed {
+      background: transparent;
+      border: 1px dashed var(--secondary-text-color, #596579);
     }
 
     .legend-detail {

@@ -284,7 +284,29 @@ _CODEGEN_PROMPT_RULES = [
     "or network access.",
     "Do not read environment variables, secrets, tokens, or files other than writing "
     "the figure to output_path.",
-    "Return a small metadata dict (title, series_plotted, warnings) from render_chart.",
+    "Return a small metadata dict (title, series_plotted, warnings, legend) from render_chart.",
+    # ADR-0027 D1 card-level legend on the codegen path (spec
+    # card-level-legend-codegen). The card renders a rich legend OUTSIDE the plot
+    # from a self-reported color manifest — the same proven self-report pattern as
+    # series_plotted/answer_text (metadata about code you just wrote). The model
+    # owns matplotlib colors here (no integration palette), so the swatch can only
+    # match the line if you assign an explicit HEX color and report that same hex.
+    # kind carries Colin's convention: real sensors solid, computed series dashed;
+    # a computed series is a LINE, not a shaded band, so it is 'computed', never
+    # 'overlay'. Legend is cosmetic — a missing/partial one never fails the render.
+    "Assign each plotted line an explicit lower-case hex color and pass it to "
+    "ax.plot(..., color='#rrggbb'). Draw raw sensor series as SOLID lines and any "
+    "series you COMPUTED (a cross-sensor average, difference, deviation, or "
+    "rolling mean) as a DASHED line (linestyle='--'), so the two read differently. "
+    "Do NOT call ax.legend() — the card draws the legend itself from the manifest "
+    "below, so an in-image legend is redundant. Return a 'legend' list in the "
+    "metadata dict, one entry per line/band you drew in draw order, each a dict "
+    "with: 'label' (the descriptive label), 'entity_id' (the series' entity_id "
+    "from history_series; for a computed series use its primary input entity_id, "
+    "or '' if none applies), 'color' (the EXACT hex you passed to ax.plot, "
+    "lower-case '#rrggbb'), and 'kind' — 'series' for a raw sensor line, 'computed' "
+    "for a series you computed, 'overlay' for a shaded state band. Omit the legend "
+    "or return [] if you drew a single plain series.",
     # ADR-0031 tranche 1: grounded natural-language answer. The number and any
     # verdict MUST be computed inside render_chart and formatted into the string —
     # never asserted at generation time (an honest number must not ride a
