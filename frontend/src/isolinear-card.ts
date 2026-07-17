@@ -408,19 +408,27 @@ export class IsolinearCard extends LitElement {
     const isSplit = states.length > 1;
     const alias = (snapshot.aliases ?? []).find((entry) => entry.entity_id === item.entity_id);
     const childStates = states.length > 1 ? states : [];
-    // A computed series (mean/delta/deviation) is drawn as a dashed line, not a
-    // shaded band — echo that with a hollow, dashed-outline swatch so it reads
-    // distinctly from a solid raw-sensor swatch and an overlay's split swatch.
-    const swatchStyle = isSplit
-      ? this.splitSwatchStyle(states)
-      : item.kind === "computed"
-        ? `background:transparent;border:2px dashed ${item.color}`
-        : `background:${item.color}`;
+    // series and computed are plotted LINES — show a short horizontal line SAMPLE
+    // matching the stroke (solid for a raw sensor, dashed for a computed series),
+    // like a matplotlib legend handle. overlay is a shaded BAND, not a line, so it
+    // keeps a filled/split box swatch.
+    const isLineKind = item.kind === "series" || item.kind === "computed";
+    const swatch = isLineKind
+      ? html`<span
+          class="swatch swatch-line"
+          style=${`border-top-color:${item.color};border-top-style:${
+            item.kind === "computed" ? "dashed" : "solid"
+          }`}
+        ></span>`
+      : html`<span
+          class="swatch"
+          style=${isSplit ? this.splitSwatchStyle(states) : `background:${item.color}`}
+        ></span>`;
     return html`
       <li class="legend-row">
         <details>
           <summary>
-            <span class="swatch" style=${swatchStyle}></span>
+            ${swatch}
             <span class="legend-label">${label}</span>
             ${item.kind === "overlay" ? html`<span class="legend-tag">overlay</span>` : nothing}
             ${item.kind === "computed" ? html`<span class="legend-tag legend-tag-computed">computed</span>` : nothing}
@@ -886,6 +894,18 @@ export class IsolinearCard extends LitElement {
       flex: 0 0 auto;
       height: 14px;
       width: 22px;
+    }
+
+    /* A line-sample swatch for series/computed rows: a 22px horizontal rule drawn
+       in the line's stroke style (solid or dashed), centered in the row. Overrides
+       the box .swatch — no fill, no side/bottom borders, no rounded corners. */
+    .swatch-line {
+      align-self: center;
+      background: none;
+      border: 0;
+      border-radius: 0;
+      border-top-width: 3px;
+      height: 0;
     }
 
     .swatch-sm {

@@ -103,14 +103,17 @@ threads `artifact["legend"]`/`summary` into `snapshot.chart` renderer-agnostical
 
 ### C5 — Card presentation: the `computed` row
 
-`isolinear-card.ts` `renderLegendRow` gains a `computed` branch:
-- a `computed` tag (distinct text from the existing `overlay` tag);
-- a swatch styled to read as dashed/hollow, echoing the dashed-line convention;
-- no `states` child list (computed is a line).
+`isolinear-card.ts` `renderLegendRow`:
+- `series` and `computed` are plotted LINES, so each renders a **line-sample
+  swatch** — a short horizontal rule in the row color drawn in the line's stroke
+  style: **solid** for `series`, **dashed** for `computed` (a matplotlib-style
+  legend handle, `0.2.43` — not a bordered box);
+- `computed` additionally carries a `computed` tag (distinct text from the
+  `overlay` tag) and no `states` child list (it is a line, not a band);
+- `overlay` is a shaded BAND, so it keeps the filled/split box swatch + state
+  children + `overlay` tag (unchanged).
 
-`series` rows are unchanged (plain swatch, no tag). `overlay` rows are unchanged
-(split swatch + state children + `overlay` tag). Empty-legend degrades gracefully
-(unchanged).
+Empty-legend degrades gracefully (unchanged).
 
 ### C6 — Cosmetic-only: no enforcement, no repair, no withhold
 

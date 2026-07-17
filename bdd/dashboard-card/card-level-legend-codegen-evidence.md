@@ -55,10 +55,13 @@ both fields renderer-agnostically as before.
 
 Frontend Vitest (`isolinear-card-legend.test.ts`,
 "gives a computed row a dashed swatch and a computed tag, no state children"):
-a `kind: "computed"` row renders a `computed` tag (not `overlay`), a swatch whose
-inline style contains `dashed` and the row color (`#2ca02c`), and zero
-`.legend-states li` children; the plain `series` rows carry no tag. The overlay row
-(existing test) keeps its split swatch + per-state children. `npm test` → 37 passed.
+a `kind: "computed"` row renders a `computed` tag (not `overlay`), a line-sample
+swatch (`.swatch-line`) whose inline style is `border-top-style:dashed` in the row
+color (`#2ca02c`), and zero `.legend-states li` children; a `series` row renders a
+`border-top-style:solid` line sample and no tag. (0.2.43: the swatch is a short
+horizontal line in the stroke style — a matplotlib-style legend handle — not a
+bordered box; Colin's request after the 0.2.42 eyes-on.) The overlay row keeps its
+split box swatch + per-state children. `npm test` → 37 passed.
 
 ## Scenario D — a missing legend never breaks the render (cosmetic-only)
 

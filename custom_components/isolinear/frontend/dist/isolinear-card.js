@@ -869,7 +869,13 @@ var Q = class extends U {
       <li class="legend-row">
         <details>
           <summary>
-            <span class="swatch" style=${i ? this.splitSwatchStyle(r) : t.kind === "computed" ? `background:transparent;border:2px dashed ${t.color}` : `background:${t.color}`}></span>
+            ${t.kind === "series" || t.kind === "computed" ? M`<span
+          class="swatch swatch-line"
+          style=${`border-top-color:${t.color};border-top-style:${t.kind === "computed" ? "dashed" : "solid"}`}
+        ></span>` : M`<span
+          class="swatch"
+          style=${i ? this.splitSwatchStyle(r) : `background:${t.color}`}
+        ></span>`}
             <span class="legend-label">${n}</span>
             ${t.kind === "overlay" ? M`<span class="legend-tag">overlay</span>` : P}
             ${t.kind === "computed" ? M`<span class="legend-tag legend-tag-computed">computed</span>` : P}
@@ -1211,6 +1217,18 @@ var Q = class extends U {
       flex: 0 0 auto;
       height: 14px;
       width: 22px;
+    }
+
+    /* A line-sample swatch for series/computed rows: a 22px horizontal rule drawn
+       in the line's stroke style (solid or dashed), centered in the row. Overrides
+       the box .swatch — no fill, no side/bottom borders, no rounded corners. */
+    .swatch-line {
+      align-self: center;
+      background: none;
+      border: 0;
+      border-radius: 0;
+      border-top-width: 3px;
+      height: 0;
     }
 
     .swatch-sm {

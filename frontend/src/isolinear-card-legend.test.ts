@@ -125,10 +125,17 @@ describe("Isolinear card legend (ADR-0027)", () => {
     expect(tag).not.toBeNull();
     expect(tag.textContent!.toLowerCase()).toContain("computed");
     expect(computedRow.textContent!.toLowerCase()).not.toContain("overlay");
-    // A hollow, dashed-outline swatch echoing the dashed line.
-    const swatchStyle = computedRow.querySelector<HTMLElement>(".swatch")!.getAttribute("style")!;
-    expect(swatchStyle).toContain("dashed");
-    expect(swatchStyle).toContain("#2ca02c");
+    // A line-sample swatch: a horizontal rule in the line's stroke — DASHED for a
+    // computed series, in the row color (not a bordered box).
+    const computedSwatch = computedRow.querySelector<HTMLElement>(".swatch")!;
+    expect(computedSwatch.classList.contains("swatch-line")).toBe(true);
+    const computedStyle = computedSwatch.getAttribute("style")!;
+    expect(computedStyle).toContain("border-top-style:dashed");
+    expect(computedStyle).toContain("#2ca02c");
+    // A raw sensor line-sample is SOLID in the same style-as-line convention.
+    const seriesSwatch = rows[0]!.querySelector<HTMLElement>(".swatch")!;
+    expect(seriesSwatch.classList.contains("swatch-line")).toBe(true);
+    expect(seriesSwatch.getAttribute("style")!).toContain("border-top-style:solid");
     // A computed series is a line, not a band — no per-state children.
     expect(computedRow.querySelectorAll(".legend-states li").length).toBe(0);
     // The plain series rows carry no tag.
