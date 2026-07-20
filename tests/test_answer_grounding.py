@@ -1074,3 +1074,149 @@ class TestStateDuration:
         )
         assert result["withheld"] is True
         assert result["synthetic_error"]["code"] == "grounding_value_mismatch"
+
+
+# ---------------------------------------------------------------------------
+# Multi-input delta (2026-07-20, live-driven): "compare the kitchen and basement
+# humidity" answers with the AVERAGE DIFFERENCE BETWEEN two sensors, computed off
+# the ADR-0036 aligned frame. The old recompute returned last-minus-first of
+# inputs[0] — a different quantity entirely (live humidity: 4.00 vs the true
+# 4.63) — so a correct two-sensor answer could never verify. Third application
+# of the align-grid pattern after _compute_mean (0.2.37) and _compute_pearson_r
+# (0.2.41); the spec named it as the demand-driven extension.
+# ---------------------------------------------------------------------------
+
+
+class TestCrossSensorDelta:
+    # 5-min spacing (align()'s bucket); b offset 37s so the two share NO raw
+    # timestamp but land in the same buckets — the real-recorder shape.
+    # Per-bucket differences: 6, 14, 22 → mean 14.0.
+    SERIES = [
+        _series("sensor.a", [10.0, 20.0, 30.0], start_ms=0, step_ms=300_000),
+        _series("sensor.b", [4.0, 6.0, 8.0], start_ms=37_000, step_ms=300_000),
+    ]
+
+    def test_reference_is_cross_sensor_difference_not_first_input_change(self):
+        from custom_components.isolinear.answer_grounding import _compute_delta
+        ref = _compute_delta(["sensor.a", "sensor.b"], None, {}, self.SERIES)
+        assert ref == pytest.approx(14.0)   # aligned average difference
+        assert ref != pytest.approx(20.0)   # NOT last-first of inputs[0] (the old bug)
+
+    def test_single_input_unchanged(self):
+        """Single-input delta stays change-over-time (last - first)."""
+        from custom_components.isolinear.answer_grounding import _compute_delta
+        assert _compute_delta(["sensor.a"], None, {}, self.SERIES) == pytest.approx(20.0)
+
+    def test_correct_two_sensor_value_verifies(self):
+        result = run_grounding_check(
+            {
+                "answer_text": "The kitchen humidity was on average 14.0 % higher than the basement.",
+                "claims": [{"metric": "delta", "inputs": ["sensor.a", "sensor.b"], "value": 14.0}],
+            },
+            self.SERIES,
+        )
+        assert result["outcome"] not in ("repair_contradicted", "repair_soft")
+        assert result["withheld"] is False
+        assert result["answer_verification"] == "verified"
+
+    def test_old_single_sensor_value_now_contradicts(self):
+        """The pre-fix quantity (20.0) is now correctly flagged — this pins that
+        the recompute stays load-bearing rather than rubber-stamping any number."""
+        result = run_grounding_check(
+            {
+                "answer_text": "The average difference was 20.0 %.",
+                "claims": [{"metric": "delta", "inputs": ["sensor.a", "sensor.b"], "value": 20.0}],
+            },
+            self.SERIES,
+        )
+        assert result["outcome"] == "repair_contradicted"
+        assert result["synthetic_error"]["code"] == "grounding_value_mismatch"
+
+    def test_no_grid_overlap_yields_no_reference(self):
+        """Disjoint coverage → no common bucket → None → caveat, never a false
+        contradiction (same policy as _compute_mean)."""
+        from custom_components.isolinear.answer_grounding import _compute_delta
+        disjoint = [
+            _series("sensor.a", [10.0, 20.0], start_ms=0, step_ms=300_000),
+            _series("sensor.b", [4.0, 6.0], start_ms=10_000_000, step_ms=300_000),
+        ]
+        assert _compute_delta(["sensor.a", "sensor.b"], None, {}, disjoint) is None
+
+    def test_three_inputs_is_ambiguous_and_yields_no_reference(self):
+        """A 3-input delta has no well-defined ordering — no reference beats a
+        guessed one that could falsely contradict a correct answer."""
+        from custom_components.isolinear.answer_grounding import _compute_delta
+        three = self.SERIES + [_series("sensor.c", [1.0, 2.0, 3.0], step_ms=300_000)]
+        assert _compute_delta(["sensor.a", "sensor.b", "sensor.c"], None, {}, three) is None
+
+
+class TestCrossSensorDeltaFalseContradictionGuards:
+    """Arch-review findings (2026-07-20): cross-sensor delta is the first
+    ORDER-SENSITIVE multi-input metric and admits more than one defensible
+    reference grid. Both paths could withhold a CORRECT answer — the (cc)/(ff)
+    failure mode. These pin the guards; the wrong-value test below pins that the
+    guards did NOT defang step 4."""
+
+    # a - b = 6, 14, 22 over three shared buckets. sensor.c covers only the LAST
+    # two buckets, so align()'s dropna (which spans EVERY numeric column) narrows
+    # the model's frame to those: (14 + 22) / 2 = 18.0, vs the inputs-only
+    # reading of 14.0. Both are legitimate; the claim can't say which was used.
+    SERIES = [
+        _series("sensor.a", [10.0, 20.0, 30.0], start_ms=0, step_ms=300_000),
+        _series("sensor.b", [4.0, 6.0, 8.0], start_ms=37_000, step_ms=300_000),
+        _series("sensor.c", [1.0, 2.0], start_ms=300_000, step_ms=300_000),
+    ]
+
+    def _series_with_kind(self):
+        # align() only includes kind == "numeric" columns.
+        return [dict(s, kind="numeric") for s in self.SERIES]
+
+    def test_all_series_align_grid_is_the_primary_reference(self):
+        """The prompt prescribes align(history_series), whose dropna spans every
+        numeric column — so with a third sparse series the reference narrows."""
+        from custom_components.isolinear.answer_grounding import _compute_delta
+        ref = _compute_delta(["sensor.a", "sensor.b"], None, {}, self._series_with_kind())
+        assert ref == pytest.approx(18.0)
+
+    def test_inputs_only_grid_value_still_verifies(self):
+        """A model that aligned only the two claim inputs computed 14.0. That is
+        the other defensible reading and must NOT be contradicted."""
+        result = run_grounding_check(
+            {
+                "answer_text": "The kitchen humidity averaged 14.0 % above the basement.",
+                "claims": [{"metric": "delta", "inputs": ["sensor.a", "sensor.b"], "value": 14.0}],
+            },
+            self._series_with_kind(),
+        )
+        assert result["withheld"] is False
+        assert result["outcome"] != "repair_contradicted"
+
+    def test_sign_flip_is_caveated_not_withheld(self):
+        """Model subtracted b−a but listed inputs [a, b]: magnitude right, sign
+        wrong. Serving with a caveat beats withholding a correct magnitude."""
+        result = run_grounding_check(
+            {
+                "answer_text": "The basement humidity averaged 18.0 % below the kitchen.",
+                "claims": [{"metric": "delta", "inputs": ["sensor.a", "sensor.b"], "value": -18.0}],
+            },
+            self._series_with_kind(),
+        )
+        assert result["withheld"] is False
+        assert result["outcome"] == "unverified_caveat"
+        # A caveat carries no top-level synthetic_error (nothing to repair); the
+        # reason rides in the per-claim diagnostics.
+        codes = [r.get("code") for r in result["diagnostics"]["claim_results"]]
+        assert "grounding_delta_sign_ambiguous" in codes
+
+    def test_wrong_value_still_contradicts_despite_guards(self):
+        """The guards must not rubber-stamp: a value matching NEITHER grid in
+        magnitude is still caught and withheld."""
+        result = run_grounding_check(
+            {
+                "answer_text": "The average difference was 47.0 %.",
+                "claims": [{"metric": "delta", "inputs": ["sensor.a", "sensor.b"], "value": 47.0}],
+            },
+            self._series_with_kind(),
+        )
+        assert result["withheld"] is True
+        assert result["synthetic_error"]["code"] == "grounding_value_mismatch"

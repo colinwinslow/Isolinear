@@ -247,6 +247,39 @@ request-conditional:
   the prompt. Grounding contract pinned by
   `TestCrossSensorPearsonR.test_negative_correlation_{value,abs}_basis_*`
   (value → contradicted+withheld, abs → verified).
+- **Two-sensor comparison emission + multi-input delta grounding (e2e-08,
+  2026-07-20 — a TWO-PART fix, and a scope correction).** The packet was opened
+  as "cross-sensor delta/rolling grounding" — the assumed align-grid extension
+  after mean (0.2.37) and pearson (0.2.41). A live-first repro on the deployed
+  0.2.45 (`scripts/repro_delta_rolling_grounding.py`) changed the diagnosis
+  ([[feedback-e2e-over-synthetic]] again): across 7 executed production-path runs,
+  **zero emitted a claim of any kind**, and a live harness run confirmed it on the
+  card (e2e-17 answered "shows the general trend" with no number; e2e-08's codegen
+  collapsed to a Pillow fallback). The dominant failure was never the recompute —
+  it was EMISSION. Worse than the assumed caveat: a claimless answer grounds as
+  `outcome: pass` with `answer_verification` **absent**, so it is served with no
+  caveat and was never checked — one run stated "4.0 %" where the aligned truth
+  was 4.63. _Prompt half:_ a two-sensor comparison has the same shape as
+  correlation (the gap size is a scalar with nothing new to plot), so a
+  `_CODEGEN_PROMPT_RULES` sentence makes the average difference the mandatory
+  deliverable, computed as `(frame[a] - frame[b]).mean()` off the aligned frame,
+  with `inputs` in the SAME order as the subtraction (order is load-bearing — a
+  swap flips the sign and would reject a correct answer) and the window average
+  rather than an instantaneous difference. _Grounding half (§5):_ `_compute_delta`
+  for exactly two inputs now recomputes that same aligned average difference
+  (previously last-minus-first of `inputs[0]`), verified to 4 decimals against
+  real pandas `align()` on live data; ≥3 inputs deliberately return no reference.
+  Eval-gated with `evals/comparison_delta_gate.py` (production codegen path, REAL
+  recorder humidity, with/without the sentence, execution-truth judge = the real
+  `run_grounding_check` both SERVES and VERIFIES): **with-rule 3/3 served and all
+  3 VERIFIED (delta 4.6384, matching the independent reference to 12 decimals,
+  `inputs` in subtraction order) vs without-rule 0/3 — all three plot-only, the
+  live e2e-08 behavior reproduced.** **`rolling_mean` was measured
+  and needs no algorithm change** — raw-point (73.29) and aligned-grid variants
+  (73.28–73.31) agree inside tolerance; it only needs `params.window_ms` to have a
+  reference at all, so a paired sentence asks for it whenever a numeric rolling
+  value is stated, while explicitly NOT forcing a summary number (a smoothing
+  request is satisfied by the chart itself).
 - **Repair-intent retention (open-queue (B) — INVESTIGATED, NOT shipped).** The
   (B) packet was first framed as a repair-only instruction to preserve the
   `previous_code`'s derived series + `answer_text` while fixing a runtime error

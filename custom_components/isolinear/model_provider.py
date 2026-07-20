@@ -390,6 +390,41 @@ _CODEGEN_PROMPT_RULES = [
     "corr = frame.corr().iloc[0, 1]) and report it in answer_text. Never plot the "
     "inputs and return without an answer_text when user_request asks whether or how "
     "two sensors are correlated.",
+    # 2026-07-20, live-driven (e2e-08): a two-sensor COMPARISON prompt is the
+    # same emission shape as correlation — the interesting quantity (how far
+    # apart the sensors run) is a scalar with nothing new to plot, so the model
+    # draws both lines and either stops or answers qualitatively ("generally
+    # higher"), emitting no claim at all. A claimless answer grounds as
+    # `outcome: pass` with answer_verification ABSENT: it is served with no
+    # caveat and was never checked against the data — worse than a caveat,
+    # because a wrong number reads as an unqualified fact (a live run answered
+    # "4.0 %" where the aligned truth was 4.63). The subtraction ORDER and the
+    # average-over-the-window reading are pinned here so the claim and the
+    # integration's independent reference are the same quantity by contract —
+    # the tactic the 0.2.44 basis:'abs' fix used for correlation.
+    "IMPORTANT for two-sensor comparison questions ('compare A and B', 'how "
+    "does A compare to B', 'which is warmer/more humid', 'how much higher'): "
+    "the size of the gap is a single number, NOT a plotted series — so drawing "
+    "both sensor lines is NOT the analysis and is NOT enough on its own. You "
+    "MUST also compute the AVERAGE DIFFERENCE over the window from the aligned "
+    "frame (frame = isolinear_analysis.align(data['history_series']); "
+    "diff = (frame[a] - frame[b]).mean(), where a is the sensor named FIRST in "
+    "the question) and state that number in answer_text. Emit the claim "
+    "{'metric': 'delta', 'inputs': [a, b], 'value': diff} with 'inputs' in the "
+    "SAME order you subtracted — the integration recomputes (frame[inputs[0]] - "
+    "frame[inputs[1]]).mean() and a swapped order flips the sign and rejects a "
+    "correct answer. Report the average over the whole window, not the "
+    "difference at a single instant.",
+    # Paired with the above: when a smoothing answer DOES state a number, the
+    # rolling_mean recompute needs `window_ms` (a registry-required param) or it
+    # returns no reference and the value can never be verified. The chart is the
+    # real deliverable for a smoothing prompt, so this does NOT force a number —
+    # it only makes a stated one checkable.
+    "If your answer_text states a numeric rolling/smoothed average, include the "
+    "smoothing window in the claim as 'params': {'window_ms': <the window length "
+    "in milliseconds you actually used>}; without it the value cannot be "
+    "verified. A smoothing request is satisfied by the chart itself — do not "
+    "invent a summary number if the question only asked to see the data smoothed.",
     # ADR-0031 D8a: claims ledger for the integration-side grounding check.
     # The model emits a machine-readable recipe so the integration can independently
     # recompute the stated value and confirm the verdict follows the declared rule.

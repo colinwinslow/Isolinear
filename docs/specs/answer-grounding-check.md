@@ -227,8 +227,69 @@ drift-detector, independent of the sandbox helper, verified to 6 decimals agains
 `inputs[0]`, so a correct two-sensor answer could never match the single-sensor
 reference within tolerance and the answer was withheld (chart served, `answer_text`
 empty). Disjoint coverage (no common bucket) → no reference → `unverified-caveat`,
-never a false contradiction. `delta`/`daily_max`/`daily_min` remain single-input
+never a false contradiction. `daily_max`/`daily_min` remain single-input
 (`inputs[0]`); a multi-input need there is a future demand-driven extension.
+(Multi-input `delta` was that extension — landed 2026-07-20, below.)
+
+**Multi-input `delta` (cross-sensor, 2026-07-20, live-driven — e2e-08):** the
+demand this section anticipated arrived. "Compare the kitchen and basement
+humidity" is answered with the **average difference between** the two sensors,
+computed off the ADR-0036 aligned frame (`(frame[a] - frame[b]).mean()`), while
+the recompute returned last-minus-first of `inputs[0]` — a different quantity
+entirely (live humidity data: 4.00 against a true 4.63), so a correct two-sensor
+answer could never verify. For exactly two inputs the reference now resamples
+each onto the shared 5-minute grid, takes the per-bucket difference in
+`inputs` order, and means it — mirroring `align()` in pure Python, verified to 4
+decimals against real pandas `align()` on live data (4.6387). Single-input
+`delta` is unchanged (last − first, change *over time* within one series).
+
+**Three or more inputs return no reference** — a multi-way difference has no
+well-defined ordering, and a guessed one could falsely contradict a correct
+answer (the failure mode the (cc)/(ff) bugs taught us to fear).
+
+`delta` is the first **order-sensitive** multi-input metric (`mean` and
+`pearson_r` are both symmetric) and the first where the claim's inputs are
+routinely a SUBSET of the delivered series, so it carries two false-contradiction
+hazards the prior two fixes did not. The architecture review reproduced both, and
+the prompt rule alone does not cover them — a floor model that is internally
+inconsistent (subtracts `b - a` while listing `inputs` in the other order) or
+that builds its own frame instead of calling the prescribed helper would have a
+CORRECT answer withheld. So the recompute is defensive as well as faithful:
+
+- **Two reference grids are computed, most-faithful first.** The prompt
+  prescribes `align(data['history_series'])`, whose `dropna` spans EVERY
+  delivered numeric column — so when a third numeric series is delivered, the
+  model's frame is narrower than the two claim inputs alone, and
+  mean-of-differences is *not* invariant across row sets (measured on live data:
+  5.40 on the all-series grid vs 4.65 on the inputs-only grid, a 15× tolerance
+  gap). Both readings are legitimate; a value matching EITHER verifies.
+- **A sign-only disagreement is a caveat, not a contradiction.** If the stated
+  value matches a reference in magnitude but not sign, the answer is served with
+  `grounding_delta_sign_ambiguous` rather than withheld. Serving a possibly
+  back-to-front direction with a caveat beats suppressing a correct magnitude.
+
+A value matching no candidate grid in magnitude still contradicts, so step 4
+remains load-bearing (pinned by
+`TestCrossSensorDeltaFalseContradictionGuards::test_wrong_value_still_contradicts_despite_guards`).
+No grid overlap → no reference → `unverified-caveat`, never a false contradiction.
+
+**Deliberate reinterpretation:** a two-input `delta` claim now *always* means the
+cross-sensor difference. A hypothetical old-shape claim that used two inputs to
+mean "change over time of `inputs[0]`" would now be caveated or contradicted.
+That shape was never emitted in any observed run, and the prompt rule now names
+the cross-sensor reading explicitly, so the ambiguity is closed by contract
+rather than guessed at per-claim.
+
+**`rolling_mean` needs no align-grid change (negative result, same session).**
+The packet was scoped to fix `delta` *and* `rolling_mean` alignment, but
+measurement on real data retired the second half: the raw-point rolling
+recompute (73.29) and every aligned-grid variant (73.28–73.31 across 30- and
+60-minute windows) agree well inside the 0.05 tolerance, because averaging a
+rolling average over a window is insensitive to the resampling basis. The real
+obstacle for `rolling_mean` is the registry-required `window_ms` param: absent
+it, there is no reference at all regardless of algorithm. That is addressed on
+the emission side (the prompt asks for `params.window_ms` whenever a numeric
+rolling value is stated) rather than by changing this recompute.
 
 **`pearson_r` on the shared grid (2026-07-16, live-driven — open-queue (ff)):**
 the same alignment reasoning applies to correlation. Two sensors read by separate

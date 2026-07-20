@@ -970,3 +970,40 @@ class CodegenLegendSchemaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ComparisonDeltaEmissionPromptRuleTests(unittest.TestCase):
+    """2026-07-20, live-driven (e2e-08): a two-sensor comparison is the same
+    emission shape as correlation — the gap size is a scalar with nothing new to
+    plot, so the model draws both lines and answers qualitatively ("generally
+    higher") with NO claim. A claimless answer grounds as `pass` with
+    answer_verification ABSENT, so an unchecked number reads as fact (a live run
+    said "4.0 %" where the aligned truth was 4.63). The rule makes the average
+    difference the mandatory deliverable AND pins the subtraction order so the
+    claim and the integration's reference are the same quantity."""
+
+    def test_prompt_rules_make_comparison_difference_mandatory(self):
+        rules = " ".join(_CODEGEN_PROMPT_RULES)
+        lowered = rules.lower()
+        # The distinctive marker the gate strips for its without-arm.
+        self.assertIn("important for two-sensor comparison questions", lowered)
+        # Plotting both lines is explicitly NOT sufficient on its own.
+        self.assertIn("not enough on its own", lowered)
+        # The average difference must be computed off the aligned frame.
+        self.assertIn("average difference", lowered)
+        self.assertIn("(frame[a] - frame[b]).mean()", lowered)
+        # Input ORDER is load-bearing: a swapped order flips the sign and the
+        # integration's recompute would reject a correct answer.
+        self.assertIn("same order you subtracted", lowered)
+        # Window-average reading, not an instantaneous difference.
+        self.assertIn("not the difference at a single instant", lowered)
+
+    def test_prompt_rules_require_window_ms_for_stated_rolling_value(self):
+        """rolling_mean needs params.window_ms to be verifiable at all, but a
+        smoothing request is satisfied by the chart — the rule must NOT force a
+        summary number, only make a stated one checkable."""
+        rules = " ".join(_CODEGEN_PROMPT_RULES)
+        lowered = rules.lower()
+        self.assertIn("'params': {'window_ms'", rules)
+        self.assertIn("cannot be verified", lowered)
+        self.assertIn("do not invent a summary number", lowered)

@@ -198,8 +198,83 @@ def _compute_mean(inputs: list[str], window: dict | None, params: dict, hs: list
 
 
 def _compute_delta(inputs: list[str], window: dict | None, params: dict, hs: list[dict]) -> float | None:
-    vals = _numeric_vals(_in_window(_find_series(inputs[0] if inputs else "", hs), window))
-    return (vals[-1] - vals[0]) if len(vals) >= 2 else None
+    # Single input: change over time within ONE series (last - first).
+    if len(inputs) <= 1:
+        vals = _numeric_vals(_in_window(_find_series(inputs[0] if inputs else "", hs), window))
+        return (vals[-1] - vals[0]) if len(vals) >= 2 else None
+    # Two inputs (e.g. "compare the kitchen and basement humidity"): the model
+    # answers with the AVERAGE DIFFERENCE BETWEEN the sensors, computed off the
+    # ADR-0036 aligned frame (`(frame[a] - frame[b]).mean()`), so the reference
+    # must mirror that — the third application of the align-grid pattern after
+    # the 0.2.37 multi-input `_compute_mean` and 0.2.41 `_compute_pearson_r`
+    # fixes. The prior recompute returned last-minus-first of inputs[0] alone,
+    # a completely different quantity (live humidity data: 4.00 vs the true
+    # 4.63), so a correct two-sensor answer could never verify.
+    #
+    # The mean of per-bucket differences equals the difference of per-bucket
+    # means by linearity, so this reference is basis-independent — but it is
+    # NOT the same as "the difference right now". The paired codegen prompt rule
+    # pins the model to the average-over-the-window reading so claim and
+    # reference agree by contract (the same tactic the 0.2.44 basis:'abs' fix
+    # used for correlation).
+    if len(inputs) != 2:
+        return None  # ambiguous ordering → no reference → caveat, never a false contradiction
+    candidates = _delta_reference_candidates(inputs, window, params, hs)
+    return candidates[0] if candidates else None
+
+
+def _delta_reference_candidates(
+    inputs: list[str], window: dict | None, params: dict, hs: list[dict]
+) -> list[float]:
+    """Every defensible cross-sensor delta reference, most-faithful first.
+
+    Two grids are legitimately in play, and which one the model used is not
+    knowable from the claim (arch review, 2026-07-20):
+
+    1. **All-series grid** (primary). The prompt prescribes
+       ``align(data['history_series'])``, and ``align()`` drops rows with any
+       missing column — so when a THIRD numeric series is delivered, the model's
+       frame is narrower than the two claim inputs alone. Mean-of-differences is
+       NOT invariant across row sets, so this genuinely changes the number.
+    2. **Inputs-only grid.** Generated code that builds a frame from just the two
+       series (rather than the prescribed helper) aligns only those.
+
+    Returning both lets step 4 verify a value that matches EITHER, instead of
+    contradicting a correct answer because the model picked the other reading.
+    A wrong value still matches neither and is still caught.
+    """
+    series_a = _in_window(_find_series(inputs[0], hs), window)
+    series_b = _in_window(_find_series(inputs[1], hs), window)
+    grid_a = _resample_interpolate(series_a)
+    grid_b = _resample_interpolate(series_b)
+    if not grid_a or not grid_b:
+        return []
+
+    def _mean_difference(buckets: set) -> float | None:
+        if not buckets:
+            return None
+        diffs = [grid_a[b] - grid_b[b] for b in buckets]
+        return sum(diffs) / len(diffs)
+
+    # align()'s dropna spans EVERY delivered numeric series, not just the two.
+    all_series_buckets = set(grid_a) & set(grid_b)
+    for series in hs:
+        if not isinstance(series, dict) or series.get("kind") != "numeric":
+            continue
+        entity_id = series.get("entity_id")
+        if not isinstance(entity_id, str) or entity_id in inputs:
+            continue
+        points = [p for p in (series.get("points") or []) if isinstance(p, dict)]
+        other = _resample_interpolate(_in_window(points, window))
+        if other:
+            all_series_buckets &= set(other)
+
+    candidates: list[float] = []
+    for buckets in (all_series_buckets, set(grid_a) & set(grid_b)):
+        value = _mean_difference(buckets)
+        if value is not None and not any(abs(value - c) <= 1e-9 for c in candidates):
+            candidates.append(value)
+    return candidates
 
 
 def _compute_pearson_r(inputs: list[str], window: dict | None, params: dict, hs: list[dict]) -> float | None:
@@ -690,12 +765,47 @@ def _check_claim(
         if reference is not None and isinstance(value, (int, float)):
             tol = _value_tolerance(metric, reference)
             if abs(float(value) - reference) > tol:
-                return _contradicted(
-                    "grounding_value_mismatch",
-                    f"stated value {value} differs from reference {reference:.4f} "
-                    f"by more than tolerance {tol}",
-                    {"value": value, "reference": reference, "tolerance": tol},
+                # Cross-sensor delta is the first ORDER-SENSITIVE multi-input
+                # metric (mean and pearson_r are symmetric), and it admits more
+                # than one defensible reference grid. Before contradicting —
+                # which WITHHOLDS the answer, the failure mode the (cc)/(ff)
+                # bugs taught this project to fear — check the other readings:
+                # an alternate-grid match verifies, and a sign-only
+                # disagreement (the model subtracted b−a but listed inputs a,b)
+                # degrades to a caveat. A genuinely wrong magnitude matches
+                # nothing and still contradicts, so step 4 stays load-bearing.
+                alternates = (
+                    _delta_reference_candidates(inputs, effective_window, params, history_series)
+                    if metric == "delta" and len(inputs) == 2
+                    else []
                 )
+                matched_alternate = next(
+                    (alt for alt in alternates
+                     if abs(float(value) - alt) <= _value_tolerance(metric, alt)),
+                    None,
+                )
+                if matched_alternate is not None:
+                    reference = matched_alternate
+                else:
+                    sign_flipped = next(
+                        (alt for alt in alternates
+                         if abs(abs(float(value)) - abs(alt)) <= _value_tolerance(metric, alt)),
+                        None,
+                    )
+                    if sign_flipped is not None:
+                        return _caveat(
+                            "grounding_delta_sign_ambiguous",
+                            f"stated value {value} matches reference {sign_flipped:.4f} in "
+                            f"magnitude but not sign — the claim's input order may not match "
+                            f"the subtraction order; served with a caveat rather than withheld",
+                            {"value": value, "reference": sign_flipped, "inputs": list(inputs)},
+                        )
+                    return _contradicted(
+                        "grounding_value_mismatch",
+                        f"stated value {value} differs from reference {reference:.4f} "
+                        f"by more than tolerance {tol}",
+                        {"value": value, "reference": reference, "tolerance": tol},
+                    )
 
     # ---- step 5: verdict containment --------------------------------------
     check_value = reference if reference is not None else (float(value) if isinstance(value, (int, float)) else None)
