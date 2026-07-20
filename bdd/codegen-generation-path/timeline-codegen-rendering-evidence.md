@@ -112,6 +112,18 @@ strengthened gate judge caught. The evolution across the session:
 3. strengthened idiom + gate: grey off-track + fixed entity lane + window-relative
    min-width; gate asserts off-track + on-bars + entity y-ticks.
 
+**Scenario A CONFIRMED LIVE 2026-07-20 on the DEPLOYED 0.2.45** (32nd session,
+run `evals/e2e_runs/20260720T165846Z/`, live-version verified via WS
+`manifest/get`): the served card render reproduces the reference eyes-on —
+grey off-track across the whole window, ONE "kitchen_door"-labelled lane, the
+day's single brief opening visible as a min-width bar at ~12:45 (no axvspan
+verticals, no Open/Closed numeric axis). answer_text "The kitchen door was
+open for a total of 0 minutes and 8 seconds today" — non-zero, and
+`answer_verification: verified` by the independent `_compute_state_duration`
+recompute against the live recorder data. Open-queue (x) closed live (no
+zero-duration interval text). Cosmetic noted for (F): the `#ffe0b2` on-bar is
+low-contrast against the grey off-track.
+
 ## Scenario E — kill-condition
 
 Not exercised: the gate did not trigger the kill-condition (with_timeline 3/3

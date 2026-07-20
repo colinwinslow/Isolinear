@@ -1,5 +1,5 @@
 ---
-status: draft
+status: accepted
 date: 2026-07-18
 depends-on-adrs: [0022, 0030, 0031, 0033, 0034]
 ---
@@ -8,7 +8,8 @@ depends-on-adrs: [0022, 0030, 0031, 0033, 0034]
 
 ## Status
 
-Draft. Extends the deterministic render-family routing (invariant #9, ADR-0022)
+Accepted (2026-07-20 — Scenario A confirmed live on the deployed 0.2.45; see
+the paired evidence file). Extends the deterministic render-family routing (invariant #9, ADR-0022)
 and the integration-precomputes-intervals pattern (ADR-0033) to the **codegen**
 render path (ADR-0030) for a **primary** binary/categorical `timeline` series,
 and grounds the accompanying duration answer (ADR-0031 D8a). Scope: a chart whose

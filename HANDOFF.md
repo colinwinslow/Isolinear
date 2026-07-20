@@ -12,7 +12,7 @@
 
 **Proof.** Eval gate `evals/timeline_render_gate.py` (production codegen path, live gemma, with/without the render rule; execution-truth judge on BOTH a clean lane — off-track + on-bars + entity y-ticks — AND a grounding-verified non-degenerate duration): with-rule every executed run draws a clean lane + grounded 540000 ms; without-rule 0/3 (verticals on a numeric axis). Eyes-on `evals/prompts/timeline_eyeson.png`. Suite 578/4. Arch-review subagent (fresh context) CONCERNS→resolved (window-end asymmetry fixed + tested; descriptive-metric-class policy documented as a candidate future ADR `value-only-metric-classes-in-grounding`).
 
-**Unresolved / next.** Deploy-gated: Colin HACS-redownloads 0.2.45 → live e2e-09 eyes-on (Scenario A) → promote the spec. Latent: categorical (HVAC-mode) multi-lane polish is in C1 but only binary is anchored/eyes-on'd. Push pending Colin's OK.
+**Unresolved / next.** ~~Deploy-gated~~ **RESOLVED 2026-07-20 (32nd session):** pushed on Colin's OK, HACS-redownloaded, live e2e-09 Scenario A confirmed on the deployed 0.2.45 (run `evals/e2e_runs/20260720T165846Z/` — clean off-track lane + grounded VERIFIED 8-second duration) → spec promoted DRAFT→accepted; the same run confirmed the 0.2.44 correlation basis fix live (e2e-13 r=-0.02 "Not really" verified, e2e-20 r=0.75 "Yes" verified). Latent: categorical (HVAC-mode) multi-lane polish is in C1 but only binary is anchored/eyes-on'd. New (F) nits: timeline on-bar #ffe0b2 low contrast vs the grey track; verdict-string spliced mid-sentence; e2e-20 generic "Temperature" legend label.
 
 ### 2026-07-17 — (ff) part-3: the correlation "no answer" is a verdict-basis contradiction, not an emission miss (0.2.44)
 
