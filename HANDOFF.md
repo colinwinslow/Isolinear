@@ -2,6 +2,18 @@
 
 ## Current project phase
 
+### 2026-07-19 — (r) BINARY/TIMELINE routing for the codegen render path (0.2.45)
+
+**Phase.** `The codegen render path now handles a PRIMARY binary/categorical timeline (a door/occupancy entity charted on its own), closing the e2e-09 accept≠quality gap. Integration-only (no worker rebuild); deploy-gated on a HACS redownload + a live eyes-on before the spec promotes.`
+
+**What it was.** Live e2e-09 on the deployed 0.2.42 served a codegen chart of ~4 near-zero axvspan verticals on a fake Open/Closed axis + a degenerate "0.0 minutes" answer (open-queue (x)). Root cause: a primary timeline series carries `overlays: []`, so `_compute_overlay_bands` (which only iterates `chart_spec['overlays']`) handed codegen empty `derived_intervals`, and the model derived on-regions from raw points badly. The codegen path had no timeline handling at all (invariant #9 gap since the 16th session).
+
+**Fix (spec `docs/specs/timeline-codegen-rendering.md`, DRAFT — a bounded extension of ADR-0022/0030/0031/0033, no new ADR).** C1: `_compute_timeline_bands`/`_compute_derived_intervals` (render_dispatch) precompute state intervals for a primary timeline, reusing the trusted Pillow `_binary_on_regions` region logic. C2: a `_CODEGEN_PROMPT_RULES` `broken_barh` idiom — a grey off-baseline track spanning the window + colored on-bars on one fixed entity-labelled lane, window-relative min-width for brief openings; never axvspan/line/raw-point derivation. C3: the duration answer sums the precomputed intervals (deviation from the draft's `timeline_summary` request field, which would have forced a worker schema copy + rebuild). C4: grounding `_compute_state_duration` (independent ms recompute, mirrors `_compute_hours_above` + holds a still-active final segment to the global window end like C1) + a metric-aware relative tolerance + treats `state_duration` as a descriptive value-only metric (nulls spurious model verdict/rule; the (cc) class).
+
+**Proof.** Eval gate `evals/timeline_render_gate.py` (production codegen path, live gemma, with/without the render rule; execution-truth judge on BOTH a clean lane — off-track + on-bars + entity y-ticks — AND a grounding-verified non-degenerate duration): with-rule every executed run draws a clean lane + grounded 540000 ms; without-rule 0/3 (verticals on a numeric axis). Eyes-on `evals/prompts/timeline_eyeson.png`. Suite 578/4. Arch-review subagent (fresh context) CONCERNS→resolved (window-end asymmetry fixed + tested; descriptive-metric-class policy documented as a candidate future ADR `value-only-metric-classes-in-grounding`).
+
+**Unresolved / next.** Deploy-gated: Colin HACS-redownloads 0.2.45 → live e2e-09 eyes-on (Scenario A) → promote the spec. Latent: categorical (HVAC-mode) multi-lane polish is in C1 but only binary is anchored/eyes-on'd. Push pending Colin's OK.
+
 ### 2026-07-17 — (ff) part-3: the correlation "no answer" is a verdict-basis contradiction, not an emission miss (0.2.44)
 
 **Phase.** `The last (ff) correlation gap is closed. The live 0.2.42 e2e showed temp-vs-temp correlations (e2e-13/e2e-20) still not serving; a faithful real-data repro proved it was NOT emission — the model emits a correct coefficient but grounding withholds it on a verdict/rule basis mismatch. Prompt-only fix.`
