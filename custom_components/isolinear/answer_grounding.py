@@ -283,6 +283,57 @@ def _compute_hours_above(inputs: list[str], window: dict | None, params: dict, h
     return total_ms / (1000 * 3600)
 
 
+# Default "active/on" states when a state_duration claim omits params['active'].
+_DEFAULT_ACTIVE_STATES = frozenset({"on", "open", "true", "home", "detected", "1"})
+
+
+def _compute_state_duration(inputs: list[str], window: dict | None, params: dict, hs: list[dict]) -> float | None:
+    """Total milliseconds a binary/categorical entity spent in an active state (spec C4).
+
+    Independent drift-detector for the timeline duration answer: mirrors
+    ``_compute_hours_above``'s held-until-next-change accumulation but tests state
+    MEMBERSHIP (params['active'], default on/open/…) instead of a numeric
+    threshold, and returns milliseconds so it compares against the model's claim
+    value (which sums the precomputed derived_intervals, in ms). Recomputed here
+    from the RAW points — it does not trust the precompute — so a wrong served
+    duration is still caught (grounding stays independent, ADR-0031 D8a).
+    """
+    active_param = params.get("active")
+    if isinstance(active_param, (list, tuple, set)) and active_param:
+        active = {str(v).lower() for v in active_param}
+    else:
+        active = set(_DEFAULT_ACTIVE_STATES)
+    pts = _in_window(_find_series(inputs[0] if inputs else "", hs), window)
+    pts = sorted(
+        [p for p in pts if isinstance(p.get("ts_epoch_ms"), (int, float))],
+        key=lambda p: p["ts_epoch_ms"],
+    )
+    if len(pts) < 2:
+        return None
+    total_ms = 0
+    for i in range(len(pts) - 1):
+        state = _state_at(pts[i], None)
+        if state is not None and state.lower() in active:
+            total_ms += max(0, int(pts[i + 1]["ts_epoch_ms"]) - int(pts[i]["ts_epoch_ms"]))
+    # Hold a still-active FINAL segment to the global window end — the latest ts
+    # across ALL delivered series — mirroring C1's _binary_on_regions, which holds
+    # the last state to _history_window_end_dt (the global max). Without this, a
+    # multi-entity timeline whose last point predates another series' end would
+    # undercount the trailing on-time vs the precompute the model summed (arch
+    # review). For a single entity ending "off" (the door anchor) this adds 0.
+    last_state = _state_at(pts[-1], None)
+    if last_state is not None and last_state.lower() in active:
+        global_end = max(
+            (int(p["ts_epoch_ms"]) for s in hs for p in (s.get("points") or [])
+             if isinstance(p.get("ts_epoch_ms"), (int, float))),
+            default=int(pts[-1]["ts_epoch_ms"]),
+        )
+        if window and isinstance(window.get("end"), (int, float)):
+            global_end = min(global_end, int(window["end"]))
+        total_ms += max(0, global_end - int(pts[-1]["ts_epoch_ms"]))
+    return float(total_ms)
+
+
 # metric → (recompute_fn, required_params)
 _REGISTRY: dict[str, tuple] = {
     "mean": (_compute_mean, []),
@@ -292,7 +343,24 @@ _REGISTRY: dict[str, tuple] = {
     "daily_max": (_compute_daily_max, []),
     "daily_min": (_compute_daily_min, []),
     "hours_above": (_compute_hours_above, ["threshold"]),
+    "state_duration": (_compute_state_duration, []),
 }
+
+# Per-metric value tolerance overrides as (relative, absolute_floor). Absent → the
+# default absolute _TOLERANCE (tuned for °F-scale values). state_duration values
+# are ms-scaled and may be rounded for readability, so a fixed 0.05 is meaningless
+# there: allow 2% or 1 minute, whichever is larger.
+_METRIC_TOLERANCE: dict[str, tuple[float, float]] = {
+    "state_duration": (0.02, 60000.0),
+}
+
+
+def _value_tolerance(metric: str, reference: float) -> float:
+    entry = _METRIC_TOLERANCE.get(metric)
+    if entry is None:
+        return _TOLERANCE
+    rel, floor = entry
+    return max(floor, rel * abs(reference))
 
 
 def _recompute(metric: str, inputs: list[str], window: dict | None, params: dict, hs: list[dict]) -> float | None:
@@ -506,6 +574,18 @@ def _check_claim(
     verdict = claim.get("verdict")
     rule = claim.get("rule")
 
+    # state_duration is inherently descriptive ("how long was it open?") — there is
+    # no yes/no judgment to contain, so a duration answer is value-only. gemma
+    # nonetheless sometimes attaches a spurious verdict+rule to it despite the
+    # prompt, which step-5/6 verdict containment then contradicts, withholding a
+    # CORRECT duration (the timeline_render_gate saw this: value 540000 ms right,
+    # outcome repair_contradicted). Null the verdict/rule here so the existing
+    # value-only path (the (cc) precedent) value-verifies it via step 4. The
+    # duration is still fully grounded — a WRONG value is still caught at step 4.
+    if metric == "state_duration":
+        verdict = None
+        rule = None
+
     # ---- step 1: structure ------------------------------------------------
     if not metric or not isinstance(metric, str):
         return _soft("grounding_claim_malformed", "claim.metric missing or not a string", {})
@@ -608,12 +688,13 @@ def _check_claim(
     if in_registry:
         reference = _recompute(metric, inputs, effective_window, params, history_series)
         if reference is not None and isinstance(value, (int, float)):
-            if abs(float(value) - reference) > _TOLERANCE:
+            tol = _value_tolerance(metric, reference)
+            if abs(float(value) - reference) > tol:
                 return _contradicted(
                     "grounding_value_mismatch",
                     f"stated value {value} differs from reference {reference:.4f} "
-                    f"by more than tolerance {_TOLERANCE}",
-                    {"value": value, "reference": reference, "tolerance": _TOLERANCE},
+                    f"by more than tolerance {tol}",
+                    {"value": value, "reference": reference, "tolerance": tol},
                 )
 
     # ---- step 5: verdict containment --------------------------------------

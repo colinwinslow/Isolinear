@@ -241,7 +241,57 @@ _CODEGEN_PROMPT_RULES = [
     "style matrix of a sensor, do NOT build a 2-D grid — render a histogram of "
     "that sensor's values (its distribution, ax.hist over the numeric points) "
     "instead. user_request may change WHAT you compute (an average, a difference, "
-    "a distribution) but NEVER which of these three chart families you draw.",
+    "a distribution) but NEVER which chart family you draw — the family is fixed by "
+    "the data, not by user_request: numeric series get lines/histograms/bars, and a "
+    "series that is ENTIRELY binary/categorical state gets a state step track (see "
+    "the timeline rule below).",
+    # Timeline family (spec timeline-codegen-rendering; invariant #9, ADR-0022): a
+    # binary/categorical entity charted on its own is a step track, not a line and
+    # not the numeric-overlay axvspan bands. The integration precomputes the state
+    # intervals into derived_intervals (same trusted region logic as the overlay
+    # bands); the model just draws them as broken_barh lanes. This is the primary
+    # signal the model can read from the data (every series is a state series, no
+    # numeric line to draw). Without it the model drew near-zero verticals off raw
+    # points + a 0.0-minute answer (live e2e-09).
+    "If EVERY series in data['history_series'] is a state series (its 'kind' is "
+    "'binary_state' or 'categorical_state'), you are drawing a TIMELINE step track "
+    "— NOT a line and NOT axvspan background bands. import matplotlib.dates as "
+    "mdates. Give each entity ONE fixed horizontal lane: pick a lane_y per entity "
+    "(e.g. 0 for the first) and a fixed bar height (e.g. 0.6). FIRST draw a light "
+    "grey 'off' baseline track for that lane spanning the WHOLE window, so a "
+    "mostly-off entity reads as present-but-off rather than a few floating marks: "
+    "win0 = mdates.date2num(pandas.to_datetime(min ts_epoch_ms across the series, "
+    "unit='ms')); win1 = mdates.date2num(pandas.to_datetime(max ts_epoch_ms, "
+    "unit='ms')); ax.broken_barh([(win0, win1 - win0)], (lane_y, 0.6), "
+    "facecolors='#e8e8e8'). THEN draw the on/active intervals as colored bars ON "
+    "THE SAME lane (same lane_y, same height): for each band in "
+    "data['derived_intervals'] for that entity, start = mdates.date2num("
+    "pandas.to_datetime(band['start_ms'], unit='ms')); width = max(mdates.date2num("
+    "pandas.to_datetime(band['end_ms'], unit='ms')) - start, min_w) where min_w = "
+    "(win1 - win0) / 100 (about 1% of the visible window, so even a brief opening "
+    "stays visible on a multi-hour axis — a few real minutes would otherwise be an "
+    "invisible sliver); ax.broken_barh([(start, width)], (lane_y, 0.6), "
+    "facecolors=band['color']). Call ax.xaxis_date() so the x-axis reads as time. "
+    "Set exactly ONE y-tick per entity at its lane_y, labelled with the entity's "
+    "name — NOT 'on'/'off' (state is shown by the colored bars over the grey "
+    "off-track, not by y position). Do NOT derive intervals from raw points and do "
+    "NOT plot the state as a line. If derived_intervals is empty, still draw the "
+    "grey off-track lane across the window so it reads present-but-off.",
+    # Timeline duration answer (spec C3): the e2e-09 "0.0 minutes" came from the
+    # model deriving intervals from raw points; sum the PRECOMPUTED intervals
+    # instead. Grounded via a state_duration claim (C4). Integration-only — no new
+    # request field, so no worker rebuild.
+    "If the user asks HOW LONG or WHEN a state entity was on/open (a timeline "
+    "duration question), compute the total on-time by summing "
+    "(band['end_ms'] - band['start_ms']) over the bands in data['derived_intervals'] "
+    "for that entity — these intervals are precomputed and correct, so NEVER count "
+    "raw points or recompute intervals. Present it in answer_text in minutes/hours "
+    "(converted for readability) and emit a claim with metric 'state_duration', "
+    "inputs=[<entity_id>], value=<the total on-time in MILLISECONDS, i.e. the raw "
+    "sum you computed>, and params={'active': [<the on-state strings, e.g. "
+    "'on','open'>]}. The claim value is milliseconds (machine-checked); the "
+    "answer_text prose may use minutes/hours. A duration is a plain descriptive "
+    "value, so emit no verdict and no rule.",
     # State overlays (ADR-0033): the integration precomputes the shaded intervals
     # (e.g. when the AC was cooling/heating, from hvac_action) — the floor model
     # cannot reliably derive them, so it must NOT try; it just draws the given bands.

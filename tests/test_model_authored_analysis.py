@@ -54,7 +54,9 @@ from custom_components.isolinear.history_retrieval import (  # noqa: E402
 )
 from custom_components.isolinear.job_orchestration import (  # noqa: E402
     _apply_catalog_units,
+    _compute_derived_intervals,
     _compute_overlay_bands,
+    _compute_timeline_bands,
     _history_series_with_epoch_ms,
     _timestamp_to_epoch_ms,
 )
@@ -487,6 +489,92 @@ class OverlayBandTests(unittest.TestCase):
         self.assertEqual(_compute_overlay_bands({}, []), [])
 
 
+class TimelineBandTests(unittest.TestCase):
+    """Spec C1: a PRIMARY timeline series (a door on its own) precomputes state
+    intervals the same way an overlay does, so codegen draws a broken_barh lane
+    instead of near-zero verticals off raw points (live e2e-09)."""
+
+    def _door_hs(self, points):
+        return [{"entity_id": "binary_sensor.kitchen_door", "kind": "binary_state",
+                 "points": points}]
+
+    def _timeline_spec(self, label="Kitchen Door"):
+        return {"chart_type": "timeline", "series": [
+            {"series_id": "series-001", "label": label,
+             "source": {"type": "entity", "entity_id": "binary_sensor.kitchen_door"}}]}
+
+    def test_primary_door_timeline_yields_on_bands(self):
+        hs = self._door_hs([
+            {"ts": "2026-07-01T00:00:00+00:00", "value": "off", "raw_state": "off", "quality": "ok"},
+            {"ts": "2026-07-01T01:00:00+00:00", "value": "on", "raw_state": "on", "quality": "ok"},
+            {"ts": "2026-07-01T02:00:00+00:00", "value": "off", "raw_state": "off", "quality": "ok"},
+        ])
+        bands = _compute_timeline_bands(self._timeline_spec(), hs)
+        self.assertEqual(len(bands), 1)
+        # The lane label is the series label, the band carries the entity id, and
+        # the color is a real hex the model can pass to broken_barh.
+        self.assertEqual(bands[0]["label"], "Kitchen Door")
+        self.assertEqual(bands[0]["entity_id"], "binary_sensor.kitchen_door")
+        self.assertRegex(bands[0]["color"], r"^#[0-9a-fA-F]{6}$")
+        # The band spans exactly the on segment (01:00 → 02:00 window end).
+        self.assertEqual(bands[0]["end_ms"] - bands[0]["start_ms"], 3600 * 1000)
+
+    def test_timeline_bands_match_pillow_regions(self):
+        # C1 parity: the precomputed spans equal the trusted region primitive
+        # Pillow's _render_timeline_png fills, so codegen and Pillow agree.
+        from custom_components.isolinear.in_process_renderer import (
+            _BINARY_ON_VALUES, _binary_on_regions,
+        )
+        from custom_components.isolinear.history_dispatch import _history_window_end_dt
+        hs = self._door_hs([
+            {"ts": "2026-07-01T00:00:00+00:00", "value": "off", "raw_state": "off", "quality": "ok"},
+            {"ts": "2026-07-01T01:00:00+00:00", "value": "on", "raw_state": "on", "quality": "ok"},
+            {"ts": "2026-07-01T01:30:00+00:00", "value": "off", "raw_state": "off", "quality": "ok"},
+            {"ts": "2026-07-01T02:00:00+00:00", "value": "on", "raw_state": "on", "quality": "ok"},
+            {"ts": "2026-07-01T02:15:00+00:00", "value": "off", "raw_state": "off", "quality": "ok"},
+        ])
+        bands = _compute_timeline_bands(self._timeline_spec(), hs)
+        window_end = _history_window_end_dt(hs)
+        regions = _binary_on_regions(hs[0], _BINARY_ON_VALUES, window_end=window_end)
+        self.assertEqual(len(bands), len(regions))
+        for band, (start, end) in zip(bands, regions):
+            self.assertEqual(band["start_ms"], int(start.timestamp() * 1000))
+            self.assertEqual(band["end_ms"], int(end.timestamp() * 1000))
+
+    def test_categorical_timeline_one_band_per_state(self):
+        hs = [{"entity_id": "climate.kitchen_ecobee", "kind": "categorical_state", "points": [
+            {"ts": "2026-07-01T00:00:00+00:00", "value": "cool", "raw_state": "cool", "quality": "ok"},
+            {"ts": "2026-07-01T01:00:00+00:00", "value": "heat", "raw_state": "heat", "quality": "ok"},
+            {"ts": "2026-07-01T02:00:00+00:00", "value": "cool", "raw_state": "cool", "quality": "ok"},
+        ]}]
+        spec = {"chart_type": "timeline", "series": [
+            {"series_id": "series-001", "label": "HVAC mode",
+             "source": {"type": "entity", "entity_id": "climate.kitchen_ecobee"}}]}
+        bands = _compute_timeline_bands(spec, hs)
+        # cool appears twice (two segments), heat once → distinct state labels present.
+        self.assertEqual({b["label"] for b in bands}, {"cool", "heat"})
+
+    def test_dispatch_routes_timeline_vs_overlay(self):
+        door_points = [
+            {"ts": "2026-07-01T00:00:00+00:00", "value": "off", "raw_state": "off", "quality": "ok"},
+            {"ts": "2026-07-01T01:00:00+00:00", "value": "on", "raw_state": "on", "quality": "ok"},
+            {"ts": "2026-07-01T02:00:00+00:00", "value": "off", "raw_state": "off", "quality": "ok"},
+        ]
+        hs = self._door_hs(door_points)
+        # A timeline family with no overlays routes to the primary-timeline path.
+        self.assertEqual(len(_compute_derived_intervals(self._timeline_spec(), hs)), 1)
+        # A non-timeline family routes to the overlay path (empty overlays → []).
+        self.assertEqual(_compute_derived_intervals({"chart_type": "time_series", "overlays": []}, hs), [])
+
+    def test_empty_timeline_yields_no_bands(self):
+        # A door that never opened → no on-regions → an empty lane (C1/Scenario D).
+        hs = self._door_hs([
+            {"ts": "2026-07-01T00:00:00+00:00", "value": "off", "raw_state": "off", "quality": "ok"},
+            {"ts": "2026-07-01T02:00:00+00:00", "value": "off", "raw_state": "off", "quality": "ok"},
+        ])
+        self.assertEqual(_compute_timeline_bands(self._timeline_spec(), hs), [])
+
+
 class OverlayPromptRuleTests(unittest.TestCase):
     def test_prompt_rules_direct_axvspan_bands_and_numeric_only_lines(self):
         rules = " ".join(_CODEGEN_PROMPT_RULES).lower()
@@ -495,6 +583,29 @@ class OverlayPromptRuleTests(unittest.TestCase):
         # Only numeric series become lines; state series are not plotted as lines.
         self.assertIn("'kind' is 'numeric'", rules)
         self.assertIn("do not compute these intervals yourself", rules)
+
+
+class TimelinePromptRuleTests(unittest.TestCase):
+    """Spec C2: a chart whose every series is a state series is a broken_barh step
+    track drawn from precomputed derived_intervals — not a line, not axvspan bands,
+    not intervals derived from raw points (the e2e-09 near-zero verticals)."""
+
+    def test_prompt_rules_direct_broken_barh_timeline_from_intervals(self):
+        rules = " ".join(_CODEGEN_PROMPT_RULES)
+        lowered = rules.lower()
+        self.assertIn("broken_barh", lowered)
+        self.assertIn("timeline", lowered)
+        # Drawn from the precomputed intervals, on a date axis, never derived by the model.
+        self.assertIn("data['derived_intervals']", rules)
+        self.assertIn("xaxis_date", lowered)
+        self.assertIn("do not derive intervals from raw points", lowered)
+        # The family is data-driven (every series is a state series), not user_request-driven.
+        self.assertIn("every series in data['history_series'] is a state series", rules.lower())
+        # Lane style (eyes-on fix): a grey off-baseline track spanning the window +
+        # ONE lane per entity labelled by name, not an on/off value axis.
+        self.assertIn("off-track", lowered)
+        self.assertIn("one fixed horizontal lane", lowered)
+        self.assertIn("not 'on'/'off'", lowered)
 
 
 class FamilyDegradePromptRuleTests(unittest.TestCase):
@@ -517,8 +628,9 @@ class FamilyDegradePromptRuleTests(unittest.TestCase):
             self.assertIn(call, lowered)
         # A heatmap ask degrades to the value distribution (a histogram), not a grid.
         self.assertIn("render a histogram", lowered)
-        # The boundary: user_request may change the computation, never the family.
-        self.assertIn("never which of these three chart families", lowered)
+        # The boundary: user_request may change the computation, never the family
+        # (the family is fixed by the data — timeline-codegen-rendering reworded this).
+        self.assertIn("never which chart family you draw", lowered)
 
 
 class VerdictOmissionPromptRuleTests(unittest.TestCase):

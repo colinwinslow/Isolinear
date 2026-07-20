@@ -40,6 +40,8 @@ from .history_dispatch import (
 )
 from .in_process_renderer import (
     IN_PROCESS_RENDERER_NAME,
+    _BINARY_ON_VALUES,
+    _BINARY_OFF_VALUES,
     _OVERLAY_COLORS,
     _binary_on_regions,
     _categorical_overlay_states,
@@ -1874,6 +1876,80 @@ def _compute_overlay_bands(
     return bands
 
 
+def _series_is_binary(history: dict[str, Any]) -> bool:
+    """A series is binary when its kind says so, or all its distinct states are on/off.
+
+    Mirrors the Pillow timeline renderer's binary detection
+    (``_render_timeline_png``) so codegen and Pillow classify a lane identically.
+    """
+    if history.get("kind") == "binary_state":
+        return True
+    distinct = {
+        str(point.get("value")).lower()
+        for point in history.get("points", [])
+        if isinstance(point, dict) and point.get("value") is not None
+    }
+    return bool(distinct) and distinct <= (_BINARY_ON_VALUES | _BINARY_OFF_VALUES)
+
+
+def _compute_timeline_bands(
+    chart_spec: Any, history_series: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Precompute state intervals for a PRIMARY timeline series (spec C1).
+
+    A binary/categorical entity charted on its own routes to the ``timeline``
+    family (invariant #9, ADR-0022); it is the primary series, not an overlay, so
+    ``_compute_overlay_bands`` (which iterates ``chart_spec['overlays']``) leaves
+    ``derived_intervals`` empty and the floor model draws near-zero-width verticals
+    off raw points (live e2e-09). This generalizes the ADR-0033 precompute to the
+    primary series: reuse the SAME trusted ``_binary_on_regions`` /
+    ``_categorical_overlay_states`` region logic Pillow's ``_render_timeline_png``
+    uses, so codegen draws a ``broken_barh`` lane from ready ``{start_ms, end_ms,
+    color, label, entity_id}`` intervals. Binary → one color across the active set;
+    categorical → one color per distinct state.
+    """
+    if not isinstance(chart_spec, dict):
+        return []
+    history_by_entity = {
+        s.get("entity_id"): s for s in history_series if isinstance(s, dict)
+    }
+    window_end = _history_window_end_dt(history_series)
+    bands: list[dict[str, Any]] = []
+    for index, series_spec in enumerate(chart_spec.get("series") or []):
+        if not isinstance(series_spec, dict):
+            continue
+        source = series_spec.get("source") if isinstance(series_spec.get("source"), dict) else {}
+        entity_id = source.get("entity_id")
+        history = history_by_entity.get(entity_id)
+        if history is None or history.get("kind") not in ("binary_state", "categorical_state"):
+            continue
+        label = series_spec.get("label") or entity_id
+        if _series_is_binary(history):
+            hexc = _rgb_to_hex(_OVERLAY_COLORS[index % len(_OVERLAY_COLORS)])
+            for start, end in _binary_on_regions(history, _BINARY_ON_VALUES, window_end=window_end):
+                bands.append(_overlay_band(start, end, hexc, label, entity_id))
+        else:
+            for i, state_value in enumerate(_categorical_overlay_states(history)):
+                hexc = _rgb_to_hex(_OVERLAY_BAND_AUTO_PALETTE[i % len(_OVERLAY_BAND_AUTO_PALETTE)])
+                for start, end in _binary_on_regions(history, {state_value}, window_end=window_end):
+                    bands.append(_overlay_band(start, end, hexc, state_value, entity_id))
+    return bands
+
+
+def _compute_derived_intervals(
+    chart_spec: Any, history_series: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Dispatch precomputed intervals by chart family (spec C1).
+
+    A ``timeline`` chart has a primary state series and no overlays; every other
+    family carries state series (if any) as overlays behind a numeric line. The two
+    are mutually exclusive, so route on ``chart_type``.
+    """
+    if isinstance(chart_spec, dict) and chart_spec.get("chart_type") == "timeline":
+        return _compute_timeline_bands(chart_spec, history_series)
+    return _compute_overlay_bands(chart_spec, history_series)
+
+
 def _build_worker_render_request(
     store: dict[str, Any],
     *,
@@ -1893,7 +1969,7 @@ def _build_worker_render_request(
         "render_mode": render_plan["render_mode"],
         "chart_spec": chart_spec,
         "history_series": history_series,
-        "derived_intervals": _compute_overlay_bands(chart_spec, history_series),
+        "derived_intervals": _compute_derived_intervals(chart_spec, history_series),
         "output": deepcopy(render_plan["output"]),
         "theme": {},
         "codegen": None,

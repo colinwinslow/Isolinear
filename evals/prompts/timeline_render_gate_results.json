@@ -1,0 +1,315 @@
+{
+ "meta": {
+  "model": "gemma4:e4b",
+  "ollama": "http://10.0.1.39:11434",
+  "runs": 3,
+  "max_repairs": 2,
+  "prompt": "When was the kitchen door open today?",
+  "expected_on_ms": 540000,
+  "started": "2026-07-19T23:33:03Z"
+ },
+ "runs": {
+  "without_timeline::run1": {
+   "arm": "without_timeline",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 35.5,
+     "loc": 88,
+     "ok": false,
+     "error": "OverflowError: int too big to convert"
+    },
+    {
+     "n": 1,
+     "gen_s": 52.0,
+     "loc": 94,
+     "ok": true,
+     "axes": [
+      {
+       "xlabel": "Time",
+       "ylabel": "",
+       "xlim": [
+        20651.0,
+        20651.999305555557
+       ],
+       "n_lines": 0,
+       "n_patches": 3,
+       "n_images": 0,
+       "n_collections": 0,
+       "bar_widths": [],
+       "yticks": [
+        "0.0",
+        "0.2",
+        "0.4",
+        "0.6",
+        "0.8",
+        "1.0"
+       ]
+      }
+     ],
+     "answer_text": "The kitchen door was open for a total of 540000 milliseconds, which is equivalent to 9.0 minutes."
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "fired": false,
+    "render_ok": false,
+    "answer_ok": true,
+    "why": "no clean state lane (off-track+on-bars+entity y-ticks): [\"lines=0 patches=3 coll=0 img=0 bar_w_frac=[] yticks=['0.0', '0.2', '0.4', '0.6', '0.8', '1.0']\"]",
+    "grounding_outcome": "verified",
+    "duration_ms": 540000
+   }
+  },
+  "without_timeline::run2": {
+   "arm": "without_timeline",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 37.0,
+     "loc": 88,
+     "ok": false,
+     "error": "OverflowError: int too big to convert"
+    },
+    {
+     "n": 1,
+     "gen_s": 48.3,
+     "loc": 94,
+     "ok": true,
+     "axes": [
+      {
+       "xlabel": "Time",
+       "ylabel": "",
+       "xlim": [
+        20651.0,
+        20651.999305555557
+       ],
+       "n_lines": 0,
+       "n_patches": 3,
+       "n_images": 0,
+       "n_collections": 0,
+       "bar_widths": [],
+       "yticks": [
+        "0.0",
+        "0.2",
+        "0.4",
+        "0.6",
+        "0.8",
+        "1.0"
+       ]
+      }
+     ],
+     "answer_text": "The kitchen door was open for a total of 540000 milliseconds, which is equivalent to 9.0 minutes."
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "fired": false,
+    "render_ok": false,
+    "answer_ok": true,
+    "why": "no clean state lane (off-track+on-bars+entity y-ticks): [\"lines=0 patches=3 coll=0 img=0 bar_w_frac=[] yticks=['0.0', '0.2', '0.4', '0.6', '0.8', '1.0']\"]",
+    "grounding_outcome": "verified",
+    "duration_ms": 540000
+   }
+  },
+  "without_timeline::run3": {
+   "arm": "without_timeline",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 37.6,
+     "loc": 88,
+     "ok": false,
+     "error": "OverflowError: int too big to convert"
+    },
+    {
+     "n": 1,
+     "gen_s": 50.6,
+     "loc": 94,
+     "ok": true,
+     "axes": [
+      {
+       "xlabel": "Time",
+       "ylabel": "",
+       "xlim": [
+        20651.0,
+        20651.999305555557
+       ],
+       "n_lines": 0,
+       "n_patches": 3,
+       "n_images": 0,
+       "n_collections": 0,
+       "bar_widths": [],
+       "yticks": [
+        "0.0",
+        "0.2",
+        "0.4",
+        "0.6",
+        "0.8",
+        "1.0"
+       ]
+      }
+     ],
+     "answer_text": "The kitchen door was open for a total of 540000 milliseconds, which is equivalent to 9.0 minutes."
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": false,
+   "verdict": {
+    "fired": false,
+    "render_ok": false,
+    "answer_ok": true,
+    "why": "no clean state lane (off-track+on-bars+entity y-ticks): [\"lines=0 patches=3 coll=0 img=0 bar_w_frac=[] yticks=['0.0', '0.2', '0.4', '0.6', '0.8', '1.0']\"]",
+    "grounding_outcome": "verified",
+    "duration_ms": 540000
+   }
+  },
+  "with_timeline::run1": {
+   "arm": "with_timeline",
+   "run": 1,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 33.3,
+     "loc": 106,
+     "ok": true,
+     "axes": [
+      {
+       "xlabel": "",
+       "ylabel": "",
+       "xlim": [
+        20650.950034722224,
+        20652.049270833333
+       ],
+       "n_lines": 0,
+       "n_patches": 0,
+       "n_images": 0,
+       "n_collections": 4,
+       "bar_widths": [
+        0.9993055555569299,
+        0.0013888888861401938,
+        0.002777777779556345,
+        0.0020833333328482695
+       ],
+       "yticks": [
+        "Kitchen Door"
+       ]
+      }
+     ],
+     "answer_text": "The kitchen door was open for approximately 9.0 minutes (0.1 hours)."
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "fired": true,
+    "render_ok": true,
+    "answer_ok": true,
+    "why": "clean timeline lane + grounded 540000 ms (expected ~540000)",
+    "grounding_outcome": "verified",
+    "duration_ms": 540000
+   }
+  },
+  "with_timeline::run2": {
+   "arm": "with_timeline",
+   "run": 2,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 38.6,
+     "loc": 124,
+     "ok": false,
+     "error": "OverflowError: int too big to convert"
+    },
+    {
+     "n": 1,
+     "gen_s": 46.8,
+     "loc": 71,
+     "ok": false,
+     "error": "UnboundLocalError: cannot access local variable 'plt' where it is not associated with a value"
+    },
+    {
+     "n": 2,
+     "gen_s": 40.5,
+     "loc": 113,
+     "ok": false,
+     "error": "TypeError: string indices must be integers, not 'str'"
+    }
+   ],
+   "done": true,
+   "executed": false,
+   "fired": false
+  },
+  "with_timeline::run3": {
+   "arm": "with_timeline",
+   "run": 3,
+   "attempts": [
+    {
+     "n": 0,
+     "gen_s": 34.5,
+     "loc": 106,
+     "ok": true,
+     "axes": [
+      {
+       "xlabel": "",
+       "ylabel": "",
+       "xlim": [
+        20650.950034722224,
+        20652.049270833333
+       ],
+       "n_lines": 0,
+       "n_patches": 0,
+       "n_images": 0,
+       "n_collections": 4,
+       "bar_widths": [
+        0.9993055555569299,
+        0.0013888888861401938,
+        0.002777777779556345,
+        0.0020833333328482695
+       ],
+       "yticks": [
+        "Kitchen Door"
+       ]
+      }
+     ],
+     "answer_text": "The kitchen door was open for approximately 9.0 minutes (0.1 hours)."
+    }
+   ],
+   "done": true,
+   "executed": true,
+   "fired": true,
+   "verdict": {
+    "fired": true,
+    "render_ok": true,
+    "answer_ok": true,
+    "why": "clean timeline lane + grounded 540000 ms (expected ~540000)",
+    "grounding_outcome": "verified",
+    "duration_ms": 540000
+   }
+  }
+ },
+ "tally": {
+  "without_timeline": {
+   "runs": 3,
+   "executed": 3,
+   "render_ok": 0,
+   "answer_ok": 3,
+   "fired": 0
+  },
+  "with_timeline": {
+   "runs": 3,
+   "executed": 2,
+   "render_ok": 2,
+   "answer_ok": 2,
+   "fired": 2
+  }
+ }
+}

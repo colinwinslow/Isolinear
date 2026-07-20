@@ -967,3 +967,110 @@ class TestCrossSensorPearsonR:
         )
         assert result["outcome"] == "verified"
         assert result["withheld"] is False
+
+
+# ---------------------------------------------------------------------------
+# state_duration — the timeline duration answer (spec C4, subsumes open-queue (x))
+# ---------------------------------------------------------------------------
+
+class TestStateDuration:
+    """A door open for two 1-hour spans → total on-time 7_200_000 ms. The model's
+    claim value is that raw ms sum (from the precomputed intervals); grounding
+    recomputes it INDEPENDENTLY from raw points and verifies. A wrong value is
+    still caught (the guard that keeps the recompute load-bearing), and readable
+    rounding within the relative tolerance still verifies."""
+
+    STEP = 3_600_000  # 1 hour in ms
+    # off, on, off, on, off  → on during 1h→2h and 3h→4h = 2 hours = 7.2M ms
+    SERIES = [_raw_state_series(
+        "binary_sensor.kitchen_door", ["off", "on", "off", "on", "off"], step_ms=STEP)]
+
+    def _claim(self, value):
+        return {
+            "metric": "state_duration",
+            "inputs": ["binary_sensor.kitchen_door"],
+            "params": {"active": ["on"]},
+            "value": value,
+        }
+
+    def test_compute_matches_raw_points(self):
+        from custom_components.isolinear.answer_grounding import _compute_state_duration
+        ref = _compute_state_duration(
+            ["binary_sensor.kitchen_door"], None, {"active": ["on"]}, self.SERIES)
+        assert ref == pytest.approx(7_200_000.0)
+
+    def test_verified(self):
+        result = run_grounding_check(
+            {"answer_text": "The kitchen door was open for a total of 120 minutes today.",
+             "claims": [self._claim(7_200_000)]},
+            self.SERIES,
+        )
+        assert result["outcome"] == "verified"
+        assert result["withheld"] is False
+
+    def test_rounding_within_relative_tolerance_verifies(self):
+        # Model rounds for readability (off by 1 min = 60_000 ms); the 2%/1-min
+        # relative tolerance absorbs it (0.05 absolute never would).
+        result = run_grounding_check(
+            {"answer_text": "open for about 2 hours", "claims": [self._claim(7_260_000)]},
+            self.SERIES,
+        )
+        assert result["outcome"] == "verified"
+        assert result["withheld"] is False
+
+    def test_wrong_value_still_caught(self):
+        # A served duration off by half is a mismatch → contradicted + withheld.
+        # This guard pins that the independent recompute stays load-bearing.
+        result = run_grounding_check(
+            {"answer_text": "open for 60 minutes", "claims": [self._claim(3_600_000)]},
+            self.SERIES,
+        )
+        assert result["withheld"] is True
+        assert result["synthetic_error"]["code"] == "grounding_value_mismatch"
+
+    def test_default_active_states_when_params_omitted(self):
+        from custom_components.isolinear.answer_grounding import _compute_state_duration
+        # No params['active'] → default on-set includes "on".
+        ref = _compute_state_duration(
+            ["binary_sensor.kitchen_door"], None, {}, self.SERIES)
+        assert ref == pytest.approx(7_200_000.0)
+
+    def test_spurious_verdict_on_duration_still_verifies(self):
+        # A duration is descriptive — gemma sometimes attaches a verdict+rule
+        # anyway (timeline_render_gate: correct 540000 ms → repair_contradicted).
+        # Grounding nulls the verdict for state_duration and value-verifies it.
+        claim = dict(self._claim(7_200_000))
+        claim["verdict"] = "Yes"
+        claim["rule"] = {"bands": [[3_600_000, "Yes"], [None, "No"]], "basis": "value"}
+        result = run_grounding_check(
+            {"answer_text": "The door was open for 120 minutes.", "claims": [claim]},
+            self.SERIES,
+        )
+        assert result["outcome"] == "verified"
+        assert result["withheld"] is False
+
+    def test_multi_entity_holds_active_tail_to_global_window_end(self):
+        # Entity A's last point is "on" at 2h but entity B has data to 4h, so the
+        # global window end is 4h. C1 (_binary_on_regions) holds A's "on" from 2h
+        # to 4h; the recompute must mirror that or it undercounts (arch review).
+        from custom_components.isolinear.answer_grounding import _compute_state_duration
+        STEP = 3_600_000
+        a = _raw_state_series("binary_sensor.a", ["off", "on"], step_ms=STEP)  # last=on@1h
+        b = _raw_state_series("binary_sensor.b", ["off", "off", "off", "off", "off"], step_ms=STEP)  # to 4h
+        hs = [a, b]
+        # A on from 1h held to global end 4h = 3 hours = 10_800_000 ms.
+        ref = _compute_state_duration(["binary_sensor.a"], None, {"active": ["on"]}, hs)
+        assert ref == pytest.approx(10_800_000.0)
+
+    def test_wrong_value_with_verdict_still_caught(self):
+        # Nulling the verdict must NOT weaken value grounding: a wrong duration
+        # is still a mismatch even when dressed with a verdict.
+        claim = dict(self._claim(3_600_000))  # half the real on-time
+        claim["verdict"] = "Yes"
+        claim["rule"] = {"bands": [[1_000_000, "Yes"], [None, "No"]], "basis": "value"}
+        result = run_grounding_check(
+            {"answer_text": "open for 60 minutes", "claims": [claim]},
+            self.SERIES,
+        )
+        assert result["withheld"] is True
+        assert result["synthetic_error"]["code"] == "grounding_value_mismatch"
