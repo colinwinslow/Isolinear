@@ -1,0 +1,80 @@
+# Build + publish the Isolinear worker image to GHCR.
+#
+# Consumed by the homelab repo's docker_apps role (ADR-0016): production pins an
+# immutable @sha256 digest, a floating dev service tracks the :main tag. See
+# homelab docs/specs/app-continuous-deploy.md.
+#
+# Build context is `worker/` only — the Dockerfile is HA-agnostic by construction,
+# so custom_components/, src/ and frontend/ are unreachable from the build. The
+# path filter mirrors that: doc-only and integration-only commits do not rebuild.
+#
+# No secrets are baked in. ISOLINEAR_WORKER_TOKEN is supplied by compose at
+# runtime; the entry point fails closed without it.
+
+name: build-worker-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'worker/**'
+      - '.github/workflows/build-worker-image.yml'
+  workflow_dispatch:
+
+concurrency:
+  # A newer push supersedes an in-flight build of the same branch.
+  group: build-worker-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/isolinear-worker
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute short SHA
+        id: vars
+        run: echo "sha_short=$(echo ${{ github.sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: worker
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:main
+            ${{ env.IMAGE }}:sha-${{ steps.vars.outputs.sha_short }}
+          # org.opencontainers.image.revision is how CT106's deploy record maps a
+          # running digest back to the commit that produced it (BDD Scenario G).
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.created=${{ github.event.repository.updated_at }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Report published digest
+        run: |
+          echo "digest: ${{ steps.build.outputs.digest }}"
+          echo "tags:   ${{ env.IMAGE }}:main, ${{ env.IMAGE }}:sha-${{ steps.vars.outputs.sha_short }}"
+          echo "pin with: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}"
