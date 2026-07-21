@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/cc-hooks/run-cc-token-helper.sh startup 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
