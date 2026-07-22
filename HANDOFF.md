@@ -2,6 +2,16 @@
 
 ## Current project phase
 
+### 2026-07-22 (33rd session) — Claude-layer alignment with the agentic-workflow-kit (no product change)
+
+**Phase.** `A workflow-tooling session, not a product session. isolinear's .claude/ layer was brought up to date with the agentic-workflow-kit; no custom_components/ code changed, version stays 0.2.46, suite 590/4 unchanged. Committed + pushed as 6ed0091.`
+
+**What shipped.** Native slash commands (frontmatter + `$1`), review subagents registered (`code-reviewer`→`arch-reviewer` keeping `model: inherit`; new `bdd-evidence-reviewer`), branch-agnostic drift everywhere, a fail-open SessionStart drift-check + continuity guard with a read-only `permissions.allow` allowlist, and the continuity-budget guard PORTED + ON (`scripts/continuity_budget.py` + `.claude/continuity-budget.json`, calibration 1.7; `continuity_tracking:true` in `claude/workflow-config.json`). Two intentional deviations from the kit: isolinear KEEPS its Codex layer (`codex/`, AGENTS.md) and its `claude/` config path (kit deleted its own); HANDOFF stays a required read (it carries the phase) rather than being demoted, and ROADMAP.md is optional/absent. See [[isolinear-workflow-kit-alignment]].
+
+**Arch review (fresh context, OK).** Run via `general-purpose` because the project's `arch-reviewer` subagent does not register in this hosted runtime (it will in a normal Claude Code session that reads `.claude/agents/`). No invariant surface touched; guard confirmed fail-open (exit 0 even over budget); refs resolve; rename clean.
+
+**Outstanding — the continuity trim.** The guard now flags `STATUS.md` (~63k real-tok vs 9600, 6.6×) and `HANDOFF.md` (~143k vs 19200, 7.5×) every `/startup`. This is the intended nag, NOT a bug. It was deliberately NOT fixed this session: STATUS's top entry packs ~15 sessions in one inline paragraph, so a true rolling-5 restructure + a prune of stale HANDOFF phase entries (like the cosmetic `code-reviewer.md` mention at line ~2810) is a judgment-heavy content decision that needs Colin's steer on what recent detail to keep. **Next:** a dedicated trim pass to bring both files under budget.
+
 ### 2026-07-20 (32nd session) — two-sensor comparison answers: emission + multi-input delta grounding (0.2.46)
 
 **Phase.** `The answer channel now covers two-sensor COMPARISON prompts. Both of the 31st session's deploy gates closed live on 0.2.45 first, then this packet shipped — with its premise corrected by a live repro before any code was written.`
