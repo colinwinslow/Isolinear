@@ -12,7 +12,7 @@ implementing:
 ```
 Agent({
   description: "Architecture review",
-  subagent_type: "code-reviewer",
+  subagent_type: "arch-reviewer",
   prompt: "You are an architecture reviewer for the Isolinear project.
 Read CLAUDE.md and codex/review-architecture.md in this repo, then review
 the current branch diff (git diff main...HEAD) against the project invariants.

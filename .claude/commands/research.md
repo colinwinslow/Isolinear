@@ -1,17 +1,21 @@
-# `/research <slug>` — Research Note Scaffolder
+---
+description: Scaffold a research note at docs/research/<slug>.md.
+argument-hint: <slug>
+---
 
-Scaffold a research note at `docs/research/<slug>.md`.
+Scaffold a research note at `docs/research/$1.md`.
 
-The slug is passed as the argument to this command (e.g. `/research packaging-strategy`).
+`$1` is the topic slug (e.g. `packaging-strategy` or `rollback-tradeoffs`). If
+missing or invalid, ask the user.
 
 ## Steps
 
-1. **Validate slug.** Lowercase, hyphen-separated. Ask if invalid.
+1. **Validate slug.** Lowercase, hyphen-separated.
 
 2. **Check for collision.** If it exists, ask the user (overwrite, append, or
    pick a new slug).
 
-3. **Create `docs/research/<slug>.md`** from this template:
+3. **Create `docs/research/$1.md`** from this template:
 
    ```markdown
    ---

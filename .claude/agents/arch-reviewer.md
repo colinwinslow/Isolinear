@@ -1,6 +1,6 @@
 ---
-name: code-reviewer
-description: Architecture/invariant reviewer for Isolinear changes. Spawn with fresh context BEFORE completing a non-trivial implementation to review a diff against the project's load-bearing invariants. Returns the protocol verdict (Verdict / Invariant violations / Scope flags / ADR-relevance / Recommendations). Referenced by codex/review-architecture.md.
+name: arch-reviewer
+description: Architecture/invariant reviewer for Isolinear changes. Use proactively with fresh context BEFORE completing a non-trivial implementation to review a diff against the project's load-bearing invariants. Returns the protocol verdict (Verdict / Invariant violations / Scope flags / ADR-relevance / Recommendations). Referenced by codex/review-architecture.md.
 tools: Read, Grep, Glob, Bash
 model: inherit
 ---

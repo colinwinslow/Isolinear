@@ -1,13 +1,16 @@
-# `/adr <slug>` — ADR Scaffolder
+---
+description: Scaffold a new Architecture Decision Record at docs/decisions/NNNN-<slug>.md.
+argument-hint: <slug>
+---
 
-Scaffold a new Architecture Decision Record at `docs/decisions/NNNN-<slug>.md`.
+Scaffold a new Architecture Decision Record at `docs/decisions/NNNN-$1.md`.
 
-The slug is passed as the argument to this command (e.g. `/adr provider-interface-boundary`).
+`$1` is the slug (e.g. `provider-interface-boundary`). If missing or invalid,
+ask the user.
 
 ## Steps
 
-1. **Validate slug.** Lowercase, hyphen-separated, no spaces. Ask the user if
-   missing or invalid.
+1. **Validate slug.** Lowercase, hyphen-separated, no spaces.
 
 2. **Find the next ADR number.**
 
@@ -17,7 +20,7 @@ The slug is passed as the argument to this command (e.g. `/adr provider-interfac
 
    Extract the number, increment by 1, zero-pad to 4 digits.
 
-3. **Create `docs/decisions/NNNN-<slug>.md`** from this template (set the real
+3. **Create `docs/decisions/NNNN-$1.md`** from this template (set the real
    number, derive the title from the slug, use today's date):
 
    ```markdown

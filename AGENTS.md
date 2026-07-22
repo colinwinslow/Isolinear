@@ -103,8 +103,8 @@ Build the simplest concrete observable version of the thing **first**, before su
 
 | Review | Protocol file | When | How to run |
 |---|---|---|---|
-| Architecture review | `codex/review-architecture.md` | Before completing a non-trivial implementation | Codex: standalone `codex exec`; Claude Code: spawn Agent subagent (see protocol file) |
-| BDD-evidence review | `codex/review-bdd-evidence.md` | After a test run on a feature with BDD scenarios | Inline pass at `/closeout` (it verifies evidence you just produced) |
+| Architecture review | `codex/review-architecture.md` | Before completing a non-trivial implementation | Codex: standalone `codex exec`; Claude Code: spawn the `arch-reviewer` subagent (see protocol file) |
+| BDD-evidence review | `codex/review-bdd-evidence.md` | After a test run on a feature with BDD scenarios | Inline at `/closeout`, or spawn the `bdd-evidence-reviewer` subagent (it verifies evidence you just produced) |
 
 ## Build & test
 

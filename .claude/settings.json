@@ -1,7 +1,34 @@
 {
+  "$comment": "Isolinear project settings. The first SessionStart hook is a fail-open branch-agnostic git drift-check (plus the continuity guard) so every session opens knowing whether the checkout is clean and current with its upstream. The second is the telemetry add-on (token/spend). The permissions allowlist pre-approves read-only inspection so routine git/ls/test reads aren't prompted.",
+  "permissions": {
+    "allow": [
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git fetch*)",
+      "Bash(git show*)",
+      "Bash(git rev-list*)",
+      "Bash(git stash list)",
+      "Bash(git branch*)",
+      "Bash(ls *)",
+      "Bash(wc -l *)",
+      "Bash(find * -type f*)",
+      "Bash(python3 -m pytest*)",
+      "Bash(python3 scripts/continuity_budget.py*)"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git fetch origin --quiet 2>/dev/null; st=$(git status --porcelain 2>/dev/null); behind=$(git rev-list --count HEAD..@{u} 2>/dev/null || echo 0); if [ -z \"$st\" ] && [ \"$behind\" = \"0\" ]; then echo 'repo: clean, up to date with upstream'; else echo \"repo DRIFT: behind=$behind\"; [ -n \"$st\" ] && echo \"$st\"; fi; [ -f scripts/continuity_budget.py ] && python3 scripts/continuity_budget.py --check 2>/dev/null; true"
+          }
+        ]
+      },
+      {
+        "$comment": "telemetry add-on (claude/token-tracking.md, claude/spend-tracking.md) — initializes the token baseline and records the session-start marker. Additive: the drift-check entry above is untouched. Fail-open.",
         "hooks": [
           {
             "type": "command",

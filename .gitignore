@@ -1,5 +1,9 @@
 .venv/
 node_modules/
+
+# Per-user local Claude Code overrides (never committed)
+.claude/settings.local.json
+
 __pycache__/
 .pytest_cache/
 .test-output/

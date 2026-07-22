@@ -12,7 +12,7 @@ This project is developed **agentically**. The human provides direction and over
 
 ## Session start
 
-On session start, run `/startup`. The required read set is **`STATUS.md` + `HANDOFF.md`**. `STATUS.md` is the single source for the current bounded packet and rolling session log. `HANDOFF.md` carries the current project phase, architectural direction, implementation status, and unresolved design details.
+On session start, run `/startup`. The required read set is **`STATUS.md` + `HANDOFF.md`**. `STATUS.md` is the single source for the current bounded packet and rolling session log. `HANDOFF.md` carries the current project phase, architectural direction, implementation status, and unresolved design details. `ROADMAP.md` is optional (loaded only if present). `/startup` also runs a fail-open **continuity-budget** guard over these always-loaded files (`scripts/continuity_budget.py`, gated on `continuity_tracking` in `claude/workflow-config.json`); a `CONTINUITY BLOAT:` warning is the signal to trim that file at the next `/closeout`.
 
 Do not load other docs unless the work requires them. The doc map below tells you when to load what.
 
@@ -104,8 +104,8 @@ These are native Claude Code slash commands. When the user types `/startup`, Cla
 
 | Review | Protocol file | When | How to run |
 |---|---|---|---|
-| Architecture review | `codex/review-architecture.md` | Before completing a non-trivial implementation | Spawn an Agent subagent with fresh context (see protocol file) |
-| BDD-evidence review | `codex/review-bdd-evidence.md` | After a test run on a feature with BDD scenarios | Inline pass at `/closeout` (it verifies evidence you just produced) |
+| Architecture review | `codex/review-architecture.md` | Before completing a non-trivial implementation | Spawn the `arch-reviewer` subagent with fresh context (see protocol file) |
+| BDD-evidence review | `codex/review-bdd-evidence.md` | After a test run on a feature with BDD scenarios | Inline at `/closeout`, or spawn the `bdd-evidence-reviewer` subagent (it verifies evidence you just produced) |
 
 ## Build & test
 

@@ -1,9 +1,13 @@
-# `/spec <slug>` — Spec + BDD Scaffolder
+---
+description: Scaffold a spec at docs/specs/<slug>.md and a paired BDD file at bdd/<feature>/<slug>-bdd.md.
+argument-hint: <slug>
+---
 
-Scaffold a new spec at `docs/specs/<slug>.md` and a paired BDD file at
-`bdd/<feature>/<slug>-bdd.md`.
+Scaffold a new spec at `docs/specs/$1.md` and a paired BDD file at
+`bdd/<feature>/$1-bdd.md`.
 
-The slug is passed as the argument to this command (e.g. `/spec windows-provider`).
+`$1` is the slug (e.g. `windows-provider` or `profile-apply`). If no slug was
+given, ask for one.
 
 ## Steps
 
@@ -13,10 +17,10 @@ The slug is passed as the argument to this command (e.g. `/spec windows-provider
    BDDs by feature area. New top-level area → ask the user before creating a new
    `bdd/<feature>/` directory.
 
-3. **Check for collision.** If `docs/specs/<slug>.md` or the BDD file exists,
-   ask the user (overwrite, supersede, or pick a new slug).
+3. **Check for collision.** If `docs/specs/$1.md` or the BDD file exists, ask
+   the user (overwrite, supersede, or pick a new slug).
 
-4. **Create `docs/specs/<slug>.md`** from this template:
+4. **Create `docs/specs/$1.md`** from this template:
 
    ```markdown
    ---
@@ -33,7 +37,7 @@ The slug is passed as the argument to this command (e.g. `/spec windows-provider
 
    ## Related docs
 
-   - [bdd/<feature>/<slug>-bdd.md](../../bdd/<feature>/<slug>-bdd.md) — observable behavior
+   - [bdd/<feature>/$1-bdd.md](../../bdd/<feature>/$1-bdd.md) — observable behavior
    - [STATUS.md](../../STATUS.md) — current phase and active work
 
    ## Context
@@ -57,7 +61,7 @@ The slug is passed as the argument to this command (e.g. `/spec windows-provider
    ## Proof requirements
 
    1. [e.g. "Unit tests for X in <test path> green."]
-   2. [e.g. "BDD scenarios in bdd/<feature>/<slug>-bdd.md pass."]
+   2. [e.g. "BDD scenarios in bdd/<feature>/$1-bdd.md pass."]
    3. [e.g. "Real-artifact proof produces expected output; eyes-on confirmed."]
 
    ## Non-goals
@@ -69,14 +73,14 @@ The slug is passed as the argument to this command (e.g. `/spec windows-provider
    - [Other specs, ADRs, architecture sections]
    ```
 
-5. **Create `bdd/<feature>/<slug>-bdd.md`** from this scaffold:
+5. **Create `bdd/<feature>/$1-bdd.md`** from this scaffold:
 
    ```markdown
    # <Feature>: <Short title> — BDD
 
    ## Status
 
-   Draft. Paired with [docs/specs/<slug>.md](../../docs/specs/<slug>.md).
+   Draft. Paired with [docs/specs/$1.md](../../docs/specs/$1.md).
 
    ## Why this BDD exists
 
@@ -97,7 +101,7 @@ The slug is passed as the argument to this command (e.g. `/spec windows-provider
    ## Evidence
 
    The implementing slice produces an evidence file at
-   `bdd/<feature>/<slug>-evidence.md` containing raw outputs (not summaries) for
+   `bdd/<feature>/$1-evidence.md` containing raw outputs (not summaries) for
    each scenario.
    ```
 
@@ -106,6 +110,6 @@ The slug is passed as the argument to this command (e.g. `/spec windows-provider
 ## Rules
 
 - Specs are immutable once `accepted`. Supersede by writing a new spec.
-- BDD lives in `bdd/<feature>/<slug>-bdd.md`, separate from the spec.
+- BDD lives in `bdd/<feature>/$1-bdd.md`, separate from the spec.
 - Evidence files contain raw outputs, not "✓ passed" summaries (the
-  BDD-evidence review pass checks this).
+  `bdd-evidence-reviewer` checks this).
