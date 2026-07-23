@@ -65,6 +65,7 @@ RESULTS_JSON = Path(os.environ.get(
 KITCHEN_T = "sensor.kitchen_ecobee_temperature"
 KITCHEN_H = "sensor.kitchen_ecobee_humidity"
 BASEMENT_H = "sensor.basement_humidity"
+BASEMENT_T = "sensor.basement_temperature"
 
 # The exact live e2e prompts (evals/prompts/e2e_prompts.json).
 CASE_SPECS = {
@@ -77,6 +78,15 @@ CASE_SPECS = {
         "prompt": "Show the kitchen temperature smoothed with a rolling average over the last 2 days",
         "entities": [(KITCHEN_T, "Kitchen Temperature", "°F")],
         "title": "Kitchen Temperature with Rolling Average",
+    },
+    # Cross-sensor rolling: does gemma emit a TWO-INPUT rolling_mean claim? This
+    # is the one un-reproduced member of the multi-input family (mean 0.2.37,
+    # pearson_r 0.2.41, delta 0.2.46 all patched; rolling_mean still reads
+    # inputs[0] only). Reproduce-first before touching _compute_rolling_mean.
+    "rolling_cross": {
+        "prompt": "Show the average of the kitchen and basement temperatures smoothed with a rolling average over the last 2 days",
+        "entities": [(KITCHEN_T, "Kitchen Temperature", "°F"), (BASEMENT_T, "Basement Temperature", "°F")],
+        "title": "Kitchen and Basement Temperature — Rolling Average",
     },
 }
 

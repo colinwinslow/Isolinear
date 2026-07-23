@@ -291,6 +291,15 @@ it, there is no reference at all regardless of algorithm. That is addressed on
 the emission side (the prompt asks for `params.window_ms` whenever a numeric
 rolling value is stated) rather than by changing this recompute.
 
+_Reconfirmed 2026-07-23 (0.2.47):_ a live repro of the cross-sensor case ("the
+average of X and Y smoothed with a rolling average") showed the model does not
+emit `rolling_mean` at all — it reports the mean OF a rolling average under a
+`{'metric': 'mean'}` claim, a window-dependent quantity ~0.11 °F off the plain
+mean, which `_compute_mean` correctly WITHHELD. The fix is again purely on the
+emission side (pin the stated average to the raw aligned frame, not the smoothed
+series — see `docs/specs/model-authored-analysis.md`); this recompute is unchanged
+and the `rolling_mean` negative result above still stands.
+
 **`pearson_r` on the shared grid (2026-07-16, live-driven — open-queue (ff)):**
 the same alignment reasoning applies to correlation. Two sensors read by separate
 integrations share **no** raw timestamps, so the prior recompute — which paired

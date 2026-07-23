@@ -777,6 +777,25 @@ class CorrelationEmissionPromptRuleTests(unittest.TestCase):
         # The pearson_r example carries abs basis, not value.
         self.assertIn("'rule': {'bands': [[0.3, 'yes'], [none, 'not really']], 'basis': 'abs'}", lowered)
 
+    def test_prompt_rules_pin_smoothed_average_to_raw_frame(self):
+        # Cross-sensor smoothed-average emission fidelity (2026-07-23, live 4/4
+        # withheld): "the average of X and Y smoothed with a rolling average" made
+        # the model report the mean OF a rolling average under a {'metric':'mean'}
+        # claim — a window-dependent quantity ~0.11 °F off the plain mean, which
+        # grounding recomputed and withheld. The rule must pin the STATED average
+        # to the raw aligned frame so the mean claim verifies; smoothing is a chart
+        # transform only. Distinctive marker is what rolling_avg_emission_gate.py
+        # strips for its without-arm.
+        rules = " ".join(_CODEGEN_PROMPT_RULES)
+        lowered = rules.lower()
+        self.assertIn("asks for both an average and smoothing", lowered)
+        # The stated average comes from the raw aligned frame, not the rolling one.
+        self.assertIn("frame.mean(axis=1).mean()", rules)
+        self.assertIn("never from the rolling/smoothed series", lowered)
+        # It names the failure mode so the model understands the stakes.
+        self.assertIn("recomputes as", lowered)
+        self.assertIn("withholding your answer", lowered)
+
 
 class CodegenPromptGroundingTests(unittest.TestCase):
     """The codegen prompt instructs COMPUTE-and-format, verdicts derived (ADR-0031 D3)."""

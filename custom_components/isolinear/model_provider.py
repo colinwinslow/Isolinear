@@ -420,11 +420,29 @@ _CODEGEN_PROMPT_RULES = [
     # returns no reference and the value can never be verified. The chart is the
     # real deliverable for a smoothing prompt, so this does NOT force a number —
     # it only makes a stated one checkable.
+    #
+    # Emission fidelity (2026-07-23, live-reproduced 4/4 withheld): a cross-sensor
+    # "the average of X and Y, smoothed with a rolling average" prompt made gemma
+    # report `mean(rolling(mean(axis=1)))` under a {'metric':'mean'} claim. The
+    # mean OF a rolling average is a window-dependent quantity (with a window near
+    # the query span it drifts ~0.11 °F from the plain mean — far past the 0.05
+    # tolerance), so grounding recomputed the plain cross-sensor mean and WITHHELD
+    # a correct-looking answer. Smoothing is a CHART transform; the stated average
+    # must be the plain window mean so the {'metric':'mean'} claim verifies. Same
+    # family as the 0.2.44 correlation basis fix — pin the claim's quantity to what
+    # grounding recomputes, by contract.
     "If your answer_text states a numeric rolling/smoothed average, include the "
     "smoothing window in the claim as 'params': {'window_ms': <the window length "
     "in milliseconds you actually used>}; without it the value cannot be "
     "verified. A smoothing request is satisfied by the chart itself — do not "
-    "invent a summary number if the question only asked to see the data smoothed.",
+    "invent a summary number if the question only asked to see the data smoothed. "
+    "When the request asks for BOTH an average and smoothing (e.g. 'the average of "
+    "the kitchen and basement temperatures smoothed with a rolling average'), "
+    "apply the smoothing ONLY to the plotted line and compute the stated average "
+    "from the RAW aligned frame (frame.mean(axis=1).mean() across the sensors), "
+    "NEVER from the rolling/smoothed series — the mean of a rolling average is a "
+    "different, window-dependent quantity that the grounding check recomputes as "
+    "the plain mean and will reject, withholding your answer.",
     # ADR-0031 D8a: claims ledger for the integration-side grounding check.
     # The model emits a machine-readable recipe so the integration can independently
     # recompute the stated value and confirm the verdict follows the declared rule.

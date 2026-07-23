@@ -280,6 +280,37 @@ request-conditional:
   reference at all, so a paired sentence asks for it whenever a numeric rolling
   value is stated, while explicitly NOT forcing a summary number (a smoothing
   request is satisfied by the chart itself).
+- **Cross-sensor smoothed-average emission fidelity (2026-07-23, 0.2.47 — the
+  last member of the multi-input family, and again a scope correction).** The
+  packet was re-opened from the stale STATUS log as "multi-input `rolling_mean`
+  grounding," but a live-first repro ([[feedback-e2e-over-synthetic]]) retired
+  that framing: "Show the average of the kitchen and basement temperatures
+  smoothed with a rolling average over the last 2 days" never emits a
+  `rolling_mean` claim at all. Instead gemma computes
+  `align().mean(axis=1).rolling('2D', min_periods=1).mean().mean()` — the mean OF
+  a rolling average — and emits it under a `{'metric': 'mean'}` claim. The mean of
+  a rolling average is a window-dependent quantity (with a window near the query
+  span and `min_periods=1` it is edge-weighted **~0.11 °F** off the plain mean —
+  live: plain 73.75 vs mean-of-2d-rolling 73.64, gap 0.1114 ≫ the 0.05 tolerance;
+  the gap grows with window size: 30 min → 0.010, 3 h → 0.052, 6 h → 0.069). So
+  `_compute_mean` correctly recomputes the plain cross-sensor mean and grounding
+  WITHHELD a correct-looking answer (repro `scripts/repro_delta_rolling_grounding.py`
+  case `rolling_cross`, **4/4 withheld**). _Fix (emission only; grounding is right
+  and stays untouched — the same family as the 0.2.44 correlation `basis` fix):_ a
+  `_CODEGEN_PROMPT_RULES` sentence pins the STATED average to the RAW aligned frame
+  (`frame.mean(axis=1).mean()`) — smoothing is a chart transform on the plotted
+  line only — so the `mean` claim recomputes to the same quantity and verifies.
+  Eval-gated with `evals/rolling_avg_emission_gate.py` (production codegen path,
+  REAL recorder temperature, with/without the sentence, execution-truth judge):
+  **with-rule 3/3 clean-emitting runs served and VERIFIED at the plain mean 73.88
+  (matching the independent reference) vs without-rule 0/5 verified — 4/5 withheld
+  `repair_contradicted`, reproducing the live behavior.** (The 2 non-verified
+  with-rule runs are orthogonal codegen/provider flakiness — a `render_chart`
+  structure miss and an empty response — present in both arms, not the emission
+  bug.) The gate's `EXEC_PY` must run **pandas 2.x** to match the deployed worker
+  ([[isolinear-exec-env-pandas-drift]]); pandas 3 rejects `'6H'` and turns a real
+  withhold into a spurious runtime error. This confirms spec §5's `rolling_mean`
+  negative result stands — no recompute change was needed.
 - **Repair-intent retention (open-queue (B) — INVESTIGATED, NOT shipped).** The
   (B) packet was first framed as a repair-only instruction to preserve the
   `previous_code`'s derived series + `answer_text` while fixing a runtime error
