@@ -1,0 +1,124 @@
+{
+ "meta": {
+  "model": "gemma4:e4b",
+  "runs_per_case": 4,
+  "cases": [
+   "rolling_cross"
+  ],
+  "max_repairs": 3,
+  "started": "2026-07-23T01:55:55Z",
+  "history_points": {
+   "rolling_cross": {
+    "sensor.kitchen_ecobee_temperature": 301,
+    "sensor.basement_temperature": 581
+   }
+  }
+ },
+ "runs": {
+  "rolling_cross-run1": {
+   "case": "rolling_cross",
+   "run": 1,
+   "attempts": [],
+   "claim_shapes": [
+    {
+     "metric": "mean",
+     "inputs": [
+      "sensor.kitchen_ecobee_temperature",
+      "sensor.basement_temperature"
+     ],
+     "params": null,
+     "value": 73.63680646169719,
+     "has_verdict": false,
+     "window": null
+    }
+   ],
+   "answer_text": "The average of the kitchen and basement temperatures, smoothed with a rolling average over the last 2 days, was 73.64 \u00b0F.",
+   "why": "repair_contradicted",
+   "answer_verification": "unverified",
+   "grounding_checks": null,
+   "bucket": "WITHHELD",
+   "final_code": "import matplotlib.pyplot as plt\nimport pandas as pd\nimport numpy as np\nfrom scipy import stats\nimport matplotlib.dates as mdates\nimport isolinear_analysis\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a chart showing the rolling average of kitchen and basement temperatures.\n    \"\"\"\n    # 1. Align the numeric series\n    history_series = data['history_series']\n    \n    # Filter for the two required series\n    kitchen_series = next((s for s in history_series if s['entity_id'] == 'sensor.kitchen_ecobee_temperature'), None)\n    basement_series = next((s for s in history_series if s['entity_id'] == 'sensor.basement_temperature'), None)\n\n    if not kitchen_series or not basement_series:\n        return {\"title\": \"Error\", \"series_plotted\": [], \"warnings\": [\"Missing required sensor data.\"], \"legend\": []}\n\n    # Align the data\n    frame = isolinear_analysis.align(history_series)\n    \n    # 2. Compute the cross-sensor average\n    avg_series = frame.mean(axis=1)\n    \n    # 3. Compute the rolling average (2 days window)\n    # The index of 'frame' is a datetime index from isolinear_analysis.align\n    # We use a time-based window '2D' as requested.\n    rolling_avg = avg_series.rolling(window='2D', min_periods=1).mean()\n    \n    # 4. Plotting setup\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n    \n    # 5. Plot the derived rolling average\n    # This is a computed series, so it gets a dashed line.\n    rolling_avg_plot = rolling_avg.dropna()\n    \n    if not rolling_avg_plot.empty:\n        # Plot the computed series\n        ax.plot(rolling_avg_plot.index, rolling_avg_plot.values, \n                label='Rolling Average', color='#ff7f0e', linestyle='--')\n        \n        legend_entries = [\n            {\n                'label': 'Rolling Average', \n                'entity_id': '', \n                'color': '#ff7f0e', \n                'kind': 'computed'\n            }\n        ]\n    else:\n        legend_entries = []\n        \n    # 6. Calculate Answer Text and Claims\n    \n    # Calculate the mean of the rolling average over the whole window\n    mean_rolling_avg = rolling_avg.mean()\n    \n    # Format the answer text\n    answer_text = f\"The average of the kitchen and basement temperatures, smoothed with a rolling average over the last 2 days, was {mean_rolling_avg:.2f} {kitchen_series['unit']}.\"\n    \n    # Create the claim (descriptive value, no verdict/rule)\n    claims = [{\n        'metric': 'mean', \n        'inputs': ['sensor.kitchen_ecobee_temperature', 'sensor.basement_temperature'], \n        'value': mean_rolling_avg\n    }]\n\n    # 7. Final Touches\n    \n    # Set labels and title\n    unit = kitchen_series['unit']\n    ax.set_ylabel(f'Temperature ({unit})')\n    ax.set_title(\"Kitchen and Basement Temperature \u2014 Rolling Average\")\n    \n    # Ensure x-axis reads as time\n    ax.xaxis_date()\n    \n    # Save the figure\n    plt.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n\n    return {\n        \"title\": \"Kitchen and Basement Temperature \u2014 Rolling Average\",\n        \"series_plotted\": [\"Rolling Average\"],\n        \"warnings\": [],\n        \"legend\": legend_entries,\n        \"answer_text\": answer_text,\n        \"claims\": claims\n    }"
+  },
+  "rolling_cross-run2": {
+   "case": "rolling_cross",
+   "run": 2,
+   "attempts": [],
+   "claim_shapes": [
+    {
+     "metric": "mean",
+     "inputs": [
+      "sensor.basement_temperature",
+      "sensor.kitchen_ecobee_temperature"
+     ],
+     "params": {
+      "window_ms": 172800000.0
+     },
+     "value": 73.63680646169719,
+     "has_verdict": false,
+     "window": null
+    }
+   ],
+   "answer_text": "The average temperature, smoothed with a rolling average over the last 2 days, was 73.64 \u00b0F.",
+   "why": "repair_contradicted",
+   "answer_verification": "unverified",
+   "grounding_checks": null,
+   "bucket": "WITHHELD",
+   "final_code": "import matplotlib.pyplot as plt\nimport matplotlib.dates as mdates\nimport pandas as pd\nimport numpy as np\nimport scipy.stats\nimport isolinear_analysis\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a time series chart showing the rolling average of kitchen and basement temperatures.\n    \"\"\"\n    \n    # 1. Align data\n    frame = isolinear_analysis.align(data['history_series'])\n    \n    # 2. Compute derived series: Combined Mean\n    # frame.mean(axis=1) calculates the average across the two sensors at each timestamp\n    combined_mean = frame.mean(axis=1)\n    \n    # 3. Compute derived series: Rolling Average (2 days window)\n    # The rolling window must be time-based ('2D')\n    rolling_window = '2D'\n    rolling_avg = combined_mean.rolling(window=rolling_window).mean()\n    \n    # 4. Setup plotting parameters\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n    \n    # 5. Plot raw input series (Solid lines)\n    series_plotted = []\n    \n    # Plot Kitchen Temperature\n    kitchen_series = data['history_series'][0]\n    ax.plot(frame.index, frame['sensor.kitchen_ecobee_temperature'], \n            label=kitchen_series['label'], color='#1f77b4', linewidth=1.5, linestyle='-')\n    series_plotted.append({\n        'label': kitchen_series['label'], \n        'entity_id': kitchen_series['entity_id'], \n        'color': '#1f77b4', \n        'kind': 'series'\n    })\n\n    # Plot Basement Temperature\n    basement_series = data['history_series'][1]\n    ax.plot(frame.index, frame['sensor.basement_temperature'], \n            label=basement_series['label'], color='#ff7f0e', linewidth=1.5, linestyle='-')\n    series_plotted.append({\n        'label': basement_series['label'], \n        'entity_id': basement_series['entity_id'], \n        'color': '#ff7f0e', \n        'kind': 'series'\n    })\n    \n    # 6. Plot computed series (Dashed line)\n    # The rolling average is the primary result\n    ax.plot(frame.index, rolling_avg, \n            label='Rolling Average', color='#2ca02c', linewidth=2, linestyle='--')\n    series_plotted.append({\n        'label': 'Rolling Average', \n        'entity_id': '', # Computed series, no single primary input ID\n        'color': '#2ca02c', \n        'kind': 'computed'\n    })\n    \n    # 7. Formatting and Labels\n    unit = kitchen_series['unit'] # Use the unit from the first series\n    ax.set_ylabel(f'Temperature ({unit})')\n    ax.set_title('Kitchen and Basement Temperature - Rolling Average')\n    \n    # Format x-axis as dates\n    ax.xaxis_date()\n    \n    # 8. Answer Text and Claims Generation\n    \n    # Calculate the average of the rolling average over the entire window\n    avg_rolling_temp = rolling_avg.mean()\n    \n    # Calculate the window size in milliseconds for the claim\n    window_ms = pd.Timedelta(rolling_window).total_seconds() * 1000\n    \n    answer_text = f'The average temperature, smoothed with a rolling average over the last 2 days, was {avg_rolling_temp:.2f} {unit}.'\n    \n    # Claim generation: Metric is 'mean', inputs are both sensors, value is the average rolling temp\n    claims = [{\n        'metric': 'mean', \n        'inputs': [basement_series['entity_id'], kitchen_series['entity_id']], \n        'value': avg_rolling_temp, \n        'params': {'window_ms': window_ms}\n    }]\n    \n    metadata = {\n        'title': 'Kitchen and Basement Temperature - Rolling Average',\n        'series_plotted': [s['label'] for s in series_plotted],\n        'warnings': [],\n        'legend': series_plotted,\n        'answer_text': answer_text,\n        'claims': claims\n    }\n    \n    # 9. Save figure\n    plt.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n    \n    return metadata"
+  },
+  "rolling_cross-run3": {
+   "case": "rolling_cross",
+   "run": 3,
+   "attempts": [],
+   "claim_shapes": [
+    {
+     "metric": "mean",
+     "inputs": [
+      "sensor.basement_temperature",
+      "sensor.kitchen_ecobee_temperature"
+     ],
+     "params": {
+      "window_ms": 172800000.0
+     },
+     "value": 73.63680646169719,
+     "has_verdict": false,
+     "window": null
+    }
+   ],
+   "answer_text": "The average temperature, smoothed with a rolling average over the last 2 days, was 73.64 \u00b0F.",
+   "why": "repair_contradicted",
+   "answer_verification": "unverified",
+   "grounding_checks": null,
+   "bucket": "WITHHELD",
+   "final_code": "import matplotlib.pyplot as plt\nimport matplotlib.dates as mdates\nimport pandas as pd\nimport numpy as np\nimport scipy.stats\nimport isolinear_analysis\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a time series chart showing the rolling average of kitchen and basement temperatures.\n    \"\"\"\n    \n    # 1. Align data\n    frame = isolinear_analysis.align(data['history_series'])\n    \n    # 2. Compute derived series: Combined Mean\n    # frame.mean(axis=1) calculates the average across the two sensors at each timestamp\n    combined_mean = frame.mean(axis=1)\n    \n    # 3. Compute derived series: Rolling Average (2 days window)\n    # The rolling window must be time-based ('2D')\n    rolling_window = '2D'\n    rolling_avg = combined_mean.rolling(window=rolling_window).mean()\n    \n    # 4. Setup plotting parameters\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n    \n    # 5. Plot raw input series (Solid lines)\n    series_plotted = []\n    \n    # Plot Kitchen Temperature\n    kitchen_series = data['history_series'][0]\n    ax.plot(frame.index, frame['sensor.kitchen_ecobee_temperature'], \n            label=kitchen_series['label'], color='#1f77b4', linewidth=1.5, linestyle='-')\n    series_plotted.append({\n        'label': kitchen_series['label'], \n        'entity_id': kitchen_series['entity_id'], \n        'color': '#1f77b4', \n        'kind': 'series'\n    })\n\n    # Plot Basement Temperature\n    basement_series = data['history_series'][1]\n    ax.plot(frame.index, frame['sensor.basement_temperature'], \n            label=basement_series['label'], color='#ff7f0e', linewidth=1.5, linestyle='-')\n    series_plotted.append({\n        'label': basement_series['label'], \n        'entity_id': basement_series['entity_id'], \n        'color': '#ff7f0e', \n        'kind': 'series'\n    })\n    \n    # 6. Plot computed series (Dashed line)\n    # The rolling average is the primary result\n    ax.plot(frame.index, rolling_avg, \n            label='Rolling Average', color='#2ca02c', linewidth=2, linestyle='--')\n    series_plotted.append({\n        'label': 'Rolling Average', \n        'entity_id': '', # Computed series, no single primary input ID\n        'color': '#2ca02c', \n        'kind': 'computed'\n    })\n    \n    # 7. Formatting and Labels\n    unit = kitchen_series['unit'] # Use the unit from the first series\n    ax.set_ylabel(f'Temperature ({unit})')\n    ax.set_title('Kitchen and Basement Temperature - Rolling Average')\n    \n    # Format x-axis as dates\n    ax.xaxis_date()\n    \n    # 8. Answer Text and Claims Generation\n    \n    # Calculate the average of the rolling average over the entire window\n    avg_rolling_temp = rolling_avg.mean()\n    \n    # Calculate the window size in milliseconds for the claim\n    window_ms = pd.Timedelta(rolling_window).total_seconds() * 1000\n    \n    answer_text = f'The average temperature, smoothed with a rolling average over the last 2 days, was {avg_rolling_temp:.2f} {unit}.'\n    \n    # Claim generation: Metric is 'mean', inputs are both sensors, value is the average rolling temp\n    claims = [{\n        'metric': 'mean', \n        'inputs': [basement_series['entity_id'], kitchen_series['entity_id']], \n        'value': avg_rolling_temp, \n        'params': {'window_ms': window_ms}\n    }]\n    \n    metadata = {\n        'title': 'Kitchen and Basement Temperature - Rolling Average',\n        'series_plotted': [s['label'] for s in series_plotted],\n        'warnings': [],\n        'legend': series_plotted,\n        'answer_text': answer_text,\n        'claims': claims\n    }\n    \n    # 9. Save figure\n    plt.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n    \n    return metadata"
+  },
+  "rolling_cross-run4": {
+   "case": "rolling_cross",
+   "run": 4,
+   "attempts": [],
+   "claim_shapes": [
+    {
+     "metric": "mean",
+     "inputs": [
+      "sensor.basement_temperature",
+      "sensor.kitchen_ecobee_temperature"
+     ],
+     "params": {
+      "window_ms": 172800000.0
+     },
+     "value": 73.63680646169719,
+     "has_verdict": false,
+     "window": null
+    }
+   ],
+   "answer_text": "The average temperature, smoothed with a rolling average over the last 2 days, was 73.64 \u00b0F.",
+   "why": "repair_contradicted",
+   "answer_verification": "unverified",
+   "grounding_checks": null,
+   "bucket": "WITHHELD",
+   "final_code": "import matplotlib.pyplot as plt\nimport matplotlib.dates as mdates\nimport pandas as pd\nimport numpy as np\nimport scipy.stats\nimport isolinear_analysis\n\ndef render_chart(data, output_path):\n    \"\"\"\n    Renders a time series chart showing the rolling average of kitchen and basement temperatures.\n    \"\"\"\n    \n    # 1. Align data\n    frame = isolinear_analysis.align(data['history_series'])\n    \n    # 2. Compute derived series: Combined Mean\n    # frame.mean(axis=1) calculates the average across the two sensors at each timestamp\n    combined_mean = frame.mean(axis=1)\n    \n    # 3. Compute derived series: Rolling Average (2 days window)\n    # The rolling window must be time-based ('2D')\n    rolling_window = '2D'\n    rolling_avg = combined_mean.rolling(window=rolling_window).mean()\n    \n    # 4. Setup plotting parameters\n    fig, ax = plt.subplots(figsize=(8, 4.5), dpi=110)\n    \n    # 5. Plot raw input series (Solid lines)\n    series_plotted = []\n    \n    # Plot Kitchen Temperature\n    kitchen_series = data['history_series'][0]\n    ax.plot(frame.index, frame['sensor.kitchen_ecobee_temperature'], \n            label=kitchen_series['label'], color='#1f77b4', linewidth=1.5, linestyle='-')\n    series_plotted.append({\n        'label': kitchen_series['label'], \n        'entity_id': kitchen_series['entity_id'], \n        'color': '#1f77b4', \n        'kind': 'series'\n    })\n\n    # Plot Basement Temperature\n    basement_series = data['history_series'][1]\n    ax.plot(frame.index, frame['sensor.basement_temperature'], \n            label=basement_series['label'], color='#ff7f0e', linewidth=1.5, linestyle='-')\n    series_plotted.append({\n        'label': basement_series['label'], \n        'entity_id': basement_series['entity_id'], \n        'color': '#ff7f0e', \n        'kind': 'series'\n    })\n    \n    # 6. Plot computed series (Dashed line)\n    # The rolling average is the primary result\n    ax.plot(frame.index, rolling_avg, \n            label='Rolling Average', color='#2ca02c', linewidth=2, linestyle='--')\n    series_plotted.append({\n        'label': 'Rolling Average', \n        'entity_id': '', # Computed series, no single primary input ID\n        'color': '#2ca02c', \n        'kind': 'computed'\n    })\n    \n    # 7. Formatting and Labels\n    unit = kitchen_series['unit'] # Use the unit from the first series\n    ax.set_ylabel(f'Temperature ({unit})')\n    ax.set_title('Kitchen and Basement Temperature - Rolling Average')\n    \n    # Format x-axis as dates\n    ax.xaxis_date()\n    \n    # 8. Answer Text and Claims Generation\n    \n    # Calculate the average of the rolling average over the entire window\n    avg_rolling_temp = rolling_avg.mean()\n    \n    # Calculate the window size in milliseconds for the claim\n    window_ms = pd.Timedelta(rolling_window).total_seconds() * 1000\n    \n    answer_text = f'The average temperature, smoothed with a rolling average over the last 2 days, was {avg_rolling_temp:.2f} {unit}.'\n    \n    # Claim generation: Metric is 'mean', inputs are both sensors, value is the average rolling temp\n    claims = [{\n        'metric': 'mean', \n        'inputs': [basement_series['entity_id'], kitchen_series['entity_id']], \n        'value': avg_rolling_temp, \n        'params': {'window_ms': window_ms}\n    }]\n    \n    metadata = {\n        'title': 'Kitchen and Basement Temperature - Rolling Average',\n        'series_plotted': [s['label'] for s in series_plotted],\n        'warnings': [],\n        'legend': series_plotted,\n        'answer_text': answer_text,\n        'claims': claims\n    }\n    \n    # 9. Save figure\n    plt.savefig(output_path, format='png', bbox_inches='tight')\n    plt.close(fig)\n    \n    return metadata"
+  }
+ },
+ "buckets": {
+  "rolling_cross:WITHHELD": 4
+ }
+}
