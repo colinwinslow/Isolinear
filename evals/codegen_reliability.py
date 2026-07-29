@@ -14,7 +14,7 @@ are written incrementally and the run is resumable.
 
 Config via env:
   OLLAMA_URL   (default http://10.0.1.39:11434)
-  WORKER_URL   (default http://10.0.1.39:8080)
+  WORKER_URL   (default http://10.0.1.46:8080)
   WORKER_TOKEN (required)
   MODELS       (comma list; default "gemma4:e4b,qwen2.5-coder:7b")
   RESULTS_JSON (default evals/prompts/reliability_results.json)
@@ -35,7 +35,7 @@ REPO = HERE.parent
 CORPUS = HERE / "prompts" / "benchmark_prompts.json"
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://10.0.1.39:11434").rstrip("/")
-WORKER_URL = os.environ.get("WORKER_URL", "http://10.0.1.39:8080").rstrip("/")
+WORKER_URL = os.environ.get("WORKER_URL", "http://10.0.1.46:8080").rstrip("/")
 WORKER_TOKEN = os.environ.get("WORKER_TOKEN", "")
 MODELS = [m.strip() for m in os.environ.get("MODELS", "gemma4:e4b,qwen2.5-coder:7b").split(",") if m.strip()]
 RESULTS_JSON = Path(os.environ.get("RESULTS_JSON", HERE / "prompts" / "reliability_results.json"))

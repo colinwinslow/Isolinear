@@ -27,7 +27,7 @@ from custom_components.isolinear.worker_renderer import (  # noqa: E402
     redacted_worker_health_request,
 )
 
-WORKER_ENDPOINT = os.environ.get("ISOLINEAR_EVAL_WORKER_ENDPOINT", "http://10.0.1.39:8080")
+WORKER_ENDPOINT = os.environ.get("ISOLINEAR_EVAL_WORKER_ENDPOINT", "http://10.0.1.46:8080")
 
 
 def main() -> int:

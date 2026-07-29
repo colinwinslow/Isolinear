@@ -27,7 +27,7 @@ is why this eval exists.
 
 Config via env:
   OLLAMA_URL   (default http://10.0.1.39:11434)
-  WORKER_URL   (default http://10.0.1.39:8080)
+  WORKER_URL   (default http://10.0.1.46:8080)
   WORKER_TOKEN (required; never printed)
   MODEL        (default gemma4:e4b — the production planner/codegen floor)
   RUNS         (default 3 — repeat runs; temp is 0 but GPU batching varies)
@@ -53,7 +53,7 @@ sys.path.insert(0, str(REPO))
 from custom_components.isolinear import model_provider as mp  # noqa: E402
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://10.0.1.39:11434").rstrip("/")
-WORKER_URL = os.environ.get("WORKER_URL", "http://10.0.1.39:8080").rstrip("/")
+WORKER_URL = os.environ.get("WORKER_URL", "http://10.0.1.46:8080").rstrip("/")
 WORKER_TOKEN = os.environ.get("WORKER_TOKEN", "")
 MODEL = os.environ.get("MODEL", "gemma4:e4b")
 RUNS = int(os.environ.get("RUNS", "3"))
