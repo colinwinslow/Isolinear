@@ -11,8 +11,9 @@
 > the map. (Recency only breaks ties between two conflicting ADRs, not between
 > this file and an ADR.)
 >
-> Last synced: **2026-07-07** (through ADR-0035 step 1 — the
-> job_orchestration split, 0.2.28).
+> Last synced: **2026-07-28** (deployment topology corrected to the CT103/CT106
+> workload split; architecture otherwise unchanged since **2026-07-07**, ADR-0035
+> step 1 — the job_orchestration split, 0.2.28).
 
 ## What Isolinear is
 
@@ -51,7 +52,7 @@ codegen — model_provider.py (generate_chart_code / repair_chart_code)
   │  history_series PREVIEW (12 real pts, runtime key 'points') +
   │  precomputed overlay bands; epoch-ms only, never raw ISO     [0034, 0031, 0033, 0030]
   ▼
-worker sandbox — worker/ (HTTP, CT103), render_mode: codegen
+worker sandbox — worker/ (HTTP, CT106), render_mode: codegen
   │  static safety check EVERY attempt → -I subprocess, import
   │  allowlist, audit hook, 1024MB, fixed output path; repair
   │  loop lives integration-side (worker never holds a model)    [0008, 0029, 0030, 0012, 0032]
@@ -112,8 +113,11 @@ context overflow) falls back to the trusted Pillow renderer
 ## Deployment topology
 
 - **HA box (10.0.1.200):** the integration, via HACS (repo → Redownload → restart; HACS tracks commit SHA). Card bundle ships inside the integration.
-- **CT103 (10.0.1.39):** Ollama (`:11434`, gemma4:e4b) + a **LiteLLM proxy** (`:4000/v1`, OpenAI-compatible, forwards `ollama/gemma`→gemma4:e4b and `ollama/qwen-coder`→qwen2.5-coder:7b; the ADR-0037 default provider, optional bearer key) + `isolinear-worker:dev` compose service (`:8080`, bearer-token; homelab repo owns the compose/IaC). Worker image rebuilds are independent of HACS ships.
+- **CT103 (10.0.1.39) — GPU tier:** Ollama (`:11434`, gemma4:e4b) alongside Frigate and Plex. GPU-only since the homelab `ct-workload-tier-split`.
+- **CT106 (10.0.1.46) — CPU app tier:** the **LiteLLM proxy** (`:4000/v1`, OpenAI-compatible, the ADR-0037 default provider, optional bearer key; forwards `ollama/gemma`→gemma4:e4b on CT103) **and** the `isolinear-worker` compose service (`:8080`, bearer-token). The homelab repo owns the compose/IaC; the worker now runs the GHCR image (`ghcr.io/colinwinslow/isolinear-worker`, digest-pinned via continuous deploy) rather than a hand-carried `:dev` tag. Worker image rebuilds are independent of HACS ships.
 - Endpoints + token configured in the integration's options flow (ADR-0032).
+- **Ollama runtime config** (homelab `docker_gpu_apps` compose template): `NUM_PARALLEL=1`, `KEEP_ALIVE=10m`, `OLLAMA_MAX_LOADED_MODELS=1`, and **`OLLAMA_CONTEXT_LENGTH=8192`** — the latter is the *effective* context, which matters because the LiteLLM client drops the Ollama `options` dict carrying `num_ctx`. The measured VRAM headroom behind these settings is in `docs/gotchas.md`.
+- **Standing tools:** `evals/e2e_pipeline_harness.py` (the live 20-prompt accept gate, `ONLY_IDS` scopes it), `scripts/ha_logs.py` (WARNING+ system log), the codegen prompt-rule eval gates, and the `scripts/repro_*.py` production-path probes. Sandbox-faithful local execution needs `/home/claude/.workerenv` as `EXEC_PY` (pandas 2.x, matching the worker pin).
 
 ## Not current architecture (don't build on these)
 
@@ -132,11 +136,14 @@ context overflow) falls back to the trusted Pillow renderer
 - Archived outright: 0004 (trusted-renderer default), 0015/0016 (worker
   durability machinery) — see `docs/decisions/archive/`.
 
-## Known live gaps (open queue, STATUS.md)
+## Known live gaps (the queue lives in ROADMAP.md)
 
-Binary/timeline entities render empty through codegen (r); >2-day state
-overlays hit the single-source tiering wall (t); histogram axis-unit placement
-(s, likely fixed — confirm); both multi-sensor cross-math transforms
-(delta/deviation) regressed to a codegen runtime fallback on 0.2.27 (cc). The
-live e2e harness (`evals/e2e_pipeline_harness.py`, Claude-judged) is the
+The live queue moved to **`ROADMAP.md`**. The headline gaps as of 0.2.47:
+>2-day state overlays hit the single-source tiering wall (t, needs a small
+ADR); the context-overflow safety net is inert on the LiteLLM path (gg);
+histogram axis-unit placement (s, likely fixed — confirm); plus a cosmetics
+bucket (F). Binary/timeline codegen rendering (r) and the cross-math
+grounding regressions (cc, ff) are **closed and live-confirmed**.
+
+The live e2e harness (`evals/e2e_pipeline_harness.py`, Claude-judged) is the
 standing accept gate for pipeline changes.

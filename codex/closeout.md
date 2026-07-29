@@ -8,6 +8,8 @@ Use this protocol before ending every Codex session.
 2. Run relevant evals if they exist.
 3. Check for drift against relevant ADRs, specs, BDDs, and schemas.
 4. Update `HANDOFF.md` with what changed and what remains.
+5. Update `ROADMAP.md` — strike what closed, add what the session surfaced.
+   Keep `STATUS.md` to the rolling-5; old detail lives in git history.
 5. Report files changed.
 6. Report tests and evals run.
 7. Report skipped verification, if any.

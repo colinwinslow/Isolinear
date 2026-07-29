@@ -12,7 +12,7 @@ This project is developed **agentically**. The human provides direction and over
 
 ## Session start
 
-On session start, run `/startup` (see `codex/startup.md`). The required read set is **`STATUS.md` + `HANDOFF.md`**. `STATUS.md` is the single source for the current bounded packet and rolling session log. `HANDOFF.md` carries the current project phase, architectural direction, implementation status, and unresolved design details.
+On session start, run `/startup` (see `codex/startup.md`). The required read set is **`STATUS.md` + `HANDOFF.md` + `ROADMAP.md`**. `STATUS.md` is the single source for the current bounded packet and rolling session log. `HANDOFF.md` carries the current project phase, implementation status, and unresolved design details. `ROADMAP.md` carries all forward-looking work — future phases, open gaps, and parked items — so nothing queued is visible without it.
 
 Do not load other docs unless the work requires them. The doc map below tells you when to load what.
 
@@ -21,7 +21,11 @@ Do not load other docs unless the work requires them. The doc map below tells yo
 | Question | Read |
 |---|---|
 | What's the current state of the project? | `STATUS.md` |
-| What is Isolinear, architecturally? | `HANDOFF.md` + relevant ADRs in `docs/decisions/` |
+| What's planned but not started? | `ROADMAP.md` (future phases, open gaps, parked work) |
+| Where does the architecture stand right now? | `docs/ARCHITECTURE.md` (the current-state map; synced at `/closeout`) |
+| What is Isolinear, architecturally? | `docs/ARCHITECTURE.md` first, then `HANDOFF.md` + relevant ADRs in `docs/decisions/` |
+| Why did this bite us last time? | `docs/gotchas.md` (durable operational knowledge; not recoverable from code) |
+| I'm new to the project — how does it work? | `docs/ONBOARDING.md` |
 | Why did we decide X? | `docs/decisions/NNNN-*.md` (one ADR per decision) |
 | What does feature Y do? | `docs/specs/<feature>.md` (one spec per shippable feature) |
 | What are the scenarios for feature Y? | `docs/bdd/<feature>/` or `docs/bdd/<feature>.feature` |

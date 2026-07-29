@@ -12,7 +12,7 @@ This project is developed **agentically**. The human provides direction and over
 
 ## Session start
 
-On session start, run `/startup`. The required read set is **`STATUS.md` + `HANDOFF.md`**. `STATUS.md` is the single source for the current bounded packet and rolling session log. `HANDOFF.md` carries the current project phase, architectural direction, implementation status, and unresolved design details. `ROADMAP.md` is optional (loaded only if present). `/startup` also runs a fail-open **continuity-budget** guard over these always-loaded files (`scripts/continuity_budget.py`, gated on `continuity_tracking` in `claude/workflow-config.json`); a `CONTINUITY BLOAT:` warning is the signal to trim that file at the next `/closeout`.
+On session start, run `/startup`. The required read set is **`STATUS.md` + `HANDOFF.md` + `ROADMAP.md`**. `STATUS.md` is the single source for the current bounded packet and rolling session log. `HANDOFF.md` carries the current project phase, architectural direction, implementation status, and unresolved design details. `ROADMAP.md` carries forward-looking work — future phases, open gaps, and parked items — so `STATUS.md` can stay about what is happening *now*. `/startup` also runs a fail-open **continuity-budget** guard over these always-loaded files (`scripts/continuity_budget.py`, gated on `continuity_tracking` in `claude/workflow-config.json`); a `CONTINUITY BLOAT:` warning is the signal to trim that file at the next `/closeout`.
 
 Do not load other docs unless the work requires them. The doc map below tells you when to load what.
 
@@ -21,6 +21,9 @@ Do not load other docs unless the work requires them. The doc map below tells yo
 | Question | Read |
 |---|---|
 | What's the current state of the project? | `STATUS.md` |
+| What's planned but not started? | `ROADMAP.md` (future phases, open gaps, parked work) |
+| Why did this bite us last time? | `docs/gotchas.md` (durable operational knowledge; not recoverable from code) |
+| I'm new to the project — how does it work? | `docs/ONBOARDING.md` |
 | Where does the architecture stand right now? | `docs/ARCHITECTURE.md` (the current-state map; synced at `/closeout`) |
 | What is Isolinear, architecturally? | `docs/ARCHITECTURE.md` first, then `HANDOFF.md` + relevant ADRs in `docs/decisions/` |
 | Why did we decide X? | `docs/decisions/NNNN-*.md` (one ADR per decision) |

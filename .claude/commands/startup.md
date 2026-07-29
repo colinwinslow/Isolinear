@@ -41,9 +41,10 @@ step-6 report-back.
    unresolved design detail. Do not load other docs unless the work requires
    them — the doc map in `CLAUDE.md` says when to load what.
 
-3. **Read repo-local strategy, if present.** `ROADMAP.md` (strategic direction),
-   if the project keeps one. Skip if absent — isolinear leans on `STATUS.md` +
-   `HANDOFF.md` today; `ROADMAP.md` is optional and loaded only when present.
+3. **Read `ROADMAP.md`.** Since the 2026-07-29 continuity restructure this is
+   **required, not optional**: every open gap, deferred decision, parked item
+   and future phase lives there, and the next bounded packet is usually pulled
+   from it. `STATUS.md` deliberately carries only what is happening *now*.
 
 4. **Continuity budget check** (when `continuity_tracking` is enabled in
    `claude/workflow-config.json`). Run the fail-open guard over the
