@@ -212,12 +212,25 @@ def main() -> int:
             ["import matplotlib", "import pandas as pd", "def render_chart(data, output_path):"]
             + [f"    x{i} = data['history_series'][0]['points'][{i}]['value']  # line {i}" for i in range(110)]
         )
-        rep = dict(gen)
-        rep["previous_code"] = fake_code
-        rep["sandbox_error"] = {"code": "unsafe_code", "violations": [
+        violations = [
             {"code": "top_level_statement", "line": 84, "message": "Generated code may contain only imports and function definitions at top level.", "source_line": "time_index = pd.date_range(start='2023-10-01', periods=100, freq='H')"}
-        ] * 8}
-        field_report(rep, "REPAIR prompt (attempt 2+)", NUM_CTX)
+        ] * 8
+        for cls_label, err in (
+            ("static/unsafe_code", {"code": "unsafe_code", "message": "static gate", "traceback": None, "violations": violations}),
+            ("runtime_error", {"code": "runtime_error", "message": "boom", "traceback": "Traceback (most recent call last):\n  ...\nTypeError: list indices must be integers or slices, not tuple"}),
+            ("grounding", {"code": "grounding_verdict_unbacked", "message": "verdict not backed by a claim", "traceback": None}),
+        ):
+            rep = dict(gen)
+            rep["rules"] = mp._repair_prompt_rules(err, request)
+            rep["previous_code"] = fake_code
+            rep["sandbox_error"] = err
+            field_report(rep, f"REPAIR prompt, PRUNED rules [{cls_label}]", NUM_CTX)
+
+        # The pre-fix shape, kept for the before/after delta.
+        rep_full = dict(gen)
+        rep_full["previous_code"] = fake_code
+        rep_full["sandbox_error"] = {"code": "unsafe_code", "violations": violations}
+        field_report(rep_full, "REPAIR prompt, FULL rules (pre-fix shape)", NUM_CTX)
 
     return 0
 

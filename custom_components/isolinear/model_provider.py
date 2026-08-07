@@ -514,6 +514,86 @@ _CODEGEN_PROMPT_RULES = [
 ]
 
 
+# Repair-prompt rule pruning (2026-08-07). Measured with the real tokenizer
+# (scripts/measure_codegen_prompt.py, LIVE_TOKENS=1) against gemma4:e4b: the
+# GENERATION prompt fits _CODEGEN_NUM_CTX (58-79% across the e2e failure cases)
+# but every REPAIR prompt hit prompt_eval_count == 8192 exactly — truncated.
+# Ollama drops LEADING tokens on overflow, i.e. the system prompt and these
+# rules, so the repair loop evicted the very contract it was enforcing and the
+# model fell back to generic matplotlib boilerplate (np.random.seed(42), mock
+# arrays — the stable 7-prompt failure signature of the 2026-07-31 e2e runs;
+# repairs never recovered). The full rules list is ~45% of the window and was
+# re-sent on every attempt alongside previous_code (~24%).
+#
+# The fix: a repair already knows what class of failure it is fixing, so it gets
+# the contract-critical core plus only the rule families relevant to that class:
+#   static (unsafe_code / syntax_error)  -> core only (the violations name the
+#       broken contract lines; analysis/emission rules are dead weight)
+#   runtime (traceback failures)         -> core + analysis plumbing (+ the
+#       precomputed-bands rules when the request carries derived_intervals)
+#   grounding_* (synthetic errors from the answer-grounding check) -> core +
+#       analysis + the emission/claims block (the failure IS about claims)
+# GENERATION is untouched — it fits, and it is where the full contract must be
+# in view. Selection is by distinctive marker substring against the LIVE module
+# list (not indices), so eval arms that monkeypatch _CODEGEN_PROMPT_RULES flow
+# through unchanged; if no marker matches (a fully replaced list), fail open to
+# the full list rather than silently repairing rule-less.
+_REPAIR_RULE_MARKERS_CORE = (
+    "Define exactly one top-level function",
+    "bounded PREVIEW",
+    "Never parse a raw timestamp string",
+    "Never guess the unit",
+    "fig.savefig(output_path",
+    "Import nothing",
+    "Do not read environment variables",
+    "Return a small metadata dict",
+    "no commentary, no example invocation",
+)
+_REPAIR_RULE_MARKERS_ANALYSIS = (
+    "isolinear_analysis.align is the only",
+    "Render only these chart families",
+)
+_REPAIR_RULE_MARKERS_BANDS = (
+    "TIMELINE step track",
+    "HOW LONG or WHEN",
+    "precomputed shaded background bands",
+)
+_REPAIR_RULE_MARKERS_EMISSION = (
+    "also return an 'answer_text' string",
+    "Compute the answer_text from variables",
+    "IMPORTANT for correlation questions",
+    "IMPORTANT for two-sensor comparison",
+    "If your answer_text states a numeric rolling",
+    "return a 'claims' list",
+    "OMIT 'verdict' and 'rule'",
+    "ANCHORED window",
+)
+_STATIC_SANDBOX_ERROR_CODES = ("unsafe_code", "syntax_error")
+
+
+def _repair_prompt_rules(
+    sandbox_error_view: Mapping[str, Any], request: Mapping[str, Any]
+) -> list[str]:
+    """Select the subset of _CODEGEN_PROMPT_RULES relevant to this repair class."""
+    code = sandbox_error_view.get("code")
+    code = code if isinstance(code, str) else ""
+    markers = list(_REPAIR_RULE_MARKERS_CORE)
+    if code not in _STATIC_SANDBOX_ERROR_CODES:
+        markers.extend(_REPAIR_RULE_MARKERS_ANALYSIS)
+        if request.get("derived_intervals"):
+            markers.extend(_REPAIR_RULE_MARKERS_BANDS)
+    if code.startswith("grounding"):
+        markers.extend(_REPAIR_RULE_MARKERS_EMISSION)
+    selected = [
+        rule
+        for rule in _CODEGEN_PROMPT_RULES
+        if any(marker in rule for marker in markers)
+    ]
+    # Fail open: a replaced/foreign rules list that matches no marker means we
+    # cannot tell contract from style — send everything rather than nothing.
+    return selected if selected else list(_CODEGEN_PROMPT_RULES)
+
+
 def _codegen_request_view(request: dict[str, Any]) -> dict[str, Any]:
     """Project only the model-relevant, non-secret fields into the codegen prompt.
 
@@ -1404,11 +1484,18 @@ class OllamaCompatiblePlannerClient:
         error_view = _sandbox_error_view(sandbox_error)
         # ADR-0034: carry user_request into repair too, so a fix that has to
         # rewrite the analysis keeps the intent (the rules reference user_request).
+        # Rules are PRUNED to the failure class (see _repair_prompt_rules): the
+        # full list truncated the repair prompt at _CODEGEN_NUM_CTX, evicting the
+        # contract itself. previous_code carries the surviving intent; the task
+        # text below pins the change to the reported error.
         prompt_payload = {
             "task": (
                 "The previous render_chart code failed in the sandbox. Return corrected "
                 "Python matplotlib code that fixes the reported error, still fulfills "
-                "user_request, and still implements the ChartSpec. If sandbox_error.violations "
+                "user_request, and still implements the ChartSpec. Keep everything in "
+                "previous_code that is not implicated in the error — including its data "
+                "access, computed series, answer_text and claims — rather than rewriting "
+                "from scratch. If sandbox_error.violations "
                 "is present, each entry carries a violation 'code', a 'line' number, the "
                 "sandbox 'message', and — when available — the exact offending 'source_line' "
                 "from your previous code. Fix each violation on its line: 'unsafe_code' "
@@ -1417,7 +1504,7 @@ class OllamaCompatiblePlannerClient:
                 "'syntax_error' entries name a Python syntax error to correct on that exact line."
             ),
             "user_request": _bounded_user_request(user_request),
-            "rules": _CODEGEN_PROMPT_RULES,
+            "rules": _repair_prompt_rules(error_view, request if isinstance(request, Mapping) else {}),
             "previous_code": previous_code,
             "sandbox_error": error_view,
             "codegen_request": _codegen_request_view(request),
