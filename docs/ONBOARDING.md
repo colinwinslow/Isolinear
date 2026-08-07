@@ -322,7 +322,8 @@ and `const.py` for every completed implementation packet; stage specific files
 # Integration (repo root)
 python3 -m pytest tests/                 # full unit suite
 python3 evals/<gate>.py                  # a single eval gate
-python3 evals/e2e_pipeline_harness.py    # live e2e (needs HA_URL/HA_TOKEN)
+python3 scripts/ha_token.py --check      # verify the HA token before any live run
+python3 scripts/ha_token.py -- python3 evals/e2e_pipeline_harness.py   # live e2e
 
 # Card (frontend/)
 npm test && npm run build
@@ -331,6 +332,17 @@ npm test && npm run build
 # Worker image
 docker build --platform linux/amd64 -t isolinear-worker:dev worker/
 ```
+
+**Where the HA token lives.** Nothing in this repo persists an HA credential — the
+harness, the eval gates and `scripts/ha_logs.py` all read `HA_TOKEN` from the
+environment at run time. The real value is age-encrypted in the homelab vault at
+`~/repos/homelab/secrets/ha-access.enc.yaml`; `scripts/ha_token.py` decrypts it
+in-process and injects it into a child command, so the plaintext never reaches a
+shell variable or your scrollback. Run `--check` first — it verifies the token
+against a bogus-token negative control and prints the expiry (currently
+**2027-07-31**). A bare `401` from any live script almost always means a rotated
+token, not a broken integration; that mistake cost a mid-run e2e harness on
+2026-07-31.
 
 Deploy: the integration ships via HACS (push → **Redownload** in HACS →
 restart HA); the Lovelace resource URL is version-stamped so browsers don't

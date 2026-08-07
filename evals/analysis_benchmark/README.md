@@ -38,8 +38,9 @@ timestamps** — invisible with clean synthetic data. Hence: real history.
 
 ```bash
 # 1. Extract the fixture from your HA (never committed)
-HA_URL=http://<ha-host>:8123 HA_TOKEN=<long-lived-token> \
-  python3 evals/analysis_benchmark/extract_fixture.py
+# HA_URL/HA_TOKEN come from the homelab SOPS vault — see docs/ONBOARDING.md §8.
+# A bare 401 means the token was rotated, not that the integration broke.
+python3 scripts/ha_token.py -- python3 evals/analysis_benchmark/extract_fixture.py
 
 # 2. Point BENCH_PY at an interpreter with the analysis stack installed
 python3 -m venv /tmp/bench && /tmp/bench/bin/pip install \

@@ -140,6 +140,13 @@
    "capability": "D6 type-hint guard (0.2.30) + correlation answer",
    "prompt": "are the kitchen and family room temperatures correlated?",
    "expect": "resolves BOTH sensor.kitchen_ecobee_temperature and sensor.family_room_sensor_temperature (never binary_sensor.kitchen_door / a door timeline — the 0.2.30 D6 type-hint guard pins this), renders the two temp series (or a correlation view), and emits a computed pearson-r answer_text with a verdict. This is the live-reported prompt that rendered a door-status chart on 0.2.28."
+  },
+  {
+   "id": "e2e-21",
+   "family": "answer_cross_sensor_smoothed_mean",
+   "capability": "0.2.47 smoothed-average emission rule (raw-frame mean, not mean-of-rolling-mean)",
+   "prompt": "Show the average of the kitchen and basement temperatures smoothed with a rolling average over the last 2 days",
+   "expect": "the CHART smooths (a rolling-average line) but the ANSWER does not: answer_text must state the PLAIN mean of the raw aligned frame (frame.mean(axis=1).mean()), and must carry answer_verification: verified — NOT withheld, and NOT absent. A withheld answer means the model reported a mean-OF-a-rolling-average (window-dependent, ~0.11 °F off the plain mean at a 2d window — past the 0.05 tolerance), which is exactly what the 0.2.47 _CODEGEN_PROMPT_RULES sentence exists to prevent; absent answer_verification is the claimless trap (grounds pass, served unchecked). Verbatim prompt from evals/rolling_avg_emission_gate.py, promoted to the standing set as the card-level proof of 0.2.47."
   }
  ]
 }
