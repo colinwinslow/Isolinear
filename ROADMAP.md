@@ -78,6 +78,36 @@ demolition plan. Step 1 landed in 0.2.28.
 
 ## Open gaps
 
+- **(hh) `invalid_integration_model_provider_retry_policy` makes a job
+  unreadable through the card whenever the provider errors mid-retry.** Found
+  2026-07-31. Once a `model_provider_connection_error` triggers the retry path,
+  the retry-policy record built for it fails its OWN schema validation
+  (`orchestration_contracts.py:284`), so every subsequent
+  `isolinear/v1/job/snapshot` for that job is rejected — the card gets nothing
+  and a harness just waits out its timeout. **The failure path itself fails**,
+  which is why no prior suite caught it: it only fires when the provider is
+  already broken. Needs the offending policy object captured (log it on the
+  validation failure) before the schema-vs-builder mismatch can be fixed.
+
+- **(ii) e2e-04 `KeyError: 'bedroom'` — the only stable-7 prompt 0.2.48 did not
+  recover.** It changed failure class rather than clearing: `unsafe_code` (the
+  truncation artifact) → `runtime_error`, consistently across both post-fix
+  passes, exhausting all 4 attempts. The traceback names an entity key the
+  generated code indexes but the aligned frame does not carry. This was masked
+  by the truncation bug and is now visible as a genuine defect — likely the same
+  family as the 0.2.31 entity-id-keyed-frame `KeyError`, but it must be
+  reproduced before assuming so. Also still the (t) tiering-wall prompt, so
+  confirm which failure is in front.
+
+- **(jj) e2e-21 renders correctly but emits NO answer, and the direct codegen
+  path disagrees with the live pipeline.** The chart is right (derived
+  cross-sensor average, smoothed, correct °F axis), but `answer_text` is absent
+  in both 0.2.48 passes — no withhold, no caveat, so it is an emission gap, not
+  a grounding one. **`evals/rolling_avg_emission_gate.py` emits 3/3 on the
+  verbatim same prompt** via `generate_chart_code` directly, so gate and live
+  pipeline disagree; the gate may not be reproducing the live request. Gated on
+  the intent decision below before it is worth debugging.
+
 - **(aa) Latent codegen stray-quote guard-branch emission.** While diagnosing
   (w), 2/3 counterfactual runs emitted a dead-code "data not found" guard
   containing `transform=ax.transAxes')` — a stray quote → `syntax_error`,
@@ -144,6 +174,15 @@ demolition plan. Step 1 landed in 0.2.28.
 
 ## Needs a decision from Colin
 
+- **Does "show the average of X and Y smoothed with a rolling average" require
+  a scalar answer at all?** e2e-21's `expect` says yes (a plain-mean number,
+  `answer_verification: verified`) — that was the 0.2.47 packet's premise. But
+  the shipped `_CODEGEN_PROMPT_RULES` say a smoothing request is satisfied by
+  the chart itself, and on that reading "the average" names the derived
+  *series*, which the chart already is — making the rendered result correct and
+  **the test expectation wrong**. Until this is called, (jj) cannot be
+  classified as a bug or a bad test, and the 0.2.47 card-level proof stays open.
+
 - **(u) residual — ADR-vs-spec on the bounded re-plan loop.** It shipped as
   spec-level with no ADR, mirroring how ADR-0030 treated the repair loop. The
   spec stays `draft` until this is called. Corrective re-plan is tranche 2.
@@ -169,6 +208,14 @@ demolition plan. Step 1 landed in 0.2.28.
   it. Either fold the unverified parts into the e2e prompt set or retire it.
 
 ## Future features (not yet ADR'd)
+
+- **(kk) Template render tier for small models.** Colin's 2026-08-07 proposal:
+  canned matplotlib templates for common families, with the model only selecting
+  which series feed which template, falling back to freeform codegen for asks
+  that do not fit. Scoped in `docs/research/template-render-tier.md`. **Priority
+  dropped after 0.2.48**: the failures that motivated it were a prompt-truncation
+  bug, not a capability ceiling, and 6 of the 7 recovered with no architectural
+  change. Revisit if eventual-success stays poor on a clean build.
 
 - **(h) Night mode / dark theme.** Scope: chart PNG + card UI, auto-following
   the HA theme (no user toggle). Two coupled surfaces: (1) the Pillow renderer

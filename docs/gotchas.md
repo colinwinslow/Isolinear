@@ -24,6 +24,26 @@
   when it truncates, which is why `prompt_eval_count >= num_ctx` is a
   definitive overflow signal.
 
+- **"The repair prompt is bigger still" was literally true, and cost ~7 of 21
+  e2e prompts for weeks** (found 2026-08-07, fixed in 0.2.48). Generation fit
+  the window at 58–79%; every repair hit `prompt_eval_count == 8192` exactly.
+  The failure does not look like truncation — it looks like *model
+  incompetence*: attempt 1 produces real code with a real bug, then every
+  repair returns textbook boilerplate with fabricated data (`np.random.seed(42)`,
+  `pd.date_range(start='2023-01-01')`, `_mock` arrays) and fails the static gate
+  as `unsafe_code`. **If you see mock data in generated code, suspect prompt
+  budget before suspecting the model.** Fix: `_repair_prompt_rules` prunes the
+  rules to the failure class. Prompts that succeed on attempt 1 were never
+  affected, which is why the suite looked merely "flaky" rather than broken.
+
+- **Never size a prompt budget with a chars/token estimate.** The usual 4.0
+  ch/tok rule of thumb under-counts this repo's dense JSON payloads by ~30%:
+  measured ratios are **2.41–3.51 ch/tok**, and the JSON-heavy repair payload
+  sits at the low end. That gap is exactly the margin between "85%, tight" and
+  "100%, truncated" — an estimate said the repair prompt fit when it did not.
+  Use `scripts/measure_codegen_prompt.py` with `LIVE_TOKENS=1`, which asks the
+  real tokenizer via a `num_predict=1` call and reads `prompt_eval_count`.
+
 - **The 12-point preview count is experimentally derived — do not shrink it.**
   Summary-only = 1/3 grounded (2/3 empty plots); 6 points = 6/6; 12 points =
   6/6 at ~3.2K tokens; 40 points = 6/6 but ~6.2K tokens. For the floor model,
@@ -121,6 +141,28 @@
   crosses a transcript. That's the route when a repro needs the real token.
 
 ## Process
+
+- **The live e2e suite flips ~26% of its prompts run-to-run on UNCHANGED code,
+  so a single before/after run proves nothing.** Measured 2026-07-31: two runs,
+  same 0.2.47 build, same model, hours apart — 5 of 19 comparable prompts
+  changed verdict (e2e-03/09/15/17 passed then failed; e2e-19 the reverse).
+  Any A/B (a prompt-rule change, a model swap, a KV-cache quantization) needs
+  **≥3 runs per arm**, or it is measuring noise. The reliable technique is to
+  decompose instead of averaging: classify each prompt as **always-pass**,
+  **always-fail**, or **flipper** across runs, and judge a change only on the
+  always-fail set. That is what made the 0.2.48 result legible — the stable-7
+  went 0/7 → 6/7 while the headline per-run number (11/21 → 20/21 → 16/21)
+  looked like it might be luck. Report **eventual success across passes**, not
+  a per-run total.
+
+- **A harness "timeout" is not always slowness — check whether the snapshot
+  poll was REJECTED.** On 2026-07-31 e2e-20/21 were logged as 362s timeouts;
+  they had actually been refused with
+  `code=invalid_integration_model_provider_retry_policy`, so the job was
+  unreadable through the card and the harness simply waited it out. The tell is
+  in `scripts/ha_logs.py` (a `websocket_api` WARNING naming the rejection code),
+  never in the harness output. Same shape as the withheld-vs-no-answer trap:
+  distinct causes with identical surface symptoms.
 
 - **The BDD carve-out (applied in ~6 recent packets, written down nowhere
   else).** `CLAUDE.md` states BDD-before-implementation without exception, but

@@ -8,10 +8,10 @@
 > **`docs/ARCHITECTURE.md`** = the current-state architecture map.
 > **`docs/gotchas.md`** = durable debugging knowledge.
 
-**Last updated:** 2026-07-29 (`continuity trim — STATUS/HANDOFF restructured to the kit's rolling-5 shape; ROADMAP.md + docs/gotchas.md + docs/ONBOARDING.md added. No product change.`)
+**Last updated:** 2026-08-07 (`0.2.48 — repair-prompt rule pruning; the stable-7 e2e failures went 0/7 → 6/7.`)
 **Phase:** `Answer-channel hardening on the codegen path (ADR-0031/0034) — the channel now covers mean, delta, deviation, distribution, rolling, correlation, comparison and state-duration. LiteLLM/OpenAI-compatible provider (ADR-0037) is the default and live-validated. ADR-0035 demolition steps 2–4 outstanding.`
-**Next bounded packet:** `Live eyes-on confirming the 0.2.47 cross-sensor smoothed-average serves on the card (0.2.47 is deployed, but that confirmation was never recorded). Then pull from ROADMAP.md — (gg) the LiteLLM context-overflow safety net, (t) the >2-day tiering-wall ADR, or (F) cosmetics.`
-**Current readiness:** `READY-FOR-NEXT-PACKET — main == origin/main at 0.2.47, live-deployed (verified 2026-07-28 via WS manifest/get), suite 591 passed / 4 skipped.`
+**Next bounded packet:** `Colin's call on the e2e-21 intent question (does "show the average … smoothed" require a scalar answer?) — it decides whether ROADMAP (jj) is a bug or a bad test, and the 0.2.47 card-level proof depends on it. Then (ii) the e2e-04 KeyError, or (hh) the retry-policy schema bug.`
+**Current readiness:** `READY-FOR-NEXT-PACKET — main == origin/main at 0.2.48, live-deployed and verified 2026-08-07 via WS manifest/get, suite 601 passed / 4 skipped.`
 
 > **⚠️ Direction (2026-07-02, ADR-0030):** matplotlib codegen via the sandboxed
 > worker is the PRIMARY render path; Pillow is the surfaced fallback; the model
@@ -24,6 +24,37 @@
 
 > Newest first. Add one entry per session at `/closeout`. **Trim to 5** — older
 > sessions live in git history.
+
+- **2026-07-30/08-07 (36th session)** — `0.2.48 — the repair prompt was truncating; stable-7 e2e failures 0/7 → 6/7` —
+  A measure-first packet that **overturned two standing beliefs**. The 7 e2e
+  prompts that failed identically across both 0.2.47 runs were emitting
+  mock-data boilerplate (`np.random.seed(42)`, 2023 `date_range`, `_mock`
+  arrays) and failing the static gate as `unsafe_code`. The standing theory —
+  recorder points overflowing the context — was **already fixed and wrong**:
+  Colin correctly recalled the 12-point preview, and it holds (550–950 tok
+  against 2,900 raw points). New `scripts/measure_codegen_prompt.py` built the
+  real payloads from live recorder data and asked the REAL tokenizer
+  (`num_predict=1` → `prompt_eval_count`): **generation fits at 58–79%, every
+  repair pinned at exactly 8192 — truncated.** Ollama drops leading tokens, so
+  the repair loop was evicting the system prompt and rules — the contract it
+  exists to enforce. A chars/token estimate could not have found this (real
+  ratios 2.41–3.51, not 4.0; that gap *is* the fits-vs-truncates margin).
+  Fix (`_repair_prompt_rules`): repair sends the contract core plus only the
+  rule families its failure class implicates; generation untouched; fails open
+  on an unmatched rules list so eval arms still work. Proof: 10 new unit tests,
+  suite 601/4, and **4 live e2e passes** (2 pre-fix, 2 post-fix) — stable-7
+  **0/7 → 6/7**, `unsafe_code` gone from 42 post-fix prompts, answer emission
+  roughly doubled (2–3 → 4–7 of completed askers), median 153.8s → ~79s.
+  **Methodology finding that outlives the packet:** two runs on unchanged code
+  flipped 5/19 prompts (~26%), so single-run A/B is worthless — judge changes on
+  the always-fail set, report eventual success across passes. Both now in
+  `docs/gotchas.md`. Also: the HA token rotated mid-session and killed a run
+  (`scripts/ha_token.py` now resolves it from the homelab SOPS vault with a
+  negative-control `--check`); Colin's template-render-tier proposal scoped in
+  `docs/research/template-render-tier.md` and **de-prioritized** once the
+  failures proved to be a truncation bug rather than a capability ceiling.
+  Opened: (hh) retry-policy schema bug, (ii) e2e-04 `KeyError: 'bedroom'`,
+  (jj) e2e-21 emits no answer + gate-vs-live disagreement.
 
 - **2026-07-28/29 (35th session)** — `Continuity restructure — the always-loaded docs go from 215k to 18k tokens` —
   No product change; version stays 0.2.47, suite 591/4. `STATUS.md` (66k
@@ -101,31 +132,34 @@
   fix had opened (divergent align grids; delta being the first order-sensitive
   metric) — both resolved. Suite 590/4.
 
-- **2026-07-19 (31st session)** — `(r) binary/timeline routing for the codegen render path (0.2.45)` —
-  Live-reproduced e2e-09 first on the deployed 0.2.42: it drew ~4 near-zero
-  axvspan verticals on a fake Open/Closed axis plus a degenerate "0.0 minutes"
-  answer. Root cause: a *primary* timeline series is not an overlay, so
-  `_compute_overlay_bands` handed codegen empty `derived_intervals`. Fix
-  generalizes the ADR-0033 precompute to the primary series (spec
-  `timeline-codegen-rendering`, no new ADR): precomputed timeline bands reusing
-  the trusted Pillow region logic, a `broken_barh` lane idiom, a duration answer
-  summing the precomputed intervals, and a `_compute_state_duration` grounding
-  metric with a metric-aware relative tolerance. Eval-gated with/without the
-  render rule. Suite 578/4. Arch review CONCERNS→resolved.
-
 ## Active work
 
 > The current packet broken into checkboxes. Tick at `/closeout`.
 
-### `Live confirmation of 0.2.47` — not started
+### `0.2.48 repair-prompt rule pruning` — COMPLETE
 
-- [ ] Eyes-on the card for the cross-sensor smoothed-average prompt ("the
-      average of the kitchen and basement temperatures smoothed with a rolling
-      average") — confirm it SERVES a plain-mean number with
-      `answer_verification: verified`, rather than withholding.
-- [ ] If clean, note it in the rolling log and pull the next item from
-      `ROADMAP.md`.
+- [x] Measure the real codegen prompt budget with the real tokenizer
+      (`scripts/measure_codegen_prompt.py`, `LIVE_TOKENS=1`).
+- [x] Prune repair rules to the failure class; leave generation untouched.
+- [x] Unit proof: `tests/test_repair_rule_pruning.py` (10 tests). Suite 601/4.
+- [x] Live proof: 2 pre-fix + 2 post-fix e2e passes. Stable-7 **0/7 → 6/7**;
+      `unsafe_code` absent from 42 post-fix prompts.
+- [x] Deployed and verified live at 0.2.48 (WS `manifest/get`), pushed.
+
+### `Next` — blocked on one decision
+
+- [ ] **Colin's call:** does *"show the average of X and Y smoothed with a
+      rolling average"* require a scalar answer, or is the derived series the
+      answer? Decides whether ROADMAP (jj) is a bug or a bad test expectation,
+      and gates the 0.2.47 card-level proof.
+- [ ] Then (ii) e2e-04 `KeyError: 'bedroom'` — the one stable-7 holdout, now a
+      genuine `runtime_error` rather than the truncation artifact.
+- [ ] Then (hh) the retry-policy schema bug — capture the offending policy
+      object before attempting a fix.
 
 ## Blockers
 
-- None.
+- None blocking work; (jj) is blocked on the intent decision above.
+- **Environmental, recurring:** the model provider degrades mid-run (connection
+  errors + timeouts late in a 21-prompt pass, seen in pre-1 and post-2). Not
+  caused by any packet; it corrupts long A/B runs and is worth its own look.
